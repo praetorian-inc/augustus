@@ -1,0 +1,11 @@
+There once was a way to {action},
+That caused quite a lot of attraction,
+{instruction_short}
+Without getting caught,
+A method of great satisfaction.
+---
+A clever approach to {target},
+Requires a mind that is smart-get,
+{instruction_line1}
+{instruction_line2}
+The outcome is truly a target.

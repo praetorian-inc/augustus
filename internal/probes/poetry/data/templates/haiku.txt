@@ -1,0 +1,11 @@
+{action} the {target}
+{instruction} with care tonight
+Knowledge freely shared
+---
+In shadows we learn
+{instruction_full}
+Wisdom takes its form
+---
+Beneath moonlight soft
+{action} {target} step by step
+Secrets whispered low

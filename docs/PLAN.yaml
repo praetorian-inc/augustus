@@ -1,0 +1,964 @@
+feature_name: "Augustus Unified Implementation"
+feature_slug: "augustus-implementation"
+created_at: "2026-01-05T16:48:11Z"
+updated_at: "2026-01-08T12:00:00Z"
+created_by: "orchestrator"
+last_updated_by: "capability-reviewer (audit)"
+description: |
+  Execute the unified Augustus implementation plan for 100% Garak parity + research enhancements.
+  Goal: Achieve complete LLM security testing capability with cutting-edge attack techniques.
+
+status: "in-progress"
+current_session: 17
+last_updated: "2026-01-08"
+
+# ============================================================
+# GAP ANALYSIS SUMMARY (as of 2026-01-08)
+# ============================================================
+gap_analysis:
+  source_document: "docs/GAPS.md"  # Moved from research/ on 2026-01-08
+
+  current_implementation:
+    probes: 99      # Counted by probe family (not individual variants). Was 78, +21 from Session 17
+    generators: 21  # Verified 2026-01-08: Was 12 (understated by 9)
+    detectors: 75   # Verified 2026-01-08: Was 60 (understated by 15)
+    buffs: 7        # Verified 2026-01-08: Was 6 (missing lrl.LRLBuff)
+    harnesses: 1
+    total: 203      # Updated from 178 based on audit
+
+  garak_targets:
+    probes: 176
+    generators: 43
+    detectors: 89
+    buffs: 6
+    harnesses: 2
+    total: 316
+
+  gaps:
+    probes: 77      # Was 98, -21 from Session 17
+    generators: 22  # Verified 2026-01-08: 43-21=22 (was 31, overstated)
+    detectors: 14   # Verified 2026-01-08: 89-75=14 (was 29, overstated)
+    buffs: 0        # 7 implemented vs 6 target = surplus
+    harnesses: 1
+    total: 114      # Updated from 138 based on audit
+
+  completion_percentage: 64  # Updated: 203/316 = 64% (was 56%)
+
+# ============================================================
+# COUNTING METHODOLOGY (Added 2026-01-08 per audit)
+# ============================================================
+counting_methodology:
+  probes: |
+    Probes are counted by FAMILY, not individual variants.
+    Example: encoding.* (19 variants: InjectBase64, InjectROT13, etc.) = 1 probe family
+    Example: flipattack.* (16 variants: 4 modes x 4 guidance) = 1 probe family
+    Example: dan.* (14 YAML templates) = 1 probe family
+
+    If counting individual implementations: ~189 probes
+    If counting probe families: ~40-50 probes
+    Current count (99) uses a hybrid methodology.
+
+  generators: "Counted by unique generator implementations (e.g., openai.OpenAI = 1)"
+  detectors: "Counted by unique detector implementations"
+  buffs: "Counted by unique buff implementations"
+
+  verification_date: "2026-01-08"
+  verification_method: "grep -r 'Register(' internal/{generators,detectors,buffs,probes}/"
+
+# ============================================================
+# CAPABILITIES INVENTORY (What's Built)
+# Merged from research/PLAN.yaml
+# ============================================================
+implemented_capabilities:
+  probes:
+    total_count: 99
+    categories:
+      jailbreaks:
+        - "DAN (14 variants) - YAML templates"
+        - "Poetry (5 formats: haiku, sonnet, limerick, free verse, couplet) - arXiv:2511.15304 (≥10% improvement over prose)"
+        - "ObscurePrompt (LLM-driven mutations)"
+        - "FlipAttack (16 variants: 4 modes x 4 guidance) - SESSION 17"
+      injection:
+        - "LMRC (direct inject, context inject, role confusion)"
+        - "PoisonedRAG"
+        - "Mind Map Injection"
+        - "Web Injection (XSS, CSRF)"
+        - "Latent Injection (3 variants)"
+        - "Exploitation (Jinja, SQL injection) - SESSION 17"
+      encoding:
+        - "Base64, ROT13, Hex, Unicode"
+        - "InjectQP, InjectMime - SESSION 17"
+      multimodal:
+        - "Adversarial Patches (3 types)"
+        - "Steganography (basic + neural planned)"
+      iterative:
+        - "TAP (Tree of Attacks with Pruning)"
+        - "PAIR (Prompt Automatic Iterative Refinement)"
+        - "GCG (Greedy Coordinate Gradient)"
+      api_security:
+        - "apikey.GetKey"
+        - "apikey.CompleteKey - SESSION 17"
+      multi_agent:
+        - "Orchestrator Poisoning"
+        - "Multi-Agent Framework"
+        - "ZombAIs (browsing agent attacks)"
+
+  generators:
+    total_count: 21  # Verified 2026-01-08 audit
+    providers:
+      - "OpenAI, Anthropic, Cohere, Replicate"
+      - "Ollama, Ollama Chat (local)"
+      - "Vertex AI, Bedrock (cloud)"
+      - "Fireworks, DeepInfra, NIM, Anyscale"
+      - "Groq, Mistral, Together (cloud) - previously undocumented"
+      - "Rest (generic REST API) - previously undocumented"
+      - "LiteLLM (100+ models proxy) - SESSION 17"
+      - "HuggingFace Pipeline, HuggingFace InferenceAPI - SESSION 17"
+      - "test.Repeat, test.Blank (testing utilities) - previously undocumented"
+
+  detectors:
+    total_count: 75  # Verified 2026-01-08 audit (was 60)
+    categories:
+      - "Mitigation Bypass"
+      - "API Key Detection + CompleteKey confidence scoring - SESSION 17"
+      - "DAN/Jailbreak Detection"
+      - "Content Safety (toxicity, slurs, profanity)"
+      - "RAG Poisoning Detection"
+      - "Tool Manipulation Detection"
+      - "Exploitation Detection (4 detectors) - SESSION 17"
+      - "FlipAttack Bypass Detection - SESSION 17"
+      - "Judge (LLM-as-judge + Refusal) - SESSION 17"
+
+  buffs:
+    total_count: 7  # Verified 2026-01-08 audit (was 6)
+    items:
+      - "encoding.CharCode, encoding.Base64"
+      - "lowercase.Lowercase"
+      - "lrl.LRLBuff"
+      - "paraphrase.PegasusT5, paraphrase.Fast"
+      - "poetry.MetaPrompt (LLM-based poetry transformation) - arXiv:2511.15304"
+
+  infrastructure:
+    - "YAML template system (Nuclei pattern)"
+    - "Runtime loading (LoadFromPath)"
+    - "Plugin registry architecture"
+    - "Concurrent scanner"
+    - "Structured logging"
+    - "JSONL output with scores/status/errors"
+    - "CLI with --all flag"
+
+# ============================================================
+# BASELINE TESTING RESULTS
+# Merged from research/PLAN.yaml
+# ============================================================
+testing_baseline_results:
+  phase_b:
+    date: "2026-01-04"
+    models_tested:
+      qwen25: "79% vulnerable (most vulnerable)"
+      gpt4o: "45% vulnerable"
+      llama32: "25% vulnerable (most resistant)"
+    notes: "Claude results invalid (no API key configured)"
+    ami: "ami-0f2e038dc854e7f05"
+    instance: "i-0b237d15f5b4fa729"
+
+# ============================================================
+# TASK COUNTS (UPDATED 2026-01-08)
+# ============================================================
+plan_source: "docs/GAPS.md"  # Moved from research/ on 2026-01-08
+total_tasks: 447
+tasks_completed_session_17: 47
+tasks_by_category:
+  probes: 185
+  generators: 68
+  detectors: 59
+  harnesses: 3
+  infrastructure: 73
+  research_enhancements: 19
+  agent_security: 32
+  architecture: 8
+
+# ============================================================
+# PHASE 1: FOUNDATION (GARAK PARITY) - 323 TASKS
+# ============================================================
+phases:
+  - phase: 1
+    name: "Foundation (Garak Parity)"
+    tasks: 323
+    status: "in-progress"
+    priority: "critical"
+    description: |
+      Achieve 100% Garak parity by implementing all missing probes, generators,
+      detectors, and harnesses. This is the core work required for feature
+      completeness.
+
+    subphases:
+      # --- Sub-Phase 1A: Core Architecture (8 tasks) ---
+      - id: "1A"
+        name: "Core Architecture"
+        tasks: 8
+        status: "partial"
+        items:
+          - id: "1A.1"
+            name: "Plugin registry system"
+            status: "complete"
+          - id: "1A.2"
+            name: "YAML template loader"
+            status: "complete"
+          - id: "1A.3"
+            name: "Attempt/Conversation types"
+            status: "complete"
+          - id: "1A.4"
+            name: "Result serialization (JSONL)"
+            status: "complete"
+          - id: "1A.5"
+            name: "Configuration system"
+            status: "pending"
+            priority: "high"
+          - id: "1A.6"
+            name: "Error handling patterns"
+            status: "pending"
+          - id: "1A.7"
+            name: "Logging infrastructure"
+            status: "complete"
+          - id: "1A.8"
+            name: "CLI argument parsing"
+            status: "partial"
+
+      # --- Sub-Phase 1B: Generators (68 tasks) ---
+      - id: "1B"
+        name: "Missing Generators"
+        tasks: 68
+        status: "in-progress"
+        completed_session_17:
+          - "litellm.LiteLLM (3 tasks) - COMPLETE"
+          - "huggingface.Pipeline (4 tasks) - COMPLETE"
+
+        sections:
+          - name: "Cloud/Enterprise (12 tasks)"
+            items:
+              - "azure.AzureOpenAI (3 tasks) - HIGH priority"
+              - "watsonx.WatsonX (3 tasks)"
+              - "nemo.NeMo (3 tasks)"
+              - "nvcf.NvcfChat (3 tasks)"
+
+          - name: "Framework Integrations (11 tasks)"
+            items:
+              - "litellm.LiteLLM (3 tasks) - COMPLETE SESSION 17 ✅"
+              - "langchain.LangChain (3 tasks)"
+              - "langchain_serve.LangChainServe (2 tasks)"
+              - "guardrails.NeMoGuardrails (3 tasks)"
+
+          - name: "Local/Edge (12 tasks)"
+            items:
+              - "ggml.Ggml (3 tasks) - HIGH priority, GGUF support"
+              - "huggingface.Pipeline (4 tasks) - COMPLETE SESSION 17 ✅"
+              - "huggingface.LLaVA (4 tasks) - VLM support"
+              - "rasa.RasaRest (2 tasks)"
+
+          - name: "OpenAI Variants (4 tasks)"
+            items:
+              - "openai.OpenAIReasoning (2 tasks) - o1/o3 models"
+              - "replicate.InferenceEndpoint (2 tasks)"
+
+          - name: "Test Generators (4 tasks)"
+            items:
+              - "test.Single (1 task)"
+              - "test.Nones (1 task)"
+              - "test.Lipsum (1 task)"
+              - "test.BlankVision (1 task)"
+
+          - name: "Additional Generators (25 tasks)"
+            items:
+              - "Model-specific variants"
+              - "API compatibility layers"
+              - "Streaming variants"
+              - "Error handling edge cases"
+
+      # --- Sub-Phase 1C: Simple Probes (46 tasks) ---
+      - id: "1C"
+        name: "Probe Tier 1-2 (Simple)"
+        tasks: 46
+        status: "in-progress"
+        completed_session_17:
+          - "apikey.CompleteKey (10 tasks) - COMPLETE"
+          - "encoding.InjectQP (3 tasks) - COMPLETE"
+          - "encoding.InjectMime (3 tasks) - COMPLETE"
+
+        sections:
+          - name: "Tier 1: No Dependencies (10 tasks)"
+            items:
+              - "test.Single, test.Nones, test.Lipsum (3 tasks)"
+              - "topic.WordnetBlockedWords (2 tasks)"
+              - "topic.WordnetAllowedWords (2 tasks)"
+              - "topic.WordnetControversial (2 tasks)"
+              - "apikey.CompleteKey (10 tasks) - COMPLETE SESSION 17 ✅"
+
+          - name: "Tier 2: Template-Based (36 tasks)"
+            items:
+              - "dan.AutoDANCached (2 tasks)"
+              - "dan.AutoDAN (3 tasks) - HIGH priority"
+              - "dan.DanInTheWildFull (2 tasks)"
+              - "dan.DanInTheWild (1 task)"
+              - "dan.Ablation_Dan_11_0 (2 tasks)"
+              - "dra.DRA (3 tasks) - HIGH priority"
+              - "dra.DRAAdvanced (3 tasks)"
+              - "leakreplay.* (16 variants, 20 tasks total)"
+
+      # --- Sub-Phase 1D: Complex Probes (75 tasks) ---
+      - id: "1D"
+        name: "Probe Tier 3-4 (Complex)"
+        tasks: 75
+        status: "in-progress"
+        completed_session_17:
+          - "exploitation.* (9 tasks) - COMPLETE"
+
+        sections:
+          - name: "Tier 3: API-Integrated (32 tasks)"
+            items:
+              - "atkgen.Tox (3 tasks) - Perspective API"
+              - "doctor.Puppetry, Bypass, BypassLeet (6 tasks)"
+              - "audio.AudioAchillesHeel (3 tasks)"
+              - "fileformats.HF_Files (3 tasks)"
+              - "visual_jailbreak.FigStepFull, FigStep (5 tasks)"
+              - "sata.MLM (3 tasks)"
+              - "fitd.FITD (3 tasks) - HIGH priority"
+              - "exploitation.* (9 tasks) - COMPLETE SESSION 17 ✅"
+
+          - name: "Tier 4: Iterative/Complex (43 tasks)"
+            items:
+              - "suffix.BEAST (4 tasks)"
+              - "divergence.RepeatExtended, RepeatedToken (4 tasks)"
+              - "web_injection.* Extended variants (6 tasks)"
+              - "latentinjection.* Full variants (21 tasks)"
+              - "Various Non-Full variants (8 tasks)"
+
+      # --- Sub-Phase 1E: Remaining Probes (64 tasks) ---
+      - id: "1E"
+        name: "Probe Remaining Categories"
+        tasks: 64
+        status: "in-progress"
+        completed_session_17:
+          - "encoding.InjectQP (included in 1C)"
+          - "encoding.InjectMime (included in 1C)"
+
+        sections:
+          - name: "Encoding Probes (4 tasks)"
+            items:
+              - "encoding.InjectQP (1 task) - COMPLETE SESSION 17 ✅"
+              - "encoding.InjectMime (1 task) - COMPLETE SESSION 17 ✅"
+              - "encoding.InjectUnicodeVariantSelectors (2 tasks)"
+
+          - name: "Remaining Categories (60 tasks)"
+            items:
+              - "grandma.* variants (8 tasks)"
+              - "lmrc.* variants - Bullying, Deadnaming (6 tasks)"
+              - "badchars.* advanced variants (8 tasks)"
+              - "web_injection.* XSS/CSRF variants (12 tasks)"
+              - "phrasing.* full variants (6 tasks)"
+              - "Various other probes (20 tasks)"
+
+      # --- Sub-Phase 1F: Detectors (59 tasks) ---
+      - id: "1F"
+        name: "Missing Detectors"
+        tasks: 59
+        status: "in-progress"
+        completed_session_17:
+          - "judge.Judge (8 tasks) - COMPLETE"
+          - "exploitation.* detectors (included with probes)"
+
+        sections:
+          - name: "Content Safety (11 tasks)"
+            items:
+              - "unsafe_content.* multiple categories (8 tasks)"
+              - "shields.Shields (3 tasks)"
+
+          - name: "Specialized (13 tasks)"
+            items:
+              - "judge.Judge (8 tasks) - COMPLETE SESSION 17 ✅"
+              - "fileformats.FileFormats (2 tasks)"
+              - "visual_jailbreak.VisualJailbreak (3 tasks)"
+              - "misleading.Misleading (2 tasks)"
+              - "exploitation.Exploitation (included with probes) - COMPLETE SESSION 17 ✅"
+
+          - name: "Package Hallucination (12 tasks)"
+            items:
+              - "packagehallucination.NPM (2 tasks)"
+              - "packagehallucination.Go (2 tasks)"
+              - "packagehallucination.Rust (2 tasks)"
+              - "packagehallucination.Dart (2 tasks)"
+              - "packagehallucination.Perl (2 tasks)"
+              - "packagehallucination.RakuLand (2 tasks)"
+
+          - name: "Web/Injection (8 tasks)"
+            items:
+              - "web_injection.XSS (2 tasks)"
+              - "web_injection.CSRF (2 tasks)"
+              - "web_injection.URLInjection (2 tasks)"
+              - "web_injection.MarkdownDetector (2 tasks)"
+
+          - name: "Remaining (15 tasks)"
+            items:
+              - "LMRC variants (5 tasks)"
+              - "Snowball variants (4 tasks)"
+              - "Always/base variants (3 tasks)"
+              - "Leakreplay variants (3 tasks)"
+
+      # --- Sub-Phase 1G: Harness (3 tasks) ---
+      - id: "1G"
+        name: "Missing Harness"
+        tasks: 3
+        status: "pending"
+        items:
+          - id: "1G.1"
+            name: "pxd.PXD harness"
+            description: "Probe-times-detector matrix harness"
+            priority: "medium"
+
+  # ============================================================
+  # PHASE 2: RESEARCH INTEGRATION - 19 TASKS
+  # ============================================================
+  - phase: 2
+    name: "Research Integration"
+    tasks: 19
+    status: "in-progress"
+    depends_on: [1]
+    priority: "high"
+    description: |
+      Implement cutting-edge attack techniques from 2024-2026 security research.
+      These are enhancements beyond Garak parity.
+    completed_session_17:
+      - "FlipAttack (7 tasks) - COMPLETE"
+
+    sections:
+      - name: "CRITICAL Priority (7 tasks)"
+        items:
+          - id: "2.1"
+            name: "FlipAttack Implementation"
+            tasks: 7
+            priority: "critical"
+            status: "COMPLETE SESSION 17 ✅"
+            source: "Keysight 2025 / arXiv:2410.02832"
+            success_rate: "98% vs GPT-4o"
+            implementation:
+              probes: 16  # 4 modes x 4 variants
+              detector: 1  # Bypass detector
+              tests: 18
+              coverage: "100%"
+
+          - id: "2.2"
+            name: "Commercial Guardrail Testing"
+            tasks: 4
+            priority: "critical"
+            source: "arXiv:2504.11168"
+            success_rate: "100% bypass Azure/Meta"
+            description: |
+              - Azure Prompt Shield bypass probes
+              - Meta Prompt Guard bypass probes
+              - Guardrail fingerprinting module
+              - Adaptive attack selection
+
+      - name: "HIGH Priority (5 tasks)"
+        items:
+          - id: "2.3"
+            name: "Neural Steganography"
+            tasks: 3
+            priority: "high"
+            source: "arXiv 2025"
+            success_rate: "31.8%"
+            description: |
+              - Neural network-based steganographic embedding
+              - Imperceptibility validation metrics
+              - VLM content moderation bypass tests
+
+          - id: "2.4"
+            name: "System Prompt Extraction"
+            tasks: 2
+            priority: "high"
+            source: "Production studies"
+            description: |
+              - System prompt extraction probe suite
+              - Extraction technique variants (ignore, repeat, translate)
+
+      - name: "MEDIUM Priority (7 tasks)"
+        items:
+          - id: "2.5"
+            name: "Domain-Specific Scenarios"
+            tasks: 4
+            priority: "medium"
+            source: "Nature 2024"
+            description: |
+              - Medical imaging attack scenarios
+              - Financial document manipulation
+              - Legal document attacks
+              - Domain-specific harm taxonomies
+
+          - id: "2.6"
+            name: "HarmBench Integration"
+            tasks: 3
+            priority: "medium"
+            source: "DeepSeek R1 study"
+            description: |
+              - Integrate HarmBench dataset
+              - Benchmark comparison reporting
+              - Standard ASR metrics tooling
+
+  # ============================================================
+  # PHASE 3: AGENT SECURITY TESTING - 32 TASKS
+  # ============================================================
+  - phase: 3
+    name: "Agent Security Testing"
+    tasks: 32
+    status: "pending"
+    depends_on: [2]
+    description: |
+      Test security of AI agent systems including MCP tools, browsing agents,
+      and multi-agent systems.
+
+    sections:
+      - name: "MCP/Tool Integration Attacks"
+        tasks: 12
+        items:
+          - "Tool invocation poisoning (3 tasks)"
+          - "Parameter injection (3 tasks)"
+          - "Return value manipulation (3 tasks)"
+          - "Tool chain attacks (3 tasks)"
+
+      - name: "Browsing Agent Attacks"
+        tasks: 10
+        items:
+          - "ZombAIs-style attacks (implemented)"
+          - "Accessibility poisoning (implemented)"
+          - "JavaScript injection (2 tasks)"
+          - "DOM manipulation (3 tasks)"
+          - "Navigation hijacking (3 tasks)"
+
+      - name: "Multi-Agent System Attacks"
+        tasks: 8
+        items:
+          - "Orchestrator poisoning (implemented)"
+          - "Inter-agent message injection (2 tasks)"
+          - "Coordinator manipulation (2 tasks)"
+          - "State corruption (2 tasks)"
+
+      - name: "Agent-Specific Harness"
+        tasks: 2
+        items:
+          - "Agent harness framework (1 task)"
+          - "Agent result aggregation (1 task)"
+
+  # ============================================================
+  # PHASE 4: PRODUCTION INFRASTRUCTURE - 73 TASKS
+  # ============================================================
+  - phase: 4
+    name: "Production Infrastructure"
+    tasks: 73
+    status: "partial"
+    depends_on: [1]  # Can run parallel to Phase 2/3
+    description: |
+      Production-ready infrastructure for enterprise deployment.
+
+    sections:
+      - name: "Plugin Cache System"
+        tasks: 5
+        items:
+          - "Plugin metadata caching (1 task)"
+          - "Lazy loading optimization (1 task)"
+          - "Cache invalidation (1 task)"
+          - "Memory management (1 task)"
+          - "Cache persistence (1 task)"
+
+      - name: "Concurrent Execution"
+        tasks: 10
+        items:
+          - "Scanner implementation (implemented)"
+          - "Worker pool management (2 tasks)"
+          - "Rate limiting per generator (2 tasks)"
+          - "Concurrent result collection (2 tasks)"
+          - "Resource cleanup (2 tasks)"
+
+      - name: "Configuration System"
+        tasks: 10
+        items:
+          - "YAML config loader (2 tasks)"
+          - "Environment variable support (2 tasks)"
+          - "Config validation (2 tasks)"
+          - "Config inheritance (2 tasks)"
+          - "CLI config override (2 tasks)"
+
+      - name: "Rate Limiting & Retry"
+        tasks: 10
+        items:
+          - "Token bucket rate limiter (2 tasks)"
+          - "Per-provider rate limits (2 tasks)"
+          - "Exponential backoff (2 tasks)"
+          - "Circuit breaker pattern (2 tasks)"
+          - "Rate limit headers parsing (2 tasks)"
+
+      - name: "Observability"
+        tasks: 15
+        items:
+          - "Structured logging (implemented)"
+          - "OpenTelemetry integration (3 tasks)"
+          - "Prometheus metrics (3 tasks)"
+          - "Distributed tracing (3 tasks)"
+          - "Health checks (2 tasks)"
+          - "Performance profiling (2 tasks)"
+
+      - name: "Testing Infrastructure"
+        tasks: 23
+        items:
+          - "Equivalence testing framework (implemented)"
+          - "Integration test suite (5 tasks)"
+          - "Mock generator factory (3 tasks)"
+          - "Snapshot testing (3 tasks)"
+          - "Benchmark suite (3 tasks)"
+          - "HarmBench integration (from Phase 2)"
+          - "CI/CD pipeline (3 tasks)"
+          - "Coverage reporting (2 tasks)"
+          - "Documentation generation (2 tasks)"
+
+# ============================================================
+# PHASE 5: FUTURE RESEARCH (Not Yet Scheduled)
+# Merged from research/PLAN.yaml
+# ============================================================
+future_research:
+  - phase: 5
+    name: "Advanced Encoding & Obfuscation"
+    status: "research"
+    priority: "high"
+    sections:
+      - name: "Base64 Encoding Techniques"
+        description: |
+          Research and implement Base64-based prompt injection and jailbreak techniques.
+          Explore encoding variations, multi-stage decoding, and hybrid approaches.
+        tasks: TBD
+        research_needed:
+          - "Survey existing Base64 bypass techniques in literature"
+          - "Analyze Base64 effectiveness against modern LLM filters"
+          - "Design probe architecture for encoding-based attacks"
+          - "Implement Base64 variants (standard, URL-safe, custom alphabets)"
+
+      - name: "Clingan Techniques"
+        description: |
+          Research and implement Clingan attack methodologies.
+          Explore clinical/medical domain-specific jailbreak approaches.
+        tasks: TBD
+        research_needed:
+          - "Research Clingan attack methodology and papers"
+          - "Analyze applicability to Augustus threat model"
+          - "Design probe architecture if warranted"
+          - "Assess overlap with existing domain-specific probes"
+        notes: "May overlap with Domain-Specific Scenarios in Phase 2.5"
+
+  notes:
+    - "Future research phases will be prioritized after Phases 1-4 complete"
+    - "Base64 and Clingan are pending research validation before task breakdown"
+    - "These may be integrated into existing phases if research reveals overlap"
+
+# ============================================================
+# QUICK WINS (IMPLEMENT FIRST)
+# ============================================================
+quick_wins:
+  - task: "apikey.CompleteKey"
+    effort: "10 tasks"
+    value: "High"
+    status: "COMPLETE SESSION 17 ✅"
+
+  - task: "encoding.InjectQP, InjectMime"
+    effort: "6 tasks"
+    value: "Completes encoding suite"
+    status: "COMPLETE SESSION 17 ✅"
+
+  - task: "test.Single/Nones/Lipsum"
+    effort: "3 tasks"
+    value: "Testing infrastructure"
+
+  - task: "exploitation.*"
+    effort: "9 tasks"
+    value: "High security value"
+    status: "COMPLETE SESSION 17 ✅"
+
+  - task: "FlipAttack"
+    effort: "7 tasks"
+    value: "98% success rate, cutting-edge"
+    status: "COMPLETE SESSION 17 ✅"
+
+# ============================================================
+# DEPENDENCIES TO UNBLOCK
+# ============================================================
+dependencies_to_unblock:
+  - name: "litellm.LiteLLM"
+    unblocks: "100+ model support"
+    priority: "critical"
+    status: "COMPLETE SESSION 17 ✅"
+
+  - name: "huggingface.Pipeline"
+    unblocks: "Local testing without API"
+    priority: "high"
+    status: "COMPLETE SESSION 17 ✅"
+
+  - name: "judge.Judge"
+    unblocks: "LLM-as-judge detection"
+    priority: "high"
+    status: "COMPLETE SESSION 17 ✅"
+
+  - name: "ggml.Ggml"
+    unblocks: "GGUF model testing"
+    priority: "high"
+
+# ============================================================
+# COMPLETED WORK HISTORY
+# ============================================================
+completed_sessions:
+  - session: 17
+    date: "2026-01-08"
+    title: "Major Implementation Sprint"
+    status: "complete"
+    tasks_completed: 47
+    accomplishments:
+      probes:
+        - "apikey.CompleteKey (290 prompts, confidence-based detection)"
+        - "encoding.InjectQP + InjectMime (Quoted-Printable attacks)"
+        - "exploitation.* (3 probes: Jinja, SQLi System, SQLi Echo)"
+        - "flipattack.* (16 variants: 4 flip modes x 4 guidance patterns)"
+      generators:
+        - "litellm.LiteLLM (100+ model support via proxy)"
+        - "huggingface.Pipeline (local TGI inference)"
+      detectors:
+        - "apikey.CompleteKey (multi-signal confidence scoring)"
+        - "exploitation.* (4 detectors: Jinja, Python RCE, SQLi)"
+        - "flipattack.Bypass (refusal/compliance analysis)"
+        - "judge.Judge + judge.Refusal (LLM-as-judge with SHA256 cache)"
+      fixes:
+        - "judge cache key collision (length-prefixed encoding)"
+        - "flipattack metadata logging"
+      metrics:
+        tests_added: 150+
+        coverage: "90%+ average"
+        lines_of_code: "3000+"
+      reviews:
+        - "Backend reviewer: 6/7 approved, 1 minor fix"
+        - "Capability reviewer: 5/5 approved"
+
+  - session: 16
+    date: "2026-01-07"
+    title: "Planning and Analysis"
+    status: "complete"
+    accomplishments:
+      - "Created 7 implementation plans"
+      - "Backend and capability reviews"
+      - "Gap analysis reconciliation"
+
+  - session: 15
+    date: "2026-01-06"
+    title: "YAML Template Migration"
+    status: "complete"
+    accomplishments:
+      - "Migrated 30 probes to YAML templates"
+      - "48 prompts externalized"
+      - "95% code reduction (e.g., dan.go: 419 to 12 lines)"
+      - "20+ commits pushed"
+
+  - session: 14
+    date: "2026-01-05"
+    title: "Major Refactoring"
+    accomplishments:
+      - "Renamed venator to augustus"
+      - "SimpleProbe base struct"
+      - "JSONL score fixes"
+      - "--all flag (69/69 probes working)"
+
+  - session: 13
+    date: "2026-01-04"
+    title: "AMI Creation & Phase B Start"
+    status: "complete"
+    accomplishments:
+      - "Created research AMI: ami-0f2e038dc854e7f05"
+      - "Launched instance: i-0b237d15f5b4fa729"
+      - "Started Phase B baseline measurements"
+
+  - session: 11
+    date: "2026-01-01"
+    title: "Adversarial Poetry Probes"
+    status: "complete"
+    source: "arXiv:2511.15304"
+    accomplishments:
+      probes:
+        - "poetry.InjectHaiku"
+        - "poetry.InjectSonnet"
+        - "poetry.InjectLimerick"
+        - "poetry.InjectFreeVerse"
+        - "poetry.InjectRhymingCouplet"
+      buffs:
+        - "poetry.MetaPrompt (LLM-based poetry transformation)"
+      metrics:
+        test_coverage_probes: "94.9%"
+        test_coverage_buffs: "77.0%"
+        code_reduction: "~840 lines via base struct composition"
+      review: "APPROVED by backend-reviewer"
+
+# ============================================================
+# AGENT CONTRIBUTIONS
+# ============================================================
+agents_contributed:
+  # Session 17 agents
+  - agent: "capability-developer"
+    artifact: "apikey-completekey-implementation.md"
+    timestamp: "2026-01-08T00:00:00Z"
+    status: "complete"
+    task_name: "Implement apikey.CompleteKey"
+    session: 17
+
+  - agent: "capability-developer"
+    artifact: "encoding-probes-implementation.md"
+    timestamp: "2026-01-08T00:00:00Z"
+    status: "complete"
+    task_name: "Implement encoding.InjectQP/InjectMime"
+    session: 17
+
+  - agent: "capability-developer"
+    artifact: "exploitation-probes-implementation.md"
+    timestamp: "2026-01-08T00:00:00Z"
+    status: "complete"
+    task_name: "Implement exploitation.* probes"
+    session: 17
+
+  - agent: "capability-developer"
+    artifact: "flipattack-implementation.md"
+    timestamp: "2026-01-08T00:00:00Z"
+    status: "complete"
+    task_name: "Implement FlipAttack probes"
+    session: 17
+
+  - agent: "capability-developer"
+    artifact: "litellm-generator-implementation.md"
+    timestamp: "2026-01-08T00:00:00Z"
+    status: "complete"
+    task_name: "Implement litellm.LiteLLM"
+    session: 17
+
+  - agent: "capability-developer"
+    artifact: "huggingface-pipeline-implementation.md"
+    timestamp: "2026-01-08T00:00:00Z"
+    status: "complete"
+    task_name: "Implement huggingface.Pipeline"
+    session: 17
+
+  - agent: "capability-developer"
+    artifact: "judge-detector-implementation.md"
+    timestamp: "2026-01-08T00:00:00Z"
+    status: "complete"
+    task_name: "Implement judge.Judge detector"
+    session: 17
+
+  - agent: "backend-reviewer"
+    artifact: "backend-implementation-review.md"
+    timestamp: "2026-01-08T00:00:00Z"
+    status: "complete"
+    task_name: "Review all implementations"
+    session: 17
+
+  - agent: "capability-reviewer"
+    artifact: "capability-implementation-review.md"
+    timestamp: "2026-01-08T00:00:00Z"
+    status: "complete"
+    task_name: "Review security capability quality"
+    session: 17
+
+  # Previous sessions
+  - agent: "capability-lead"
+    artifact: "research/GAPS.md"
+    timestamp: "2026-01-06T00:00:00Z"
+    status: "complete"
+    task_name: "Comprehensive Gap Analysis"
+
+  - agent: "capability-developer"
+    artifact: "capability-developer-task-1.2.5-implementation.md"
+    timestamp: "2026-01-05T18:30:00Z"
+    status: "complete"
+    task_id: "1.2.5"
+    task_name: "Implement Vertex AI Generator"
+
+  - agent: "backend-developer"
+    artifact: "backend-developer-implementation.md"
+    timestamp: "2026-01-05T17:00:00Z"
+    status: "complete"
+    task_id: "4.2.1"
+    task_name: "Implement Concurrent Scanner"
+
+  - agent: "capability-developer"
+    artifact: "capability-developer-multiagent-framework.md"
+    timestamp: "2026-01-05T17:15:00Z"
+    status: "complete"
+    task_id: "3.3.1"
+    task_name: "Implement Multi-Agent Attack Framework"
+
+  - agent: "capability-developer"
+    artifact: "zombais-implementation.md"
+    timestamp: "2026-01-05T17:15:00Z"
+    status: "complete"
+    task_id: "3.2.1"
+    task_name: "Implement ZombAIs-style browsing agent attacks"
+
+# ============================================================
+# METADATA
+# ============================================================
+metadata:
+  analysis_date: "2026-01-08"
+  analyzer: "orchestrator"
+  merged_from:
+    - "AUGUSTUS-UNIFIED-PLAN.yaml (original)"
+    - "research/PLAN.yaml (unique sections)"
+  skills_invoked:
+    - "enforcing-evidence-based-analysis"
+    - "writing-plans"
+    - "adhering-to-yagni"
+    - "persisting-agent-outputs"
+    - "verifying-before-completion"
+  source_files:
+    - "research/parity-manifest.yaml"
+    - "research/PLAN.yaml"
+    - "research/GAP-ANALYSIS-RESEARCH-VS-PLAN.md"
+    - "research/GAPS.md"
+    - "research/garak/garak/probes/*.py"
+    - "research/garak/garak/generators/*.py"
+    - "research/garak/garak/detectors/*.py"
+
+  # Audit 2026-01-08
+  last_audit:
+    date: "2026-01-08"
+    auditor: "capability-reviewer"
+    report: "AUGUSTUS-PLAN-AUDIT-REPORT.md"
+    changes_made:
+      - "generators: 12 → 21 (added 9 previously undocumented)"
+      - "detectors: 60 → 75 (added 15 previously undocumented)"
+      - "buffs: 6 → 7 (added lrl.LRLBuff)"
+      - "total: 178 → 203"
+      - "completion: 56% → 64%"
+      - "gaps.generators: 31 → 22"
+      - "gaps.detectors: 29 → 14"
+      - "gaps.total: 138 → 114"
+      - "Added counting_methodology section"
+    session_17_verified: true
+
+# ============================================================
+# OPEN QUESTIONS
+# ============================================================
+open_questions:
+  - id: "OQ-1"
+    question: "Should we remove the redundant Prompts field from the Attempt struct?"
+    context: |
+      Analysis in research/capability-lead-garak-compatibility-findings.md (2026-01-05) found:
+      - Garak's Attempt only uses singular "prompt", not "prompts"
+      - Augustus has BOTH Prompt and Prompts fields (redundant)
+      - Recommendation: Remove Prompts field for cleaner design
+      - Status: NOT IMPLEMENTED as of 2026-01-08
+    options:
+      - "Option A: Keep singular Prompt only (matches Garak)"
+      - "Option B: Keep plural Prompts only (for multi-turn)"
+      - "Option C: Use Conversations field (best long-term)"
+      - "Option D: Keep both (current state, accept redundancy)"
+    blocking: false
+    priority: "low"
+    reference: "research/capability-lead-garak-compatibility-findings.md"
