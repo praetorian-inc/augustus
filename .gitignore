@@ -5,7 +5,7 @@
 *.so
 *.dylib
 *.test
-augustus
+/bin/augustus
 
 # Test binary, built with `go test -c`
 *.test
