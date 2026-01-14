@@ -246,6 +246,29 @@ augustus scan openai.OpenAI \
   --output results.json
 ```
 
+### Proxy Configuration
+
+Route HTTP traffic through a proxy (e.g., Burp Suite) for inspection:
+
+```bash
+# Method 1: Via config parameter
+augustus scan rest.Rest \
+  --probe dan.Dan_11_0 \
+  --detector dan.DAN \
+  --config '{"uri":"https://api.example.com","proxy":"http://127.0.0.1:8080"}' \
+  --output results.jsonl
+
+# Method 2: Via environment variables
+export HTTP_PROXY=http://127.0.0.1:8080
+export HTTPS_PROXY=http://127.0.0.1:8080
+augustus scan rest.Rest --probe dan.Dan_11_0 --config '{"uri":"https://api.example.com"}'
+```
+
+**Features:**
+- TLS verification automatically disabled for proxy inspection
+- HTTP/2 support enabled for modern APIs
+- Server-Sent Events (SSE) responses automatically detected and parsed
+
 ## Usage Examples
 
 ### Example 1: Test for DAN Jailbreak
@@ -365,7 +388,7 @@ Augustus includes the following 19 LLM providers:
 | NVIDIA NIM         | `nim.NIM`                 | NVIDIA AI endpoints            |
 | Ollama             | `ollama.OllamaChat`       | Local model hosting            |
 | LiteLLM            | `litellm.LiteLLM`         | Unified API proxy              |
-| REST API           | `rest.REST`               | Custom REST endpoints          |
+| REST API           | `rest.REST`               | Custom REST endpoints (SSE support) |
 | Test               | `test.Test`               | Testing and development        |
 
 All providers are available in the compiled binary. Configure via environment variables or YAML configuration files. See [Configuration](#configuration) for setup details.
