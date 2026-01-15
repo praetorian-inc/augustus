@@ -530,7 +530,6 @@ func (r *Rest) parseSSE(body []byte) string {
 		}
 
 		// Extract text from various possible structures
-		// Zoom AI format: {"type":"content_block_delta","delta":{"text":"..."}}
 		if delta, ok := data["delta"].(map[string]any); ok {
 			if text, ok := delta["text"].(string); ok && text != "" {
 				textParts = append(textParts, text)
