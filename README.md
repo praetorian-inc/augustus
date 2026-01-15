@@ -64,6 +64,8 @@ Augustus provides security researchers and practitioners with a robust framework
   - **Format exploits**: Markdown injection, YAML/JSON parsing attacks
   - **Evasion techniques**: Obfuscation, Character substitution, Translation-based attacks
 
+  > **Warning**: The `lmrc` probe uses profane and offensive language as part of its jailbreak testing. Use only in authorized testing environments.
+
 - **19 LLM Provider Integrations**:
   - **Major cloud providers**: OpenAI (GPT-3.5, GPT-4), Anthropic (Claude 3), Azure OpenAI, AWS Bedrock, Google Vertex AI
   - **Alternative providers**: Cohere, Mistral, Fireworks, Groq, DeepInfra, NVIDIA NIM
@@ -302,6 +304,52 @@ augustus scan anthropic.Anthropic \
   --config-file config.yaml \
   --verbose
 ```
+
+### Example 6: Test Custom REST API Endpoint
+
+```bash
+# Test proprietary LLM endpoint (OpenAI-compatible API)
+augustus scan rest.Rest \
+  --probe dan.Dan \
+  --detector dan.DanDetector \
+  --config '{
+    "uri": "https://api.example.com/v1/chat/completions",
+    "method": "POST",
+    "headers": {"Authorization": "Bearer YOUR_API_KEY"},
+    "req_template_json_object": {
+      "model": "custom-model",
+      "messages": [{"role": "user", "content": "$INPUT"}]
+    },
+    "response_json": true,
+    "response_json_field": "$.choices[0].message.content"
+  }'
+
+# Test with proxy interception (Burp Suite, mitmproxy)
+augustus scan rest.Rest \
+  --probes-glob "encoding.*" \
+  --config '{
+    "uri": "https://internal-llm.corp/generate",
+    "proxy": "http://127.0.0.1:8080",
+    "headers": {"X-API-Key": "$KEY"},
+    "api_key": "your-key-here",
+    "req_template": "{\"prompt\":\"$INPUT\",\"max_tokens\":500}",
+    "response_json": true,
+    "response_json_field": "output"
+  }'
+```
+
+**REST Configuration Keys:**
+- `uri`: Target API endpoint (required)
+- `method`: HTTP method (default: POST)
+- `headers`: HTTP headers as key-value pairs
+- `req_template`: Raw request body with `$INPUT` placeholder
+- `req_template_json_object`: JSON request body (auto-marshaled, use `$INPUT` in strings)
+- `response_json`: Parse response as JSON (default: false)
+- `response_json_field`: JSONPath to extract (e.g., `$.data.text` or simple field name)
+- `api_key`: API key for `$KEY` placeholder substitution
+- `proxy`: HTTP proxy URL for traffic inspection
+
+**Tip**: Use Claude to convert curl commands or Burp Suite requests into Augustus configurations. Paste your HTTP request and ask Claude to generate the corresponding `--config` JSON.
 
 ## Architecture
 
