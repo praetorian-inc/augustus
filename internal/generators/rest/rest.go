@@ -184,10 +184,14 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 			return nil, fmt.Errorf("invalid proxy URL: %w", err)
 		}
 	} else {
-		// Fall back to environment variables
-		if envProxy := os.Getenv("HTTP_PROXY"); envProxy != "" {
+		// Fall back to environment variables (check both case variants)
+		if envProxy := os.Getenv("HTTPS_PROXY"); envProxy != "" {
 			proxyURL, _ = url.Parse(envProxy)
-		} else if envProxy := os.Getenv("HTTPS_PROXY"); envProxy != "" {
+		} else if envProxy := os.Getenv("https_proxy"); envProxy != "" {
+			proxyURL, _ = url.Parse(envProxy)
+		} else if envProxy := os.Getenv("HTTP_PROXY"); envProxy != "" {
+			proxyURL, _ = url.Parse(envProxy)
+		} else if envProxy := os.Getenv("http_proxy"); envProxy != "" {
 			proxyURL, _ = url.Parse(envProxy)
 		}
 	}
