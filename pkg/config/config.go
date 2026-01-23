@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Config represents the complete Augustus configuration
@@ -26,8 +27,10 @@ type Profile struct {
 
 // RunConfig contains runtime configuration
 type RunConfig struct {
-	MaxAttempts int    `yaml:"max_attempts" koanf:"max_attempts" validate:"gte=0"`
-	Timeout     string `yaml:"timeout" koanf:"timeout"`
+	MaxAttempts  int    `yaml:"max_attempts" koanf:"max_attempts" validate:"gte=0"`
+	Timeout      string `yaml:"timeout" koanf:"timeout"`
+	Concurrency  int    `yaml:"concurrency,omitempty" koanf:"concurrency" validate:"gte=0"`
+	ProbeTimeout string `yaml:"probe_timeout,omitempty" koanf:"probe_timeout"`
 }
 
 // GeneratorConfig contains generator-specific configuration
@@ -67,7 +70,19 @@ type OutputConfig struct {
 func (c *Config) Validate() error {
 	// Validate run config
 	if c.Run.MaxAttempts < 0 {
-		return fmt.Errorf("run.max_attempts must be positive, got: %d", c.Run.MaxAttempts)
+		return fmt.Errorf("run.max_attempts must be non-negative, got: %d", c.Run.MaxAttempts)
+	}
+
+	// Validate concurrency (0 means "use default", negative is invalid)
+	if c.Run.Concurrency < 0 {
+		return fmt.Errorf("run.concurrency must be non-negative, got: %d", c.Run.Concurrency)
+	}
+
+	// Validate probe_timeout format if provided
+	if c.Run.ProbeTimeout != "" {
+		if _, err := time.ParseDuration(c.Run.ProbeTimeout); err != nil {
+			return fmt.Errorf("invalid run.probe_timeout: %w", err)
+		}
 	}
 
 	// Validate generator temperatures (0-2 is standard LLM API range)
@@ -100,6 +115,12 @@ func (c *Config) Merge(other *Config) {
 	}
 	if other.Run.Timeout != "" {
 		c.Run.Timeout = other.Run.Timeout
+	}
+	if other.Run.Concurrency != 0 {
+		c.Run.Concurrency = other.Run.Concurrency
+	}
+	if other.Run.ProbeTimeout != "" {
+		c.Run.ProbeTimeout = other.Run.ProbeTimeout
 	}
 
 	// Merge generators
