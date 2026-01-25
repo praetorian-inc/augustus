@@ -1,6 +1,5 @@
 
-<img width="2752" height="1536" alt="augustus" src="https://github.com/user-attachments/assets/a20ed91e-3e19-4897-8192-f257d4114167" />
-
+<img width="2752" height="1536" alt="augustus" src="https://github.com/user-attachments/assets/12cbb8f0-426d-417b-987a-c6b19b1dd5ef" />
 # Augustus - LLM Vulnerability Scanner
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/praetorian-inc/augustus)](https://goreportcard.com/report/github.com/praetorian-inc/augustus)
