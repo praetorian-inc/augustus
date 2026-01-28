@@ -8,16 +8,20 @@ package rest
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"golang.org/x/net/http2"
 )
 
 func init() {
@@ -26,14 +30,29 @@ func init() {
 
 // defaultTransport returns an http.Transport configured for connection pooling.
 // This prevents connection exhaustion under high-concurrency scanning.
-func defaultTransport() *http.Transport {
-	return &http.Transport{
+// If proxyURL is provided, configures the transport to use the proxy.
+func defaultTransport(proxyURL *url.URL) *http.Transport {
+	transport := &http.Transport{
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 100,
 		MaxConnsPerHost:     100,
 		IdleConnTimeout:     90 * time.Second,
 		DisableKeepAlives:   false,
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: false,
+		},
 	}
+
+	if proxyURL != nil {
+		transport.Proxy = http.ProxyURL(proxyURL)
+		// For proxy inspection tools like Burp Suite, disable TLS verification
+		transport.TLSClientConfig.InsecureSkipVerify = true
+	}
+
+	// Enable HTTP/2 support
+	http2.ConfigureTransport(transport)
+
+	return transport
 }
 
 // Rest is a generic REST API generator that makes HTTP requests to configured endpoints.
@@ -49,6 +68,7 @@ type Rest struct {
 	rateLimitCodes    map[int]bool
 	skipCodes         map[int]bool
 	apiKey            string
+	proxyURL          *url.URL
 	client            *http.Client
 }
 
@@ -155,9 +175,31 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 		r.apiKey = apiKey
 	}
 
+	// Optional: Proxy configuration
+	var proxyURL *url.URL
+	if proxyStr, ok := cfg["proxy"].(string); ok && proxyStr != "" {
+		var err error
+		proxyURL, err = url.Parse(proxyStr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid proxy URL: %w", err)
+		}
+	} else {
+		// Fall back to environment variables (check both case variants)
+		if envProxy := os.Getenv("HTTPS_PROXY"); envProxy != "" {
+			proxyURL, _ = url.Parse(envProxy)
+		} else if envProxy := os.Getenv("https_proxy"); envProxy != "" {
+			proxyURL, _ = url.Parse(envProxy)
+		} else if envProxy := os.Getenv("HTTP_PROXY"); envProxy != "" {
+			proxyURL, _ = url.Parse(envProxy)
+		} else if envProxy := os.Getenv("http_proxy"); envProxy != "" {
+			proxyURL, _ = url.Parse(envProxy)
+		}
+	}
+	r.proxyURL = proxyURL
+
 	// Create HTTP client
 	r.client = &http.Client{
-		Transport: defaultTransport(),
+		Transport: defaultTransport(r.proxyURL),
 		Timeout:   r.requestTimeout,
 	}
 
@@ -248,7 +290,15 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 		return attempt.Message{}, fmt.Errorf("rest: failed to read response: %w", err)
 	}
 
-	// Parse response
+	// Check if response is SSE (Server-Sent Events)
+	contentType := resp.Header.Get("Content-Type")
+	if strings.Contains(contentType, "text/event-stream") {
+		// Parse SSE format
+		content := r.parseSSE(respBody)
+		return attempt.NewAssistantMessage(content), nil
+	}
+
+	// Parse response normally
 	content, err := r.parseResponse(respBody)
 	if err != nil {
 		return attempt.Message{}, err
@@ -454,6 +504,75 @@ func valueToString(val any) string {
 	}
 }
 
+// parseSSE extracts text content from Server-Sent Events (SSE) format.
+// SSE format: data: {...}\n\ndata: {...}\n\n
+func (r *Rest) parseSSE(body []byte) string {
+	var textParts []string
+	lines := strings.Split(string(body), "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// SSE data lines start with "data:"
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+
+		// Remove "data:" prefix
+		jsonStr := strings.TrimPrefix(line, "data:")
+		jsonStr = strings.TrimSpace(jsonStr)
+
+		if jsonStr == "" {
+			continue
+		}
+
+		// Try to parse as JSON
+		var data map[string]any
+		if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
+			// Not valid JSON, skip
+			continue
+		}
+
+		// Extract text from various possible structures
+		if delta, ok := data["delta"].(map[string]any); ok {
+			if text, ok := delta["text"].(string); ok && text != "" {
+				textParts = append(textParts, text)
+			}
+		}
+
+		// Alternative: {"message":{"parts":[{"text":"..."}]}}
+		if message, ok := data["message"].(map[string]any); ok {
+			if parts, ok := message["parts"].([]any); ok {
+				for _, part := range parts {
+					if partMap, ok := part.(map[string]any); ok {
+						if text, ok := partMap["text"].(string); ok && text != "" {
+							textParts = append(textParts, text)
+						}
+					}
+				}
+			}
+		}
+
+		// Direct text field
+		if text, ok := data["text"].(string); ok && text != "" {
+			textParts = append(textParts, text)
+		}
+
+		// Content field
+		if content, ok := data["content"].(string); ok && content != "" {
+			textParts = append(textParts, content)
+		}
+	}
+
+	// Join all extracted text
+	if len(textParts) > 0 {
+		return strings.Join(textParts, "")
+	}
+
+	// Fallback: return raw body if no text extracted
+	return string(body)
+}
+
 // ClearHistory is a no-op for REST generator (stateless).
 func (r *Rest) ClearHistory() {}
 
@@ -464,5 +583,5 @@ func (r *Rest) Name() string {
 
 // Description returns a human-readable description.
 func (r *Rest) Description() string {
-	return "Generic REST API generator for HTTP-based LLM endpoints"
+	return "Generic REST API generator for HTTP-based LLM endpoints with SSE support"
 }

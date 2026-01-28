@@ -711,3 +711,308 @@ func TestRestGenerator_ResponseJSONValidation(t *testing.T) {
 		t.Error("NewRest() should error when response_json_field is empty string")
 	}
 }
+
+func TestRestGenerator_ProxyConfiguration(t *testing.T) {
+	// Test proxy via config parameter
+	g, err := NewRest(registry.Config{
+		"uri":   "http://example.com",
+		"proxy": "http://127.0.0.1:8080",
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	// Verify proxy is configured
+	if g.(*Rest).proxyURL == nil {
+		t.Error("Proxy URL should be configured")
+	}
+
+	expectedProxy := "http://127.0.0.1:8080"
+	if g.(*Rest).proxyURL.String() != expectedProxy {
+		t.Errorf("Proxy URL = %q, want %q", g.(*Rest).proxyURL.String(), expectedProxy)
+	}
+}
+
+func TestRestGenerator_ProxyInvalidURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("response"))
+	}))
+	defer server.Close()
+
+	// Invalid proxy URL should return error
+	_, err := NewRest(registry.Config{
+		"uri":   server.URL,
+		"proxy": "://invalid-url",
+	})
+	if err == nil {
+		t.Error("NewRest() should error with invalid proxy URL")
+	}
+}
+
+func TestRestGenerator_SSEResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		// Simulate SSE stream with data: prefixed lines
+		_, _ = w.Write([]byte("data: {\"delta\":{\"text\":\"Hello \"}}\n\n"))
+		_, _ = w.Write([]byte("data: {\"delta\":{\"text\":\"World\"}}\n\n"))
+		_, _ = w.Write([]byte("data: {\"delta\":{\"text\":\"!\"}}\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri": server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if len(responses) != 1 {
+		t.Fatalf("Generate() returned %d responses, want 1", len(responses))
+	}
+
+	// Should concatenate all text fragments from SSE stream
+	expected := "Hello World!"
+	if responses[0].Content != expected {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
+	}
+}
+
+func TestRestGenerator_SSEResponseWithMessageParts(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		// Test alternative SSE format with message.parts structure
+		_, _ = w.Write([]byte("data: {\"message\":{\"parts\":[{\"text\":\"SSE text\"}]}}\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri": server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if len(responses) != 1 {
+		t.Fatalf("Generate() returned %d responses, want 1", len(responses))
+	}
+
+	if responses[0].Content != "SSE text" {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, "SSE text")
+	}
+}
+
+func TestRestGenerator_SSEResponseDirectText(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		// Test SSE format with direct text field
+		_, _ = w.Write([]byte("data: {\"text\":\"Direct text\"}\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri": server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if len(responses) != 1 {
+		t.Fatalf("Generate() returned %d responses, want 1", len(responses))
+	}
+
+	if responses[0].Content != "Direct text" {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, "Direct text")
+	}
+}
+
+func TestRestGenerator_SSEResponseContentField(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		// Test SSE format with content field
+		_, _ = w.Write([]byte("data: {\"content\":\"Content field text\"}\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri": server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if len(responses) != 1 {
+		t.Fatalf("Generate() returned %d responses, want 1", len(responses))
+	}
+
+	if responses[0].Content != "Content field text" {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, "Content field text")
+	}
+}
+
+func TestRestGenerator_SSEResponseFallbackToRaw(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		// SSE without recognizable JSON structure - should fallback to raw
+		_, _ = w.Write([]byte("data: Plain text response\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri": server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if len(responses) != 1 {
+		t.Fatalf("Generate() returned %d responses, want 1", len(responses))
+	}
+
+	// Should return raw body when no structured text extracted
+	if !strings.Contains(responses[0].Content, "Plain text response") {
+		t.Errorf("Generate() content = %q, should contain 'Plain text response'", responses[0].Content)
+	}
+}
+
+func TestRestGenerator_SSEResponseEmpty(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		// Empty SSE stream
+		_, _ = w.Write([]byte(""))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri": server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if len(responses) != 1 {
+		t.Fatalf("Generate() returned %d responses, want 1", len(responses))
+	}
+
+	// Empty SSE stream should return empty content
+	if responses[0].Content != "" {
+		t.Errorf("Generate() content = %q, want empty string", responses[0].Content)
+	}
+}
+
+func TestRestGenerator_NonSSEResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Regular response without SSE content-type
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte("Regular response"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri": server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if len(responses) != 1 {
+		t.Fatalf("Generate() returned %d responses, want 1", len(responses))
+	}
+
+	// Should use normal parsing path, not SSE
+	if responses[0].Content != "Regular response" {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, "Regular response")
+	}
+}
+
+func TestRestGenerator_SSEMixedWithNonJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		// Mix of valid JSON and non-JSON lines
+		_, _ = w.Write([]byte("data: {\"delta\":{\"text\":\"Valid\"}}\n\n"))
+		_, _ = w.Write([]byte("event: ping\n\n"))
+		_, _ = w.Write([]byte("data: {\"delta\":{\"text\":\" text\"}}\n\n"))
+		_, _ = w.Write([]byte(": comment\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri": server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if len(responses) != 1 {
+		t.Fatalf("Generate() returned %d responses, want 1", len(responses))
+	}
+
+	// Should extract only valid JSON data lines
+	expected := "Valid text"
+	if responses[0].Content != expected {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
+	}
+}
