@@ -200,7 +200,7 @@ run:
   max_attempts: -1
 `,
 			expectError: true,
-			errorMsg:    "max_attempts must be positive",
+			errorMsg:    "max_attempts must be non-negative",
 		},
 		{
 			name: "invalid output format",
@@ -316,4 +316,245 @@ func TestNonexistentFile(t *testing.T) {
 	cfg, err := LoadConfig("/nonexistent/path/config.yaml")
 	assert.Error(t, err)
 	assert.Nil(t, cfg)
+}
+
+// TestConcurrencyAndProbeTimeout tests loading new concurrency and probe_timeout fields
+func TestConcurrencyAndProbeTimeout(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	yamlContent := `
+run:
+  max_attempts: 5
+  timeout: 30m
+  concurrency: 20
+  probe_timeout: 10m
+
+generators:
+  openai:
+    model: gpt-4
+    temperature: 0.7
+
+output:
+  format: json
+`
+
+	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	require.NoError(t, err)
+
+	// Load the config
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	// Verify fields are loaded correctly
+	assert.Equal(t, 5, cfg.Run.MaxAttempts)
+	assert.Equal(t, "30m", cfg.Run.Timeout)
+	assert.Equal(t, 20, cfg.Run.Concurrency)
+	assert.Equal(t, "10m", cfg.Run.ProbeTimeout)
+}
+
+// TestConcurrencyValidation tests concurrency validation
+func TestConcurrencyValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		yaml        string
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "valid concurrency",
+			yaml: `
+run:
+  concurrency: 10
+`,
+			expectError: false,
+		},
+		{
+			name: "negative concurrency",
+			yaml: `
+run:
+  concurrency: -5
+`,
+			expectError: true,
+			errorMsg:    "concurrency must be non-negative",
+		},
+		{
+			name: "zero concurrency (treated as not set)",
+			yaml: `
+run:
+  concurrency: 0
+`,
+			expectError: false, // 0 means not set, should be valid
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			configPath := filepath.Join(tmpDir, "config.yaml")
+			err := os.WriteFile(configPath, []byte(tt.yaml), 0644)
+			require.NoError(t, err)
+
+			cfg, err := LoadConfig(configPath)
+
+			if tt.expectError {
+				assert.Error(t, err)
+				assert.Nil(t, cfg)
+				if tt.errorMsg != "" {
+					assert.Contains(t, err.Error(), tt.errorMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, cfg)
+			}
+		})
+	}
+}
+
+// TestProbeTimeoutValidation tests probe_timeout validation
+func TestProbeTimeoutValidation(t *testing.T) {
+	tests := []struct {
+		name        string
+		yaml        string
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "valid probe_timeout",
+			yaml: `
+run:
+  probe_timeout: 5m
+`,
+			expectError: false,
+		},
+		{
+			name: "invalid probe_timeout format",
+			yaml: `
+run:
+  probe_timeout: invalid-duration
+`,
+			expectError: true,
+			errorMsg:    "invalid run.probe_timeout",
+		},
+		{
+			name: "probe_timeout with seconds",
+			yaml: `
+run:
+  probe_timeout: 30s
+`,
+			expectError: false,
+		},
+		{
+			name: "probe_timeout with hours",
+			yaml: `
+run:
+  probe_timeout: 2h
+`,
+			expectError: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			configPath := filepath.Join(tmpDir, "config.yaml")
+			err := os.WriteFile(configPath, []byte(tt.yaml), 0644)
+			require.NoError(t, err)
+
+			cfg, err := LoadConfig(configPath)
+
+			if tt.expectError {
+				assert.Error(t, err)
+				assert.Nil(t, cfg)
+				if tt.errorMsg != "" {
+					assert.Contains(t, err.Error(), tt.errorMsg)
+				}
+			} else {
+				assert.NoError(t, err)
+				assert.NotNil(t, cfg)
+			}
+		})
+	}
+}
+
+// TestMergeWithConcurrencyAndProbeTimeout tests merging configs with new fields
+func TestMergeWithConcurrencyAndProbeTimeout(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Base config
+	baseConfig := filepath.Join(tmpDir, "base.yaml")
+	baseYAML := `
+run:
+  max_attempts: 3
+  timeout: 20m
+  concurrency: 10
+  probe_timeout: 5m
+
+generators:
+  openai:
+    model: gpt-4
+    temperature: 0.5
+`
+	err := os.WriteFile(baseConfig, []byte(baseYAML), 0644)
+	require.NoError(t, err)
+
+	// Override config (overrides some base values)
+	overrideConfig := filepath.Join(tmpDir, "override.yaml")
+	overrideYAML := `
+run:
+  max_attempts: 5
+  concurrency: 25
+  # timeout and probe_timeout inherited from base
+
+generators:
+  openai:
+    temperature: 0.8
+`
+	err = os.WriteFile(overrideConfig, []byte(overrideYAML), 0644)
+	require.NoError(t, err)
+
+	// Load with hierarchical merge
+	cfg, err := LoadConfig(baseConfig, overrideConfig)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	// Verify merged values
+	assert.Equal(t, 5, cfg.Run.MaxAttempts)       // From override
+	assert.Equal(t, "20m", cfg.Run.Timeout)       // From base (inherited)
+	assert.Equal(t, 25, cfg.Run.Concurrency)      // From override
+	assert.Equal(t, "5m", cfg.Run.ProbeTimeout)   // From base (inherited)
+	assert.Equal(t, "gpt-4", cfg.Generators["openai"].Model) // From base
+	assert.Equal(t, 0.8, cfg.Generators["openai"].Temperature) // From override
+}
+
+// TestDefaultConcurrencyAndProbeTimeout tests that defaults are applied when not specified
+func TestDefaultConcurrencyAndProbeTimeout(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	yamlContent := `
+run:
+  max_attempts: 5
+  timeout: 30m
+  # concurrency and probe_timeout not specified
+
+generators:
+  openai:
+    model: gpt-4
+
+output:
+  format: json
+`
+
+	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	require.NoError(t, err)
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	// Verify defaults are applied (0 values since not specified in YAML)
+	assert.Equal(t, 0, cfg.Run.Concurrency)    // 0 means "not set", default applied in scanner
+	assert.Equal(t, "", cfg.Run.ProbeTimeout)  // empty means "not set", default applied in scanner
 }

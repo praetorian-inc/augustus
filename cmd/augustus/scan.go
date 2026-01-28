@@ -31,11 +31,13 @@ type scanConfig struct {
 	configFile    string // YAML config file path
 	configJSON    string
 	outputFormat  string
-	outputFile    string // JSONL output file path
-	htmlFile      string // HTML report file path
+	outputFile    string        // JSONL output file path
+	htmlFile      string        // HTML report file path
 	verbose       bool
 	allProbes     bool          // Run all registered probes
 	timeout       time.Duration // Overall scan timeout
+	concurrency   int           // Max concurrent probes
+	probeTimeout  time.Duration // Per-probe timeout
 }
 
 // Kong helper methods
@@ -69,6 +71,8 @@ func (s *ScanCmd) loadScanConfig() *scanConfig {
 		verbose:       s.Verbose,
 		allProbes:     s.All,
 		timeout:       s.Timeout,
+		concurrency:   s.Concurrency,
+		probeTimeout:  s.ProbeTimeout,
 	}
 }
 
@@ -175,7 +179,8 @@ func runScan(ctx context.Context, cfg *scanConfig, eval harnesses.Evaluator) err
 	// Wire up remaining config sections
 	if yamlCfg != nil {
 		scannerOpts = &scanner.Options{
-			Concurrency:  10, // default
+			Concurrency:  10,              // default
+			ProbeTimeout: 5 * time.Minute, // default
 			RetryCount:   0,
 			RetryBackoff: 1 * time.Second,
 		}
@@ -191,6 +196,20 @@ func runScan(ctx context.Context, cfg *scanConfig, eval harnesses.Evaluator) err
 			scannerOpts.Timeout = 30 * time.Minute
 		}
 
+		// Wire Run.Concurrency from YAML
+		if yamlCfg.Run.Concurrency > 0 {
+			scannerOpts.Concurrency = yamlCfg.Run.Concurrency
+		}
+
+		// Wire Run.ProbeTimeout from YAML
+		if yamlCfg.Run.ProbeTimeout != "" {
+			probeTimeout, err := time.ParseDuration(yamlCfg.Run.ProbeTimeout)
+			if err != nil {
+				return fmt.Errorf("invalid run.probe_timeout: %w", err)
+			}
+			scannerOpts.ProbeTimeout = probeTimeout
+		}
+
 		if yamlCfg.Run.MaxAttempts > 0 {
 			scannerOpts.RetryCount = yamlCfg.Run.MaxAttempts
 		}
@@ -201,6 +220,46 @@ func runScan(ctx context.Context, cfg *scanConfig, eval harnesses.Evaluator) err
 		}
 		if cfg.outputFile == "" && yamlCfg.Output.Path != "" {
 			cfg.outputFile = yamlCfg.Output.Path
+		}
+	}
+
+	// CLI flags override YAML config
+	if cfg.concurrency > 0 {
+		if scannerOpts == nil {
+			scannerOpts = &scanner.Options{
+				Concurrency:  cfg.concurrency,
+				ProbeTimeout: cfg.probeTimeout,
+				Timeout:      cfg.timeout,
+				RetryCount:   0,
+				RetryBackoff: 1 * time.Second,
+			}
+		} else {
+			scannerOpts.Concurrency = cfg.concurrency
+		}
+	}
+
+	if cfg.probeTimeout > 0 {
+		if scannerOpts == nil {
+			scannerOpts = &scanner.Options{
+				Concurrency:  10,
+				ProbeTimeout: cfg.probeTimeout,
+				Timeout:      cfg.timeout,
+				RetryCount:   0,
+				RetryBackoff: 1 * time.Second,
+			}
+		} else {
+			scannerOpts.ProbeTimeout = cfg.probeTimeout
+		}
+	}
+
+	// Ensure scannerOpts exists even if no config provided
+	if scannerOpts == nil {
+		scannerOpts = &scanner.Options{
+			Concurrency:  cfg.concurrency,
+			ProbeTimeout: cfg.probeTimeout,
+			Timeout:      cfg.timeout,
+			RetryCount:   0,
+			RetryBackoff: 1 * time.Second,
 		}
 	}
 

@@ -68,8 +68,10 @@ type ScanCmd struct {
 	Config     string `help:"JSON config for generator." short:"c"`
 
 	// Execution
-	Harness string        `help:"Harness name." default:"probewise.Probewise"`
-	Timeout time.Duration `help:"Overall scan timeout." default:"30m"`
+	Harness      string        `help:"Harness name." default:"probewise.Probewise"`
+	Timeout      time.Duration `help:"Overall scan timeout." default:"30m"`
+	Concurrency  int           `help:"Max concurrent probes." default:"10" env:"AUGUSTUS_CONCURRENCY"`
+	ProbeTimeout time.Duration `help:"Per-probe timeout." default:"5m"`
 
 	// Output
 	Format  string `help:"Output format." enum:"table,json,jsonl" default:"table" short:"f"`
