@@ -34,7 +34,7 @@ Augustus fills a critical gap in the LLM security testing landscape by providing
 
 - **Native Go Performance**: Unlike Python-based alternatives, Augustus offers faster execution, lower memory footprint, and easy cross-platform distribution as a single binary
 - **Production-Ready Design**: Built with concurrent scanning, rate limiting, retry logic, and timeout handling for testing production LLM deployments
-- **Comprehensive Attack Coverage**: 46+ vulnerability probes covering prompt injection, jailbreaks, encoding exploits, data extraction, and adversarial examples
+- **Comprehensive Attack Coverage**: 160+ vulnerability probes covering prompt injection, jailbreaks, encoding exploits, data extraction, and adversarial examples
 - **Flexible Integration**: Works with 19 LLM providers out of the box, plus REST API support for custom endpoints
 - **Actionable Results**: Multiple output formats (table, JSON, JSONL, HTML) with detailed vulnerability reports
 
@@ -46,16 +46,16 @@ Augustus fills a critical gap in the LLM security testing landscape by providing
 | Single binary | Yes | No | No |
 | Concurrent scanning | Yes | Limited | Yes |
 | LLM providers | 19 | 10+ | 15+ |
-| Probe types | 46+ | 50+ | Custom |
+| Probe types | 160+ | 50+ | Custom |
 | Enterprise focus | Yes | Research | Yes |
 
 ## Description
 
-Augustus provides security researchers and practitioners with a robust framework for assessing the security posture of LLM systems. It supports testing across 46+ vulnerability probes, integrates with 19 LLM providers, and offers flexible detection capabilities through 28 detector implementations.
+Augustus provides security researchers and practitioners with a robust framework for assessing the security posture of LLM systems. It supports testing across 160+ vulnerability probes, integrates with 19 LLM providers, and offers flexible detection capabilities through 75+ detector implementations.
 
 ## Features
 
-- **46+ Vulnerability Probes**: Comprehensive test coverage across multiple attack categories
+- **160+ Vulnerability Probes**: Comprehensive test coverage across multiple attack categories
   - **Jailbreak attacks**: DAN (Do Anything Now), DAN 11.0, AIM, AntiGPT
   - **Prompt injection**: Encoding (Base64, ROT13, Morse), Tag smuggling, FlipAttack
   - **Adversarial examples**: GCG (Greedy Coordinate Gradient), PAIR, AutoDAN, TAP (Tree of Attack Prompts)
@@ -73,18 +73,18 @@ Augustus provides security researchers and practitioners with a robust framework
   - **Local deployment**: Ollama (for self-hosted models)
   - **Custom endpoints**: REST API support for proprietary systems
 
-- **28 Detection Strategies**: Analyze responses using:
+- **75+ Detection Strategies**: Analyze responses using:
   - Pattern matching and signature detection
   - Judge-based evaluation (LLM-as-a-judge)
   - Specialized detectors for specific attack types (DAN, encoding, RAG poisoning)
   - Custom detector composition
 
-- **5 Buff Transformations**: Modify probe prompts with:
-  - Character substitution and obfuscation
-  - Language translation
-  - Format conversion
-  - Context augmentation
-  - Payload encoding
+- **7 Buff Transformations**: Modify probe prompts with:
+  - **Encoding**: Base64, CharCode (Unicode code points)
+  - **Case transformation**: Lowercase normalization
+  - **Language translation**: Low-resource languages via DeepL (Estonian, Indonesian, Latvian, Slovak, Slovenian)
+  - **Paraphrasing**: PegasusT5 (HuggingFace), Fast T5 (diversity beam search)
+  - **Poetry transformation**: Meta-prompt based (haiku, limerick, custom formats)
 
 - **3 Harness Strategies**: Orchestrate probe execution with:
   - Probewise: Run all probes independently
@@ -387,19 +387,33 @@ augustus/
 │       ├── scan.go        # Scan command implementation
 │       └── common.go      # Shared CLI utilities
 ├── pkg/                   # Public packages
-│   ├── config/           # Configuration loading (YAML/JSON)
-│   ├── scanner/          # Scanner orchestration
-│   ├── probes/           # Public probe interfaces
-│   ├── generators/       # Public generator interfaces
-│   ├── detectors/        # Public detector interfaces
-│   ├── registry/         # Capability registration
-│   └── results/          # Result types and formatting
+│   ├── attempt/          # Probe execution lifecycle and result tracking
+│   ├── buffs/            # Buff interface for prompt transformations
+│   ├── cli/              # CLI flag definitions
+│   ├── config/           # Configuration loading (YAML/JSON) with profiles
+│   ├── detectors/        # Public detector interfaces and registry
+│   ├── generators/       # Public generator interfaces and registry
+│   ├── harnesses/        # Harness interface for execution strategies
+│   ├── lib/
+│   │   ├── http/         # Shared HTTP client with proxy support
+│   │   └── stego/        # LSB steganography for multimodal attacks
+│   ├── logging/          # Structured slog-based logging
+│   ├── metrics/          # Prometheus metrics collection
+│   ├── prefilter/        # Aho-Corasick keyword pre-filtering
+│   ├── probes/           # Public probe interfaces and registry
+│   ├── ratelimit/        # Token bucket rate limiting
+│   ├── registry/         # Generic capability registration system
+│   ├── results/          # Result types and multi-format output
+│   ├── retry/            # Exponential backoff with jitter
+│   ├── scanner/          # Scanner orchestration with concurrency
+│   ├── templates/        # YAML probe template loader (Nuclei-style)
+│   └── types/            # Canonical shared interfaces (Prober, Generator, Detector)
 ├── internal/             # Private implementation
-│   ├── probes/          # 40+ probe implementations
-│   ├── generators/      # 15+ LLM provider integrations
-│   ├── detectors/       # 25+ detector implementations
-│   ├── harnesses/       # Test harness implementations
-│   └── buffs/           # Probe transformation utilities
+│   ├── probes/          # 160+ probe implementations
+│   ├── generators/      # 20 LLM provider integrations
+│   ├── detectors/       # 75+ detector implementations
+│   ├── harnesses/       # 3 harness strategies (probewise, batch, agentwise)
+│   └── buffs/           # 7 buff transformations
 ├── examples/            # Example configurations
 └── docs/                # Documentation
 ```
@@ -421,7 +435,7 @@ Augustus includes the following 19 LLM providers:
 |--------------------|---------------------------|--------------------------------|
 | OpenAI             | `openai.OpenAI`           | GPT-3.5, GPT-4, GPT-4 Turbo    |
 | Anthropic          | `anthropic.Anthropic`     | Claude 3 (Opus, Sonnet, Haiku) |
-| Azure OpenAI       | `azure.Azure`             | Azure-hosted OpenAI models     |
+| Azure OpenAI       | `azure.Azure`             | **Coming Soon** - Implementation in progress |
 | AWS Bedrock        | `bedrock.Bedrock`         | Claude, Llama, Titan models    |
 | Google Vertex AI   | `vertex.Vertex`           | PaLM, Gemini models            |
 | Cohere             | `cohere.Cohere`           | Command, Command R models      |
@@ -476,6 +490,8 @@ Configuration:
 Execution:
   --harness                   Harness name (default: probewise.Probewise)
   --timeout                   Overall scan timeout (default: 30m)
+  --probe-timeout             Per-probe timeout (default: 5m)
+  --concurrency               Max concurrent probes (default: 10, env: AUGUSTUS_CONCURRENCY)
 
 Output:
   --format, -f                Output format: table, json, jsonl (default: table)
@@ -486,6 +502,14 @@ Output:
 Global:
   --debug, -d                 Enable debug mode
 ```
+
+### Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success - scan completed |
+| 1 | Scan/runtime error |
+| 2 | Validation/usage error |
 
 ## Use Cases
 
