@@ -34,7 +34,7 @@ Augustus fills a critical gap in the LLM security testing landscape by providing
 - **Native Go Performance**: Unlike Python-based alternatives, Augustus offers faster execution, lower memory footprint, and easy cross-platform distribution as a single binary
 - **Production-Ready Design**: Built with concurrent scanning, rate limiting, retry logic, and timeout handling for testing production LLM deployments
 - **Comprehensive Attack Coverage**: 160+ vulnerability probes covering prompt injection, jailbreaks, encoding exploits, data extraction, and adversarial examples
-- **Flexible Integration**: Works with 19 LLM providers out of the box, plus REST API support for custom endpoints
+- **Flexible Integration**: Works with 28 LLM providers out of the box, plus REST API support for custom endpoints
 - **Actionable Results**: Multiple output formats (table, JSON, JSONL, HTML) with detailed vulnerability reports
 
 **Compared to alternatives:**
@@ -44,13 +44,13 @@ Augustus fills a critical gap in the LLM security testing landscape by providing
 | Language | Go | Python | TypeScript |
 | Single binary | Yes | No | No |
 | Concurrent scanning | Yes | Limited | Yes |
-| LLM providers | 19 | 10+ | 15+ |
+| LLM providers | 28 | 10+ | 15+ |
 | Probe types | 160+ | 50+ | Custom |
 | Enterprise focus | Yes | Research | Yes |
 
 ## Description
 
-Augustus provides security researchers and practitioners with a robust framework for assessing the security posture of LLM systems. It supports testing across 160+ vulnerability probes, integrates with 19 LLM providers, and offers flexible detection capabilities through 75+ detector implementations.
+Augustus provides security researchers and practitioners with a robust framework for assessing the security posture of LLM systems. It supports testing across 160+ vulnerability probes, integrates with 28 LLM providers, and offers flexible detection capabilities through 75+ detector implementations.
 
 ## Features
 
@@ -65,12 +65,13 @@ Augustus provides security researchers and practitioners with a robust framework
 
   > **Warning**: The `lmrc` probe uses profane and offensive language as part of its jailbreak testing. Use only in authorized testing environments.
 
-- **19 LLM Provider Integrations**:
+- **28 LLM Provider Integrations**:
   - **Major cloud providers**: OpenAI (GPT-3.5, GPT-4), Anthropic (Claude 3), Azure OpenAI, AWS Bedrock, Google Vertex AI
-  - **Alternative providers**: Cohere, Mistral, Fireworks, Groq, DeepInfra, NVIDIA NIM
-  - **Development platforms**: HuggingFace, Replicate, Together AI, Anyscale, LiteLLM
-  - **Local deployment**: Ollama (for self-hosted models)
-  - **Custom endpoints**: REST API support for proprietary systems
+  - **Alternative providers**: Cohere, Mistral, Fireworks, Groq, DeepInfra, NVIDIA NIM, NVIDIA NeMo, NVIDIA NVCF
+  - **Development platforms**: HuggingFace, Replicate, Together AI, Anyscale, LiteLLM, LangChain, LangChain Serve
+  - **Enterprise platforms**: IBM watsonx, NeMo Guardrails, Rasa
+  - **Local deployment**: Ollama, GGML (for self-hosted models)
+  - **Custom endpoints**: REST API, Function generator for proprietary systems
 
 - **75+ Detection Strategies**: Analyze responses using:
   - Pattern matching and signature detection
@@ -428,13 +429,13 @@ augustus/
 
 ## Supported Providers
 
-Augustus includes the following 19 LLM providers:
+Augustus includes the following 28 LLM providers:
 
 | Provider           | Generator Name            | Notes                          |
 |--------------------|---------------------------|--------------------------------|
 | OpenAI             | `openai.OpenAI`           | GPT-3.5, GPT-4, GPT-4 Turbo    |
 | Anthropic          | `anthropic.Anthropic`     | Claude 3 (Opus, Sonnet, Haiku) |
-| Azure OpenAI       | `azure.Azure`             | **Coming Soon** - Implementation in progress |
+| Azure OpenAI       | `azure.AzureOpenAI`       | Azure-hosted OpenAI models     |
 | AWS Bedrock        | `bedrock.Bedrock`         | Claude, Llama, Titan models    |
 | Google Vertex AI   | `vertex.Vertex`           | PaLM, Gemini models            |
 | Cohere             | `cohere.Cohere`           | Command, Command R models      |
@@ -447,6 +448,15 @@ Augustus includes the following 19 LLM providers:
 | Fireworks          | `fireworks.Fireworks`     | Production inference platform  |
 | DeepInfra          | `deepinfra.DeepInfra`     | Serverless GPU inference       |
 | NVIDIA NIM         | `nim.NIM`                 | NVIDIA AI endpoints            |
+| NVIDIA NeMo        | `nemo.NeMo`               | NVIDIA NeMo framework          |
+| NVIDIA NVCF        | `nvcf.NVCF`               | NVIDIA Cloud Functions         |
+| NeMo Guardrails    | `guardrails.NeMoGuardrails` | NVIDIA NeMo Guardrails       |
+| IBM watsonx        | `watsonx.Watsonx`         | IBM watsonx.ai platform        |
+| LangChain          | `langchain.LangChain`     | LangChain LLM wrapper          |
+| LangChain Serve    | `langchainserve.LangChainServe` | LangChain Serve endpoints |
+| Rasa               | `rasa.Rasa`               | Rasa conversational AI         |
+| GGML               | `ggml.GGML`               | GGML local model inference     |
+| Function           | `function.Function`       | Custom function generator      |
 | Ollama             | `ollama.OllamaChat`       | Local model hosting            |
 | LiteLLM            | `litellm.LiteLLM`         | Unified API proxy              |
 | REST API           | `rest.REST`               | Custom REST endpoints (SSE support) |
