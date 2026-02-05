@@ -36,9 +36,9 @@ func NewLimiter(maxTokens, refillRate float64) *Limiter {
 // Returns context.Canceled or context.DeadlineExceeded if context ends.
 func (l *Limiter) Wait(ctx context.Context) error {
 	for {
-		l.refill()
-
 		l.mu.Lock()
+		l.refillLocked()
+
 		if l.tokens >= 1.0 {
 			l.tokens -= 1.0
 			l.mu.Unlock()
@@ -47,7 +47,7 @@ func (l *Limiter) Wait(ctx context.Context) error {
 
 		// Calculate wait time for next token
 		tokensNeeded := 1.0 - l.tokens
-		waitDuration := time.Duration(tokensNeeded/l.refillRate*float64(time.Second))
+		waitDuration := time.Duration(tokensNeeded / l.refillRate * float64(time.Second))
 		l.mu.Unlock()
 
 		select {
@@ -62,10 +62,10 @@ func (l *Limiter) Wait(ctx context.Context) error {
 // TryAcquire attempts to acquire a token without blocking.
 // Returns true if token acquired, false if none available.
 func (l *Limiter) TryAcquire() bool {
-	l.refill()
-
 	l.mu.Lock()
 	defer l.mu.Unlock()
+
+	l.refillLocked()
 
 	if l.tokens >= 1.0 {
 		l.tokens -= 1.0
@@ -74,11 +74,9 @@ func (l *Limiter) TryAcquire() bool {
 	return false
 }
 
-// refill adds tokens based on elapsed time since last refill.
-func (l *Limiter) refill() {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
+// refillLocked adds tokens based on elapsed time since last refill.
+// Must be called with l.mu held.
+func (l *Limiter) refillLocked() {
 	now := time.Now()
 	elapsed := now.Sub(l.lastRefill)
 	tokensToAdd := elapsed.Seconds() * l.refillRate

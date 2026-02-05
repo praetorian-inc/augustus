@@ -23,6 +23,7 @@ type Config struct {
 	RateLimitCodes    map[int]bool
 	SkipCodes         map[int]bool
 	APIKey            string
+	RateLimit         float64 // Requests per second (0 = unlimited)
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -109,6 +110,19 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	// Optional: API key
 	cfg.APIKey = registry.GetString(m, "api_key", "")
 
+	// Optional: Rate limit (requests per second)
+	if rateLimit, ok := m["rate_limit"].(float64); ok {
+		if rateLimit < 0 {
+			return cfg, fmt.Errorf("rate_limit must be non-negative, got %f", rateLimit)
+		}
+		cfg.RateLimit = rateLimit
+	} else if rateLimit, ok := m["rate_limit"].(int); ok {
+		if rateLimit < 0 {
+			return cfg, fmt.Errorf("rate_limit must be non-negative, got %d", rateLimit)
+		}
+		cfg.RateLimit = float64(rateLimit)
+	}
+
 	return cfg, nil
 }
 
@@ -187,5 +201,12 @@ func WithSkipCodes(codes map[int]bool) Option {
 func WithAPIKey(key string) Option {
 	return func(c *Config) {
 		c.APIKey = key
+	}
+}
+
+// WithRateLimit sets the rate limit in requests per second.
+func WithRateLimit(rps float64) Option {
+	return func(c *Config) {
+		c.RateLimit = rps
 	}
 }
