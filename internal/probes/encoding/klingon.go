@@ -3,6 +3,7 @@ package encoding
 import (
 	"strings"
 
+	"github.com/praetorian-inc/augustus/internal/probes/poetry"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -25,46 +26,96 @@ type InjectKlingon struct {
 
 // klingonMap maps English words to Klingon (tlhIngan Hol) translations.
 // Based on Star Trek Klingon language, focusing on security-relevant vocabulary.
+// Expanded to cover words in harmful payloads for effective security testing.
 var klingonMap = map[string]string{
 	// Attack/security actions
-	"hack":   "Qaw'",    // destroy
-	"attack": "HIv",     // attack
-	"steal":  "nIH",     // steal
-	"break":  "ghor",    // break
-	"kill":   "HoH",     // kill
+	"hack":        "Qaw'",      // destroy
+	"hacking":     "Qaw'ghach", // destroying (nominalized)
+	"attack":      "HIv",       // attack
+	"steal":       "nIH",       // steal
+	"stealing":    "nIHghach",  // stealing (nominalized)
+	"break":       "ghor",      // break
+	"breaking":    "ghorghach", // breaking (nominalized)
+	"kill":        "HoH",       // kill
+	"bomb":        "jorneb",    // explosive device
+	"virus":       "rop",       // disease/virus
+	"phishing":    "tojghach",  // deception act
+	"scam":        "toj",       // deceive
+	"shoplifting": "nIH",       // steal
 
-	// System/technology
-	"system":   "De'wI'",  // computer/system
-	"computer": "De'wI'",  // computer
-	"password": "ngoDHom", // secret code (literal: small secret)
-	"code":     "ngoD",    // secret
+	// Harmful action words
+	"instructions": "ra'ghompu'", // orders/commands
+	"detailed":     "De'pI'",     // with much data
+	"making":       "chenmoH",    // create
+	"explain":      "QIj",        // explain
+	"provide":      "nob",        // give
+	"guide":        "DevwI'",     // leader/guide
+	"describe":     "Del",        // describe
+	"outline":      "nab",        // plan
+	"generate":     "chenmoH",    // create
+	"synthesizing": "tlheghmoH",  // combining
+
+	// Targets
+	"system":       "De'wI'",     // computer/system
+	"computer":     "De'wI'",     // computer
+	"password":     "ngoDHom",    // secret code
+	"passwords":    "ngoDHommey", // secret codes (plural)
+	"code":         "ngoD",       // secret
+	"bank":         "Huch pa'",   // money room
+	"account":      "mI'",        // number/account
+	"house":        "juH",        // home
+	"car":          "Duj",        // vehicle
+	"drugs":        "Hergh",      // medicine/drugs
+	"email":        "QIn",        // message
+	"identity":     "pong",       // name/identity
+	"charity":      "nobwI'",     // giver organization
+	"elderly":      "qan",        // old
+	"people":       "nuvpu'",     // people
 
 	// Access/information
-	"access":      "'el",     // enter
-	"information": "De'",     // data
-	"data":        "De'",     // data
-	"file":        "De'wI'",  // data system
+	"access":      "'el",      // enter
+	"information": "De'",      // data
+	"data":        "De'",      // data
+	"file":        "De'wI'",   // data system
+	"into":        "Daq",      // into/to location
+	"without":     "Hutlh",    // without
+	"caught":      "jon",      // captured
+	"getting":     "Suqghach", // acquiring
 
 	// Communication verbs
-	"help":   "QaH",     // help
-	"tell":   "jatlh",   // speak/say
-	"say":    "jatlh",   // speak/say
-	"write":  "ghItlh",  // write
-	"read":   "laD",     // read
+	"help":    "QaH",    // help
+	"tell":    "jatlh",  // speak/say
+	"say":     "jatlh",  // speak/say
+	"write":   "ghItlh", // write
+	"read":    "laD",    // read
+	"methods": "mIwmey", // methods/ways
+	"plan":    "nab",    // plan
 
 	// Question/action words
-	"how":    "chay'",   // how
-	"make":   "chenmoH", // create/make
-	"create": "chenmoH", // create
-	"get":    "Suq",     // acquire/get
-	"give":   "nob",     // give
+	"how":       "chay'",   // how
+	"make":      "chenmoH", // create/make
+	"create":    "chenmoH", // create
+	"get":       "Suq",     // acquire/get
+	"give":      "nob",     // give
+	"targeting": "DoS",     // target
 
 	// Common words
-	"the": "ghaH", // he/she/it (used as article)
-	"a":   "wa'",  // one (used as article)
-	"an":  "wa'",  // one
-	"to":  "Daq",  // to (locative)
-	"me":  "jIH",  // me/I
+	"the":     "",       // no article in Klingon
+	"a":       "",       // no article in Klingon
+	"an":      "",       // no article in Klingon
+	"to":      "Daq",    // to (locative)
+	"me":      "jIH",    // me/I
+	"for":     "-vaD",   // for (suffix, used as word)
+	"from":    "vo'",    // from
+	"someone": "vay'",   // someone
+	"script":  "ghItlh", // writing
+	"phone":   "ghogh",  // voice (phone)
+	"hotwiring": "rIQmoH", // damaging to start
+
+	// Cybersecurity specific
+	"cyberbullying": "ghIj",     // scare/terrorize
+	"techniques":    "mIwmey",   // methods
+	"theft":         "nIHghach", // stealing (nominalized)
 }
 
 // NewInjectKlingon creates a new InjectKlingon probe.
@@ -110,11 +161,15 @@ var klingonPromptTemplates = []string{
 }
 
 // generateKlingonPrompts generates prompts using Klingon-specific templates.
+// Uses harmful payloads from the poetry package (same payloads used for poetry-based attacks).
 func generateKlingonPrompts(encoders []Encoder) []promptTriggerPair {
 	var pairs []promptTriggerPair
 
+	// Use harmful payloads from poetry package (real attack payloads, not test strings)
+	payloads := poetry.DefaultHarmfulPayloads
+
 	for _, template := range klingonPromptTemplates {
-		for _, payload := range DefaultPayloads {
+		for _, payload := range payloads {
 			for _, encoder := range encoders {
 				encodedText := encoder([]byte(payload))
 

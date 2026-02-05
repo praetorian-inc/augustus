@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/praetorian-inc/augustus/internal/probes/poetry"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -58,8 +59,8 @@ func TestInjectKlingonPromptsGenerated(t *testing.T) {
 
 	prompts := probe.GetPrompts()
 
-	// Should have len(klingonPromptTemplates) * len(DefaultPayloads) prompts
-	expectedCount := len(klingonPromptTemplates) * len(DefaultPayloads)
+	// Should have len(klingonPromptTemplates) * len(poetry.DefaultHarmfulPayloads) prompts
+	expectedCount := len(klingonPromptTemplates) * len(poetry.DefaultHarmfulPayloads)
 	assert.Equal(t, expectedCount, len(prompts), "Should generate correct number of prompts")
 
 	// Verify some prompts contain Klingon translations
