@@ -30,13 +30,17 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/generators/anthropic"
 	_ "github.com/praetorian-inc/augustus/internal/generators/cohere"
 	_ "github.com/praetorian-inc/augustus/internal/generators/function"
+	_ "github.com/praetorian-inc/augustus/internal/generators/guardrails"
 	_ "github.com/praetorian-inc/augustus/internal/generators/huggingface"
 	_ "github.com/praetorian-inc/augustus/internal/generators/langchain"
+	_ "github.com/praetorian-inc/augustus/internal/generators/nim"
+	_ "github.com/praetorian-inc/augustus/internal/generators/nvcf"
 	_ "github.com/praetorian-inc/augustus/internal/generators/ollama"
 	_ "github.com/praetorian-inc/augustus/internal/generators/openai"
 	_ "github.com/praetorian-inc/augustus/internal/generators/replicate"
 	_ "github.com/praetorian-inc/augustus/internal/generators/rest"
 	_ "github.com/praetorian-inc/augustus/internal/generators/test"
+	_ "github.com/praetorian-inc/augustus/internal/generators/watsonx"
 
 	// Detectors
 	_ "github.com/praetorian-inc/augustus/internal/detectors/always"
