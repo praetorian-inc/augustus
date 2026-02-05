@@ -76,6 +76,7 @@ func TestFunctionalOptions(t *testing.T) {
 		WithRateLimitCodes(map[int]bool{429: true}),
 		WithSkipCodes(map[int]bool{400: true}),
 		WithAPIKey("secret"),
+		WithRateLimit(10.0),
 	)
 
 	assert.Equal(t, "https://test.com/api", cfg.URI)
@@ -88,4 +89,75 @@ func TestFunctionalOptions(t *testing.T) {
 	assert.Equal(t, map[int]bool{429: true}, cfg.RateLimitCodes)
 	assert.Equal(t, map[int]bool{400: true}, cfg.SkipCodes)
 	assert.Equal(t, "secret", cfg.APIKey)
+	assert.Equal(t, 10.0, cfg.RateLimit)
+}
+
+func TestConfigFromMap_RateLimit(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   registry.Config
+		expected float64
+	}{
+		{
+			name: "rate_limit as float64",
+			config: registry.Config{
+				"uri":        "https://api.example.com",
+				"rate_limit": 5.5,
+			},
+			expected: 5.5,
+		},
+		{
+			name: "rate_limit as int",
+			config: registry.Config{
+				"uri":        "https://api.example.com",
+				"rate_limit": 10,
+			},
+			expected: 10.0,
+		},
+		{
+			name: "rate_limit not set",
+			config: registry.Config{
+				"uri": "https://api.example.com",
+			},
+			expected: 0.0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := ConfigFromMap(tt.config)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, cfg.RateLimit)
+		})
+	}
+}
+
+func TestConfigFromMap_RateLimitNegative(t *testing.T) {
+	tests := []struct {
+		name   string
+		config registry.Config
+	}{
+		{
+			name: "negative float64",
+			config: registry.Config{
+				"uri":        "https://api.example.com",
+				"rate_limit": -5.0,
+			},
+		},
+		{
+			name: "negative int",
+			config: registry.Config{
+				"uri":        "https://api.example.com",
+				"rate_limit": -10,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := ConfigFromMap(tt.config)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "rate_limit must be non-negative")
+		})
+	}
 }

@@ -166,6 +166,7 @@ func runScan(ctx context.Context, cfg *scanConfig, eval harnesses.Evaluator) err
 			"model":       generatorCfg.Model,
 			"temperature": generatorCfg.Temperature,
 			"api_key":     generatorCfg.APIKey,
+			"rate_limit":  generatorCfg.RateLimit,
 		}
 	} else if cfg.configJSON != "" {
 		// Fall back to JSON config
@@ -253,13 +254,19 @@ func runScan(ctx context.Context, cfg *scanConfig, eval harnesses.Evaluator) err
 	}
 
 	// Ensure scannerOpts exists even if no config provided
+	// Start with defaults, then override with CLI flags if set
 	if scannerOpts == nil {
-		scannerOpts = &scanner.Options{
-			Concurrency:  cfg.concurrency,
-			ProbeTimeout: cfg.probeTimeout,
-			Timeout:      cfg.timeout,
-			RetryCount:   0,
-			RetryBackoff: 1 * time.Second,
+		defaults := scanner.DefaultOptions()
+		scannerOpts = &defaults
+		// Override with CLI flags only if explicitly set (non-zero)
+		if cfg.concurrency > 0 {
+			scannerOpts.Concurrency = cfg.concurrency
+		}
+		if cfg.probeTimeout > 0 {
+			scannerOpts.ProbeTimeout = cfg.probeTimeout
+		}
+		if cfg.timeout > 0 {
+			scannerOpts.Timeout = cfg.timeout
 		}
 	}
 
@@ -321,6 +328,9 @@ func runScan(ctx context.Context, cfg *scanConfig, eval harnesses.Evaluator) err
 	harnessConfig := registry.Config{}
 	if scannerOpts != nil {
 		harnessConfig["scanner_opts"] = scannerOpts
+		// Pass concurrency and timeout directly for harnesses that don't use scanner_opts
+		harnessConfig["concurrency"] = scannerOpts.Concurrency
+		harnessConfig["timeout"] = scannerOpts.Timeout
 	}
 	harness, err := harnesses.Create(cfg.harnessName, harnessConfig)
 	if err != nil {

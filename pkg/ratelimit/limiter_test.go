@@ -2,6 +2,7 @@ package ratelimit
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -64,4 +65,41 @@ func TestLimiter_TryAcquire_NonBlocking(t *testing.T) {
 
 	// Third should fail (no wait)
 	require.False(t, limiter.TryAcquire())
+}
+
+func TestLimiter_ConcurrentAccess(t *testing.T) {
+	// High capacity and rate for fast concurrent test
+	limiter := NewLimiter(100, 1000.0)
+
+	const goroutines = 50
+	const requestsPerGoroutine = 2
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, goroutines*requestsPerGoroutine)
+
+	// Launch concurrent goroutines
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < requestsPerGoroutine; j++ {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				err := limiter.Wait(ctx)
+				cancel()
+				if err != nil {
+					errCh <- err
+					return
+				}
+			}
+		}()
+	}
+
+	// Wait for all goroutines to complete
+	wg.Wait()
+	close(errCh)
+
+	// Check for errors
+	for err := range errCh {
+		t.Errorf("unexpected error during concurrent access: %v", err)
+	}
 }

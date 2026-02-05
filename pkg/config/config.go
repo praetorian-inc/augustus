@@ -38,6 +38,7 @@ type GeneratorConfig struct {
 	Model       string  `yaml:"model" koanf:"model"`
 	Temperature float64 `yaml:"temperature" koanf:"temperature" validate:"gte=0,lte=2"`
 	APIKey      string  `yaml:"api_key,omitempty" koanf:"api_key"`
+	RateLimit   float64 `yaml:"rate_limit,omitempty" koanf:"rate_limit" validate:"gte=0"` // Requests per second
 }
 
 // ProbeConfig contains probe-specific configuration

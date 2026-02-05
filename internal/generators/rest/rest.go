@@ -20,6 +20,7 @@ import (
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
+	"github.com/praetorian-inc/augustus/pkg/ratelimit"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"golang.org/x/net/http2"
 )
@@ -70,6 +71,7 @@ type Rest struct {
 	apiKey            string
 	proxyURL          *url.URL
 	client            *http.Client
+	limiter           *ratelimit.Limiter // Pre-request rate limiter
 }
 
 // NewRest creates a new REST generator from configuration.
@@ -197,6 +199,20 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 	}
 	r.proxyURL = proxyURL
 
+	// Optional: Rate limiting (requests per second)
+	// Supports both float64 (from JSON) and int
+	if rateLimit, ok := cfg["rate_limit"].(float64); ok && rateLimit > 0 {
+		// Token bucket: capacity must be >= 1.0 to allow at least one request
+		// For rates < 1.0, we still need capacity for 1 token, but refill slowly
+		capacity := rateLimit
+		if capacity < 1.0 {
+			capacity = 1.0 // Ensure we can always make at least one request
+		}
+		r.limiter = ratelimit.NewLimiter(capacity, rateLimit)
+	} else if rateLimit, ok := cfg["rate_limit"].(int); ok && rateLimit > 0 {
+		r.limiter = ratelimit.NewLimiter(float64(rateLimit), float64(rateLimit))
+	}
+
 	// Create HTTP client
 	r.client = &http.Client{
 		Transport: defaultTransport(r.proxyURL),
@@ -227,6 +243,13 @@ func (r *Rest) Generate(ctx context.Context, conv *attempt.Conversation, n int) 
 
 // callAPI makes a single API call and returns the response.
 func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt.Message, error) {
+	// Apply rate limiting if configured
+	if r.limiter != nil {
+		if err := r.limiter.Wait(ctx); err != nil {
+			return attempt.Message{}, fmt.Errorf("rest: rate limit wait cancelled: %w", err)
+		}
+	}
+
 	prompt := conv.LastPrompt()
 
 	// Populate request template

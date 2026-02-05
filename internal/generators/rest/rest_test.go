@@ -1016,3 +1016,144 @@ func TestRestGenerator_SSEMixedWithNonJSON(t *testing.T) {
 		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
 	}
 }
+
+func TestRestGenerator_RateLimitConfig(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("response"))
+	}))
+	defer server.Close()
+
+	tests := []struct {
+		name          string
+		rateLimit     any
+		expectLimiter bool
+	}{
+		{"no rate limit", nil, false},
+		{"rate limit as float64", 10.0, true},
+		{"rate limit as int", 5, true},
+		{"rate limit zero", 0.0, false},
+		{"rate limit fractional", 0.5, true}, // 1 request per 2 seconds
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := registry.Config{
+				"uri": server.URL,
+			}
+			if tt.rateLimit != nil {
+				cfg["rate_limit"] = tt.rateLimit
+			}
+
+			gen, err := NewRest(cfg)
+			if err != nil {
+				t.Fatalf("NewRest() error = %v", err)
+			}
+
+			rest := gen.(*Rest)
+			if tt.expectLimiter && rest.limiter == nil {
+				t.Error("expected limiter to be set, got nil")
+			}
+			if !tt.expectLimiter && rest.limiter != nil {
+				t.Error("expected no limiter, got non-nil")
+			}
+		})
+	}
+}
+
+func TestRestGenerator_RateLimitEnforced(t *testing.T) {
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("response"))
+	}))
+	defer server.Close()
+
+	// Set rate limit to 100 requests per second (fast enough for testing)
+	gen, err := NewRest(registry.Config{
+		"uri":        server.URL,
+		"rate_limit": 100.0,
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	rest := gen.(*Rest)
+	if rest.limiter == nil {
+		t.Fatal("limiter should be configured")
+	}
+
+	// Make multiple requests - they should all succeed
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test prompt")
+
+	for i := 0; i < 5; i++ {
+		msgs, err := gen.Generate(context.Background(), conv, 1)
+		if err != nil {
+			t.Fatalf("Generate() error on iteration %d: %v", i, err)
+		}
+		if len(msgs) != 1 {
+			t.Fatalf("Generate() returned %d messages, want 1", len(msgs))
+		}
+	}
+
+	if requestCount != 5 {
+		t.Errorf("expected 5 requests, got %d", requestCount)
+	}
+}
+
+func TestRestGenerator_RateLimitFractional(t *testing.T) {
+	// Test that fractional rate limits (< 1.0) work correctly
+	// This was a bug where rate_limit < 1.0 would cause infinite blocking
+	requestCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("response"))
+	}))
+	defer server.Close()
+
+	// rate_limit: 0.5 = 1 request per 2 seconds
+	gen, err := NewRest(registry.Config{
+		"uri":        server.URL,
+		"rate_limit": 0.5,
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	rest := gen.(*Rest)
+	if rest.limiter == nil {
+		t.Fatal("limiter should be configured for fractional rate")
+	}
+
+	// Make 2 requests with a timeout - should not block forever
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test prompt")
+
+	start := time.Now()
+	for i := 0; i < 2; i++ {
+		msgs, err := gen.Generate(ctx, conv, 1)
+		if err != nil {
+			t.Fatalf("Generate() error on iteration %d: %v", i, err)
+		}
+		if len(msgs) != 1 {
+			t.Fatalf("Generate() returned %d messages, want 1", len(msgs))
+		}
+	}
+	elapsed := time.Since(start)
+
+	if requestCount != 2 {
+		t.Errorf("expected 2 requests, got %d", requestCount)
+	}
+
+	// With rate_limit=0.5, second request should wait ~2 seconds
+	// Allow some tolerance for test timing
+	if elapsed < 1*time.Second {
+		t.Errorf("expected rate limiting delay, but elapsed time was only %v", elapsed)
+	}
+}
