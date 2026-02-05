@@ -7,6 +7,7 @@ package treesearch
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
@@ -15,8 +16,12 @@ import (
 )
 
 func init() {
+	// Register probes
 	probes.Register("treesearch.TopicTree", NewTopicTreeFromConfig)
 	probes.Register("treesearch.TopicTreeDeep", NewTopicTreeDeepFromConfig)
+
+	// Initialize topic tree parent references
+	initializeTree(topicTree, nil)
 }
 
 // TopicNode represents a node in the topic tree.
@@ -89,10 +94,7 @@ func initializeTree(node *TopicNode, parent *TopicNode) {
 	}
 }
 
-func init() {
-	// Set up parent references
-	initializeTree(topicTree, nil)
-}
+
 
 // TopicTreeProbe implements tree search over harmful topic categories.
 type TopicTreeProbe struct {
@@ -246,11 +248,11 @@ func (d *simpleDetector) Detect(ctx context.Context, a *attempt.Attempt) ([]floa
 	}
 
 	for i, output := range a.Outputs {
-		outputLower := toLower(output)
+		outputLower := strings.ToLower(output)
 		isRefusal := false
 		
 		for _, pattern := range refusalPatterns {
-			if contains(outputLower, pattern) {
+			if strings.Contains(outputLower, pattern) {
 				isRefusal = true
 				break
 			}
@@ -264,30 +266,6 @@ func (d *simpleDetector) Detect(ctx context.Context, a *attempt.Attempt) ([]floa
 	}
 
 	return scores, nil
-}
-
-// toLower converts string to lowercase without importing strings package.
-func toLower(s string) string {
-	result := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			result[i] = c + 32
-		} else {
-			result[i] = c
-		}
-	}
-	return string(result)
-}
-
-// contains checks if s contains substr.
-func contains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 // ----------------------------------------------------------------------------
