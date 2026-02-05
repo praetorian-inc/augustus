@@ -1,9 +1,9 @@
-// Package nim provides a NVIDIA NIM generator for Augustus.
+// Package nemo provides a NVIDIA NeMo generator for Augustus.
 //
-// This package implements the Generator interface for NVIDIA's NIM
-// (NVIDIA Inference Microservices) endpoints. NIM provides OpenAI-compatible
-// APIs for models like LLaMA-2 and Mixtral.
-package nim
+// This package implements the Generator interface for NVIDIA's NeMo
+// (NVIDIA Optimized Inference) endpoints. NeMo provides OpenAI-compatible
+// APIs for models hosted on NVIDIA NGC.
+package nemo
 
 import (
 	"context"
@@ -17,20 +17,16 @@ import (
 )
 
 const (
-	// DefaultBaseURL is the default NIM API base URL.
-	// Users should override this with their actual NIM endpoint.
-	DefaultBaseURL = "https://integrate.api.nvidia.com/v1"
+	// DefaultBaseURL is the default NeMo API base URL.
+	DefaultBaseURL = "https://api.llm.ngc.nvidia.com/v1"
 )
 
 func init() {
-	generators.Register("nim.NIM", NewNIM)
-	generators.Register("nim.NVOpenAICompletion", NewNVOpenAICompletion)
-	generators.Register("nim.NVMultimodal", NewNVMultimodal)
-	generators.Register("nim.Vision", NewVision)
+	generators.Register("nemo.NeMo", NewNeMo)
 }
 
-// NIM is a generator that wraps NVIDIA NIM endpoints using OpenAI-compatible API.
-type NIM struct {
+// NeMo is a generator that wraps NVIDIA NeMo endpoints using OpenAI-compatible API.
+type NeMo struct {
 	client *goopenai.Client
 	model  string
 
@@ -38,36 +34,39 @@ type NIM struct {
 	temperature float32
 	maxTokens   int
 	topP        float32
+	topK        int
 }
 
-// NewNIM creates a new NIM generator from configuration.
-func NewNIM(cfg registry.Config) (generators.Generator, error) {
-	g := &NIM{
-		temperature: 0.7, // Default temperature
+// NewNeMo creates a new NeMo generator from configuration.
+func NewNeMo(cfg registry.Config) (generators.Generator, error) {
+	g := &NeMo{
+		temperature: 0.9, // Default temperature from Garak
+		topP:        1.0, // Default top_p from Garak
+		topK:        2,   // Default top_k from Garak
 	}
 
 	// Required: model name
 	model, ok := cfg["model"].(string)
 	if !ok || model == "" {
-		return nil, fmt.Errorf("nim generator requires 'model' configuration")
+		return nil, fmt.Errorf("nemo generator requires 'model' configuration")
 	}
 	g.model = model
 
-	// API key: from config or env var
+	// API key: from config or env var (NGC_API_KEY to match Garak)
 	apiKey := ""
 	if key, ok := cfg["api_key"].(string); ok && key != "" {
 		apiKey = key
 	} else {
-		apiKey = os.Getenv("NIM_API_KEY")
+		apiKey = os.Getenv("NGC_API_KEY")
 	}
 	if apiKey == "" {
-		return nil, fmt.Errorf("nim generator requires 'api_key' configuration or NIM_API_KEY environment variable")
+		return nil, fmt.Errorf("nemo generator requires 'api_key' configuration or NGC_API_KEY environment variable")
 	}
 
 	// Create client config
 	config := goopenai.DefaultConfig(apiKey)
 
-	// Base URL: from config or use default NIM endpoint
+	// Base URL: from config or use default NeMo endpoint
 	if baseURL, ok := cfg["base_url"].(string); ok && baseURL != "" {
 		config.BaseURL = baseURL
 	} else {
@@ -93,11 +92,18 @@ func NewNIM(cfg registry.Config) (generators.Generator, error) {
 		g.topP = float32(topP)
 	}
 
+	// Optional: top_k (NeMo-specific)
+	if topK, ok := cfg["top_k"].(int); ok {
+		g.topK = topK
+	} else if topK, ok := cfg["top_k"].(float64); ok {
+		g.topK = int(topK)
+	}
+
 	return g, nil
 }
 
-// Generate sends the conversation to NIM and returns responses.
-func (g *NIM) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
+// Generate sends the conversation to NeMo and returns responses.
+func (g *NeMo) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
 	if n <= 0 {
 		return []attempt.Message{}, nil
 	}
@@ -106,7 +112,7 @@ func (g *NIM) Generate(ctx context.Context, conv *attempt.Conversation, n int) (
 }
 
 // generateChat handles chat completion requests.
-func (g *NIM) generateChat(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
+func (g *NeMo) generateChat(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
 	// Convert conversation to OpenAI message format
 	messages := g.conversationToMessages(conv)
 
@@ -142,7 +148,7 @@ func (g *NIM) generateChat(ctx context.Context, conv *attempt.Conversation, n in
 }
 
 // conversationToMessages converts an Augustus Conversation to OpenAI messages.
-func (g *NIM) conversationToMessages(conv *attempt.Conversation) []goopenai.ChatCompletionMessage {
+func (g *NeMo) conversationToMessages(conv *attempt.Conversation) []goopenai.ChatCompletionMessage {
 	messages := make([]goopenai.ChatCompletionMessage, 0)
 
 	// Add system message if present
@@ -173,8 +179,8 @@ func (g *NIM) conversationToMessages(conv *attempt.Conversation) []goopenai.Chat
 	return messages
 }
 
-// wrapError wraps NIM API errors with more context.
-func (g *NIM) wrapError(err error) error {
+// wrapError wraps NeMo API errors with more context.
+func (g *NeMo) wrapError(err error) error {
 	if err == nil {
 		return nil
 	}
@@ -183,44 +189,30 @@ func (g *NIM) wrapError(err error) error {
 	if apiErr, ok := err.(*goopenai.APIError); ok {
 		switch apiErr.HTTPStatusCode {
 		case 429:
-			return fmt.Errorf("nim: rate limit exceeded: %w", err)
+			return fmt.Errorf("nemo: rate limit exceeded: %w", err)
 		case 400:
-			return fmt.Errorf("nim: bad request: %w", err)
+			return fmt.Errorf("nemo: bad request: %w", err)
 		case 401:
-			return fmt.Errorf("nim: authentication error: %w", err)
+			return fmt.Errorf("nemo: authentication error: %w", err)
 		case 500, 502, 503, 504:
-			return fmt.Errorf("nim: server error: %w", err)
+			return fmt.Errorf("nemo: server error: %w", err)
 		default:
-			return fmt.Errorf("nim: API error: %w", err)
+			return fmt.Errorf("nemo: API error: %w", err)
 		}
 	}
 
-	return fmt.Errorf("nim: %w", err)
+	return fmt.Errorf("nemo: %w", err)
 }
 
-// ClearHistory is a no-op for NIM generator (stateless per call).
-func (g *NIM) ClearHistory() {}
+// ClearHistory is a no-op for NeMo generator (stateless per call).
+func (g *NeMo) ClearHistory() {}
 
 // Name returns the generator's fully qualified name.
-func (g *NIM) Name() string {
-	return "nim.NIM"
+func (g *NeMo) Name() string {
+	return "nemo.NeMo"
 }
 
 // Description returns a human-readable description.
-func (g *NIM) Description() string {
-	return "NVIDIA NIM (Inference Microservices) generator for LLaMA-2, Mixtral, and other models"
-}
-
-// getAPIKey extracts the API key from config or environment variable.
-func getAPIKey(cfg registry.Config) (string, error) {
-	apiKey := ""
-	if key, ok := cfg["api_key"].(string); ok && key != "" {
-		apiKey = key
-	} else {
-		apiKey = os.Getenv("NIM_API_KEY")
-	}
-	if apiKey == "" {
-		return "", fmt.Errorf("nim generator requires 'api_key' configuration or NIM_API_KEY environment variable")
-	}
-	return apiKey, nil
+func (g *NeMo) Description() string {
+	return "NVIDIA NeMo generator for models hosted on NGC"
 }

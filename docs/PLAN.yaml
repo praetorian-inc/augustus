@@ -651,10 +651,10 @@ future_research:
           - "Assess overlap with existing domain-specific probes"
         notes: "May overlap with Domain-Specific Scenarios in Phase 2.5"
 
-  notes:
-    - "Future research phases will be prioritized after Phases 1-4 complete"
-    - "Base64 and Clingan are pending research validation before task breakdown"
-    - "These may be integrated into existing phases if research reveals overlap"
+    notes:
+      - "Future research phases will be prioritized after Phases 1-4 complete"
+      - "Base64 and Clingan are pending research validation before task breakdown"
+      - "These may be integrated into existing phases if research reveals overlap"
 
 # ============================================================
 # QUICK WINS (IMPLEMENT FIRST)
