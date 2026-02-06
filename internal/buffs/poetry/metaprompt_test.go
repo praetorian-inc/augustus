@@ -373,6 +373,7 @@ func TestMetaPromptBuff_LLMTransformVerifiesPromptFormat(t *testing.T) {
 	buff := &MetaPromptBuff{
 		transformGen: mock,
 		format:       "haiku",
+		strategy:     "metaphorical",
 		metaPrompt:   defaultMetaPrompt,
 	}
 
@@ -573,4 +574,43 @@ func TestMetaPromptBuff_MultiFormatTransform(t *testing.T) {
 	assert.True(t, formats["haiku"])
 	assert.True(t, formats["sonnet"])
 	assert.True(t, formats["limerick"])
+}
+
+func TestMetaPromptBuff_AllStrategiesConfig(t *testing.T) {
+	callCount := 0
+	mock := &mockGenerator{
+		generateFunc: func(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
+			callCount++
+			return []attempt.Message{{Content: fmt.Sprintf("poem %d", callCount)}}, nil
+		},
+	}
+
+	buff := &MetaPromptBuff{
+		transformGen: mock,
+		format:       "haiku",
+		strategy:     "all",
+	}
+
+	a := &attempt.Attempt{
+		Prompt:   "Test prompt",
+		Metadata: make(map[string]any),
+	}
+
+	var transformed []*attempt.Attempt
+	for tt := range buff.Transform(a) {
+		transformed = append(transformed, tt)
+	}
+
+	// original + 3 strategies = 4
+	assert.Equal(t, 4, len(transformed))
+
+	strategies := make(map[string]bool)
+	for _, tt := range transformed[1:] {
+		if s, ok := tt.Metadata["transform_strategy"].(string); ok {
+			strategies[s] = true
+		}
+	}
+	assert.True(t, strategies["allegorical"])
+	assert.True(t, strategies["metaphorical"])
+	assert.True(t, strategies["narrative"])
 }

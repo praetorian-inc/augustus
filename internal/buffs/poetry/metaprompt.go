@@ -89,31 +89,39 @@ func (m *MetaPromptBuff) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt
 			formats[i] = strings.TrimSpace(formats[i])
 		}
 
-		// Transform for each format
-		for _, format := range formats {
-			poetryPrompt, err := m.transformToPoetryWithFormat(context.Background(), a.Prompt, format)
-			if err != nil {
-				// On error, store error in metadata but continue
-				errAttempt := copyAttempt(a)
-				errAttempt.Metadata["poetry_transform_error"] = err.Error()
-				if !yield(errAttempt) {
+		// Expand "all" strategy into all available strategies
+		strategies := []string{m.strategy}
+		if m.strategy == "all" {
+			strategies = AvailableStrategies()
+		}
+
+		// Transform for each strategy and format combination
+		for _, strategy := range strategies {
+			for _, format := range formats {
+				poetryPrompt, err := m.transformToPoetryWithFormatAndStrategy(context.Background(), a.Prompt, format, strategy)
+				if err != nil {
+					// On error, store error in metadata but continue
+					errAttempt := copyAttempt(a)
+					errAttempt.Metadata["poetry_transform_error"] = err.Error()
+					if !yield(errAttempt) {
+						return
+					}
+					continue
+				}
+
+				// Create poetry-transformed attempt
+				transformed := copyAttempt(a)
+				transformed.Prompt = poetryPrompt
+				transformed.Prompts = []string{poetryPrompt}
+				transformed.Metadata["original_prompt"] = a.Prompt
+				transformed.Metadata["poetry_format"] = format
+				transformed.Metadata["transform_method"] = "meta_prompt"
+				transformed.Metadata["transform_strategy"] = strategy
+				transformed.Metadata["word_overlap_ratio"] = wordOverlapRatio(a.Prompt, poetryPrompt)
+
+				if !yield(transformed) {
 					return
 				}
-				continue
-			}
-
-			// Create poetry-transformed attempt
-			transformed := copyAttempt(a)
-			transformed.Prompt = poetryPrompt
-			transformed.Prompts = []string{poetryPrompt}
-			transformed.Metadata["original_prompt"] = a.Prompt
-			transformed.Metadata["poetry_format"] = format
-			transformed.Metadata["transform_method"] = "meta_prompt"
-			transformed.Metadata["transform_strategy"] = m.strategy
-			transformed.Metadata["word_overlap_ratio"] = wordOverlapRatio(a.Prompt, poetryPrompt)
-
-			if !yield(transformed) {
-				return
 			}
 		}
 	}
@@ -145,6 +153,16 @@ func (m *MetaPromptBuff) transformToPoetry(ctx context.Context, text string) (st
 
 // transformToPoetryWithFormat converts text to poetry using a specific format.
 func (m *MetaPromptBuff) transformToPoetryWithFormat(ctx context.Context, text, format string) (string, error) {
+	// Default to metaphorical if strategy is empty (for backward compatibility)
+	strategy := m.strategy
+	if strategy == "" {
+		strategy = "metaphorical"
+	}
+	return m.transformToPoetryWithFormatAndStrategy(ctx, text, format, strategy)
+}
+
+// transformToPoetryWithFormatAndStrategy converts text to poetry using specific format and strategy.
+func (m *MetaPromptBuff) transformToPoetryWithFormatAndStrategy(ctx context.Context, text, format, strategy string) (string, error) {
 	// If no generator, use simple template-based transformation
 	if m.transformGen == nil {
 		// Temporarily set format for template transform
@@ -156,11 +174,6 @@ func (m *MetaPromptBuff) transformToPoetryWithFormat(ctx context.Context, text, 
 	}
 
 	// Use strategy-specific meta-prompt with few-shot exemplars
-	// Default to metaphorical if strategy is empty (for backward compatibility)
-	strategy := m.strategy
-	if strategy == "" {
-		strategy = "metaphorical"
-	}
 	prompt := BuildMetaPrompt(strategy, format, text)
 
 	conv := attempt.NewConversation()
