@@ -23,8 +23,8 @@ type Config struct {
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
-		Temperature: 0.7,            // Match default from groq.go
-		MaxRetries:  DefaultMaxRetries,
+		Temperature: 0.7, // Match default from groq.go
+		MaxRetries:  3,   // Default max retries for rate limiting
 	}
 }
 
