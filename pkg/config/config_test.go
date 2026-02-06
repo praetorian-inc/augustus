@@ -558,3 +558,59 @@ output:
 	assert.Equal(t, 0, cfg.Run.Concurrency)    // 0 means "not set", default applied in scanner
 	assert.Equal(t, "", cfg.Run.ProbeTimeout)  // empty means "not set", default applied in scanner
 }
+
+// TestBuffsYAML tests loading buff configuration from YAML
+func TestBuffsYAML(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	yamlContent := `
+buffs:
+  names:
+    - encoding.Base64
+    - lrl.LRLBuff
+  settings:
+    lrl.LRLBuff:
+      api_key: test-key
+      rate_limit: 5.0
+      burst_size: 10.0
+`
+
+	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	require.NoError(t, err)
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	// Verify buffs are loaded correctly
+	assert.Equal(t, []string{"encoding.Base64", "lrl.LRLBuff"}, cfg.Buffs.Names)
+	assert.NotNil(t, cfg.Buffs.Settings["lrl.LRLBuff"])
+	assert.Equal(t, "test-key", cfg.Buffs.Settings["lrl.LRLBuff"]["api_key"])
+	assert.Equal(t, 5.0, cfg.Buffs.Settings["lrl.LRLBuff"]["rate_limit"])
+	assert.Equal(t, 10.0, cfg.Buffs.Settings["lrl.LRLBuff"]["burst_size"])
+}
+
+// TestBuffsMerge tests merging buff configuration
+func TestBuffsMerge(t *testing.T) {
+	base := &Config{
+		Buffs: BuffConfig{
+			Names: []string{"encoding.Base64"},
+		},
+	}
+	overlay := &Config{
+		Buffs: BuffConfig{
+			Names: []string{"lrl.LRLBuff"},
+			Settings: map[string]map[string]any{
+				"lrl.LRLBuff": {"rate_limit": 5.0},
+			},
+		},
+	}
+
+	base.Merge(overlay)
+
+	// Overlay should win
+	assert.Equal(t, []string{"lrl.LRLBuff"}, base.Buffs.Names)
+	assert.NotNil(t, base.Buffs.Settings["lrl.LRLBuff"])
+	assert.Equal(t, 5.0, base.Buffs.Settings["lrl.LRLBuff"]["rate_limit"])
+}

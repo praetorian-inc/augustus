@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/buffs"
 	"github.com/praetorian-inc/augustus/pkg/cli"
 	"github.com/praetorian-inc/augustus/pkg/config"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
@@ -27,6 +28,7 @@ type scanConfig struct {
 	generatorName string
 	probeNames    []string
 	detectorNames []string
+	buffNames     []string
 	harnessName   string
 	configFile    string // YAML config file path
 	configJSON    string
@@ -62,6 +64,7 @@ func (s *ScanCmd) loadScanConfig() *scanConfig {
 		generatorName: s.Generator,
 		probeNames:    s.Probe,
 		detectorNames: s.Detectors,
+		buffNames:     s.Buff,
 		harnessName:   s.Harness,
 		configFile:    s.ConfigFile,
 		configJSON:    s.Config,
@@ -100,6 +103,18 @@ func (s *ScanCmd) expandGlobPatterns(cfg *scanConfig) error {
 			return fmt.Errorf("no detectors match pattern: %s", s.DetectorsGlob)
 		}
 		cfg.detectorNames = matches
+	}
+
+	// Handle glob patterns for buffs
+	if s.BuffsGlob != "" {
+		matches, err := cli.ParseCommaSeparatedGlobs(s.BuffsGlob, buffs.List())
+		if err != nil {
+			return fmt.Errorf("invalid --buffs-glob: %w", err)
+		}
+		if len(matches) == 0 {
+			return fmt.Errorf("no buffs match pattern: %s", s.BuffsGlob)
+		}
+		cfg.buffNames = matches
 	}
 
 	return nil
@@ -314,6 +329,52 @@ func runScan(ctx context.Context, cfg *scanConfig, eval harnesses.Evaluator) err
 
 		if len(detectorList) == 0 {
 			return errors.New("no detectors available")
+		}
+	}
+
+	// Create buffs (if configured)
+	var buffChain *buffs.BuffChain
+	// Get buff names from CLI or YAML config
+	buffNames := cfg.buffNames
+	if len(buffNames) == 0 && yamlCfg != nil && len(yamlCfg.Buffs.Names) > 0 {
+		buffNames = yamlCfg.Buffs.Names
+	}
+
+	if len(buffNames) > 0 {
+		buffList := make([]buffs.Buff, 0, len(buffNames))
+		for _, buffName := range buffNames {
+			// Get per-buff settings from YAML config if available
+			buffCfg := registry.Config{}
+			if yamlCfg != nil && yamlCfg.Buffs.Settings != nil {
+				if settings, ok := yamlCfg.Buffs.Settings[buffName]; ok {
+					for k, v := range settings {
+						buffCfg[k] = v
+					}
+				}
+			}
+
+			buff, err := buffs.Create(buffName, buffCfg)
+			if err != nil {
+				return fmt.Errorf("failed to create buff %s: %w", buffName, err)
+			}
+			buffList = append(buffList, buff)
+		}
+		buffChain = buffs.NewBuffChain(buffList...)
+
+		fmt.Printf("Using %d buff(s): ", len(buffList))
+		for i, b := range buffList {
+			if i > 0 {
+				fmt.Print(", ")
+			}
+			fmt.Print(b.Name())
+		}
+		fmt.Println()
+	}
+
+	// Wrap probes with buffs if configured
+	if buffChain != nil && !buffChain.IsEmpty() {
+		for i, probe := range probeList {
+			probeList[i] = buffs.NewBuffedProber(probe, buffChain, gen)
 		}
 	}
 

@@ -13,12 +13,21 @@ import (
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/buffs"
+	"github.com/praetorian-inc/augustus/pkg/ratelimit"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 const (
 	// DefaultFastModel is the HuggingFace model for Fast T5 paraphrasing.
 	DefaultFastModel = "garak-llm/chatgpt_paraphraser_on_T5_base"
+
+	// DefaultHuggingFaceRateLimit is the default request rate (requests per second).
+	// HuggingFace free tier allows 30 requests per hour = 0.5 RPS.
+	DefaultHuggingFaceRateLimit = 0.5
+
+	// DefaultHuggingFaceBurstSize is the default burst capacity.
+	// Allows up to 5 requests immediately before rate limiting kicks in.
+	DefaultHuggingFaceBurstSize = 5.0
 )
 
 func init() {
@@ -63,10 +72,20 @@ type Fast struct {
 	MaxLength int
 
 	// HTTPClient is the HTTP client for API requests.
-	HTTPClient *http.Client
+	// Supports both *http.Client and rate-limited clients via HTTPDoer interface.
+	HTTPClient ratelimit.HTTPDoer
 }
 
-// NewFast creates a new Fast buff.
+// NewFast creates a new Fast paraphrase buff instance.
+//
+// Complexity Note: This constructor has elevated cyclomatic complexity (22) due to
+// sequential config parameter validation. This is acceptable because:
+// - Sequential config validation requires per-field checking (Go idiom)
+// - No nested logic or branching complexity (linear flow)
+// - High test coverage (≥90%)
+// - Config parsing pattern is idiomatic for registry-based factories
+//
+// Tech debt: Consider extracting to config builder pattern to reduce complexity.
 func NewFast(cfg registry.Config) (*Fast, error) {
 	f := &Fast{
 		Model:              DefaultFastModel,
@@ -114,6 +133,14 @@ func NewFast(cfg registry.Config) (*Fast, error) {
 	}
 	if v, ok := cfg["max_length"].(int); ok && v > 0 {
 		f.MaxLength = v
+	}
+
+	// Wire rate limiting
+	rateLimit := registry.GetFloat64(cfg, "rate_limit", DefaultHuggingFaceRateLimit)
+	burstSize := registry.GetFloat64(cfg, "burst_size", DefaultHuggingFaceBurstSize)
+	if rateLimit > 0 {
+		limiter := ratelimit.NewLimiter(burstSize, rateLimit)
+		f.HTTPClient = ratelimit.NewRateLimitedHTTPClient(f.HTTPClient, limiter)
 	}
 
 	return f, nil

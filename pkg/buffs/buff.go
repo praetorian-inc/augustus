@@ -26,6 +26,16 @@ type Buff interface {
 	Description() string
 }
 
+// PostBuff is an optional interface for buffs that need to post-process
+// generator outputs after generation but before detection.
+type PostBuff interface {
+	Buff
+	// HasPostBuffHook returns true if this buff needs post-generation processing.
+	HasPostBuffHook() bool
+	// Untransform post-processes an attempt after generation.
+	Untransform(ctx context.Context, a *attempt.Attempt) (*attempt.Attempt, error)
+}
+
 // Registry is the global buff registry.
 var Registry = registry.New[Buff]("buffs")
 

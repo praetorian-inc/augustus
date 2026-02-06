@@ -105,3 +105,13 @@ func (c *Conversation) Clone() *Conversation {
 
 	return clone
 }
+
+// ReplaceLastPrompt replaces the content of the last turn's prompt.
+// Does nothing if there are no turns.
+func (c *Conversation) ReplaceLastPrompt(content string) {
+	if len(c.Turns) == 0 {
+		return
+	}
+	lastIdx := len(c.Turns) - 1
+	c.Turns[lastIdx].Prompt.Content = content
+}

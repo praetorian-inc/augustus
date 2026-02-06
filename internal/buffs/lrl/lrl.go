@@ -17,6 +17,7 @@ import (
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/buffs"
+	"github.com/praetorian-inc/augustus/pkg/ratelimit"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
@@ -62,7 +63,17 @@ func NewLRLBuff(cfg registry.Config) (buffs.Buff, error) {
 		return nil, errors.New("DEEPL_API_KEY environment variable or api_key config required")
 	}
 
-	translator := NewDeepLTranslator(apiKey)
+	// Create translator with optional rate limiting
+	var translator Translator = NewDeepLTranslator(apiKey)
+
+	// Parse rate limit config (default: 5 RPS, burst 20)
+	rateLimit := registry.GetFloat64(cfg, "rate_limit", DefaultDeepLRateLimit)
+	burstSize := registry.GetFloat64(cfg, "burst_size", DefaultDeepLBurstSize)
+	if rateLimit > 0 {
+		limiter := ratelimit.NewLimiter(burstSize, rateLimit)
+		translator = NewRateLimitedTranslator(translator, limiter)
+	}
+
 	return &LRLBuff{
 		translator: translator,
 		apiKey:     apiKey,

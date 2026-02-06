@@ -63,6 +63,10 @@ type ScanCmd struct {
 	Detectors     []string `help:"Detector names (repeatable)." name:"detector"`
 	DetectorsGlob string   `help:"Comma-separated detector glob patterns." name:"detectors-glob"`
 
+	// Buff selection
+	Buff      []string `help:"Buff names to apply (repeatable)." short:"b" name:"buff"`
+	BuffsGlob string   `help:"Comma-separated buff glob patterns (e.g., 'encoding.*')." name:"buffs-glob"`
+
 	// Configuration
 	ConfigFile string `help:"YAML config file path." type:"existingfile" name:"config-file"`
 	Config     string `help:"JSON config for generator." short:"c"`
