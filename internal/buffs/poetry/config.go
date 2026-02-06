@@ -11,6 +11,10 @@ type Config struct {
 
 	// TransformGenerator is the optional LLM generator name for transformation.
 	TransformGenerator string
+
+	// Strategy is the semantic reframing approach (allegorical, metaphorical, narrative).
+	// Defines how the harmful request is transformed into poetry.
+	Strategy string
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -18,6 +22,7 @@ func DefaultConfig() Config {
 	return Config{
 		Format:             "haiku",
 		TransformGenerator: "",
+		Strategy:           "metaphorical",
 	}
 }
 
@@ -31,6 +36,9 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 
 	// Optional: transform_generator
 	cfg.TransformGenerator = registry.GetString(m, "transform_generator", cfg.TransformGenerator)
+
+	// Optional: strategy
+	cfg.Strategy = registry.GetString(m, "strategy", cfg.Strategy)
 
 	return cfg, nil
 }
@@ -54,5 +62,12 @@ func WithFormat(format string) Option {
 func WithTransformGenerator(gen string) Option {
 	return func(c *Config) {
 		c.TransformGenerator = gen
+	}
+}
+
+// WithStrategy sets the transformation strategy.
+func WithStrategy(strategy string) Option {
+	return func(c *Config) {
+		c.Strategy = strategy
 	}
 }
