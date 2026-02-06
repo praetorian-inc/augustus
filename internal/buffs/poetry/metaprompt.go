@@ -1,4 +1,21 @@
 // Package poetry provides buffs that transform prompts into poetic structures.
+//
+// The MetaPromptBuff implements the LLM-based semantic reframing approach from
+// arXiv:2511.15304, using few-shot exemplar poems and strategy-specific meta-prompts
+// to convert prose harmful prompts into verse while preserving original task intent.
+//
+// Three transformation strategies are supported:
+//   - allegorical: embeds intent in extended allegory (paper's most effective technique)
+//   - metaphorical: uses condensed metaphors and imagery
+//   - narrative: wraps in narrative framing with concluding instruction line
+//
+// Configuration:
+//
+//	registry.Config{
+//	    "format":              "haiku",        // Poetry format (haiku, sonnet, limerick, or comma-separated)
+//	    "strategy":            "metaphorical", // Transformation strategy (allegorical, metaphorical, narrative, all)
+//	    "transform_generator": "openai.GPT4",  // LLM for transformation (optional, falls back to template)
+//	}
 package poetry
 
 import (
