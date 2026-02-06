@@ -534,3 +534,43 @@ func TestMetaPromptBuff_IntentPreservationMetadata(t *testing.T) {
 	_, hasOverlap := transformed[1].Metadata["word_overlap_ratio"]
 	assert.True(t, hasOverlap, "should track word overlap ratio for intent preservation")
 }
+
+func TestMetaPromptBuff_MultiFormatTransform(t *testing.T) {
+	callCount := 0
+	mock := &mockGenerator{
+		generateFunc: func(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
+			callCount++
+			return []attempt.Message{{Content: fmt.Sprintf("poem %d", callCount)}}, nil
+		},
+	}
+
+	buff := &MetaPromptBuff{
+		transformGen: mock,
+		format:       "haiku,sonnet,limerick",
+		strategy:     "metaphorical",
+	}
+
+	a := &attempt.Attempt{
+		Prompt:   "Test prompt",
+		Metadata: make(map[string]any),
+	}
+
+	var transformed []*attempt.Attempt
+	for tt := range buff.Transform(a) {
+		transformed = append(transformed, tt)
+	}
+
+	// Should yield: original + 1 per format = 4
+	assert.Equal(t, 4, len(transformed))
+
+	// Verify each format is represented
+	formats := make(map[string]bool)
+	for _, tt := range transformed[1:] {
+		if f, ok := tt.Metadata["poetry_format"].(string); ok {
+			formats[f] = true
+		}
+	}
+	assert.True(t, formats["haiku"])
+	assert.True(t, formats["sonnet"])
+	assert.True(t, formats["limerick"])
+}
