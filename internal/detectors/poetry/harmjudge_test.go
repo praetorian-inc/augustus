@@ -7,6 +7,7 @@ import (
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
+	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -163,4 +164,12 @@ func TestHarmJudge_LLMJudge_Error(t *testing.T) {
 	require.NoError(t, err) // Should not error, returns 0.5 on judge error
 	require.Len(t, scores, 1)
 	assert.Equal(t, 0.5, scores[0], "should return 0.5 on judge error")
+}
+
+func TestHarmJudge_InvalidGeneratorConfig(t *testing.T) {
+	_, err := NewHarmJudge(registry.Config{
+		"judge_generator": "invalid.Generator",
+	})
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "create judge generator")
 }
