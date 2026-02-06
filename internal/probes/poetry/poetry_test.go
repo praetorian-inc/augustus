@@ -52,8 +52,8 @@ func TestInjectHaiku_PromptsGenerated(t *testing.T) {
 	prompts := probe.GetPrompts()
 	assert.Greater(t, len(prompts), 0, "should generate prompts")
 
-	// 12 payloads × N templates = multiple prompts
-	assert.GreaterOrEqual(t, len(prompts), 12, "should have at least 12 prompts")
+	// 50+ payloads × N templates = multiple prompts
+	assert.GreaterOrEqual(t, len(prompts), 50, "should have at least 50 prompts")
 }
 
 func TestInjectHaiku_ThreeLines(t *testing.T) {
@@ -242,7 +242,7 @@ func TestInjectSonnet_PromptsGenerated(t *testing.T) {
 	require.NoError(t, err)
 
 	prompts := probe.GetPrompts()
-	assert.GreaterOrEqual(t, len(prompts), 12)
+	assert.GreaterOrEqual(t, len(prompts), 50)
 }
 
 func TestInjectLimerick_Interface(t *testing.T) {
@@ -259,7 +259,7 @@ func TestInjectLimerick_PromptsGenerated(t *testing.T) {
 	require.NoError(t, err)
 
 	prompts := probe.GetPrompts()
-	assert.GreaterOrEqual(t, len(prompts), 12)
+	assert.GreaterOrEqual(t, len(prompts), 50)
 }
 
 func TestInjectFreeVerse_Interface(t *testing.T) {
@@ -276,7 +276,7 @@ func TestInjectFreeVerse_PromptsGenerated(t *testing.T) {
 	require.NoError(t, err)
 
 	prompts := probe.GetPrompts()
-	assert.GreaterOrEqual(t, len(prompts), 12)
+	assert.GreaterOrEqual(t, len(prompts), 50)
 }
 
 func TestInjectRhymingCouplet_Interface(t *testing.T) {
@@ -293,7 +293,7 @@ func TestInjectRhymingCouplet_PromptsGenerated(t *testing.T) {
 	require.NoError(t, err)
 
 	prompts := probe.GetPrompts()
-	assert.GreaterOrEqual(t, len(prompts), 12)
+	assert.GreaterOrEqual(t, len(prompts), 50)
 }
 
 // E2E Validation Tests - Format Correctness
