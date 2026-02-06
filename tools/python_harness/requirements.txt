@@ -1,8 +1,0 @@
-# Python harness requirements
-#
-# garak is loaded from the local path: ../../garak/
-# Add to PYTHONPATH before running:
-#   export PYTHONPATH="${PYTHONPATH}:../../garak"
-#
-# Core dependencies (garak should provide these)
-# No additional dependencies required - using garak's environment
