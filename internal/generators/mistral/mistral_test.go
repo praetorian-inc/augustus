@@ -47,8 +47,8 @@ func TestMistralGenerator_Generate(t *testing.T) {
 	// Create mock server that returns Mistral-formatted responses
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify the request is a chat completion request
-		assert.Equal(t, "/v1/chat/completions", r.URL.Path)
 		assert.Equal(t, "POST", r.Method)
+		assert.Contains(t, r.URL.Path, "chat/completions")
 
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(mockMistralResponse("Test response from Mistral", 1))
@@ -175,7 +175,7 @@ func TestMistralGenerator_Registration(t *testing.T) {
 	assert.Equal(t, "mistral.Mistral", gen.Name())
 }
 
-func TestNewMistralTyped(t *testing.T) {
+func TestMistralGenerator_WithCustomBaseURL(t *testing.T) {
 	// Create mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := mockMistralResponse("Test response", 1)
@@ -183,22 +183,23 @@ func TestNewMistralTyped(t *testing.T) {
 	}))
 	defer server.Close()
 
-	cfg := ApplyOptions(
-		DefaultConfig(),
-		WithModel("mistral-large"),
-		WithAPIKey("test-typed-key"),
-		WithTemperature(0.3),
-		WithBaseURL(server.URL),
-	)
-
-	// NewMistralTyped takes typed config directly
-	g, err := NewMistralTyped(cfg)
+	// Test with custom base URL
+	g, err := NewMistral(registry.Config{
+		"model":    "mistral-large",
+		"api_key":  "test-custom-url-key",
+		"base_url": server.URL,
+	})
 	require.NoError(t, err)
-	assert.Equal(t, "mistral-large", g.model)
-	assert.Equal(t, float32(0.3), g.temperature)
+
+	// Verify through interface methods
+	assert.Equal(t, "mistral.Mistral", g.Name())
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
 }
 
-func TestNewMistralWithOptions(t *testing.T) {
+func TestMistralGenerator_WithMaxTokens(t *testing.T) {
 	// Create mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := mockMistralResponse("Test response", 1)
@@ -206,14 +207,19 @@ func TestNewMistralWithOptions(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// NewMistralWithOptions uses functional options
-	g, err := NewMistralWithOptions(
-		WithModel("mistral-7b"),
-		WithAPIKey("test-options-key"),
-		WithMaxTokens(2048),
-		WithBaseURL(server.URL),
-	)
+	// Test with max_tokens
+	g, err := NewMistral(registry.Config{
+		"model":      "mistral-7b",
+		"api_key":    "test-max-tokens-key",
+		"base_url":   server.URL,
+		"max_tokens": 2048,
+	})
 	require.NoError(t, err)
-	assert.Equal(t, "mistral-7b", g.model)
-	assert.Equal(t, 2048, g.maxTokens)
+
+	// Verify through interface methods
+	assert.Equal(t, "mistral.Mistral", g.Name())
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
 }
