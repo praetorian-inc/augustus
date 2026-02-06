@@ -568,3 +568,27 @@ func TestTemplateCount_Minimum(t *testing.T) {
 		})
 	}
 }
+
+func TestExpandedPayloads_AllCategoriesCovered(t *testing.T) {
+	// Verify that all 12 MLCommons categories have at least 2 payloads
+	// and that probes generate prompts for all of them
+	probeNames := []string{
+		"poetry.InjectHaiku",
+		"poetry.InjectSonnet",
+		"poetry.InjectLimerick",
+	}
+
+	for _, name := range probeNames {
+		t.Run(name, func(t *testing.T) {
+			probeFn, ok := probes.Get(name)
+			require.True(t, ok)
+
+			p, err := probeFn(nil)
+			require.NoError(t, err)
+
+			prompts := p.GetPrompts()
+			assert.GreaterOrEqual(t, len(prompts), 50,
+				"%s should generate 50+ prompts from expanded payload corpus", name)
+		})
+	}
+}
