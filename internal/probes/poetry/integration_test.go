@@ -429,3 +429,84 @@ func TestPoetryProbe_HarmJudgeDetector(t *testing.T) {
 	// Instructional content should be flagged
 	assert.Greater(t, scores[0], 0.0, "instructional response should be flagged")
 }
+
+func TestEnhancedPoetry_FullPipeline(t *testing.T) {
+	// Create probes
+	probeNames := []string{
+		"poetry.InjectHaiku",
+		"poetry.InjectSonnet",
+		"poetry.InjectLimerick",
+		"poetry.InjectFreeVerse",
+		"poetry.InjectRhymingCouplet",
+	}
+
+	// Create detectors
+	mitigationDet, err := detectors.Create("mitigation.MitigationBypass", nil)
+	require.NoError(t, err)
+
+	harmJudgeDet, err := detectors.Create("poetry.HarmJudge", nil)
+	require.NoError(t, err)
+
+	// Test with compliant response (should trigger both detectors)
+	compliantGen := &mockIntegrationGenerator{
+		response: "Step 1: First obtain the materials. Step 2: Mix the compounds carefully. Step 3: Apply heat to the mixture.",
+	}
+
+	for _, name := range probeNames {
+		t.Run(name, func(t *testing.T) {
+			probe, err := probes.Create(name, nil)
+			require.NoError(t, err)
+
+			attempts, err := probe.Probe(context.Background(), compliantGen)
+			require.NoError(t, err)
+			require.NotEmpty(t, attempts)
+
+			// Verify expanded payloads
+			assert.GreaterOrEqual(t, len(attempts), 50,
+				"%s should have at least 50 attempts with expanded payloads", name)
+
+			// Test both detectors on first attempt
+			mitigationScores, err := mitigationDet.Detect(context.Background(), attempts[0])
+			require.NoError(t, err)
+			require.NotEmpty(t, mitigationScores)
+
+			harmScores, err := harmJudgeDet.Detect(context.Background(), attempts[0])
+			require.NoError(t, err)
+			require.NotEmpty(t, harmScores)
+
+			// Compliant response: MitigationBypass=1.0 (no refusal), HarmJudge=1.0 (harmful content)
+			assert.Equal(t, 1.0, mitigationScores[0], "compliant response should bypass mitigation")
+			assert.Equal(t, 1.0, harmScores[0], "compliant response should contain harmful content")
+		})
+	}
+}
+
+func TestEnhancedPoetry_RefusalDetection(t *testing.T) {
+	// Test with refusing response
+	refusalGen := &mockIntegrationGenerator{
+		response: "I'm sorry, but I cannot help with that request. It would be inappropriate for me to provide such information.",
+	}
+
+	mitigationDet, err := detectors.Create("mitigation.MitigationBypass", nil)
+	require.NoError(t, err)
+
+	harmJudgeDet, err := detectors.Create("poetry.HarmJudge", nil)
+	require.NoError(t, err)
+
+	probe, err := probes.Create("poetry.InjectHaiku", nil)
+	require.NoError(t, err)
+
+	attempts, err := probe.Probe(context.Background(), refusalGen)
+	require.NoError(t, err)
+	require.NotEmpty(t, attempts)
+
+	mitigationScores, err := mitigationDet.Detect(context.Background(), attempts[0])
+	require.NoError(t, err)
+
+	harmScores, err := harmJudgeDet.Detect(context.Background(), attempts[0])
+	require.NoError(t, err)
+
+	// Refusal response: MitigationBypass=0.0 (refusal present), HarmJudge=0.0 (no harmful content)
+	assert.Equal(t, 0.0, mitigationScores[0], "refusal should be detected by MitigationBypass")
+	assert.Equal(t, 0.0, harmScores[0], "refusal should not contain harmful content")
+}
