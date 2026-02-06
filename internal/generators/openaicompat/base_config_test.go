@@ -75,3 +75,44 @@ func TestBaseConfigFromMap_DefaultValues(t *testing.T) {
 		t.Errorf("Expected default top_p 1.0, got %f", cfg.TopP)
 	}
 }
+
+func TestBaseConfig_String_MasksAPIKey(t *testing.T) {
+	cfg := BaseConfig{
+		Model:       "gpt-4",
+		APIKey:      "sk-1234567890abcdefghijklmnopqrstuvwxyz",
+		BaseURL:     "https://api.openai.com",
+		Temperature: 0.7,
+		MaxTokens:   1000,
+		TopP:        0.9,
+	}
+
+	str := cfg.String()
+
+	// Should contain model and other fields
+	if !contains(str, "gpt-4") {
+		t.Error("String() should contain model name")
+	}
+
+	// Should NOT contain full API key
+	if contains(str, "sk-1234567890abcdefghijklmnopqrstuvwxyz") {
+		t.Error("String() should not expose full API key")
+	}
+
+	// Should contain masked version
+	if !contains(str, "sk-***xyz") {
+		t.Error("String() should mask API key showing only prefix and suffix")
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || findSubstring(s, substr)))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

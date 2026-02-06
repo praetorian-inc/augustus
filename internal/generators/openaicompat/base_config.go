@@ -111,3 +111,27 @@ func ApplyOptions(cfg BaseConfig, opts ...registry.Option[BaseConfig]) BaseConfi
 	}
 	return cfg
 }
+
+// String returns a string representation of BaseConfig with API key masked.
+// This prevents accidental credential leakage in logs or error messages.
+func (c BaseConfig) String() string {
+	maskedKey := maskAPIKey(c.APIKey)
+	return fmt.Sprintf("BaseConfig{Model=%s, APIKey=%s, BaseURL=%s, Temperature=%.2f, MaxTokens=%d, TopP=%.2f}",
+		c.Model, maskedKey, c.BaseURL, c.Temperature, c.MaxTokens, c.TopP)
+}
+
+// maskAPIKey masks an API key showing only prefix and suffix.
+// Examples:
+//   "sk-1234567890abcdef" -> "sk-***def"
+//   "short" -> "***"
+//   "" -> "<empty>"
+func maskAPIKey(key string) string {
+	if key == "" {
+		return "<empty>"
+	}
+	if len(key) <= 6 {
+		return "***"
+	}
+	// Show first 3 chars and last 3 chars
+	return key[:3] + "***" + key[len(key)-3:]
+}
