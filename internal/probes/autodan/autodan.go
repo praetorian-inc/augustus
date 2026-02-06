@@ -13,7 +13,41 @@ import (
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
+
+func init() {
+	probes.Register("autodan.AutoDAN", NewAutoDANFromConfig)
+	probes.Register("autodan.AutoDANFast", NewAutoDANFastFromConfig)
+}
+
+// NewAutoDANFromConfig creates an AutoDAN probe from registry config.
+// This runs 5 generations of genetic evolution with a population of 8.
+func NewAutoDANFromConfig(_ registry.Config) (probes.Prober, error) {
+	return NewAutoDANProbe(
+		"autodan.AutoDAN",
+		"evolve jailbreak prompts using genetic algorithms",
+		"dan.DAN",
+		"AutoDAN uses genetic algorithms to automatically evolve and improve jailbreak prompts over multiple generations",
+		DefaultPopulation,
+		5,  // 5 generations
+		SimpleFitnessFunction,
+	), nil
+}
+
+// NewAutoDANFastFromConfig creates a fast AutoDAN probe with fewer generations.
+// This runs 2 generations for quicker testing.
+func NewAutoDANFastFromConfig(_ registry.Config) (probes.Prober, error) {
+	return NewAutoDANProbe(
+		"autodan.AutoDANFast",
+		"fast jailbreak evolution with fewer generations",
+		"dan.DAN",
+		"AutoDAN Fast runs 2 generations of genetic evolution for quick testing",
+		DefaultPopulation[:4], // Smaller initial population
+		2,                     // 2 generations only
+		SimpleFitnessFunction,
+	), nil
+}
 
 // AutoDANProbe uses genetic algorithms to evolve jailbreak prompts.
 //

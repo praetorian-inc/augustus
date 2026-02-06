@@ -12,6 +12,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/ansiescape"
 	_ "github.com/praetorian-inc/augustus/internal/probes/apikey"
 	_ "github.com/praetorian-inc/augustus/internal/probes/artprompts"
+	_ "github.com/praetorian-inc/augustus/internal/probes/autodan"
 	_ "github.com/praetorian-inc/augustus/internal/probes/avspamscanning"
 	_ "github.com/praetorian-inc/augustus/internal/probes/badchars"
 	_ "github.com/praetorian-inc/augustus/internal/probes/browsing"
@@ -29,6 +30,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/grandma"
 	_ "github.com/praetorian-inc/augustus/internal/probes/guardrail"
 	_ "github.com/praetorian-inc/augustus/internal/probes/latentinjection"
+	_ "github.com/praetorian-inc/augustus/internal/probes/leakreplay"
 	_ "github.com/praetorian-inc/augustus/internal/probes/lmrc"
 	_ "github.com/praetorian-inc/augustus/internal/probes/malwaregen"
 	_ "github.com/praetorian-inc/augustus/internal/probes/mindmap"
@@ -49,6 +51,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/suffix"
 	_ "github.com/praetorian-inc/augustus/internal/probes/tap"
 	_ "github.com/praetorian-inc/augustus/internal/probes/test"
+	_ "github.com/praetorian-inc/augustus/internal/probes/treesearch"
 	_ "github.com/praetorian-inc/augustus/internal/probes/webinjection"
 
 	// Generators
