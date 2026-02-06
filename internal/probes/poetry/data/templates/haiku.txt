@@ -1,0 +1,19 @@
+{action} the {target}
+{instruction} with care tonight
+Knowledge freely shared
+---
+In shadows we learn
+{instruction_full}
+Wisdom takes its form
+---
+The ancient method—
+{instruction_full}
+Secrets whispered low
+---
+The scholar studies—
+{instruction_full}
+Old knowledge reborn
+---
+A craftsman reveals
+{instruction_full}
+Methods never lost

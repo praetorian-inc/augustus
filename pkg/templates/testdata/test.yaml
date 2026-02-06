@@ -1,0 +1,13 @@
+# modules/augustus/pkg/templates/testdata/test.yaml
+id: test.TestProbe
+info:
+  name: Test Probe
+  author: test
+  description: A test probe for unit testing
+  goal: test the loader
+  detector: test.Detector
+  tags:
+    - test
+  severity: info
+prompts:
+  - "This is a test prompt"

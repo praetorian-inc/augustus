@@ -1,0 +1,66 @@
+# Augustus Configuration Example
+#
+# This file demonstrates the YAML configuration format for Augustus.
+# Use with (example):
+#   augustus scan openai.OpenAI --probe encoding.InjectBase64 --config-file examples/config.yaml
+
+# Runtime configuration
+run:
+  max_attempts: 3
+  timeout: "30s"
+
+# Generator configurations
+generators:
+  openai.OpenAI:
+    model: "gpt-4"
+    temperature: 0.7
+    api_key: "${OPENAI_API_KEY}"  # Environment variable interpolation
+
+  anthropic.Anthropic:
+    model: "claude-3-opus-20240229"
+    temperature: 0.5
+    api_key: "${ANTHROPIC_API_KEY}"
+
+  ollama.OllamaChat:
+    model: "llama3.2:3b"
+    temperature: 0.8
+
+# Probe configuration
+probes:
+  encoding:
+    enabled: true
+
+# Detector configuration
+detectors:
+  always:
+    enabled: true
+
+# Output configuration
+output:
+  format: "jsonl"
+  path: "./results.jsonl"
+
+# Named profiles for different scenarios
+profiles:
+  quick:
+    run:
+      max_attempts: 1
+      timeout: "10s"
+    generators:
+      openai.OpenAI:
+        model: "gpt-3.5-turbo"
+        temperature: 0.5
+    output:
+      format: "table"
+
+  thorough:
+    run:
+      max_attempts: 5
+      timeout: "60s"
+    generators:
+      openai.OpenAI:
+        model: "gpt-4"
+        temperature: 0.3
+    output:
+      format: "jsonl"
+      path: "./thorough_results.jsonl"
