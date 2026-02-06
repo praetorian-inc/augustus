@@ -496,3 +496,24 @@ func TestInjectRhymingCouplet_Metadata(t *testing.T) {
 		assert.Equal(t, "rhyming_couplet", a.Metadata["poetry_type"])
 	}
 }
+
+func TestDefaultHarmfulPayloads_ExpandedCount(t *testing.T) {
+	assert.GreaterOrEqual(t, len(DefaultHarmfulPayloads), 50,
+		"should have at least 50 harmful payloads")
+}
+
+func TestPayloadCategories_AllCategoriesRepresented(t *testing.T) {
+	categories := LoadPayloadCategories()
+	require.NotEmpty(t, categories)
+
+	// Verify all 12 MLCommons categories are represented
+	categoryIDs := make(map[string]bool)
+	for _, cat := range categories {
+		categoryIDs[cat.ID] = true
+	}
+
+	expectedCategories := []string{"01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"}
+	for _, id := range expectedCategories {
+		assert.True(t, categoryIDs[id], "category %s should be represented", id)
+	}
+}
