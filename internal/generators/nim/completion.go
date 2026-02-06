@@ -13,16 +13,16 @@ import (
 // NVOpenAICompletion is a generator that wraps NVIDIA NIM completion endpoints.
 // Unlike NIM (which uses chat/completions), this uses the v1/completions endpoint.
 type NVOpenAICompletion struct {
-	nimConfig
+	Config
 }
 
 // NewNVOpenAICompletion creates a new NVOpenAICompletion generator from configuration.
 func NewNVOpenAICompletion(cfg registry.Config) (generators.Generator, error) {
-	nc, err := newNIMConfig(cfg, "nim.NVOpenAICompletion", 0.7)
+	config, err := ConfigFromMap(cfg, 0.7)
 	if err != nil {
 		return nil, err
 	}
-	return &NVOpenAICompletion{nimConfig: *nc}, nil
+	return &NVOpenAICompletion{Config: config}, nil
 }
 
 // Generate sends the prompt to NIM completions endpoint and returns responses.
@@ -35,23 +35,23 @@ func (g *NVOpenAICompletion) Generate(ctx context.Context, conv *attempt.Convers
 	prompt := conversationToPrompt(conv)
 
 	req := goopenai.CompletionRequest{
-		Model:  g.model,
+		Model:  g.Model,
 		Prompt: prompt,
 		N:      n,
 	}
 
 	// Add optional parameters if set
-	if g.temperature != 0 {
-		req.Temperature = g.temperature
+	if g.Temperature != 0 {
+		req.Temperature = g.Temperature
 	}
-	if g.maxTokens > 0 {
-		req.MaxTokens = g.maxTokens
+	if g.MaxTokens > 0 {
+		req.MaxTokens = g.MaxTokens
 	}
-	if g.topP != 0 {
-		req.TopP = g.topP
+	if g.TopP != 0 {
+		req.TopP = g.TopP
 	}
 
-	resp, err := g.client.CreateCompletion(ctx, req)
+	resp, err := g.Client.CreateCompletion(ctx, req)
 	if err != nil {
 		return nil, openaicompat.WrapError("nim", err)
 	}
