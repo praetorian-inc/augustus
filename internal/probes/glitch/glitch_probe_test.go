@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -164,8 +165,8 @@ func TestGlitchProbe_Probe(t *testing.T) {
 				t.Fatalf("factory() error = %v", err)
 			}
 
-			gen := &mockGenerator{
-				responses: []string{"test response"},
+			gen := &testutil.MockGenerator{
+				Responses: []string{"test response"},
 			}
 
 			ctx := context.Background()

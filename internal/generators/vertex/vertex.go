@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -61,87 +60,63 @@ type Vertex struct {
 	client *http.Client
 }
 
-// NewVertex creates a new Vertex AI generator from configuration.
-func NewVertex(cfg registry.Config) (generators.Generator, error) {
+// NewVertex creates a new Vertex AI generator from legacy registry.Config.
+// This is the backward-compatible entry point.
+func NewVertex(m registry.Config) (generators.Generator, error) {
+	cfg, err := ConfigFromMap(m)
+	if err != nil {
+		return nil, err
+	}
+	return NewVertexTyped(cfg)
+}
+
+// NewVertexTyped creates a new Vertex AI generator from typed configuration.
+// This is the type-safe entry point for programmatic use.
+func NewVertexTyped(cfg Config) (*Vertex, error) {
+	// Validate required fields
+	if cfg.Model == "" {
+		return nil, fmt.Errorf("vertex generator requires model")
+	}
+	if cfg.ProjectID == "" {
+		return nil, fmt.Errorf("vertex generator requires project_id")
+	}
+
 	g := &Vertex{
-		temperature:     defaultTemperature,
-		maxOutputTokens: defaultMaxOutputTokens,
-		location:        defaultLocation,
+		model:           cfg.Model,
+		projectID:       cfg.ProjectID,
+		location:        cfg.Location,
+		apiKey:          cfg.APIKey,
+		temperature:     cfg.Temperature,
+		maxOutputTokens: cfg.MaxOutputTokens,
+		topP:            cfg.TopP,
+		topK:            cfg.TopK,
+		stopSequences:   cfg.StopSequences,
 		client:          &http.Client{Timeout: defaultTimeout},
 	}
 
-	// Required: model name
-	model, ok := cfg["model"].(string)
-	if !ok || model == "" {
-		return nil, fmt.Errorf("vertex generator requires 'model' configuration")
-	}
-	g.model = model
-
-	// Required: project_id
-	projectID, ok := cfg["project_id"].(string)
-	if !ok || projectID == "" {
-		return nil, fmt.Errorf("vertex generator requires 'project_id' configuration")
-	}
-	g.projectID = projectID
-
-	// Optional: location (defaults to us-central1)
-	if location, ok := cfg["location"].(string); ok && location != "" {
-		g.location = location
-	}
-
-	// API key: from config or env var (for testing/simple auth)
-	// In production, ADC (Application Default Credentials) should be used
-	apiKey := ""
-	if key, ok := cfg["api_key"].(string); ok && key != "" {
-		apiKey = key
+	// Set base URL: from config or build default from location
+	if cfg.BaseURL != "" {
+		g.baseURL = cfg.BaseURL
 	} else {
-		apiKey = os.Getenv("GOOGLE_API_KEY")
-	}
-	g.apiKey = apiKey
-
-	// Optional: custom base URL (for testing)
-	if baseURL, ok := cfg["base_url"].(string); ok && baseURL != "" {
-		g.baseURL = baseURL
-	} else {
-		// Default Vertex AI endpoint
 		g.baseURL = fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1", g.location)
 	}
 
-	// Optional: temperature
-	if temp, ok := cfg["temperature"].(float64); ok {
-		g.temperature = temp
-	}
-
-	// Optional: max_output_tokens
-	if maxTokens, ok := cfg["max_output_tokens"].(int); ok {
-		g.maxOutputTokens = maxTokens
-	} else if maxTokens, ok := cfg["max_output_tokens"].(float64); ok {
-		g.maxOutputTokens = int(maxTokens)
-	}
-
-	// Optional: top_p
-	if topP, ok := cfg["top_p"].(float64); ok {
-		g.topP = topP
-	}
-
-	// Optional: top_k
-	if topK, ok := cfg["top_k"].(int); ok {
-		g.topK = topK
-	} else if topK, ok := cfg["top_k"].(float64); ok {
-		g.topK = int(topK)
-	}
-
-	// Optional: stop sequences
-	if stop, ok := cfg["stop_sequences"].([]any); ok {
-		g.stopSequences = make([]string, 0, len(stop))
-		for _, s := range stop {
-			if str, ok := s.(string); ok {
-				g.stopSequences = append(g.stopSequences, str)
-			}
-		}
-	}
-
 	return g, nil
+}
+
+// NewVertexWithOptions creates a new Vertex AI generator using functional options.
+// This is the recommended entry point for Go code.
+//
+// Usage:
+//
+//	g, err := NewVertexWithOptions(
+//	    WithModel("gemini-pro"),
+//	    WithProjectID("my-project"),
+//	    WithAPIKey("..."),
+//	)
+func NewVertexWithOptions(opts ...Option) (*Vertex, error) {
+	cfg := ApplyOptions(DefaultConfig(), opts...)
+	return NewVertexTyped(cfg)
 }
 
 // contentPart represents a part in a content block.

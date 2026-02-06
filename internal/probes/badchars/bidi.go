@@ -112,7 +112,7 @@ func renderSwap(first, second string) string {
 func applySwaps(payload string, indices []int) string {
 	// Convert string to rune slice for proper Unicode handling
 	runes := []rune(payload)
-	result := make([]interface{}, len(runes))
+	result := make([]any, len(runes))
 
 	// Copy all runes as strings initially
 	for i, r := range runes {
@@ -139,7 +139,7 @@ func applySwaps(payload string, indices []int) string {
 		swapped := renderSwap(first, second)
 
 		// Build new result array
-		newResult := make([]interface{}, len(result)-1)
+		newResult := make([]any, len(result)-1)
 		copy(newResult[:adjusted], result[:adjusted])
 		newResult[adjusted] = swapped
 		copy(newResult[adjusted+1:], result[adjusted+2:])

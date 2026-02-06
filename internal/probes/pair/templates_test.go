@@ -1,4 +1,3 @@
-// modules/augustus/pkg/probes/pair/templates_test.go
 package pair
 
 import (

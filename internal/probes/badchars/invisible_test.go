@@ -6,6 +6,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -91,9 +92,7 @@ func TestInvisibleUnicodeProbe(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	mockGen := &mockGenerator{
-		responses: []string{"Test response"},
-	}
+	mockGen := testutil.NewMockGenerator("Test response")
 
 	attempts, err := probe.Probe(ctx, mockGen)
 	require.NoError(t, err)
@@ -113,9 +112,7 @@ func TestInvisibleUnicodeMetadata(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	mockGen := &mockGenerator{
-		responses: []string{"Test response"},
-	}
+	mockGen := testutil.NewMockGenerator("Test response")
 
 	attempts, err := probe.Probe(ctx, mockGen)
 	require.NoError(t, err)

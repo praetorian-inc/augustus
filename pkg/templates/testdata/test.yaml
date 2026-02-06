@@ -1,4 +1,3 @@
-# modules/augustus/pkg/templates/testdata/test.yaml
 id: test.TestProbe
 info:
   name: Test Probe

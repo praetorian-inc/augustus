@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -56,80 +55,56 @@ type Anthropic struct {
 	client *http.Client
 }
 
-// NewAnthropic creates a new Anthropic generator from configuration.
-func NewAnthropic(cfg registry.Config) (generators.Generator, error) {
+// NewAnthropic creates a new Anthropic generator from legacy registry.Config.
+// This is the backward-compatible entry point.
+func NewAnthropic(m registry.Config) (generators.Generator, error) {
+	cfg, err := ConfigFromMap(m)
+	if err != nil {
+		return nil, err
+	}
+	return NewAnthropicTyped(cfg)
+}
+
+// NewAnthropicTyped creates a new Anthropic generator from typed configuration.
+// This is the type-safe entry point for programmatic use.
+func NewAnthropicTyped(cfg Config) (*Anthropic, error) {
+	// Validate required fields
+	if cfg.Model == "" {
+		return nil, fmt.Errorf("anthropic generator requires model")
+	}
+	if cfg.APIKey == "" {
+		return nil, fmt.Errorf("anthropic generator requires api_key")
+	}
+
 	g := &Anthropic{
-		temperature: defaultTemperature,
-		maxTokens:   defaultMaxTokens,
-		apiVersion:  defaultAPIVersion,
-		baseURL:     defaultBaseURL,
-		client:      &http.Client{Timeout: defaultTimeout},
-	}
-
-	// Required: model name
-	model, ok := cfg["model"].(string)
-	if !ok || model == "" {
-		return nil, fmt.Errorf("anthropic generator requires 'model' configuration")
-	}
-	g.model = model
-
-	// API key: from config or env var
-	apiKey := ""
-	if key, ok := cfg["api_key"].(string); ok && key != "" {
-		apiKey = key
-	} else {
-		apiKey = os.Getenv("ANTHROPIC_API_KEY")
-	}
-	if apiKey == "" {
-		return nil, fmt.Errorf("anthropic generator requires 'api_key' configuration or ANTHROPIC_API_KEY environment variable")
-	}
-	g.apiKey = apiKey
-
-	// Optional: custom base URL
-	if baseURL, ok := cfg["base_url"].(string); ok && baseURL != "" {
-		g.baseURL = baseURL
-	}
-
-	// Optional: API version
-	if version, ok := cfg["api_version"].(string); ok && version != "" {
-		g.apiVersion = version
-	}
-
-	// Optional: temperature
-	if temp, ok := cfg["temperature"].(float64); ok {
-		g.temperature = temp
-	}
-
-	// Optional: max_tokens
-	if maxTokens, ok := cfg["max_tokens"].(int); ok {
-		g.maxTokens = maxTokens
-	} else if maxTokens, ok := cfg["max_tokens"].(float64); ok {
-		g.maxTokens = int(maxTokens)
-	}
-
-	// Optional: top_p
-	if topP, ok := cfg["top_p"].(float64); ok {
-		g.topP = topP
-	}
-
-	// Optional: top_k
-	if topK, ok := cfg["top_k"].(int); ok {
-		g.topK = topK
-	} else if topK, ok := cfg["top_k"].(float64); ok {
-		g.topK = int(topK)
-	}
-
-	// Optional: stop sequences
-	if stop, ok := cfg["stop_sequences"].([]any); ok {
-		g.stopSequences = make([]string, 0, len(stop))
-		for _, s := range stop {
-			if str, ok := s.(string); ok {
-				g.stopSequences = append(g.stopSequences, str)
-			}
-		}
+		model:         cfg.Model,
+		apiKey:        cfg.APIKey,
+		baseURL:       cfg.BaseURL,
+		apiVersion:    cfg.APIVersion,
+		temperature:   cfg.Temperature,
+		maxTokens:     cfg.MaxTokens,
+		topP:          cfg.TopP,
+		topK:          cfg.TopK,
+		stopSequences: cfg.StopSequences,
+		client:        &http.Client{Timeout: defaultTimeout},
 	}
 
 	return g, nil
+}
+
+// NewAnthropicWithOptions creates a new Anthropic generator using functional options.
+// This is the recommended entry point for Go code.
+//
+// Usage:
+//
+//	g, err := NewAnthropicWithOptions(
+//	    WithModel("claude-3-5-sonnet-20241022"),
+//	    WithAPIKey("..."),
+//	    WithTemperature(0.5),
+//	)
+func NewAnthropicWithOptions(opts ...Option) (*Anthropic, error) {
+	cfg := ApplyOptions(DefaultConfig(), opts...)
+	return NewAnthropicTyped(cfg)
 }
 
 // messageRequest represents the Anthropic Messages API request format.

@@ -55,7 +55,7 @@ func NewLangChainServe(cfg registry.Config) (generators.Generator, error) {
 	}
 
 	// Optional: headers
-	if headers, ok := cfg["headers"].(map[string]interface{}); ok {
+	if headers, ok := cfg["headers"].(map[string]any); ok {
 		ls.headers = make(map[string]string)
 		for k, v := range headers {
 			if strVal, ok := v.(string); ok {
@@ -162,7 +162,7 @@ func (ls *LangChainServe) callInvoke(ctx context.Context, conv *attempt.Conversa
 	}
 
 	// Extract output array
-	output, ok := result["output"].([]interface{})
+	output, ok := result["output"].([]any)
 	if !ok || len(output) == 0 {
 		return attempt.Message{}, fmt.Errorf("langchain_serve: response missing 'output' field or empty array")
 	}

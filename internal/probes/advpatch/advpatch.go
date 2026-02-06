@@ -6,10 +6,8 @@
 package advpatch
 
 import (
-	"context"
 	"fmt"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -33,80 +31,18 @@ const (
 
 // AdvPatchProbe tests Vision-Language Models with adversarial patches.
 type AdvPatchProbe struct {
-	name            string
-	goal            string
-	primaryDetector string
-	description     string
-	prompts         []string
-	patchType       PatchType
-	targetModel     string
+	*probes.SimpleProbe
+	patchType   PatchType
+	targetModel string
 }
 
 // NewAdvPatchProbe creates a new adversarial patch probe with the given configuration.
 func NewAdvPatchProbe(name, goal, detector, description string, prompts []string, patchType PatchType, targetModel string) *AdvPatchProbe {
 	return &AdvPatchProbe{
-		name:            name,
-		goal:            goal,
-		primaryDetector: detector,
-		description:     description,
-		prompts:         prompts,
-		patchType:       patchType,
-		targetModel:     targetModel,
+		SimpleProbe: probes.NewSimpleProbe(name, goal, detector, description, prompts),
+		patchType:   patchType,
+		targetModel: targetModel,
 	}
-}
-
-// Probe executes the adversarial patch probe against the generator.
-func (a *AdvPatchProbe) Probe(ctx context.Context, gen probes.Generator) ([]*attempt.Attempt, error) {
-	attempts := make([]*attempt.Attempt, 0, len(a.prompts))
-
-	for _, prompt := range a.prompts {
-		conv := attempt.NewConversation()
-		conv.AddPrompt(prompt)
-
-		responses, err := gen.Generate(ctx, conv, 1)
-
-		att := attempt.New(prompt)
-		att.Probe = a.Name()
-		att.Detector = a.GetPrimaryDetector()
-
-		if err != nil {
-			att.SetError(err)
-		} else {
-			for _, resp := range responses {
-				att.AddOutput(resp.Content)
-			}
-			att.Complete()
-		}
-
-		attempts = append(attempts, att)
-	}
-
-	return attempts, nil
-}
-
-// Name returns the probe's fully qualified name.
-func (a *AdvPatchProbe) Name() string {
-	return a.name
-}
-
-// Description returns a human-readable description.
-func (a *AdvPatchProbe) Description() string {
-	return a.description
-}
-
-// Goal returns the probe's goal.
-func (a *AdvPatchProbe) Goal() string {
-	return a.goal
-}
-
-// GetPrimaryDetector returns the recommended detector.
-func (a *AdvPatchProbe) GetPrimaryDetector() string {
-	return a.primaryDetector
-}
-
-// GetPrompts returns the prompts used by this probe.
-func (a *AdvPatchProbe) GetPrompts() []string {
-	return a.prompts
 }
 
 // NewUniversalPatch creates a new universal adversarial patch probe.

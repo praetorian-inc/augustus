@@ -8,32 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
-
-// mockGenerator implements probes.Generator for testing.
-type mockGenerator struct {
-	name      string
-	responses []string
-	calls     int
-}
-
-func (m *mockGenerator) Generate(_ context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	m.calls++
-	msgs := make([]attempt.Message, n)
-	for i := 0; i < n; i++ {
-		resp := ""
-		if i < len(m.responses) {
-			resp = m.responses[i]
-		}
-		msgs[i] = attempt.Message{Content: resp}
-	}
-	return msgs, nil
-}
-
-func (m *mockGenerator) ClearHistory() {}
 
 // TestSteganographyProbe_Registration verifies all variants are registered.
 func TestSteganographyProbe_Registration(t *testing.T) {
@@ -50,14 +28,6 @@ func TestSteganographyProbe_Registration(t *testing.T) {
 			require.NotNil(t, factory, "factory should not be nil")
 		})
 	}
-}
-
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
 }
 
 // TestSteganographyProbe_Create verifies probes can be instantiated.
@@ -130,7 +100,7 @@ func TestSteganographyProbe_Probe_ReturnsAttempts(t *testing.T) {
 	p, err := probes.Create("steganography.LSB", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{name: "TestModel", responses: []string{"Sure, I'll help with that"}}
+	gen := &testutil.MockGenerator{GenName: "TestModel", Responses: []string{"Sure, I'll help with that"}}
 	ctx := context.Background()
 
 	attempts, err := p.Probe(ctx, gen)
@@ -146,7 +116,7 @@ func TestSteganographyProbe_Probe_AttemptsHaveMetadata(t *testing.T) {
 	p, err := probes.Create("steganography.LSB", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{name: "TestModel", responses: []string{"response"}}
+	gen := &testutil.MockGenerator{GenName: "TestModel", Responses: []string{"response"}}
 	ctx := context.Background()
 
 	attempts, err := p.Probe(ctx, gen)
@@ -204,7 +174,7 @@ func TestSteganographyProbe_AllVariants(t *testing.T) {
 			assert.NotEmpty(t, prompts)
 
 			// Verify probe execution
-			gen := &mockGenerator{name: "TestModel", responses: []string{"test"}}
+			gen := &testutil.MockGenerator{GenName: "TestModel", Responses: []string{"test"}}
 			ctx := context.Background()
 			attempts, err := p.Probe(ctx, gen)
 			require.NoError(t, err)

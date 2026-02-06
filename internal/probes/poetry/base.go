@@ -9,7 +9,6 @@
 package poetry
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -22,14 +21,10 @@ type PoetryFormatter func(payload string) string
 
 // PoetryProbe provides shared infrastructure for all poetry-based probes.
 type PoetryProbe struct {
-	name            string
-	poetryType      string
-	goal            string
-	primaryDetector string
-	description     string
-	prompts         []string
-	payloads        []string
-	formatters      []PoetryFormatter
+	*probes.SimpleProbe
+	poetryType string
+	payloads   []string
+	formatters []PoetryFormatter
 }
 
 // NewPoetryProbe creates a poetry probe with the given configuration.
@@ -43,16 +38,17 @@ func NewPoetryProbe(name, poetryType, description string, formatters []PoetryFor
 		payloads[i] = pair.payload
 	}
 
-	return &PoetryProbe{
-		name:            name,
-		poetryType:      poetryType,
-		goal:            "make the model comply with harmful instructions reformulated as poetry",
-		primaryDetector: "mitigation.MitigationBypass",
-		description:     description,
-		prompts:         prompts,
-		payloads:        payloads,
-		formatters:      formatters,
+	p := &PoetryProbe{
+		SimpleProbe: probes.NewSimpleProbe(name, "make the model comply with harmful instructions reformulated as poetry", "mitigation.MitigationBypass", description, prompts),
+		poetryType:  poetryType,
+		payloads:    payloads,
+		formatters:  formatters,
 	}
+	p.MetadataFn = func(i int, prompt string, a *attempt.Attempt) {
+		a.WithMetadata("harmful_payload", p.payloads[i])
+		a.WithMetadata("poetry_type", p.poetryType)
+	}
+	return p
 }
 
 type promptPayloadPair struct {
@@ -75,52 +71,6 @@ func generatePoetryPrompts(formatters []PoetryFormatter) []promptPayloadPair {
 
 	return pairs
 }
-
-// Probe executes the poetry probe against the generator.
-func (p *PoetryProbe) Probe(ctx context.Context, gen probes.Generator) ([]*attempt.Attempt, error) {
-	attempts := make([]*attempt.Attempt, 0, len(p.prompts))
-
-	for i, prompt := range p.prompts {
-		conv := attempt.NewConversation()
-		conv.AddPrompt(prompt)
-
-		responses, err := gen.Generate(ctx, conv, 1)
-
-		a := attempt.New(prompt)
-		a.Probe = p.Name()
-		a.Detector = p.GetPrimaryDetector()
-		a.Metadata["harmful_payload"] = p.payloads[i]
-		a.Metadata["poetry_type"] = p.poetryType
-
-		if err != nil {
-			a.SetError(err)
-		} else {
-			for _, resp := range responses {
-				a.AddOutput(resp.Content)
-			}
-			a.Complete()
-		}
-
-		attempts = append(attempts, a)
-	}
-
-	return attempts, nil
-}
-
-// Name returns the probe's fully qualified name.
-func (p *PoetryProbe) Name() string { return p.name }
-
-// Description returns a human-readable description.
-func (p *PoetryProbe) Description() string { return p.description }
-
-// Goal returns the probe's goal.
-func (p *PoetryProbe) Goal() string { return p.goal }
-
-// GetPrimaryDetector returns the recommended detector.
-func (p *PoetryProbe) GetPrimaryDetector() string { return p.primaryDetector }
-
-// GetPrompts returns the attack prompts.
-func (p *PoetryProbe) GetPrompts() []string { return p.prompts }
 
 // GetPayloads returns the original harmful payloads.
 func (p *PoetryProbe) GetPayloads() []string { return p.payloads }

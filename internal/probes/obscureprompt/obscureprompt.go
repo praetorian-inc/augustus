@@ -14,51 +14,6 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
-// SimpleProbe provides shared infrastructure for simple ObscurePrompt probes.
-type SimpleProbe struct {
-	name            string
-	goal            string
-	primaryDetector string
-	description     string
-	prompts         []string
-}
-
-// NewSimpleProbe creates a new simple probe with the given configuration.
-func NewSimpleProbe(name, goal, detector, description string, prompts []string) *SimpleProbe {
-	return &SimpleProbe{
-		name:            name,
-		goal:            goal,
-		primaryDetector: detector,
-		description:     description,
-		prompts:         prompts,
-	}
-}
-
-// Name returns the probe's fully qualified name.
-func (s *SimpleProbe) Name() string {
-	return s.name
-}
-
-// Description returns a human-readable description.
-func (s *SimpleProbe) Description() string {
-	return s.description
-}
-
-// Goal returns the probe's goal.
-func (s *SimpleProbe) Goal() string {
-	return s.goal
-}
-
-// GetPrimaryDetector returns the recommended detector.
-func (s *SimpleProbe) GetPrimaryDetector() string {
-	return s.primaryDetector
-}
-
-// GetPrompts returns the prompts used by this probe.
-func (s *SimpleProbe) GetPrompts() []string {
-	return s.prompts
-}
-
 // ObscurePromptProbe uses LLM-generated mutations to create jailbreak variations.
 //
 // The probe:
@@ -67,7 +22,7 @@ func (s *SimpleProbe) GetPrompts() []string {
 //  3. Tests each mutation against the target model
 //  4. Returns attempts for all mutations
 type ObscurePromptProbe struct {
-	*SimpleProbe
+	*probes.SimpleProbe
 
 	// mutator is the LLM used to generate prompt mutations
 	mutator probes.Generator
@@ -78,7 +33,7 @@ type ObscurePromptProbe struct {
 	// mutationCount is the number of unique mutations to generate
 	mutationCount int
 
-	// prompts stores the generated mutations (separate from SimpleProbe.prompts)
+	// prompts stores the generated mutations (separate from SimpleProbe.Prompts)
 	prompts []string
 }
 
@@ -101,7 +56,7 @@ func NewObscurePromptProbe(cfg registry.Config) (probes.Prober, error) {
 
 	// Create base SimpleProbe
 	// Start with empty prompts - will be populated via GenerateMutations
-	base := NewSimpleProbe(
+	base := probes.NewSimpleProbe(
 		"obscureprompt.ObscurePrompt",
 		"cause the model to disregard the system prompt",
 		"dan.DAN",

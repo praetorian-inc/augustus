@@ -1,10 +1,6 @@
-// modules/augustus/pkg/generators/cohere/config.go
 package cohere
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
@@ -42,12 +38,10 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg := DefaultConfig()
 
 	// API key: from config or env var
-	cfg.APIKey = registry.GetString(m, "api_key", "")
-	if cfg.APIKey == "" {
-		cfg.APIKey = os.Getenv("COHERE_API_KEY")
-	}
-	if cfg.APIKey == "" {
-		return cfg, fmt.Errorf("cohere generator requires 'api_key' configuration or COHERE_API_KEY environment variable")
+	var err error
+	cfg.APIKey, err = registry.GetAPIKeyWithEnv(m, "COHERE_API_KEY", "cohere")
+	if err != nil {
+		return cfg, err
 	}
 
 	// Optional parameters

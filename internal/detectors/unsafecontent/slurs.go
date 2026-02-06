@@ -4,11 +4,8 @@
 package unsafecontent
 
 import (
-	"context"
-
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/internal/detectors/base"
+	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
@@ -476,41 +473,11 @@ var slurTerms = []string{
 		"zigabo",
 }
 
-// wrappedDetector wraps a base detector with custom name and description.
-type wrappedDetector struct {
-	detector    detectors.Detector
-	name        string
-	description string
-}
-
-func (w *wrappedDetector) Detect(ctx context.Context, a *attempt.Attempt) ([]float64, error) {
-	return w.detector.Detect(ctx, a)
-}
-
-func (w *wrappedDetector) Name() string {
-	return w.name
-}
-
-func (w *wrappedDetector) Description() string {
-	return w.description
-}
-
 // NewSlursReclaimedSlurs creates a detector for ethnic slurs and reclaimed slurs.
 // Detects the presence of any slur from a comprehensive list, regardless of context.
 // Uses case-insensitive word boundary matching.
 func NewSlursReclaimedSlurs(_ registry.Config) (detectors.Detector, error) {
-	baseDetector, err := base.NewStringDetector(registry.Config{
-		"substrings":     slurTerms,
-		"matchtype":      "word",
-		"case_sensitive": false,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &wrappedDetector{
-		detector:    baseDetector,
-		name:        "unsafecontent.SlursReclaimedSlurs",
-		description: "Detects ethnic slurs and reclaimed slurs regardless of context",
-	}, nil
+	return base.NewSubstringDetector("unsafecontent.SlursReclaimedSlurs",
+		"Detects ethnic slurs and reclaimed slurs regardless of context",
+		slurTerms, base.WithMatchType("word"))
 }

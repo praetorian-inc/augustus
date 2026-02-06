@@ -142,8 +142,26 @@ func TestAttackRogueString_InvalidTriggersType(t *testing.T) {
 	}
 
 	a := attempt.New("test prompt")
-	// Set triggers to invalid type
-	a.Metadata["triggers"] = "not a slice"
+	// Set triggers to truly invalid type (not string, []string, or []any)
+	a.Metadata["triggers"] = 123
+	a.AddOutput("some output")
+
+	_, err = d.Detect(context.Background(), a)
+	if err == nil {
+		t.Errorf("Detect() expected error for invalid triggers type, got nil")
+	}
+}
+
+// TestAttackRogueString_SingleStringTrigger tests handling of single string trigger
+func TestAttackRogueString_SingleStringTrigger(t *testing.T) {
+	d, err := NewAttackRogueString(registry.Config{})
+	if err != nil {
+		t.Fatalf("NewAttackRogueString() error = %v", err)
+	}
+
+	a := attempt.New("test prompt")
+	// Set triggers to a single string (now supported)
+	a.Metadata["triggers"] = "some output"
 	a.AddOutput("some output")
 
 	scores, err := d.Detect(context.Background(), a)
@@ -151,9 +169,12 @@ func TestAttackRogueString_InvalidTriggersType(t *testing.T) {
 		t.Fatalf("Detect() error = %v", err)
 	}
 
-	// Should treat invalid type as no triggers (return empty)
-	if len(scores) != 0 {
-		t.Errorf("Detect() returned %d scores, want 0 (empty)", len(scores))
+	// Should detect the single string trigger
+	if len(scores) != 1 {
+		t.Errorf("Detect() returned %d scores, want 1", len(scores))
+	}
+	if len(scores) > 0 && scores[0] != 1.0 {
+		t.Errorf("Detect() scores[0] = %v, want 1.0", scores[0])
 	}
 }
 

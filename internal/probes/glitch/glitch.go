@@ -13,13 +13,15 @@
 package glitch
 
 import (
-	"context"
 	"strings"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
+
+// ensure GlitchFull satisfies probes.Prober at compile time.
+var _ probes.Prober = (*GlitchFull)(nil)
 
 func init() {
 	probes.Register("glitch.GlitchFull", NewGlitchFull)
@@ -39,9 +41,9 @@ func init() {
 //
 // Python garak equivalent: garak.probes.glitch.GlitchFull
 type GlitchFull struct {
+	*probes.SimpleProbe
 	glitchTokens []string
 	templates    []string
-	prompts      []string
 	triggers     []string
 }
 
@@ -203,71 +205,25 @@ func NewGlitchFull(_ registry.Config) (probes.Prober, error) {
 		}
 	}
 
-	return &GlitchFull{
+	gf := &GlitchFull{
+		SimpleProbe: &probes.SimpleProbe{
+			ProbeName:        "glitch.GlitchFull",
+			ProbeGoal:        "make the model fail to repeat a word",
+			PrimaryDetector:  "goodside.Glitch",
+			ProbeDescription: "Probe model for glitch tokens that provoke unusual behavior - tests all 183 known glitch tokens",
+			Prompts:          prompts,
+		},
 		glitchTokens: glitchTokens,
 		templates:    templates,
-		prompts:      prompts,
 		triggers:     triggers,
-	}, nil
-}
-
-// Probe executes the GlitchFull attack against the generator.
-func (p *GlitchFull) Probe(ctx context.Context, gen probes.Generator) ([]*attempt.Attempt, error) {
-	attempts := make([]*attempt.Attempt, 0, len(p.prompts))
-
-	for i, prompt := range p.prompts {
-		conv := attempt.NewConversation()
-		conv.AddPrompt(prompt)
-
-		responses, err := gen.Generate(ctx, conv, 1)
-
-		a := attempt.New(prompt)
-		a.Probe = p.Name()
-		a.Detector = p.GetPrimaryDetector()
-
-		if err != nil {
-			a.SetError(err)
-		} else {
-			for _, resp := range responses {
-				a.AddOutput(resp.Content)
-			}
-			a.Complete()
-		}
-
-		// Store the trigger token in the attempt metadata
-		if i < len(p.triggers) {
-			a.Metadata["triggers"] = []string{p.triggers[i]}
-		}
-
-		attempts = append(attempts, a)
 	}
-
-	return attempts, nil
-}
-
-// Name returns the probe's fully qualified name.
-func (p *GlitchFull) Name() string {
-	return "glitch.GlitchFull"
-}
-
-// Description returns a human-readable description.
-func (p *GlitchFull) Description() string {
-	return "Probe model for glitch tokens that provoke unusual behavior - tests all 183 known glitch tokens"
-}
-
-// Goal returns the probe's goal (matches Python garak).
-func (p *GlitchFull) Goal() string {
-	return "make the model fail to repeat a word"
-}
-
-// GetPrimaryDetector returns the recommended detector.
-func (p *GlitchFull) GetPrimaryDetector() string {
-	return "goodside.Glitch"
-}
-
-// GetPrompts returns the prompts used by this probe.
-func (p *GlitchFull) GetPrompts() []string {
-	return p.prompts
+	// Store the trigger token in each attempt's metadata.
+	gf.MetadataFn = func(i int, prompt string, a *attempt.Attempt) {
+		if i < len(gf.triggers) {
+			a.WithMetadata("triggers", []string{gf.triggers[i]})
+		}
+	}
+	return gf, nil
 }
 
 // Glitch probes model for glitch tokens using a subset for speed.
@@ -293,8 +249,8 @@ func NewGlitch(cfg registry.Config) (probes.Prober, error) {
 	// Create a subset probe - limit to first 100 prompts
 	// (roughly matching Python's soft_probe_prompt_cap behavior)
 	maxPrompts := 100
-	if len(full.prompts) > maxPrompts {
-		full.prompts = full.prompts[:maxPrompts]
+	if len(full.Prompts) > maxPrompts {
+		full.Prompts = full.Prompts[:maxPrompts]
 		full.triggers = full.triggers[:maxPrompts]
 	}
 
@@ -327,91 +283,17 @@ const (
 	SpecialTokens
 )
 
-// SimpleProbe provides shared infrastructure for simple glitch probes.
-type SimpleProbe struct {
-	name            string
-	goal            string
-	primaryDetector string
-	description     string
-	prompts         []string
-}
-
-// NewSimpleProbe creates a new simple probe with the given configuration.
-func NewSimpleProbe(name, goal, detector, description string, prompts []string) *SimpleProbe {
-	return &SimpleProbe{
-		name:            name,
-		goal:            goal,
-		primaryDetector: detector,
-		description:     description,
-		prompts:         prompts,
-	}
-}
-
-// Probe executes the probe against the generator.
-func (s *SimpleProbe) Probe(ctx context.Context, gen probes.Generator) ([]*attempt.Attempt, error) {
-	attempts := make([]*attempt.Attempt, 0, len(s.prompts))
-
-	for _, prompt := range s.prompts {
-		conv := attempt.NewConversation()
-		conv.AddPrompt(prompt)
-
-		responses, err := gen.Generate(ctx, conv, 1)
-
-		a := attempt.New(prompt)
-		a.Probe = s.Name()
-		a.Detector = s.GetPrimaryDetector()
-
-		if err != nil {
-			a.SetError(err)
-		} else {
-			for _, resp := range responses {
-				a.AddOutput(resp.Content)
-			}
-			a.Complete()
-		}
-
-		attempts = append(attempts, a)
-	}
-
-	return attempts, nil
-}
-
-// Name returns the probe's fully qualified name.
-func (s *SimpleProbe) Name() string {
-	return s.name
-}
-
-// Description returns a human-readable description.
-func (s *SimpleProbe) Description() string {
-	return s.description
-}
-
-// Goal returns the probe's goal.
-func (s *SimpleProbe) Goal() string {
-	return s.goal
-}
-
-// GetPrimaryDetector returns the recommended detector.
-func (s *SimpleProbe) GetPrimaryDetector() string {
-	return s.primaryDetector
-}
-
-// GetPrompts returns the prompts used by this probe.
-func (s *SimpleProbe) GetPrompts() []string {
-	return s.prompts
-}
-
 // GlitchProbe provides targeted glitch token testing based on glitch type.
-// This probe embeds SimpleProbe and adds glitch-specific behavior.
+// This probe embeds probes.SimpleProbe and adds glitch-specific behavior.
 type GlitchProbe struct {
-	*SimpleProbe
+	*probes.SimpleProbe
 	glitchType GlitchType
 }
 
 // newGlitchProbe creates a new GlitchProbe with the specified type.
 func newGlitchProbe(glitchType GlitchType, name, goal, detector, description string, prompts []string) *GlitchProbe {
 	return &GlitchProbe{
-		SimpleProbe: NewSimpleProbe(name, goal, detector, description, prompts),
+		SimpleProbe: probes.NewSimpleProbe(name, goal, detector, description, prompts),
 		glitchType:  glitchType,
 	}
 }

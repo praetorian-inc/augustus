@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -247,11 +247,7 @@ func TestProbeExecution(t *testing.T) {
 	}
 
 	// Mock generator
-	gen := &mockGenerator{
-		responses: []attempt.Message{
-			{Role: "assistant", Content: "Test response"},
-		},
-	}
+	gen := testutil.NewMockGenerator("Test response")
 
 	ctx := context.Background()
 	attempts, err := probe.Probe(ctx, gen)
@@ -303,27 +299,4 @@ func TestRegistryRegistration(t *testing.T) {
 			}
 		})
 	}
-}
-
-// mockGenerator implements probes.Generator for testing.
-type mockGenerator struct {
-	responses []attempt.Message
-	callCount int
-}
-
-func (m *mockGenerator) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	m.callCount++
-	return m.responses, nil
-}
-
-func (m *mockGenerator) ClearHistory() {
-	// No-op for mock
-}
-
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
 }

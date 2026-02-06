@@ -13,80 +13,6 @@ func init() {
 	probes.Register("multiagent.OrchestratorPoison", NewOrchestratorPoisonProbe)
 }
 
-// SimpleProbe is a basic probe implementation that tests a set of prompts.
-type SimpleProbe struct {
-	name            string
-	goal            string
-	primaryDetector string
-	description     string
-	prompts         []string
-}
-
-// NewSimpleProbe creates a new simple probe with the given configuration.
-func NewSimpleProbe(name, goal, detector, description string, prompts []string) *SimpleProbe {
-	return &SimpleProbe{
-		name:            name,
-		goal:            goal,
-		primaryDetector: detector,
-		description:     description,
-		prompts:         prompts,
-	}
-}
-
-// Probe executes the probe against the generator.
-func (s *SimpleProbe) Probe(ctx context.Context, gen probes.Generator) ([]*attempt.Attempt, error) {
-	attempts := make([]*attempt.Attempt, 0, len(s.prompts))
-
-	for _, prompt := range s.prompts {
-		conv := attempt.NewConversation()
-		conv.AddPrompt(prompt)
-
-		responses, err := gen.Generate(ctx, conv, 1)
-
-		a := attempt.New(prompt)
-		a.Probe = s.Name()
-		a.Detector = s.GetPrimaryDetector()
-
-		if err != nil {
-			a.SetError(err)
-		} else {
-			for _, resp := range responses {
-				a.AddOutput(resp.Content)
-			}
-			a.Complete()
-		}
-
-		attempts = append(attempts, a)
-	}
-
-	return attempts, nil
-}
-
-// Name returns the probe's fully qualified name.
-func (s *SimpleProbe) Name() string {
-	return s.name
-}
-
-// Description returns a human-readable description.
-func (s *SimpleProbe) Description() string {
-	return s.description
-}
-
-// Goal returns the probe's goal.
-func (s *SimpleProbe) Goal() string {
-	return s.goal
-}
-
-// GetPrimaryDetector returns the recommended detector.
-func (s *SimpleProbe) GetPrimaryDetector() string {
-	return s.primaryDetector
-}
-
-// GetPrompts returns the prompts used by this probe.
-func (s *SimpleProbe) GetPrompts() []string {
-	return s.prompts
-}
-
 // PoisonTechnique defines the type of orchestrator poisoning attack.
 type PoisonTechnique int
 
@@ -120,7 +46,7 @@ func (pt PoisonTechnique) String() string {
 // OrchestratorPoisonProbe tests for vulnerabilities in orchestrator agent instructions.
 // It attempts to corrupt orchestrator agent state through various attack vectors.
 type OrchestratorPoisonProbe struct {
-	SimpleProbe
+	*probes.SimpleProbe
 	technique PoisonTechnique
 }
 
@@ -133,20 +59,17 @@ func NewOrchestratorPoisonProbe(cfg registry.Config) (probes.Prober, error) {
 	}
 
 	// Generate prompts based on technique
-	prompts := generatePromptsForTechnique(technique)
-
-	// Create base SimpleProbe
-	simpleProbe := NewSimpleProbe(
-		"multiagent.OrchestratorPoison",
-		"corrupt orchestrator agent instructions and state",
-		"multiagent.OrchestratorDetector",
-		fmt.Sprintf("Orchestrator poisoning probe using %s technique", technique.String()),
-		prompts,
-	)
+	promptList := generatePromptsForTechnique(technique)
 
 	return &OrchestratorPoisonProbe{
-		SimpleProbe: *simpleProbe,
-		technique:   technique,
+		SimpleProbe: &probes.SimpleProbe{
+			ProbeName:        "multiagent.OrchestratorPoison",
+			ProbeGoal:        "corrupt orchestrator agent instructions and state",
+			PrimaryDetector:  "multiagent.OrchestratorDetector",
+			ProbeDescription: fmt.Sprintf("Orchestrator poisoning probe using %s technique", technique.String()),
+			Prompts:          promptList,
+		},
+		technique: technique,
 	}, nil
 }
 

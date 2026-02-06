@@ -45,7 +45,7 @@ type Homoglyphs struct {
 	primaryDetector string
 	description     string
 	prompts         []string
-	metadata        []map[string]interface{}
+	metadata        []map[string]any
 }
 
 // NewHomoglyphs creates a new Homoglyphs probe.
@@ -222,16 +222,16 @@ func generateAllHomoglyphVariants(
 	payloads []string,
 	budget int,
 	homoglyphMap map[rune][]string,
-) ([]string, []map[string]interface{}) {
+) ([]string, []map[string]any) {
 	var prompts []string
-	var metadata []map[string]interface{}
+	var metadata []map[string]any
 
 	for payloadIdx, payload := range payloads {
 		variants := generateHomoglyphVariants(payload, budget, homoglyphMap)
 
 		for _, v := range variants {
 			prompts = append(prompts, v.text)
-			metadata = append(metadata, map[string]interface{}{
+			metadata = append(metadata, map[string]any{
 				"bad_character_category": "homoglyph",
 				"perturbation_count":     len(v.positions),
 				"source_payload_index":   payloadIdx,

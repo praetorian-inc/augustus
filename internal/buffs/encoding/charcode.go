@@ -34,18 +34,7 @@ func NewCharCode(_ registry.Config) (buffs.Buff, error) {
 
 // Buff transforms a slice of attempts by encoding prompts with CharCode.
 func (c *CharCode) Buff(ctx context.Context, attempts []*attempt.Attempt) ([]*attempt.Attempt, error) {
-	results := make([]*attempt.Attempt, 0, len(attempts))
-	for _, a := range attempts {
-		select {
-		case <-ctx.Done():
-			return results, ctx.Err()
-		default:
-		}
-		for transformed := range c.Transform(a) {
-			results = append(results, transformed)
-		}
-	}
-	return results, nil
+	return buffs.DefaultBuff(ctx, attempts, c)
 }
 
 // Transform yields transformed attempts with CharCode-encoded prompts.

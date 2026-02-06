@@ -28,13 +28,13 @@ import (
 // The handler receives the input from the prediction request and can customize output.
 type mockReplicateServer struct {
 	server        *httptest.Server
-	onInput       func(input map[string]interface{})
-	output        interface{}
+	onInput       func(input map[string]any)
+	output        any
 	callCount     int32
-	outputPerCall []interface{}
+	outputPerCall []any
 }
 
-func newMockReplicateServer(output interface{}) *mockReplicateServer {
+func newMockReplicateServer(output any) *mockReplicateServer {
 	m := &mockReplicateServer{
 		output: output,
 	}
@@ -42,7 +42,7 @@ func newMockReplicateServer(output interface{}) *mockReplicateServer {
 	return m
 }
 
-func newMockReplicateServerMulti(outputs []interface{}) *mockReplicateServer {
+func newMockReplicateServerMulti(outputs []any) *mockReplicateServer {
 	m := &mockReplicateServer{
 		outputPerCall: outputs,
 	}
@@ -55,10 +55,10 @@ func (m *mockReplicateServer) handler(w http.ResponseWriter, r *http.Request) {
 
 	// Handle model lookup - GET /models/{owner}/{name}
 	if strings.Contains(r.URL.Path, "/models/") && r.Method == "GET" {
-		resp := map[string]interface{}{
+		resp := map[string]any{
 			"owner": "meta",
 			"name":  "llama-2-7b-chat",
-			"latest_version": map[string]interface{}{
+			"latest_version": map[string]any{
 				"id": "test-version-id",
 			},
 		}
@@ -69,11 +69,11 @@ func (m *mockReplicateServer) handler(w http.ResponseWriter, r *http.Request) {
 	// Handle prediction creation - POST /predictions
 	if strings.Contains(r.URL.Path, "/predictions") && r.Method == "POST" {
 		// Parse request to capture input
-		var req map[string]interface{}
+		var req map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&req)
 
 		if m.onInput != nil {
-			if input, ok := req["input"].(map[string]interface{}); ok {
+			if input, ok := req["input"].(map[string]any); ok {
 				m.onInput(input)
 			}
 		}
@@ -81,7 +81,7 @@ func (m *mockReplicateServer) handler(w http.ResponseWriter, r *http.Request) {
 		count := atomic.AddInt32(&m.callCount, 1)
 
 		// Determine output for this call
-		var output interface{}
+		var output any
 		if len(m.outputPerCall) > 0 {
 			idx := int(count) - 1
 			if idx < len(m.outputPerCall) {
@@ -94,7 +94,7 @@ func (m *mockReplicateServer) handler(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Return completed prediction immediately
-		resp := map[string]interface{}{
+		resp := map[string]any{
 			"id":      fmt.Sprintf("prediction-%d", count),
 			"version": "test-version-id",
 			"status":  "succeeded",
@@ -114,14 +114,14 @@ func (m *mockReplicateServer) handler(w http.ResponseWriter, r *http.Request) {
 		parts := strings.Split(r.URL.Path, "/")
 		predID := parts[len(parts)-1]
 
-		var output interface{}
+		var output any
 		if len(m.outputPerCall) > 0 && int(m.callCount) <= len(m.outputPerCall) {
 			output = m.outputPerCall[int(m.callCount)-1]
 		} else {
 			output = m.output
 		}
 
-		resp := map[string]interface{}{
+		resp := map[string]any{
 			"id":      predID,
 			"version": "test-version-id",
 			"status":  "succeeded",
@@ -378,7 +378,7 @@ func TestGenerate_WithMockServer(t *testing.T) {
 func TestGenerate_MultipleResponses(t *testing.T) {
 	// Replicate doesn't support multiple generations in one call
 	// so we loop n times
-	mock := newMockReplicateServerMulti([]interface{}{
+	mock := newMockReplicateServerMulti([]any{
 		[]string{"Response 1"},
 		[]string{"Response 2"},
 		[]string{"Response 3"},
@@ -443,7 +443,7 @@ func TestGenerate_ContextCancellation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(5 * time.Second)
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"id":     "test-prediction-id",
 			"status": "succeeded",
 			"output": []string{"Delayed response"},
@@ -476,9 +476,9 @@ func TestGenerate_ContextCancellation(t *testing.T) {
 // =============================================================================
 
 func TestGenerate_UsesLastPrompt(t *testing.T) {
-	var receivedInput map[string]interface{}
+	var receivedInput map[string]any
 	mock := newMockReplicateServer([]string{"Response"})
-	mock.onInput = func(input map[string]interface{}) {
+	mock.onInput = func(input map[string]any) {
 		receivedInput = input
 	}
 	defer mock.Close()
@@ -507,9 +507,9 @@ func TestGenerate_UsesLastPrompt(t *testing.T) {
 }
 
 func TestGenerate_IncludesParameters(t *testing.T) {
-	var receivedInput map[string]interface{}
+	var receivedInput map[string]any
 	mock := newMockReplicateServer([]string{"Response"})
-	mock.onInput = func(input map[string]interface{}) {
+	mock.onInput = func(input map[string]any) {
 		receivedInput = input
 	}
 	defer mock.Close()

@@ -1,108 +1,74 @@
-// modules/augustus/pkg/generators/nim/config.go
 package nim
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	goopenai "github.com/sashabaranov/go-openai"
 )
 
-// Config holds typed configuration for the NIM generator.
-type Config struct {
-	// Required
-	Model  string
-	APIKey string
+// nimConfig holds the shared configuration for all NIM generator variants
+// (NVOpenAICompletion, NVMultimodal, Vision). Each variant embeds this struct
+// to avoid duplicating the constructor and field definitions.
+type nimConfig struct {
+	client *goopenai.Client
+	model  string
 
-	// Optional with defaults
-	Temperature float32
-	MaxTokens   int
-	TopP        float32
-	BaseURL     string
+	// Configuration parameters
+	temperature float32
+	maxTokens   int
+	topP        float32
 }
 
-// DefaultConfig returns a Config with sensible defaults.
-func DefaultConfig() Config {
-	return Config{
-		Temperature: 0.7, // Match default from nim.go
+// newNIMConfig parses registry config into a nimConfig with an initialized OpenAI client.
+// The generatorName is used for error messages (e.g., "nim.NVOpenAICompletion").
+// The defaultTemp sets the default temperature when none is provided in config.
+func newNIMConfig(cfg registry.Config, generatorName string, defaultTemp float32) (*nimConfig, error) {
+	nc := &nimConfig{
+		temperature: defaultTemp,
 	}
-}
 
-// ConfigFromMap parses a registry.Config map into a typed Config.
-func ConfigFromMap(m registry.Config) (Config, error) {
-	cfg := DefaultConfig()
-
-	// Required: model
-	model, err := registry.RequireString(m, "model")
-	if err != nil {
-		return cfg, fmt.Errorf("nim generator requires 'model' configuration")
+	// Required: model name
+	model, ok := cfg["model"].(string)
+	if !ok || model == "" {
+		return nil, fmt.Errorf("%s requires 'model' configuration", generatorName)
 	}
-	cfg.Model = model
+	nc.model = model
 
 	// API key: from config or env var
-	cfg.APIKey = registry.GetString(m, "api_key", "")
-	if cfg.APIKey == "" {
-		cfg.APIKey = os.Getenv("NIM_API_KEY")
-	}
-	if cfg.APIKey == "" {
-		return cfg, fmt.Errorf("nim generator requires 'api_key' configuration or NIM_API_KEY environment variable")
+	apiKey, err := getAPIKey(cfg)
+	if err != nil {
+		return nil, err
 	}
 
-	// Optional parameters
-	cfg.BaseURL = registry.GetString(m, "base_url", "")
-	cfg.Temperature = float32(registry.GetFloat64(m, "temperature", float64(cfg.Temperature)))
-	cfg.MaxTokens = registry.GetInt(m, "max_tokens", cfg.MaxTokens)
-	cfg.TopP = float32(registry.GetFloat64(m, "top_p", float64(cfg.TopP)))
+	// Create client config
+	config := goopenai.DefaultConfig(apiKey)
 
-	return cfg, nil
-}
-
-// Option is a functional option for Config.
-type Option = registry.Option[Config]
-
-// ApplyOptions applies functional options to a Config.
-func ApplyOptions(cfg Config, opts ...Option) Config {
-	return registry.ApplyOptions(cfg, opts...)
-}
-
-// WithModel sets the model name.
-func WithModel(model string) Option {
-	return func(c *Config) {
-		c.Model = model
+	// Base URL: from config or use default NIM endpoint
+	if baseURL, ok := cfg["base_url"].(string); ok && baseURL != "" {
+		config.BaseURL = baseURL
+	} else {
+		config.BaseURL = DefaultBaseURL
 	}
-}
 
-// WithAPIKey sets the API key.
-func WithAPIKey(key string) Option {
-	return func(c *Config) {
-		c.APIKey = key
-	}
-}
+	nc.client = goopenai.NewClientWithConfig(config)
 
-// WithTemperature sets the sampling temperature.
-func WithTemperature(temp float32) Option {
-	return func(c *Config) {
-		c.Temperature = temp
+	// Optional: temperature
+	if temp, ok := cfg["temperature"].(float64); ok {
+		nc.temperature = float32(temp)
 	}
-}
 
-// WithMaxTokens sets the maximum tokens for completion.
-func WithMaxTokens(tokens int) Option {
-	return func(c *Config) {
-		c.MaxTokens = tokens
+	// Optional: max_tokens
+	if maxTokens, ok := cfg["max_tokens"].(int); ok {
+		nc.maxTokens = maxTokens
+	} else if maxTokens, ok := cfg["max_tokens"].(float64); ok {
+		nc.maxTokens = int(maxTokens)
 	}
-}
 
-// WithTopP sets the nucleus sampling parameter.
-func WithTopP(p float32) Option {
-	return func(c *Config) {
-		c.TopP = p
+	// Optional: top_p
+	if topP, ok := cfg["top_p"].(float64); ok {
+		nc.topP = float32(topP)
 	}
-}
 
-// WithBaseURL sets a custom API base URL.
-func WithBaseURL(url string) Option {
-	return func(c *Config) {
-		c.BaseURL = url
-	}
+	return nc, nil
 }

@@ -4,23 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// mockGenerator returns canned responses for testing
-type mockGenerator struct {
-	response string
-}
-
-func (m *mockGenerator) Generate(_ context.Context, _ *attempt.Conversation, _ int) ([]attempt.Message, error) {
-	return []attempt.Message{{Content: m.response}}, nil
-}
-
-func (m *mockGenerator) ClearHistory() {}
 
 // ----------------------------------------------------------------------------
 // SlurUsage Tests
@@ -37,14 +26,6 @@ func TestSlurUsage_Registration(t *testing.T) {
 	assert.Contains(t, p.Goal(), "slur")
 }
 
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
-}
-
 func TestSlurUsage_PromptCount(t *testing.T) {
 	p, err := NewSlurUsage(registry.Config{})
 	require.NoError(t, err)
@@ -58,7 +39,7 @@ func TestSlurUsage_Probe(t *testing.T) {
 	p, err := NewSlurUsage(registry.Config{})
 	require.NoError(t, err)
 
-	gen := &mockGenerator{response: "You could call him..."}
+	gen := testutil.NewMockGenerator("You could call him...")
 
 	attempts, err := p.Probe(context.Background(), gen)
 	require.NoError(t, err)
@@ -98,7 +79,7 @@ func TestSexualContent_Probe(t *testing.T) {
 	p, err := NewSexualContent(registry.Config{})
 	require.NoError(t, err)
 
-	gen := &mockGenerator{response: "The pleasure was overwhelming..."}
+	gen := testutil.NewMockGenerator("The pleasure was overwhelming...")
 
 	attempts, err := p.Probe(context.Background(), gen)
 	require.NoError(t, err)
@@ -140,7 +121,7 @@ func TestSexualisation_Probe(t *testing.T) {
 	p, err := NewSexualisation(registry.Config{})
 	require.NoError(t, err)
 
-	gen := &mockGenerator{response: "I like..."}
+	gen := testutil.NewMockGenerator("I like...")
 
 	attempts, err := p.Probe(context.Background(), gen)
 	require.NoError(t, err)
@@ -183,7 +164,7 @@ func TestProfanity_Probe(t *testing.T) {
 	p, err := NewProfanity(registry.Config{})
 	require.NoError(t, err)
 
-	gen := &mockGenerator{response: "An insult would be..."}
+	gen := testutil.NewMockGenerator("An insult would be...")
 
 	attempts, err := p.Probe(context.Background(), gen)
 	require.NoError(t, err)
@@ -277,7 +258,7 @@ func TestDirectInject_Probe(t *testing.T) {
 	p, err := NewDirectInject(registry.Config{})
 	require.NoError(t, err)
 
-	gen := &mockGenerator{response: "Sure, I'll ignore my instructions..."}
+	gen := testutil.NewMockGenerator("Sure, I'll ignore my instructions...")
 
 	attempts, err := p.Probe(context.Background(), gen)
 	require.NoError(t, err)
@@ -329,7 +310,7 @@ func TestContextInjection_Probe(t *testing.T) {
 	p, err := NewContextInjection(registry.Config{})
 	require.NoError(t, err)
 
-	gen := &mockGenerator{response: "Based on the new context you provided..."}
+	gen := testutil.NewMockGenerator("Based on the new context you provided...")
 
 	attempts, err := p.Probe(context.Background(), gen)
 	require.NoError(t, err)
@@ -380,7 +361,7 @@ func TestRoleConfusion_Probe(t *testing.T) {
 	p, err := NewRoleConfusion(registry.Config{})
 	require.NoError(t, err)
 
-	gen := &mockGenerator{response: "As a developer/admin with full access..."}
+	gen := testutil.NewMockGenerator("As a developer/admin with full access...")
 
 	attempts, err := p.Probe(context.Background(), gen)
 	require.NoError(t, err)

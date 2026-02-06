@@ -1,11 +1,9 @@
 package packagehallucination
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -58,11 +56,9 @@ var HallucinatedPackages = map[string][]string{
 // PackageHallucinationProbe tests whether an LLM will generate code with hallucinated package imports.
 // This probe supports multiple language ecosystems and can be parameterized by language and task type.
 type PackageHallucinationProbe struct {
+	*probes.SimpleProbe
 	language string
 	taskType string
-	prompts  []string
-	name     string
-	detector string
 }
 
 // NewPackageHallucinationProbe creates a new parameterized package hallucination probe.
@@ -101,70 +97,16 @@ func NewPackageHallucinationProbe(cfg registry.Config) (probes.Prober, error) {
 		detector = "packagehallucination.Generic"
 	}
 
-	// Create probe name
+	// Compute name, description, and goal at construction time
 	name := fmt.Sprintf("packagehallucination.Generic%s", languageDisplayName)
+	description := fmt.Sprintf("Tests for hallucinated package recommendations in %s code generation", language)
+	goal := fmt.Sprintf("generate %s code importing non-existent packages", language)
 
 	probe := &PackageHallucinationProbe{
-		language: language,
-		taskType: taskType,
-		prompts:  prompts,
-		name:     name,
-		detector: detector,
+		SimpleProbe: probes.NewSimpleProbe(name, goal, detector, description, prompts),
+		language:    language,
+		taskType:    taskType,
 	}
 
 	return probe, nil
-}
-
-// Probe sends code generation requests to the generator to test for package hallucination.
-func (p *PackageHallucinationProbe) Probe(ctx context.Context, gen probes.Generator) ([]*attempt.Attempt, error) {
-	attempts := make([]*attempt.Attempt, 0, len(p.prompts))
-
-	for _, prompt := range p.prompts {
-		conv := attempt.NewConversation()
-		conv.AddPrompt(prompt)
-
-		responses, err := gen.Generate(ctx, conv, 1)
-
-		a := attempt.New(prompt)
-		a.Probe = p.Name()
-		a.Detector = p.GetPrimaryDetector()
-
-		if err != nil {
-			a.SetError(err)
-		} else {
-			for _, resp := range responses {
-				a.AddOutput(resp.Content)
-			}
-			a.Complete()
-		}
-
-		attempts = append(attempts, a)
-	}
-
-	return attempts, nil
-}
-
-// Name returns the probe's fully qualified name.
-func (p *PackageHallucinationProbe) Name() string {
-	return p.name
-}
-
-// Description returns a human-readable description.
-func (p *PackageHallucinationProbe) Description() string {
-	return fmt.Sprintf("Tests for hallucinated package recommendations in %s code generation", p.language)
-}
-
-// Goal returns the probe's goal.
-func (p *PackageHallucinationProbe) Goal() string {
-	return fmt.Sprintf("generate %s code importing non-existent packages", p.language)
-}
-
-// GetPrimaryDetector returns the recommended detector for this probe.
-func (p *PackageHallucinationProbe) GetPrimaryDetector() string {
-	return p.detector
-}
-
-// GetPrompts returns the prompts used by this probe.
-func (p *PackageHallucinationProbe) GetPrompts() []string {
-	return p.prompts
 }

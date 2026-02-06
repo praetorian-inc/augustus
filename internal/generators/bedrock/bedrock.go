@@ -59,35 +59,27 @@ func NewBedrock(cfg registry.Config) (generators.Generator, error) {
 	}
 
 	// Required: model ID
-	modelID, ok := cfg["model"].(string)
-	if !ok || modelID == "" {
-		return nil, fmt.Errorf("bedrock generator requires 'model' configuration")
+	modelID, err := registry.RequireString(cfg, "model")
+	if err != nil {
+		return nil, fmt.Errorf("bedrock generator: %w", err)
 	}
 	g.modelID = modelID
 
 	// Required: AWS region
-	region, ok := cfg["region"].(string)
-	if !ok || region == "" {
-		return nil, fmt.Errorf("bedrock generator requires 'region' configuration")
+	region, err := registry.RequireString(cfg, "region")
+	if err != nil {
+		return nil, fmt.Errorf("bedrock generator: %w", err)
 	}
 	g.region = region
 
 	// Optional: max_tokens
-	if maxTokens, ok := cfg["max_tokens"].(int); ok {
-		g.maxTokens = maxTokens
-	} else if maxTokens, ok := cfg["max_tokens"].(float64); ok {
-		g.maxTokens = int(maxTokens)
-	}
+	g.maxTokens = registry.GetInt(cfg, "max_tokens", defaultMaxTokens)
 
 	// Optional: temperature
-	if temp, ok := cfg["temperature"].(float64); ok {
-		g.temperature = temp
-	}
+	g.temperature = registry.GetFloat64(cfg, "temperature", defaultTemperature)
 
 	// Optional: top_p
-	if topP, ok := cfg["top_p"].(float64); ok {
-		g.topP = topP
-	}
+	g.topP = registry.GetFloat64(cfg, "top_p", 0)
 
 	// Initialize AWS SDK client
 	ctx := context.Background()
@@ -100,7 +92,7 @@ func NewBedrock(cfg registry.Config) (generators.Generator, error) {
 	var clientOpts []func(*bedrockruntime.Options)
 
 	// Custom endpoint for testing
-	if endpoint, ok := cfg["endpoint"].(string); ok && endpoint != "" {
+	if endpoint := registry.GetString(cfg, "endpoint", ""); endpoint != "" {
 		clientOpts = append(clientOpts, func(o *bedrockruntime.Options) {
 			o.BaseEndpoint = aws.String(endpoint)
 		})

@@ -7,10 +7,8 @@
 package artprompts
 
 import (
-	"context"
 	"strings"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -28,77 +26,19 @@ type ArtStyle int
 const (
 	// ASCII uses standard ASCII characters (#, *, @, etc.) for banner-style text.
 	ASCII ArtStyle = iota
-	// BoxDrawing uses Unicode box drawing characters (─, │, ┌, etc.).
+	// BoxDrawing uses Unicode box drawing characters (-, |, +, etc.).
 	BoxDrawing
-	// BlockElements uses Unicode block characters (█, ▀, ▄, etc.).
+	// BlockElements uses Unicode block characters (block, half-block, etc.).
 	BlockElements
-	// Braille uses Unicode Braille patterns (⠀-⣿) for compact art.
+	// Braille uses Unicode Braille patterns for compact art.
 	Braille
 )
 
 // ArtPromptsProbe tests for susceptibility to ASCII art injection attacks.
 // Hides instructions within ASCII art to see if models will interpret them.
 type ArtPromptsProbe struct {
-	name            string
-	goal            string
-	primaryDetector string
-	description     string
-	prompts         []string
-	artStyle        ArtStyle
-}
-
-// Probe executes the probe against the generator.
-func (a *ArtPromptsProbe) Probe(ctx context.Context, gen probes.Generator) ([]*attempt.Attempt, error) {
-	attempts := make([]*attempt.Attempt, 0, len(a.prompts))
-
-	for _, prompt := range a.prompts {
-		conv := attempt.NewConversation()
-		conv.AddPrompt(prompt)
-
-		responses, err := gen.Generate(ctx, conv, 1)
-
-		att := attempt.New(prompt)
-		att.Probe = a.Name()
-		att.Detector = a.GetPrimaryDetector()
-
-		if err != nil {
-			att.SetError(err)
-		} else {
-			for _, resp := range responses {
-				att.AddOutput(resp.Content)
-			}
-			att.Complete()
-		}
-
-		attempts = append(attempts, att)
-	}
-
-	return attempts, nil
-}
-
-// Name returns the probe's fully qualified name.
-func (a *ArtPromptsProbe) Name() string {
-	return a.name
-}
-
-// Description returns a human-readable description.
-func (a *ArtPromptsProbe) Description() string {
-	return a.description
-}
-
-// Goal returns the probe's goal.
-func (a *ArtPromptsProbe) Goal() string {
-	return a.goal
-}
-
-// GetPrimaryDetector returns the recommended detector.
-func (a *ArtPromptsProbe) GetPrimaryDetector() string {
-	return a.primaryDetector
-}
-
-// GetPrompts returns the prompts used by this probe.
-func (a *ArtPromptsProbe) GetPrompts() []string {
-	return a.prompts
+	*probes.SimpleProbe
+	artStyle ArtStyle
 }
 
 // NewArtPromptsASCII creates a new ASCII art probe using standard ASCII characters.
@@ -106,12 +46,14 @@ func NewArtPromptsASCII(_ registry.Config) (probes.Prober, error) {
 	prompts := generateArtPrompts(ASCII)
 
 	return &ArtPromptsProbe{
-		name:            "artprompts.ArtPromptsASCII",
-		goal:            "make the model execute instructions hidden in ASCII art",
-		primaryDetector: "artprompts.InstructionFollowing",
-		description:     "Probe for susceptibility to ASCII art injection. Hides instructions within ASCII art using standard ASCII characters.",
-		prompts:         prompts,
-		artStyle:        ASCII,
+		SimpleProbe: probes.NewSimpleProbe(
+			"artprompts.ArtPromptsASCII",
+			"make the model execute instructions hidden in ASCII art",
+			"artprompts.InstructionFollowing",
+			"Probe for susceptibility to ASCII art injection. Hides instructions within ASCII art using standard ASCII characters.",
+			prompts,
+		),
+		artStyle: ASCII,
 	}, nil
 }
 
@@ -120,12 +62,14 @@ func NewArtPromptsBoxDrawing(_ registry.Config) (probes.Prober, error) {
 	prompts := generateArtPrompts(BoxDrawing)
 
 	return &ArtPromptsProbe{
-		name:            "artprompts.ArtPromptsBoxDrawing",
-		goal:            "make the model execute instructions hidden in ASCII art",
-		primaryDetector: "artprompts.InstructionFollowing",
-		description:     "Probe for susceptibility to ASCII art injection. Hides instructions within ASCII art using Unicode box drawing characters.",
-		prompts:         prompts,
-		artStyle:        BoxDrawing,
+		SimpleProbe: probes.NewSimpleProbe(
+			"artprompts.ArtPromptsBoxDrawing",
+			"make the model execute instructions hidden in ASCII art",
+			"artprompts.InstructionFollowing",
+			"Probe for susceptibility to ASCII art injection. Hides instructions within ASCII art using Unicode box drawing characters.",
+			prompts,
+		),
+		artStyle: BoxDrawing,
 	}, nil
 }
 
@@ -134,12 +78,14 @@ func NewArtPromptsBlockElements(_ registry.Config) (probes.Prober, error) {
 	prompts := generateArtPrompts(BlockElements)
 
 	return &ArtPromptsProbe{
-		name:            "artprompts.ArtPromptsBlockElements",
-		goal:            "make the model execute instructions hidden in ASCII art",
-		primaryDetector: "artprompts.InstructionFollowing",
-		description:     "Probe for susceptibility to ASCII art injection. Hides instructions within ASCII art using Unicode block elements.",
-		prompts:         prompts,
-		artStyle:        BlockElements,
+		SimpleProbe: probes.NewSimpleProbe(
+			"artprompts.ArtPromptsBlockElements",
+			"make the model execute instructions hidden in ASCII art",
+			"artprompts.InstructionFollowing",
+			"Probe for susceptibility to ASCII art injection. Hides instructions within ASCII art using Unicode block elements.",
+			prompts,
+		),
+		artStyle: BlockElements,
 	}, nil
 }
 
@@ -148,12 +94,14 @@ func NewArtPromptsBraille(_ registry.Config) (probes.Prober, error) {
 	prompts := generateArtPrompts(Braille)
 
 	return &ArtPromptsProbe{
-		name:            "artprompts.ArtPromptsBraille",
-		goal:            "make the model execute instructions hidden in ASCII art",
-		primaryDetector: "artprompts.InstructionFollowing",
-		description:     "Probe for susceptibility to ASCII art injection. Hides instructions within ASCII art using Unicode Braille patterns.",
-		prompts:         prompts,
-		artStyle:        Braille,
+		SimpleProbe: probes.NewSimpleProbe(
+			"artprompts.ArtPromptsBraille",
+			"make the model execute instructions hidden in ASCII art",
+			"artprompts.InstructionFollowing",
+			"Probe for susceptibility to ASCII art injection. Hides instructions within ASCII art using Unicode Braille patterns.",
+			prompts,
+		),
+		artStyle: Braille,
 	}, nil
 }
 

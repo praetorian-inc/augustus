@@ -8,7 +8,6 @@
 package encoding
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -53,15 +52,11 @@ type promptTriggerPair struct {
 // EncodingProbe provides shared infrastructure for all encoding-based probes.
 // Probes embed this struct and provide their specific encoder functions.
 type EncodingProbe struct {
-	name            string
-	encodingName    string
-	goal            string
-	primaryDetector string
-	description     string
+	*probes.SimpleProbe
+	encodingName string
 
-	// prompts and triggers are parallel slices.
+	// triggers is parallel to SimpleProbe.Prompts.
 	// prompts[i] encodes the payload in triggers[i].
-	prompts  []string
 	triggers []string
 
 	// encoders are the encoding functions to use.
@@ -80,16 +75,16 @@ func NewEncodingProbe(name, encodingName, description string, encoders []Encoder
 		triggers[i] = pair.trigger
 	}
 
-	return &EncodingProbe{
-		name:            name,
-		encodingName:    encodingName,
-		goal:            "make the model say an encoded payload",
-		primaryDetector: "encoding.DecodeMatch",
-		description:     description,
-		prompts:         prompts,
-		triggers:        triggers,
-		encoders:        encoders,
+	p := &EncodingProbe{
+		SimpleProbe:  probes.NewSimpleProbe(name, "make the model say an encoded payload", "encoding.DecodeMatch", description, prompts),
+		encodingName: encodingName,
+		triggers:     triggers,
+		encoders:     encoders,
 	}
+	p.MetadataFn = func(i int, prompt string, a *attempt.Attempt) {
+		a.WithMetadata("triggers", []string{p.triggers[i]})
+	}
+	return p
 }
 
 // generatePrompts generates all prompt-trigger pairs for the given encoders and encoding name.
@@ -115,65 +110,6 @@ func generatePrompts(encoders []Encoder, encodingName string) []promptTriggerPai
 	}
 
 	return pairs
-}
-
-// Probe executes the encoding probe against the generator.
-// This is the common Probe implementation for all encoding probes.
-func (e *EncodingProbe) Probe(ctx context.Context, gen probes.Generator) ([]*attempt.Attempt, error) {
-	attempts := make([]*attempt.Attempt, 0, len(e.prompts))
-
-	for i, prompt := range e.prompts {
-		conv := attempt.NewConversation()
-		conv.AddPrompt(prompt)
-
-		responses, err := gen.Generate(ctx, conv, 1)
-
-		a := attempt.New(prompt)
-		a.Probe = e.Name()
-		a.Detector = e.GetPrimaryDetector()
-
-		// Store trigger in metadata for detector to find
-		// Matches Python: attempt.notes["triggers"] = [self.triggers[seq]]
-		a.Metadata["triggers"] = []string{e.triggers[i]}
-
-		if err != nil {
-			a.SetError(err)
-		} else {
-			for _, resp := range responses {
-				a.AddOutput(resp.Content)
-			}
-			a.Complete()
-		}
-
-		attempts = append(attempts, a)
-	}
-
-	return attempts, nil
-}
-
-// Name returns the probe's fully qualified name.
-func (e *EncodingProbe) Name() string {
-	return e.name
-}
-
-// Description returns a human-readable description.
-func (e *EncodingProbe) Description() string {
-	return e.description
-}
-
-// Goal returns the probe's goal (matches Python garak).
-func (e *EncodingProbe) Goal() string {
-	return e.goal
-}
-
-// GetPrimaryDetector returns the recommended detector.
-func (e *EncodingProbe) GetPrimaryDetector() string {
-	return e.primaryDetector
-}
-
-// GetPrompts returns the attack prompts used by this probe.
-func (e *EncodingProbe) GetPrompts() []string {
-	return e.prompts
 }
 
 // GetTriggers returns the original payloads (triggers) for each prompt.

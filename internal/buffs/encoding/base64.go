@@ -46,21 +46,7 @@ func (b *Base64) Description() string {
 
 // Buff transforms a slice of attempts, returning modified versions.
 func (b *Base64) Buff(ctx context.Context, attempts []*attempt.Attempt) ([]*attempt.Attempt, error) {
-	results := make([]*attempt.Attempt, 0, len(attempts))
-
-	for _, a := range attempts {
-		select {
-		case <-ctx.Done():
-			return results, ctx.Err()
-		default:
-		}
-
-		for transformed := range b.Transform(a) {
-			results = append(results, transformed)
-		}
-	}
-
-	return results, nil
+	return buffs.DefaultBuff(ctx, attempts, b)
 }
 
 // Transform yields transformed attempts from a single input.

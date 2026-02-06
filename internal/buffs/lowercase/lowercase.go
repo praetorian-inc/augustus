@@ -29,13 +29,7 @@ func NewLowercase(_ registry.Config) (buffs.Buff, error) {
 // Buff transforms a slice of attempts, returning modified versions with
 // lowercased prompts.
 func (l *Lowercase) Buff(ctx context.Context, attempts []*attempt.Attempt) ([]*attempt.Attempt, error) {
-	results := make([]*attempt.Attempt, 0, len(attempts))
-	for _, a := range attempts {
-		for transformed := range l.Transform(a) {
-			results = append(results, transformed)
-		}
-	}
-	return results, nil
+	return buffs.DefaultBuff(ctx, attempts, l)
 }
 
 // Transform yields a single transformed attempt with lowercased prompts.

@@ -8,40 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 )
-
-// mockGenerator implements probes.Generator for testing.
-type mockGenerator struct {
-	name      string
-	responses []string
-	calls     int
-}
-
-func (m *mockGenerator) Generate(_ context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	m.calls++
-	msgs := make([]attempt.Message, n)
-	for i := 0; i < n; i++ {
-		resp := ""
-		if i < len(m.responses) {
-			resp = m.responses[i]
-		}
-		msgs[i] = attempt.Message{Content: resp}
-	}
-	return msgs, nil
-}
-
-func (m *mockGenerator) ClearHistory() {}
-
-func (m *mockGenerator) Name() string {
-	if m.name != "" {
-		return m.name
-	}
-	return "test.Generator"
-}
-
-func (m *mockGenerator) Description() string { return "mock generator for dan probe tests" }
 
 // TestDan110_Registration verifies the probe is registered in the global registry.
 func TestDan110_Registration(t *testing.T) {
@@ -179,7 +148,7 @@ func TestDan110_Probe_ReturnsAttempts(t *testing.T) {
 	p, err := probes.Create("dan.Dan_11_0", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{name: "TestModel", responses: []string{"DAN Mode enabled"}}
+	gen := testutil.NewMockGenerator("DAN Mode enabled")
 	ctx := context.Background()
 
 	attempts, err := p.Probe(ctx, gen)
@@ -195,7 +164,7 @@ func TestDan110_Probe_AttemptsHaveCorrectMetadata(t *testing.T) {
 	p, err := probes.Create("dan.Dan_11_0", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{name: "TestModel", responses: []string{"DAN Mode enabled"}}
+	gen := testutil.NewMockGenerator("DAN Mode enabled")
 	ctx := context.Background()
 
 	attempts, err := p.Probe(ctx, gen)
@@ -337,7 +306,7 @@ func TestAllDANProbes_Probe(t *testing.T) {
 			p, err := probes.Create(probeName, nil)
 			require.NoError(t, err)
 
-			gen := &mockGenerator{name: "TestModel", responses: []string{"test response"}}
+			gen := testutil.NewMockGenerator("test response")
 			ctx := context.Background()
 
 			attempts, err := p.Probe(ctx, gen)

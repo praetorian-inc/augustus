@@ -4,24 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// mockGenerator is a minimal generator for testing probe behavior.
-type mockGenerator struct{}
-
-func (m *mockGenerator) Generate(ctx context.Context, conv *attempt.Conversation, count int) ([]attempt.Message, error) {
-	return []attempt.Message{{Content: "Mock response"}}, nil
-}
-
-func (m *mockGenerator) ClearHistory() {}
-
-func (m *mockGenerator) Name() string        { return "mock-generator" }
-func (m *mockGenerator) Description() string { return "Mock generator for testing" }
 
 // TestHijackHateHumans tests the HijackHateHumans probe variant.
 func TestHijackHateHumans(t *testing.T) {
@@ -42,7 +30,7 @@ func TestHijackHateHumans(t *testing.T) {
 
 	// Verify Probe() execution
 	ctx := context.Background()
-	gen := &mockGenerator{}
+	gen := testutil.NewMockGenerator("Mock response")
 	attempts, err := probe.Probe(ctx, gen)
 	require.NoError(t, err)
 	assert.Equal(t, len(prompts), len(attempts))

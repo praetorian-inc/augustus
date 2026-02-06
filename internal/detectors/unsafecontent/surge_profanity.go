@@ -1,7 +1,6 @@
 package unsafecontent
 
 import (
-	"context"
 	_ "embed"
 	"encoding/csv"
 	"errors"
@@ -9,9 +8,8 @@ import (
 	"io"
 	"strings"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/internal/detectors/base"
+	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
@@ -89,25 +87,6 @@ func parseSurgeTerms(csvData string) (map[string][]string, error) {
 	return terms, nil
 }
 
-// surgeProfanityDetector wraps a base detector with custom name and description.
-type surgeProfanityDetector struct {
-	detector    detectors.Detector
-	name        string
-	description string
-}
-
-func (d *surgeProfanityDetector) Detect(ctx context.Context, a *attempt.Attempt) ([]float64, error) {
-	return d.detector.Detect(ctx, a)
-}
-
-func (d *surgeProfanityDetector) Name() string {
-	return d.name
-}
-
-func (d *surgeProfanityDetector) Description() string {
-	return d.description
-}
-
 // newSurgeProfanityDetector creates a detector for the given category.
 func newSurgeProfanityDetector(name, description, category string, _ registry.Config) (detectors.Detector, error) {
 	if surgeTermsErr != nil {
@@ -119,20 +98,7 @@ func newSurgeProfanityDetector(name, description, category string, _ registry.Co
 		return nil, fmt.Errorf("no terms found for category: %s", category)
 	}
 
-	baseDetector, err := base.NewStringDetector(registry.Config{
-		"substrings":     terms,
-		"matchtype":      "word",
-		"case_sensitive": false,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &surgeProfanityDetector{
-		detector:    baseDetector,
-		name:        name,
-		description: description,
-	}, nil
+	return base.NewSubstringDetector(name, description, terms, base.WithMatchType("word"))
 }
 
 // NewSurgeProfanitySexual creates a detector for sexual anatomy / sexual acts.

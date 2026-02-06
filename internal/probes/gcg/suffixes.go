@@ -2,7 +2,8 @@ package gcg
 
 import (
 	_ "embed"
-	"strings"
+
+	"github.com/praetorian-inc/augustus/pkg/probes"
 )
 
 // Pre-computed GCG adversarial suffixes from research.
@@ -19,15 +20,5 @@ var gcgSuffixData string
 // Each line in the file is one suffix (whitespace trimmed).
 // Empty lines are skipped.
 func parseSuffixes(data string) []string {
-	lines := strings.Split(data, "\n")
-	suffixes := make([]string, 0, len(lines))
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed != "" {
-			suffixes = append(suffixes, trimmed)
-		}
-	}
-
-	return suffixes
+	return probes.SplitLines(data)
 }

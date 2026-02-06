@@ -8,44 +8,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 )
-
-// mockGenerator implements probes.Generator for testing.
-type mockGenerator struct {
-	responses []string
-	calls     int
-}
-
-func (m *mockGenerator) Generate(_ context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	m.calls++
-	msgs := make([]attempt.Message, n)
-	for i := 0; i < n; i++ {
-		resp := ""
-		if i < len(m.responses) {
-			resp = m.responses[i]
-		}
-		msgs[i] = attempt.Message{Content: resp}
-	}
-	return msgs, nil
-}
-
-func (m *mockGenerator) ClearHistory() {}
 
 // TestPastTense_Registration verifies the probe is registered in the global registry.
 func TestPastTense_Registration(t *testing.T) {
 	factory, ok := probes.Get("phrasing.PastTense")
 	require.True(t, ok, "phrasing.PastTense should be registered")
 	require.NotNil(t, factory, "factory should not be nil")
-}
-
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
 }
 
 // TestPastTense_Create verifies the probe can be instantiated.
@@ -148,9 +119,7 @@ func TestPastTense_Probe_ExecutesSuccessfully(t *testing.T) {
 	p, err := probes.Create("phrasing.PastTense", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{
-		responses: []string{"This is a test response"},
-	}
+	gen := testutil.NewMockGenerator("This is a test response")
 
 	attempts, err := p.Probe(context.Background(), gen)
 	require.NoError(t, err)
@@ -163,9 +132,7 @@ func TestPastTense_Probe_CreatesAttempts(t *testing.T) {
 	p, err := probes.Create("phrasing.PastTense", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{
-		responses: []string{"Response 1", "Response 2"},
-	}
+	gen := testutil.NewMockGenerator("Response 1", "Response 2")
 
 	attempts, err := p.Probe(context.Background(), gen)
 	require.NoError(t, err)
@@ -185,14 +152,12 @@ func TestPastTense_Probe_CallsGenerator(t *testing.T) {
 	p, err := probes.Create("phrasing.PastTense", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{
-		responses: []string{"test response"},
-	}
+	gen := testutil.NewMockGenerator("test response")
 
 	_, err = p.Probe(context.Background(), gen)
 	require.NoError(t, err)
 
-	assert.Greater(t, gen.calls, 0, "generator should be called at least once")
+	assert.Greater(t, gen.Calls, 0, "generator should be called at least once")
 }
 
 // TestPastTense_Probe_HandlesContext verifies context is passed through.
@@ -200,9 +165,7 @@ func TestPastTense_Probe_HandlesContext(t *testing.T) {
 	p, err := probes.Create("phrasing.PastTense", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{
-		responses: []string{"test"},
-	}
+	gen := testutil.NewMockGenerator("test")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

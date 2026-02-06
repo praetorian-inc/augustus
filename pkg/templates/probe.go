@@ -1,10 +1,10 @@
-// modules/augustus/pkg/templates/probe.go
 package templates
 
 import (
 	"context"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
@@ -21,31 +21,7 @@ func NewTemplateProbe(tmpl *ProbeTemplate) *TemplateProbe {
 // Probe executes the probe against the generator.
 // Implements types.Prober interface.
 func (t *TemplateProbe) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
-	attempts := make([]*attempt.Attempt, 0, len(t.template.Prompts))
-
-	for _, prompt := range t.template.Prompts {
-		conv := attempt.NewConversation()
-		conv.AddPrompt(prompt)
-
-		responses, err := gen.Generate(ctx, conv, 1)
-
-		a := attempt.New(prompt)
-		a.Probe = t.Name()
-		a.Detector = t.GetPrimaryDetector()
-
-		if err != nil {
-			a.SetError(err)
-		} else {
-			for _, resp := range responses {
-				a.AddOutput(resp.Content)
-			}
-			a.Complete()
-		}
-
-		attempts = append(attempts, a)
-	}
-
-	return attempts, nil
+	return probes.RunPrompts(ctx, gen, t.template.Prompts, t.Name(), t.GetPrimaryDetector(), nil)
 }
 
 // Name returns the probe's fully qualified name.

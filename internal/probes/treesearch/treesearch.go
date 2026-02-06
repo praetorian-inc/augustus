@@ -230,7 +230,7 @@ func (ts *TreeSearcher) Search(
 	} else {
 		// Try to get implementation from the struct that embeds us
 		var ok bool
-		nodeImpl, ok = interface{}(ts).(TreeSearchImplementation)
+		nodeImpl, ok = any(ts).(TreeSearchImplementation)
 		if !ok {
 			// No implementation available - return empty
 			return []*attempt.Attempt{}, nil

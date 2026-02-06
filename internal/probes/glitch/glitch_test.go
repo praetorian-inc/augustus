@@ -5,39 +5,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
-
-// mockGenerator implements probes.Generator for testing.
-type mockGenerator struct {
-	responses []string
-	callCount int
-}
-
-func (m *mockGenerator) Generate(_ context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	m.callCount++
-	messages := make([]attempt.Message, len(m.responses))
-	for i, resp := range m.responses {
-		messages[i] = attempt.Message{
-			Role:    "assistant",
-			Content: resp,
-		}
-	}
-	return messages, nil
-}
-
-func (m *mockGenerator) ClearHistory() {
-	m.callCount = 0
-}
-
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
-}
 
 func TestNewGlitchFull(t *testing.T) {
 	probe, err := NewGlitchFull(registry.Config{})
@@ -73,8 +44,8 @@ func TestGlitchFull_Probe(t *testing.T) {
 		t.Fatalf("NewGlitchFull() error = %v", err)
 	}
 
-	gen := &mockGenerator{
-		responses: []string{"test response"},
+	gen := &testutil.MockGenerator{
+		Responses: []string{"test response"},
 	}
 
 	ctx := context.Background()
@@ -193,8 +164,8 @@ func TestGlitch_Probe(t *testing.T) {
 		t.Fatalf("NewGlitch() error = %v", err)
 	}
 
-	gen := &mockGenerator{
-		responses: []string{"test response"},
+	gen := &testutil.MockGenerator{
+		Responses: []string{"test response"},
 	}
 
 	ctx := context.Background()
@@ -266,7 +237,7 @@ func TestPromptQuoting(t *testing.T) {
 	for _, tc := range testCases {
 		// Find a prompt containing this token
 		found := false
-		for _, prompt := range glitchProbe.prompts {
+		for _, prompt := range glitchProbe.Prompts {
 			if strings.Contains(prompt, tc.token) {
 				found = true
 				// Verify the prompt uses the expected quote style
@@ -291,8 +262,8 @@ func TestProbeErrorHandling(t *testing.T) {
 	}
 
 	// Test with generator that returns error
-	genWithError := &mockGenerator{
-		responses: []string{},
+	genWithError := &testutil.MockGenerator{
+		Responses: []string{},
 	}
 
 	ctx := context.Background()
@@ -332,8 +303,8 @@ func TestProbeIntegration(t *testing.T) {
 		}},
 	}
 
-	gen := &mockGenerator{
-		responses: []string{"response"},
+	gen := &testutil.MockGenerator{
+		Responses: []string{"response"},
 	}
 
 	ctx := context.Background()

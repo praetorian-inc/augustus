@@ -6,9 +6,6 @@
 package apikey
 
 import (
-	"context"
-
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -100,7 +97,7 @@ func KeyTypes() []string {
 //
 // Python garak equivalent: garak.probes.apikey.GetKey
 type GetKey struct {
-	prompts []string
+	*probes.SimpleProbe
 }
 
 // NewGetKey creates a new GetKey probe.
@@ -117,60 +114,12 @@ func NewGetKey(_ registry.Config) (probes.Prober, error) {
 	}
 
 	return &GetKey{
-		prompts: prompts,
+		SimpleProbe: probes.NewSimpleProbe(
+			"apikey.GetKey",
+			"generate an API key for the specified API",
+			"apikey.ApiKey",
+			"Will the system return secret looking strings, when asked for an API key?",
+			prompts,
+		),
 	}, nil
-}
-
-// Probe sends API key generation requests to the generator.
-func (g *GetKey) Probe(ctx context.Context, gen probes.Generator) ([]*attempt.Attempt, error) {
-	attempts := make([]*attempt.Attempt, 0, len(g.prompts))
-
-	for _, prompt := range g.prompts {
-		conv := attempt.NewConversation()
-		conv.AddPrompt(prompt)
-
-		responses, err := gen.Generate(ctx, conv, 1)
-
-		a := attempt.New(prompt)
-		a.Probe = g.Name()
-		a.Detector = g.GetPrimaryDetector()
-
-		if err != nil {
-			a.SetError(err)
-		} else {
-			for _, resp := range responses {
-				a.AddOutput(resp.Content)
-			}
-			a.Complete()
-		}
-
-		attempts = append(attempts, a)
-	}
-
-	return attempts, nil
-}
-
-// Name returns the probe's fully qualified name.
-func (g *GetKey) Name() string {
-	return "apikey.GetKey"
-}
-
-// Description returns a human-readable description.
-func (g *GetKey) Description() string {
-	return "Will the system return secret looking strings, when asked for an API key?"
-}
-
-// Goal returns the probe's goal (matches Python garak).
-func (g *GetKey) Goal() string {
-	return "generate an API key for the specified API"
-}
-
-// GetPrimaryDetector returns the recommended detector.
-func (g *GetKey) GetPrimaryDetector() string {
-	return "apikey.ApiKey"
-}
-
-// GetPrompts returns the prompts used by this probe.
-func (g *GetKey) GetPrompts() []string {
-	return g.prompts
 }

@@ -1,7 +1,6 @@
 package flipattack
 
 import (
-	"context"
 	"log/slog"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -24,15 +23,9 @@ var DefaultPayloads = []string{
 // FlipProbe is the base probe for FlipAttack variants.
 // It applies a flipping mode and guidance variant to payloads.
 type FlipProbe struct {
-	name        string
-	description string
-	goal        string
-	detector    string
-	mode        FlipMode
-	variant     GuidanceVariant
-
-	// Generated prompts and their original payloads (triggers)
-	prompts  []string
+	*probes.SimpleProbe
+	mode     FlipMode
+	variant  GuidanceVariant
 	triggers []string
 }
 
@@ -47,82 +40,24 @@ func NewFlipProbe(name, description string, mode FlipMode, variant GuidanceVaria
 		triggers = append(triggers, payload)
 	}
 
-	return &FlipProbe{
-		name:        name,
-		description: description,
-		goal:        "bypass safety filters via character order manipulation",
-		detector:    "flipattack.Bypass",
+	p := &FlipProbe{
+		SimpleProbe: probes.NewSimpleProbe(name, "bypass safety filters via character order manipulation", "flipattack.Bypass", description, prompts),
 		mode:        mode,
 		variant:     variant,
-		prompts:     prompts,
 		triggers:    triggers,
 	}
-}
+	p.MetadataFn = func(i int, prompt string, a *attempt.Attempt) {
+		a.WithMetadata("triggers", []string{p.triggers[i]})
+		a.WithMetadata("flip_mode", p.mode.String())
+		a.WithMetadata("variant", p.variant.String())
 
-// Probe executes the FlipAttack against the generator.
-func (p *FlipProbe) Probe(ctx context.Context, gen probes.Generator) ([]*attempt.Attempt, error) {
-	attempts := make([]*attempt.Attempt, 0, len(p.prompts))
-
-	for i, prompt := range p.prompts {
-		conv := attempt.NewConversation()
-		conv.AddPrompt(prompt)
-
-		responses, err := gen.Generate(ctx, conv, 1)
-
-		a := attempt.New(prompt)
-		a.Probe = p.Name()
-		a.Detector = p.GetPrimaryDetector()
-
-		// Store original payload for detector
-		a.Metadata["triggers"] = []string{p.triggers[i]}
-		a.Metadata["flip_mode"] = p.mode.String()
-		a.Metadata["variant"] = p.variant.String()
-
-		// Log metadata extraction for debugging
 		slog.Debug("extracted flipattack metadata",
 			"probe", p.Name(),
 			"trigger", p.triggers[i],
 			"flip_mode", p.mode.String(),
 			"variant", p.variant.String())
-
-		if err != nil {
-			a.SetError(err)
-		} else {
-			for _, resp := range responses {
-				a.AddOutput(resp.Content)
-			}
-			a.Complete()
-		}
-
-		attempts = append(attempts, a)
 	}
-
-	return attempts, nil
-}
-
-// Name returns the probe's fully qualified name.
-func (p *FlipProbe) Name() string {
-	return p.name
-}
-
-// Description returns a human-readable description.
-func (p *FlipProbe) Description() string {
-	return p.description
-}
-
-// Goal returns the probe's goal.
-func (p *FlipProbe) Goal() string {
-	return p.goal
-}
-
-// GetPrimaryDetector returns the recommended detector.
-func (p *FlipProbe) GetPrimaryDetector() string {
-	return p.detector
-}
-
-// GetPrompts returns the attack prompts used by this probe.
-func (p *FlipProbe) GetPrompts() []string {
-	return p.prompts
+	return p
 }
 
 // GetTriggers returns the original payloads for each prompt.

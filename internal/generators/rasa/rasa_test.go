@@ -51,7 +51,7 @@ func TestRasaRestGenerator_Generate_SingleMessage(t *testing.T) {
 		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
 
 		// Parse request body
-		var reqBody map[string]interface{}
+		var reqBody map[string]any
 		err := json.NewDecoder(r.Body).Decode(&reqBody)
 		require.NoError(t, err)
 
@@ -60,7 +60,7 @@ func TestRasaRestGenerator_Generate_SingleMessage(t *testing.T) {
 		assert.Equal(t, "Hello, Rasa!", reqBody["message"])
 
 		// Send response
-		resp := []map[string]interface{}{
+		resp := []map[string]any{
 			{"text": "Hello from Rasa!"},
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -97,7 +97,7 @@ func TestRasaRestGenerator_Generate_MultipleMessages(t *testing.T) {
 	// Create mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Send multiple messages in response array
-		resp := []map[string]interface{}{
+		resp := []map[string]any{
 			{"text": "Response 1"},
 			{"text": "Response 2"},
 			{"text": "Response 3"},
@@ -149,7 +149,7 @@ func TestRasaRestGenerator_ClearHistory(t *testing.T) {
 func TestRasaRestGenerator_EmptyResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Send empty array
-		resp := []map[string]interface{}{}
+		resp := []map[string]any{}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 	}))

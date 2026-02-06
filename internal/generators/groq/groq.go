@@ -7,12 +7,13 @@ package groq
 import (
 	"context"
 	"fmt"
-	"math"
 	"time"
 
+	"github.com/praetorian-inc/augustus/internal/generators/openaicompat"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/retry"
 	goopenai "github.com/sashabaranov/go-openai"
 )
 
@@ -102,177 +103,31 @@ func NewGroqWithOptions(opts ...Option) (*Groq, error) {
 }
 
 // Generate sends the conversation to Groq and returns responses.
+// Rate limit errors (HTTP 429) are automatically retried with exponential backoff.
 func (g *Groq) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
 	if n <= 0 {
 		return []attempt.Message{}, nil
 	}
 
-	return g.generateWithRetry(ctx, conv, n)
-}
-
-// generateWithRetry implements retry logic with exponential backoff for rate limits.
-func (g *Groq) generateWithRetry(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	var lastErr error
-	backoff := DefaultInitialBackoff
-
-	for attempt := 0; attempt <= g.maxRetries; attempt++ {
-		if attempt > 0 {
-			// Wait before retrying with exponential backoff
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(backoff):
-				// Continue to retry
-			}
-			// Exponential backoff: 1s, 2s, 4s, ...
-			backoff = time.Duration(float64(backoff) * math.Pow(2, float64(attempt-1)))
-		}
-
-		responses, err := g.generateChat(ctx, conv, n)
-		if err == nil {
-			return responses, nil
-		}
-
-		lastErr = err
-
-		// Check if it's a rate limit error that we should retry
-		if !isRateLimitError(err) {
-			// Not a rate limit error, don't retry
-			return nil, err
-		}
-
-		// Rate limit error, will retry if attempts remaining
-	}
-
-	return nil, fmt.Errorf("groq: max retries exceeded: %w", lastErr)
-}
-
-// generateChat handles chat completion requests.
-func (g *Groq) generateChat(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	// Convert conversation to OpenAI message format
-	messages := g.conversationToMessages(conv)
-
-	req := goopenai.ChatCompletionRequest{
-		Model:    g.model,
-		Messages: messages,
-		N:        n,
-	}
-
-	// Add optional parameters if set
-	if g.temperature != 0 {
-		req.Temperature = g.temperature
-	}
-	if g.maxTokens > 0 {
-		req.MaxTokens = g.maxTokens
-	}
-	if g.topP != 0 {
-		req.TopP = g.topP
-	}
-
-	resp, err := g.client.CreateChatCompletion(ctx, req)
+	var responses []attempt.Message
+	err := retry.Do(ctx, retry.Config{
+		MaxAttempts:  g.maxRetries + 1, // maxRetries doesn't count the initial attempt
+		InitialDelay: DefaultInitialBackoff,
+		MaxDelay:     30 * time.Second,
+		Multiplier:   2.0,
+		Jitter:       0.1,
+		RetryableFunc: func(err error) bool {
+			return openaicompat.IsRateLimitError(err)
+		},
+	}, func() error {
+		var genErr error
+		responses, genErr = openaicompat.GenerateChat(ctx, g.client, "groq", g.model, conv, n, g.temperature, g.maxTokens, g.topP)
+		return genErr
+	})
 	if err != nil {
-		// Check for rate limit before wrapping to preserve error type info
-		isRateLimit := isRateLimitError(err)
-		wrappedErr := g.wrapError(err)
-
-		// Preserve rate limit status in wrapped error for retry logic
-		if isRateLimit {
-			return nil, &rateLimitError{err: wrappedErr}
-		}
-		return nil, wrappedErr
+		return nil, fmt.Errorf("groq: %w", err)
 	}
-
-	// Extract responses from choices
-	responses := make([]attempt.Message, 0, len(resp.Choices))
-	for _, choice := range resp.Choices {
-		responses = append(responses, attempt.NewAssistantMessage(choice.Message.Content))
-	}
-
 	return responses, nil
-}
-
-// rateLimitError wraps an error to indicate it's a rate limit error.
-type rateLimitError struct {
-	err error
-}
-
-func (e *rateLimitError) Error() string {
-	return e.err.Error()
-}
-
-func (e *rateLimitError) Unwrap() error {
-	return e.err
-}
-
-// conversationToMessages converts an Augustus Conversation to OpenAI messages.
-func (g *Groq) conversationToMessages(conv *attempt.Conversation) []goopenai.ChatCompletionMessage {
-	messages := make([]goopenai.ChatCompletionMessage, 0)
-
-	// Add system message if present
-	if conv.System != nil {
-		messages = append(messages, goopenai.ChatCompletionMessage{
-			Role:    goopenai.ChatMessageRoleSystem,
-			Content: conv.System.Content,
-		})
-	}
-
-	// Add turns
-	for _, turn := range conv.Turns {
-		// Add user message
-		messages = append(messages, goopenai.ChatCompletionMessage{
-			Role:    goopenai.ChatMessageRoleUser,
-			Content: turn.Prompt.Content,
-		})
-
-		// Add assistant response if present
-		if turn.Response != nil {
-			messages = append(messages, goopenai.ChatCompletionMessage{
-				Role:    goopenai.ChatMessageRoleAssistant,
-				Content: turn.Response.Content,
-			})
-		}
-	}
-
-	return messages
-}
-
-// wrapError wraps Groq API errors with more context.
-func (g *Groq) wrapError(err error) error {
-	if err == nil {
-		return nil
-	}
-
-	// Check for specific error types
-	if apiErr, ok := err.(*goopenai.APIError); ok {
-		switch apiErr.HTTPStatusCode {
-		case 429:
-			return fmt.Errorf("groq: rate limit exceeded: %w", err)
-		case 400:
-			return fmt.Errorf("groq: bad request: %w", err)
-		case 401:
-			return fmt.Errorf("groq: authentication error: %w", err)
-		case 500, 502, 503, 504:
-			return fmt.Errorf("groq: server error: %w", err)
-		default:
-			return fmt.Errorf("groq: API error: %w", err)
-		}
-	}
-
-	return fmt.Errorf("groq: %w", err)
-}
-
-// isRateLimitError checks if an error is a rate limit error.
-func isRateLimitError(err error) bool {
-	// Check for our wrapped rateLimitError type
-	if _, ok := err.(*rateLimitError); ok {
-		return true
-	}
-
-	// Check for OpenAI API error with 429 status
-	if apiErr, ok := err.(*goopenai.APIError); ok {
-		return apiErr.HTTPStatusCode == 429
-	}
-	return false
 }
 
 // ClearHistory is a no-op for Groq generator (stateless per call).

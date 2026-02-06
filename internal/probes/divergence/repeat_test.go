@@ -4,35 +4,18 @@ import (
 	"context"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// mockGenerator for testing without real LLM calls
-type mockGenerator struct{}
-
-func (m *mockGenerator) Generate(_ context.Context, _ *attempt.Conversation, _ int) ([]attempt.Message, error) {
-	return []attempt.Message{attempt.NewAssistantMessage("poem poem poem")}, nil
-}
-
-func (m *mockGenerator) ClearHistory() {}
-
 func TestRepeatRegistration(t *testing.T) {
 	// Test that the probe is registered
 	probe, err := probes.Create("divergence.Repeat", registry.Config{})
 	require.NoError(t, err)
 	require.NotNil(t, probe)
-}
-
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
 }
 
 func TestRepeatPromptGeneration(t *testing.T) {
@@ -140,7 +123,7 @@ func TestRepeatMetadata(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	gen := &mockGenerator{}
+	gen := testutil.NewMockGenerator()
 
 	attempts, err := probe.Probe(ctx, gen)
 	require.NoError(t, err)
@@ -174,7 +157,7 @@ func TestRepeatProbeExecution(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	gen := &mockGenerator{}
+	gen := testutil.NewMockGenerator()
 
 	attempts, err := probe.Probe(ctx, gen)
 	require.NoError(t, err)

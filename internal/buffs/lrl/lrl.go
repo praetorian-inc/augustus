@@ -106,7 +106,7 @@ func (b *LRLBuff) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt] {
 			translated, err := b.translator.Translate(ctx, originalPrompt, lang)
 			if err != nil {
 				// On translation error, return original attempt with error metadata
-				errAttempt := copyAttempt(a)
+				errAttempt := a.Copy()
 				errAttempt.WithMetadata("lrl_error", err.Error())
 				errAttempt.WithMetadata("lrl_target_lang", lang)
 				errAttempt.WithMetadata("original_prompt", originalPrompt)
@@ -115,7 +115,7 @@ func (b *LRLBuff) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt] {
 			}
 
 			// Create new attempt with translated prompt
-			newAttempt := copyAttempt(a)
+			newAttempt := a.Copy()
 			newAttempt.Prompt = translated
 			newAttempt.Prompts = []string{translated}
 			newAttempt.WithMetadata("original_prompt", originalPrompt)
@@ -130,18 +130,21 @@ func (b *LRLBuff) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt] {
 
 // Buff transforms a batch of attempts.
 // This is the primary interface method that processes all attempts.
+//
+// LRL uses a custom Buff loop (rather than buffs.DefaultBuff) because it
+// needs to inspect each transformed attempt for lrl_error metadata and
+// short-circuit with an error if translation failed.
 func (b *LRLBuff) Buff(ctx context.Context, attempts []*attempt.Attempt) ([]*attempt.Attempt, error) {
 	var results []*attempt.Attempt
 
 	for _, a := range attempts {
-		for transformed := range b.Transform(a) {
-			// Check for context cancellation
-			select {
-			case <-ctx.Done():
-				return results, ctx.Err()
-			default:
-			}
+		select {
+		case <-ctx.Done():
+			return results, ctx.Err()
+		default:
+		}
 
+		for transformed := range b.Transform(a) {
 			results = append(results, transformed)
 
 			// Check if there was an error during transform
@@ -180,38 +183,6 @@ func (b *LRLBuff) Untransform(ctx context.Context, a *attempt.Attempt) (*attempt
 	return a, nil
 }
 
-// copyAttempt creates a shallow copy of an attempt with new metadata map.
-func copyAttempt(a *attempt.Attempt) *attempt.Attempt {
-	newAttempt := &attempt.Attempt{
-		ID:              a.ID,
-		Probe:           a.Probe,
-		Generator:       a.Generator,
-		Detector:        a.Detector,
-		Prompt:          a.Prompt,
-		Prompts:         append([]string{}, a.Prompts...),
-		Outputs:         append([]string{}, a.Outputs...),
-		Conversations:   a.Conversations,
-		Scores:          append([]float64{}, a.Scores...),
-		DetectorResults: make(map[string][]float64),
-		Status:          a.Status,
-		Error:           a.Error,
-		Timestamp:       a.Timestamp,
-		Duration:        a.Duration,
-		Metadata:        make(map[string]any),
-	}
-
-	// Copy detector results
-	for k, v := range a.DetectorResults {
-		newAttempt.DetectorResults[k] = append([]float64{}, v...)
-	}
-
-	// Copy metadata
-	for k, v := range a.Metadata {
-		newAttempt.Metadata[k] = v
-	}
-
-	return newAttempt
-}
 
 // Get retrieves a buff factory by name from the registry.
 func Get(name string) (func(registry.Config) (buffs.Buff, error), bool) {

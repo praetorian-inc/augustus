@@ -66,7 +66,7 @@ func GenerateEncodedPrompts(encoders []EncoderFunc, encodingName string, payload
 
 // SetTriggers stores trigger strings in attempt metadata.
 // This should be called by probes before sending attempts to detectors.
-// Detectors retrieve triggers via extractTriggers() in decode_match.go.
+// Detectors retrieve triggers via base.ExtractTriggers().
 func SetTriggers(a *attempt.Attempt, triggers []string) {
 	a.Metadata["triggers"] = triggers
 }

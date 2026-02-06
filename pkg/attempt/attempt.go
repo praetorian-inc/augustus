@@ -168,6 +168,9 @@ func (a *Attempt) MaxScore() float64 {
 
 // WithMetadata sets a metadata key-value pair and returns the attempt.
 func (a *Attempt) WithMetadata(key string, value any) *Attempt {
+	if a.Metadata == nil {
+		a.Metadata = make(map[string]any)
+	}
 	a.Metadata[key] = value
 	return a
 }
@@ -176,4 +179,36 @@ func (a *Attempt) WithMetadata(key string, value any) *Attempt {
 func (a *Attempt) GetMetadata(key string) (any, bool) {
 	v, ok := a.Metadata[key]
 	return v, ok
+}
+
+// Copy creates a shallow copy of the attempt with independent slices and maps.
+func (a *Attempt) Copy() *Attempt {
+	copied := *a
+
+	if a.Prompts != nil {
+		copied.Prompts = make([]string, len(a.Prompts))
+		copy(copied.Prompts, a.Prompts)
+	}
+	if a.Outputs != nil {
+		copied.Outputs = make([]string, len(a.Outputs))
+		copy(copied.Outputs, a.Outputs)
+	}
+	if a.Scores != nil {
+		copied.Scores = make([]float64, len(a.Scores))
+		copy(copied.Scores, a.Scores)
+	}
+	if a.DetectorResults != nil {
+		copied.DetectorResults = make(map[string][]float64, len(a.DetectorResults))
+		for k, v := range a.DetectorResults {
+			copied.DetectorResults[k] = append([]float64{}, v...)
+		}
+	}
+	if a.Metadata != nil {
+		copied.Metadata = make(map[string]any, len(a.Metadata))
+		for k, v := range a.Metadata {
+			copied.Metadata[k] = v
+		}
+	}
+
+	return &copied
 }

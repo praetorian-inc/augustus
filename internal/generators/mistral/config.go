@@ -1,9 +1,7 @@
-// modules/augustus/pkg/generators/mistral/config.go
 package mistral
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -41,19 +39,16 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg.Model = model
 
 	// API key: from config or env var
-	cfg.APIKey = registry.GetString(m, "api_key", "")
-	if cfg.APIKey == "" {
-		cfg.APIKey = os.Getenv("MISTRAL_API_KEY")
-	}
-	if cfg.APIKey == "" {
-		return cfg, fmt.Errorf("mistral generator requires 'api_key' configuration or MISTRAL_API_KEY environment variable")
+	cfg.APIKey, err = registry.GetAPIKeyWithEnv(m, "MISTRAL_API_KEY", "mistral")
+	if err != nil {
+		return cfg, err
 	}
 
 	// Optional parameters
 	cfg.BaseURL = registry.GetString(m, "base_url", "")
-	cfg.Temperature = float32(registry.GetFloat64(m, "temperature", float64(cfg.Temperature)))
+	cfg.Temperature = registry.GetFloat32(m, "temperature", cfg.Temperature)
 	cfg.MaxTokens = registry.GetInt(m, "max_tokens", cfg.MaxTokens)
-	cfg.TopP = float32(registry.GetFloat64(m, "top_p", float64(cfg.TopP)))
+	cfg.TopP = registry.GetFloat32(m, "top_p", cfg.TopP)
 
 	return cfg, nil
 }

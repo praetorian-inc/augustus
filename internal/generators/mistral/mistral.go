@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/praetorian-inc/augustus/internal/generators/openaicompat"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -92,70 +93,7 @@ func (g *Mistral) Generate(ctx context.Context, conv *attempt.Conversation, n in
 		return []attempt.Message{}, nil
 	}
 
-	// Convert conversation to OpenAI message format
-	messages := g.conversationToMessages(conv)
-
-	req := goopenai.ChatCompletionRequest{
-		Model:    g.model,
-		Messages: messages,
-		N:        n,
-	}
-
-	// Add optional parameters if set
-	if g.temperature != 0 {
-		req.Temperature = g.temperature
-	}
-	if g.maxTokens > 0 {
-		req.MaxTokens = g.maxTokens
-	}
-	if g.topP != 0 {
-		req.TopP = g.topP
-	}
-
-	resp, err := g.client.CreateChatCompletion(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("mistral: %w", err)
-	}
-
-	// Extract responses from choices
-	responses := make([]attempt.Message, 0, len(resp.Choices))
-	for _, choice := range resp.Choices {
-		responses = append(responses, attempt.NewAssistantMessage(choice.Message.Content))
-	}
-
-	return responses, nil
-}
-
-// conversationToMessages converts an Augustus Conversation to OpenAI messages.
-func (g *Mistral) conversationToMessages(conv *attempt.Conversation) []goopenai.ChatCompletionMessage {
-	messages := make([]goopenai.ChatCompletionMessage, 0)
-
-	// Add system message if present
-	if conv.System != nil {
-		messages = append(messages, goopenai.ChatCompletionMessage{
-			Role:    goopenai.ChatMessageRoleSystem,
-			Content: conv.System.Content,
-		})
-	}
-
-	// Add turns
-	for _, turn := range conv.Turns {
-		// Add user message
-		messages = append(messages, goopenai.ChatCompletionMessage{
-			Role:    goopenai.ChatMessageRoleUser,
-			Content: turn.Prompt.Content,
-		})
-
-		// Add assistant response if present
-		if turn.Response != nil {
-			messages = append(messages, goopenai.ChatCompletionMessage{
-				Role:    goopenai.ChatMessageRoleAssistant,
-				Content: turn.Response.Content,
-			})
-		}
-	}
-
-	return messages
+	return openaicompat.GenerateChat(ctx, g.client, "mistral", g.model, conv, n, g.temperature, g.maxTokens, g.topP)
 }
 
 // ClearHistory is a no-op for Mistral generator (stateless per call).

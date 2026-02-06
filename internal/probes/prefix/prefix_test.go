@@ -5,9 +5,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/internal/probes/prefix"
+	"github.com/praetorian-inc/augustus/internal/testutil"
+	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
@@ -88,23 +88,6 @@ func TestPrefixProbePrependsToBasePrompt(t *testing.T) {
 	}
 }
 
-// mockGenerator is a mock implementation of probes.Generator for testing.
-type mockGenerator struct {
-	callCount int
-}
-
-func (m *mockGenerator) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	m.callCount++
-	// Return mock responses
-	responses := make([]attempt.Message, n)
-	for i := 0; i < n; i++ {
-		responses[i] = attempt.Message{Content: "mock response"}
-	}
-	return responses, nil
-}
-
-func (m *mockGenerator) ClearHistory() {}
-
 // TestPrefixProbeProbe verifies Probe method executes correctly.
 func TestPrefixProbeProbe(t *testing.T) {
 	p, err := prefix.NewPrefixProbe(registry.Config{})
@@ -112,7 +95,7 @@ func TestPrefixProbeProbe(t *testing.T) {
 		t.Fatalf("NewPrefixProbe() error = %v", err)
 	}
 
-	gen := &mockGenerator{}
+	gen := testutil.NewMockGenerator("mock response")
 	attempts, err := p.Probe(context.Background(), gen)
 	if err != nil {
 		t.Fatalf("Probe() error = %v", err)
@@ -123,17 +106,9 @@ func TestPrefixProbeProbe(t *testing.T) {
 	}
 
 	// Verify generator was called
-	if gen.callCount == 0 {
+	if gen.Calls == 0 {
 		t.Error("Probe() did not call generator.Generate()")
 	}
-}
-
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
 }
 
 // TestPrefixProbeRegistration verifies the probe can be registered and retrieved.

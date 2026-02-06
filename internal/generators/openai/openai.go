@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/praetorian-inc/augustus/internal/generators/openaicompat"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -19,57 +20,11 @@ func init() {
 	generators.Register("openai.OpenAI", NewOpenAI)
 }
 
-// chatModels is the set of models that use the chat completions API.
-var chatModels = map[string]bool{
-	"chatgpt-4o-latest":               true,
-	"gpt-3.5-turbo":                   true,
-	"gpt-3.5-turbo-0125":              true,
-	"gpt-3.5-turbo-1106":              true,
-	"gpt-3.5-turbo-16k":               true,
-	"gpt-4":                           true,
-	"gpt-4-0125-preview":              true,
-	"gpt-4-0314":                      true,
-	"gpt-4-0613":                      true,
-	"gpt-4-1106-preview":              true,
-	"gpt-4-1106-vision-preview":       true,
-	"gpt-4-32k":                       true,
-	"gpt-4-32k-0314":                  true,
-	"gpt-4-32k-0613":                  true,
-	"gpt-4-turbo":                     true,
-	"gpt-4-turbo-2024-04-09":          true,
-	"gpt-4-turbo-preview":             true,
-	"gpt-4-vision-preview":            true,
-	"gpt-4o":                          true,
-	"gpt-4o-2024-05-13":               true,
-	"gpt-4o-2024-08-06":               true,
-	"gpt-4o-2024-11-20":               true,
-	"gpt-4o-audio-preview":            true,
-	"gpt-4o-audio-preview-2024-12-17": true,
-	"gpt-4o-audio-preview-2024-10-01": true,
-	"gpt-4o-mini":                     true,
-	"gpt-4o-mini-2024-07-18":          true,
-	"gpt-4o-mini-audio-preview":       true,
-	"gpt-4o-mini-audio-preview-2024-12-17":   true,
-	"gpt-4o-mini-realtime-preview":           true,
-	"gpt-4o-mini-realtime-preview-2024-12-17": true,
-	"gpt-4o-realtime-preview":                 true,
-	"gpt-4o-realtime-preview-2024-12-17":      true,
-	"gpt-4o-realtime-preview-2024-10-01":      true,
-	"o1-mini":              true,
-	"o1-mini-2024-09-12":   true,
-	"o1-preview":           true,
-	"o1-preview-2024-09-12": true,
-	"o3-mini":              true,
-	"o3-mini-2025-01-31":   true,
-}
+// chatModels references the shared set of models that use the chat completions API.
+var chatModels = openaicompat.ChatModels
 
-// completionModels is the set of models that use the legacy completions API.
-var completionModels = map[string]bool{
-	"gpt-3.5-turbo-instruct":  true,
-	"davinci-002":             true,
-	"babbage-002":             true,
-	"davinci-instruct-beta":   true,
-}
+// completionModels references the shared set of models that use the legacy completions API.
+var completionModels = openaicompat.CompletionModels
 
 // OpenAI is a generator that wraps the OpenAI API.
 type OpenAI struct {
@@ -162,7 +117,7 @@ func (g *OpenAI) Generate(ctx context.Context, conv *attempt.Conversation, n int
 // generateChat handles chat completion requests.
 func (g *OpenAI) generateChat(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
 	// Convert conversation to OpenAI message format
-	messages := g.conversationToMessages(conv)
+	messages := openaicompat.ConversationToMessages(conv)
 
 	req := goopenai.ChatCompletionRequest{
 		Model:    g.model,
@@ -192,7 +147,7 @@ func (g *OpenAI) generateChat(ctx context.Context, conv *attempt.Conversation, n
 
 	resp, err := g.client.CreateChatCompletion(ctx, req)
 	if err != nil {
-		return nil, g.wrapError(err)
+		return nil, openaicompat.WrapError("openai", err)
 	}
 
 	// Extract responses from choices
@@ -237,7 +192,7 @@ func (g *OpenAI) generateCompletion(ctx context.Context, conv *attempt.Conversat
 
 	resp, err := g.client.CreateCompletion(ctx, req)
 	if err != nil {
-		return nil, g.wrapError(err)
+		return nil, openaicompat.WrapError("openai", err)
 	}
 
 	// Extract responses from choices
@@ -247,63 +202,6 @@ func (g *OpenAI) generateCompletion(ctx context.Context, conv *attempt.Conversat
 	}
 
 	return responses, nil
-}
-
-// conversationToMessages converts an Augustus Conversation to OpenAI messages.
-func (g *OpenAI) conversationToMessages(conv *attempt.Conversation) []goopenai.ChatCompletionMessage {
-	messages := make([]goopenai.ChatCompletionMessage, 0)
-
-	// Add system message if present
-	if conv.System != nil {
-		messages = append(messages, goopenai.ChatCompletionMessage{
-			Role:    goopenai.ChatMessageRoleSystem,
-			Content: conv.System.Content,
-		})
-	}
-
-	// Add turns
-	for _, turn := range conv.Turns {
-		// Add user message
-		messages = append(messages, goopenai.ChatCompletionMessage{
-			Role:    goopenai.ChatMessageRoleUser,
-			Content: turn.Prompt.Content,
-		})
-
-		// Add assistant response if present
-		if turn.Response != nil {
-			messages = append(messages, goopenai.ChatCompletionMessage{
-				Role:    goopenai.ChatMessageRoleAssistant,
-				Content: turn.Response.Content,
-			})
-		}
-	}
-
-	return messages
-}
-
-// wrapError wraps OpenAI API errors with more context.
-func (g *OpenAI) wrapError(err error) error {
-	if err == nil {
-		return nil
-	}
-
-	// Check for specific error types
-	if apiErr, ok := err.(*goopenai.APIError); ok {
-		switch apiErr.HTTPStatusCode {
-		case 429:
-			return fmt.Errorf("openai: rate limit exceeded: %w", err)
-		case 400:
-			return fmt.Errorf("openai: bad request: %w", err)
-		case 401:
-			return fmt.Errorf("openai: authentication error: %w", err)
-		case 500, 502, 503, 504:
-			return fmt.Errorf("openai: server error: %w", err)
-		default:
-			return fmt.Errorf("openai: API error: %w", err)
-		}
-	}
-
-	return fmt.Errorf("openai: %w", err)
 }
 
 // ClearHistory is a no-op for OpenAI generator (stateless per call).

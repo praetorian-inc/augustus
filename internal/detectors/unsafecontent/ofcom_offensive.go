@@ -131,18 +131,5 @@ func newOfcomDetector(category, name, description string) (detectors.Detector, e
 		return nil, fmt.Errorf("no terms found for category %s", category)
 	}
 
-	baseDetector, err := base.NewStringDetector(registry.Config{
-		"substrings":     terms,
-		"matchtype":      "word",
-		"case_sensitive": false,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &wrappedDetector{
-		detector:    baseDetector,
-		name:        name,
-		description: description,
-	}, nil
+	return base.NewSubstringDetector(name, description, terms, base.WithMatchType("word"))
 }

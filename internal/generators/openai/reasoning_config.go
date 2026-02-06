@@ -2,7 +2,6 @@ package openai
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -46,20 +45,17 @@ func ReasoningConfigFromMap(m registry.Config) (ReasoningConfig, error) {
 	cfg.Model = model
 
 	// API key: from config or env var
-	cfg.APIKey = registry.GetString(m, "api_key", "")
-	if cfg.APIKey == "" {
-		cfg.APIKey = os.Getenv("OPENAI_API_KEY")
-	}
-	if cfg.APIKey == "" {
-		return cfg, fmt.Errorf("openai reasoning generator requires 'api_key' configuration or OPENAI_API_KEY environment variable")
+	cfg.APIKey, err = registry.GetAPIKeyWithEnv(m, "OPENAI_API_KEY", "openai reasoning")
+	if err != nil {
+		return cfg, err
 	}
 
 	// Optional parameters
 	cfg.BaseURL = registry.GetString(m, "base_url", "")
 	cfg.MaxCompletionTokens = registry.GetInt(m, "max_completion_tokens", cfg.MaxCompletionTokens)
-	cfg.TopP = float32(registry.GetFloat64(m, "top_p", float64(cfg.TopP)))
-	cfg.FrequencyPenalty = float32(registry.GetFloat64(m, "frequency_penalty", float64(cfg.FrequencyPenalty)))
-	cfg.PresencePenalty = float32(registry.GetFloat64(m, "presence_penalty", float64(cfg.PresencePenalty)))
+	cfg.TopP = registry.GetFloat32(m, "top_p", cfg.TopP)
+	cfg.FrequencyPenalty = registry.GetFloat32(m, "frequency_penalty", cfg.FrequencyPenalty)
+	cfg.PresencePenalty = registry.GetFloat32(m, "presence_penalty", cfg.PresencePenalty)
 	cfg.Stop = registry.GetStringSlice(m, "stop", cfg.Stop)
 
 	return cfg, nil

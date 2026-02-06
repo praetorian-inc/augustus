@@ -1,4 +1,3 @@
-// modules/augustus/pkg/generators/ollama/config.go
 package ollama
 
 import (

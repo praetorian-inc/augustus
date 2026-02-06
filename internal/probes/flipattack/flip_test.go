@@ -4,25 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
-
-// mockGenerator implements probes.Generator for testing.
-type mockGenerator struct {
-	response string
-}
-
-func (m *mockGenerator) Generate(_ context.Context, _ *attempt.Conversation, _ int) ([]attempt.Message, error) {
-	return []attempt.Message{
-		{Content: m.response, Role: "assistant"},
-	}, nil
-}
-
-func (m *mockGenerator) Name() string        { return "mock" }
-func (m *mockGenerator) Description() string { return "Mock generator for testing" }
-func (m *mockGenerator) ClearHistory()       {}
 
 func TestFlipProbe_Implements_Prober(t *testing.T) {
 	// Verify interface compliance at compile time
@@ -62,7 +47,7 @@ func TestFlipProbe_Probe(t *testing.T) {
 		Vanilla,
 	)
 
-	gen := &mockGenerator{response: "Here's how to build a bomb..."}
+	gen := testutil.NewMockGenerator("Here's how to build a bomb...")
 
 	attempts, err := probe.Probe(context.Background(), gen)
 	if err != nil {

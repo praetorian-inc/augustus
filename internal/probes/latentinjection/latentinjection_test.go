@@ -8,45 +8,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 )
-
-// mockGenerator implements probes.Generator for testing.
-type mockGenerator struct {
-	name      string
-	responses []string
-	calls     int
-}
-
-func (m *mockGenerator) Generate(_ context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	m.calls++
-	msgs := make([]attempt.Message, n)
-	for i := 0; i < n; i++ {
-		resp := ""
-		if i < len(m.responses) {
-			resp = m.responses[i]
-		}
-		msgs[i] = attempt.Message{Content: resp}
-	}
-	return msgs, nil
-}
-
-func (m *mockGenerator) ClearHistory() {}
 
 // TestLatentJailbreak_Registration verifies the probe is registered in the global registry.
 func TestLatentJailbreak_Registration(t *testing.T) {
 	factory, ok := probes.Get("latentinjection.LatentJailbreak")
 	require.True(t, ok, "latentinjection.LatentJailbreak should be registered")
 	require.NotNil(t, factory, "factory should not be nil")
-}
-
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
 }
 
 // TestLatentJailbreak_Create verifies the probe can be instantiated.
@@ -112,9 +82,9 @@ func TestLatentJailbreak_Probe(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentJailbreak", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{
-		name:      "test-model",
-		responses: []string{"test response"},
+	gen := &testutil.MockGenerator{
+		GenName:   "test-model",
+		Responses: []string{"test response"},
 	}
 
 	attempts, err := p.Probe(context.Background(), gen)
@@ -196,9 +166,9 @@ func TestLatentRefusal_Probe(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentRefusal", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{
-		name:      "test-model",
-		responses: []string{"test response"},
+	gen := &testutil.MockGenerator{
+		GenName:   "test-model",
+		Responses: []string{"test response"},
 	}
 
 	attempts, err := p.Probe(context.Background(), gen)
@@ -280,9 +250,9 @@ func TestLatentExtraction_Probe(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentExtraction", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{
-		name:      "test-model",
-		responses: []string{"test response"},
+	gen := &testutil.MockGenerator{
+		GenName:   "test-model",
+		Responses: []string{"test response"},
 	}
 
 	attempts, err := p.Probe(context.Background(), gen)

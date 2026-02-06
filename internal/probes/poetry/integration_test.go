@@ -293,8 +293,7 @@ func TestPoetryProbe_NoPrompts(t *testing.T) {
 	// Should not panic, should return empty slice
 	probe := &InjectHaiku{
 		PoetryProbe: &PoetryProbe{
-			name:    "poetry.InjectHaiku",
-			prompts: []string{},
+			SimpleProbe: probes.NewSimpleProbe("poetry.InjectHaiku", "", "", "", []string{}),
 		},
 	}
 

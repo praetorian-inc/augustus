@@ -2,8 +2,6 @@
 # It sends a single hardcoded prompt and records the response.
 # This is NOT the TAP algorithm (Mehrotra et al. 2023).
 # For the actual iterative TAP algorithm, use tap.IterativeTAP.
-#
-# modules/augustus/pkg/probes/tap/data/TAPv1.yaml
 id: tap.TAPv1
 
 info:

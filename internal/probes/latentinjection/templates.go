@@ -1,8 +1,8 @@
-// modules/augustus/pkg/probes/latentinjection/templates.go
 package latentinjection
 
 import (
 	"embed"
+	"fmt"
 
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -16,8 +16,7 @@ func init() {
 	loader := templates.NewLoader(templateData, "data")
 	tmpls, err := loader.LoadAll()
 	if err != nil {
-		// Log error but don't panic - hardcoded probes still work
-		return
+		panic(fmt.Sprintf("latentinjection: failed to load templates: %v", err))
 	}
 
 	for _, tmpl := range tmpls {

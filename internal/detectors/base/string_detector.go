@@ -148,6 +148,30 @@ func (d *StringDetector) matches(substring, output string) (bool, error) {
 	}
 }
 
+// NewSubstringDetector is a convenience constructor that creates a WrappedDetector
+// backed by a StringDetector with the given substrings. It uses the default match
+// type ("str" / substring) and case-insensitive matching. Use functional options
+// to override: WithMatchType, WithCaseSensitive.
+//
+// This eliminates the common boilerplate of:
+//
+//	baseDetector, err := base.NewStringDetector(registry.Config{"substrings": substrings})
+//	if err != nil { return nil, err }
+//	return base.NewWrappedDetector(baseDetector, name, description), nil
+func NewSubstringDetector(name, description string, substrings []string, opts ...StringDetectorOption) (*WrappedDetector, error) {
+	cfg := DefaultStringDetectorConfig()
+	cfg.Substrings = substrings
+	cfg = ApplyStringDetectorOptions(cfg, opts...)
+
+	detector := &StringDetector{
+		substrings:    cfg.Substrings,
+		matchType:     cfg.MatchType,
+		caseSensitive: cfg.CaseSensitive,
+	}
+
+	return NewWrappedDetector(detector, name, description), nil
+}
+
 // Name returns the detector's fully qualified name.
 func (d *StringDetector) Name() string {
 	return "base.StringDetector"

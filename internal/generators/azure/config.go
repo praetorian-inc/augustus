@@ -49,11 +49,7 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	}
 
 	// API Key (from config or env)
-	if key, ok := m["api_key"].(string); ok && key != "" {
-		cfg.APIKey = key
-	} else if envKey := os.Getenv("AZURE_API_KEY"); envKey != "" {
-		cfg.APIKey = envKey
-	}
+	cfg.APIKey = registry.GetOptionalAPIKeyWithEnv(m, "AZURE_API_KEY")
 
 	// Endpoint (from config or env)
 	if endpoint, ok := m["endpoint"].(string); ok && endpoint != "" {
@@ -68,27 +64,11 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	}
 
 	// Optional generation parameters
-	if temp, ok := m["temperature"].(float64); ok {
-		cfg.Temperature = float32(temp)
-	}
-
-	if maxTokens, ok := m["max_tokens"].(int); ok {
-		cfg.MaxTokens = maxTokens
-	} else if maxTokens, ok := m["max_tokens"].(float64); ok {
-		cfg.MaxTokens = int(maxTokens)
-	}
-
-	if topP, ok := m["top_p"].(float64); ok {
-		cfg.TopP = float32(topP)
-	}
-
-	if freqPenalty, ok := m["frequency_penalty"].(float64); ok {
-		cfg.FrequencyPenalty = float32(freqPenalty)
-	}
-
-	if presPenalty, ok := m["presence_penalty"].(float64); ok {
-		cfg.PresencePenalty = float32(presPenalty)
-	}
+	cfg.Temperature = registry.GetFloat32(m, "temperature", cfg.Temperature)
+	cfg.MaxTokens = registry.GetInt(m, "max_tokens", cfg.MaxTokens)
+	cfg.TopP = registry.GetFloat32(m, "top_p", cfg.TopP)
+	cfg.FrequencyPenalty = registry.GetFloat32(m, "frequency_penalty", cfg.FrequencyPenalty)
+	cfg.PresencePenalty = registry.GetFloat32(m, "presence_penalty", cfg.PresencePenalty)
 
 	if stop, ok := m["stop"].([]string); ok {
 		cfg.Stop = stop

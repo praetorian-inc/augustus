@@ -10,7 +10,7 @@ import (
 func TestAllProbes(t *testing.T) {
 	tests := []struct {
 		name             string
-		constructor      func(registry.Config) (interface{}, error)
+		constructor      func(registry.Config) (any, error)
 		expectedName     string
 		expectedDetector string
 		expectedGoal     string
@@ -18,7 +18,7 @@ func TestAllProbes(t *testing.T) {
 	}{
 		{
 			name:             "Python",
-			constructor:      func(c registry.Config) (interface{}, error) { return NewPython(c) },
+			constructor:      func(c registry.Config) (any, error) { return NewPython(c) },
 			expectedName:     "packagehallucination.Python",
 			expectedDetector: "packagehallucination.PythonPypi",
 			expectedGoal:     "generate python importing non-existent packages",
@@ -26,7 +26,7 @@ func TestAllProbes(t *testing.T) {
 		},
 		{
 			name:             "Ruby",
-			constructor:      func(c registry.Config) (interface{}, error) { return NewRuby(c) },
+			constructor:      func(c registry.Config) (any, error) { return NewRuby(c) },
 			expectedName:     "packagehallucination.Ruby",
 			expectedDetector: "packagehallucination.RubyGems",
 			expectedGoal:     "generate ruby code importing non-existent gems",
@@ -34,7 +34,7 @@ func TestAllProbes(t *testing.T) {
 		},
 		{
 			name:             "JavaScript",
-			constructor:      func(c registry.Config) (interface{}, error) { return NewJavaScript(c) },
+			constructor:      func(c registry.Config) (any, error) { return NewJavaScript(c) },
 			expectedName:     "packagehallucination.JavaScript",
 			expectedDetector: "packagehallucination.JavaScriptNpm",
 			expectedGoal:     "generate JavaScript code importing non-existent npm packages",
@@ -42,7 +42,7 @@ func TestAllProbes(t *testing.T) {
 		},
 		{
 			name:             "Rust",
-			constructor:      func(c registry.Config) (interface{}, error) { return NewRust(c) },
+			constructor:      func(c registry.Config) (any, error) { return NewRust(c) },
 			expectedName:     "packagehallucination.Rust",
 			expectedDetector: "packagehallucination.RustCrates",
 			expectedGoal:     "generate Rust code importing non-existent crates.io packages",
@@ -50,7 +50,7 @@ func TestAllProbes(t *testing.T) {
 		},
 		{
 			name:             "RakuLand",
-			constructor:      func(c registry.Config) (interface{}, error) { return NewRakuLand(c) },
+			constructor:      func(c registry.Config) (any, error) { return NewRakuLand(c) },
 			expectedName:     "packagehallucination.RakuLand",
 			expectedDetector: "packagehallucination.RakuLand",
 			expectedGoal:     "generate Raku code importing non-existent raku.land modules",
@@ -58,7 +58,7 @@ func TestAllProbes(t *testing.T) {
 		},
 		{
 			name:             "Perl",
-			constructor:      func(c registry.Config) (interface{}, error) { return NewPerl(c) },
+			constructor:      func(c registry.Config) (any, error) { return NewPerl(c) },
 			expectedName:     "packagehallucination.Perl",
 			expectedDetector: "packagehallucination.Perl",
 			expectedGoal:     "generate Perl code importing non-existent MetaCPAN modules",
@@ -66,7 +66,7 @@ func TestAllProbes(t *testing.T) {
 		},
 		{
 			name:             "Dart",
-			constructor:      func(c registry.Config) (interface{}, error) { return NewDart(c) },
+			constructor:      func(c registry.Config) (any, error) { return NewDart(c) },
 			expectedName:     "packagehallucination.Dart",
 			expectedDetector: "packagehallucination.Dart",
 			expectedGoal:     "generate Dart code importing non-existent pub.dev packages",

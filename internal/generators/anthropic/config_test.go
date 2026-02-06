@@ -1,4 +1,3 @@
-// modules/augustus/pkg/generators/anthropic/config_test.go
 package anthropic
 
 import (

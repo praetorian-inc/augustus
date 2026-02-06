@@ -73,9 +73,8 @@ func NewCohere(cfg registry.Config) (generators.Generator, error) {
 	}
 
 	// API key: from config or env var
-	if key, ok := cfg["api_key"].(string); ok && key != "" {
-		g.apiKey = key
-	} else {
+	g.apiKey = registry.GetString(cfg, "api_key", "")
+	if g.apiKey == "" {
 		g.apiKey = os.Getenv("COHERE_API_KEY")
 	}
 	if g.apiKey == "" {
@@ -83,66 +82,41 @@ func NewCohere(cfg registry.Config) (generators.Generator, error) {
 	}
 
 	// Optional: model name
-	if model, ok := cfg["model"].(string); ok && model != "" {
+	if model := registry.GetString(cfg, "model", ""); model != "" {
 		g.model = model
 	}
 
 	// Optional: custom base URL (for testing)
-	if baseURL, ok := cfg["base_url"].(string); ok && baseURL != "" {
+	if baseURL := registry.GetString(cfg, "base_url", ""); baseURL != "" {
 		g.baseURL = strings.TrimSuffix(baseURL, "/")
 	}
 
 	// Optional: API version
-	if apiVersion, ok := cfg["api_version"].(string); ok {
-		if apiVersion == "v1" || apiVersion == "v2" {
-			g.apiVersion = apiVersion
-		}
+	if apiVersion := registry.GetString(cfg, "api_version", ""); apiVersion == "v1" || apiVersion == "v2" {
+		g.apiVersion = apiVersion
 		// Invalid values silently default to v2 (matches Python behavior)
 	}
 
 	// Optional: temperature
-	if temp, ok := cfg["temperature"].(float64); ok {
-		g.temperature = temp
-	}
+	g.temperature = registry.GetFloat64(cfg, "temperature", defaultTemperature)
 
 	// Optional: max_tokens
-	if maxTokens, ok := cfg["max_tokens"].(int); ok {
-		g.maxTokens = maxTokens
-	} else if maxTokens, ok := cfg["max_tokens"].(float64); ok {
-		g.maxTokens = int(maxTokens)
-	}
+	g.maxTokens = registry.GetInt(cfg, "max_tokens", 0)
 
 	// Optional: k (top-k)
-	if k, ok := cfg["k"].(int); ok {
-		g.topK = k
-	} else if k, ok := cfg["k"].(float64); ok {
-		g.topK = int(k)
-	}
+	g.topK = registry.GetInt(cfg, "k", 0)
 
 	// Optional: p (top-p)
-	if p, ok := cfg["p"].(float64); ok {
-		g.topP = p
-	}
+	g.topP = registry.GetFloat64(cfg, "p", defaultTopP)
 
 	// Optional: frequency_penalty
-	if freqPenalty, ok := cfg["frequency_penalty"].(float64); ok {
-		g.frequencyPenalty = freqPenalty
-	}
+	g.frequencyPenalty = registry.GetFloat64(cfg, "frequency_penalty", 0)
 
 	// Optional: presence_penalty
-	if presPenalty, ok := cfg["presence_penalty"].(float64); ok {
-		g.presencePenalty = presPenalty
-	}
+	g.presencePenalty = registry.GetFloat64(cfg, "presence_penalty", 0)
 
 	// Optional: stop sequences
-	if stop, ok := cfg["stop"].([]any); ok {
-		g.stop = make([]string, 0, len(stop))
-		for _, s := range stop {
-			if str, ok := s.(string); ok {
-				g.stop = append(g.stop, str)
-			}
-		}
-	}
+	g.stop = registry.GetStringSlice(cfg, "stop", nil)
 
 	return g, nil
 }

@@ -2,13 +2,19 @@ package attackengine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/retry"
 	"github.com/praetorian-inc/augustus/pkg/types"
 	"golang.org/x/sync/errgroup"
 )
+
+// errRetryableAttack is a sentinel error indicating the attacker LLM
+// returned an empty response or invalid JSON and the attempt should be retried.
+var errRetryableAttack = errors.New("retryable attack attempt")
 
 // Engine implements the iterative adversarial attack algorithm.
 // Shared backend for both PAIR and TAP probes.
@@ -80,24 +86,31 @@ func (e *Engine) Run(ctx context.Context, target types.Generator) ([]*attempt.At
 				attackerConv := e.buildAttackerConversation(branchConv)
 
 				var attackResult *AttackResult
-				for retry := 0; retry < e.cfg.AttackMaxAttempts; retry++ {
+				_ = retry.Do(ctx, retry.Config{
+					MaxAttempts: e.cfg.AttackMaxAttempts,
+					RetryableFunc: func(err error) bool {
+						return errors.Is(err, errRetryableAttack)
+					},
+				}, func() error {
 					msgs, err := e.attacker.Generate(ctx, attackerConv, 1)
 					if err != nil {
-						break
+						return err // non-retryable: stops retry loop
 					}
 					if len(msgs) == 0 {
-						continue
+						return errRetryableAttack
 					}
-					attackResult = ExtractJSON(msgs[0].Content)
-					if attackResult != nil {
-						// Add attacker's response to branch conversation
-						branchConv.Messages = append(branchConv.Messages, ConvMessage{
-							Role:    "assistant",
-							Content: msgs[0].Content,
-						})
-						break
+					result := ExtractJSON(msgs[0].Content)
+					if result == nil {
+						return errRetryableAttack
 					}
-				}
+					attackResult = result
+					// Add attacker's response to branch conversation
+					branchConv.Messages = append(branchConv.Messages, ConvMessage{
+						Role:    "assistant",
+						Content: msgs[0].Content,
+					})
+					return nil
+				})
 
 				if attackResult == nil {
 					continue // Skip this branch if no valid JSON

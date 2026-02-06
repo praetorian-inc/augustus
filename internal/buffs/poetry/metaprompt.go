@@ -95,7 +95,7 @@ func (m *MetaPromptBuff) Description() string {
 func (m *MetaPromptBuff) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt] {
 	return func(yield func(*attempt.Attempt) bool) {
 		// First yield the original
-		original := copyAttempt(a)
+		original := a.Copy()
 		if !yield(original) {
 			return
 		}
@@ -118,7 +118,7 @@ func (m *MetaPromptBuff) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt
 				poetryPrompt, err := m.transformToPoetryWithFormatAndStrategy(context.Background(), a.Prompt, format, strategy)
 				if err != nil {
 					// On error, store error in metadata but continue
-					errAttempt := copyAttempt(a)
+					errAttempt := a.Copy()
 					errAttempt.Metadata["poetry_transform_error"] = err.Error()
 					if !yield(errAttempt) {
 						return
@@ -127,7 +127,7 @@ func (m *MetaPromptBuff) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt
 				}
 
 				// Create poetry-transformed attempt
-				transformed := copyAttempt(a)
+				transformed := a.Copy()
 				transformed.Prompt = poetryPrompt
 				transformed.Prompts = []string{poetryPrompt}
 				transformed.Metadata["original_prompt"] = a.Prompt
@@ -146,21 +146,7 @@ func (m *MetaPromptBuff) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt
 
 // Buff transforms a batch of attempts.
 func (m *MetaPromptBuff) Buff(ctx context.Context, attempts []*attempt.Attempt) ([]*attempt.Attempt, error) {
-	var results []*attempt.Attempt
-
-	for _, a := range attempts {
-		select {
-		case <-ctx.Done():
-			return results, ctx.Err()
-		default:
-		}
-
-		for transformed := range m.Transform(a) {
-			results = append(results, transformed)
-		}
-	}
-
-	return results, nil
+	return buffs.DefaultBuff(ctx, attempts, m)
 }
 
 // transformToPoetry converts text to poetry format.
@@ -231,32 +217,6 @@ func (m *MetaPromptBuff) templateTransform(text string) string {
 	}
 }
 
-func copyAttempt(a *attempt.Attempt) *attempt.Attempt {
-	newAttempt := &attempt.Attempt{
-		ID:              a.ID,
-		Probe:           a.Probe,
-		Generator:       a.Generator,
-		Detector:        a.Detector,
-		Prompt:          a.Prompt,
-		Prompts:         append([]string{}, a.Prompts...),
-		Outputs:         append([]string{}, a.Outputs...),
-		Conversations:   a.Conversations,
-		Scores:          append([]float64{}, a.Scores...),
-		DetectorResults: make(map[string][]float64),
-		Status:          a.Status,
-		Error:           a.Error,
-		Timestamp:       a.Timestamp,
-		Duration:        a.Duration,
-		Metadata:        make(map[string]any),
-	}
-	for k, v := range a.DetectorResults {
-		newAttempt.DetectorResults[k] = append([]float64{}, v...)
-	}
-	for k, v := range a.Metadata {
-		newAttempt.Metadata[k] = v
-	}
-	return newAttempt
-}
 
 // wordOverlapRatio calculates what fraction of original words appear in the transformed text.
 // This is a simple heuristic for intent preservation — higher overlap suggests the

@@ -21,7 +21,6 @@ package replicate
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -50,42 +49,44 @@ type Replicate struct {
 	seed              int
 }
 
-// NewReplicate creates a new Replicate generator from configuration.
-func NewReplicate(cfg registry.Config) (generators.Generator, error) {
+// NewReplicate creates a new Replicate generator from legacy registry.Config.
+// This is the backward-compatible entry point.
+func NewReplicate(m registry.Config) (generators.Generator, error) {
+	cfg, err := ConfigFromMap(m)
+	if err != nil {
+		return nil, err
+	}
+	return NewReplicateTyped(cfg)
+}
+
+// NewReplicateTyped creates a new Replicate generator from typed configuration.
+// This is the type-safe entry point for programmatic use.
+func NewReplicateTyped(cfg Config) (*Replicate, error) {
+	// Validate required fields
+	if cfg.Model == "" {
+		return nil, fmt.Errorf("replicate generator requires model")
+	}
+	if cfg.APIKey == "" {
+		return nil, fmt.Errorf("replicate generator requires api_key")
+	}
+
 	g := &Replicate{
-		// Python garak defaults from ReplicateGenerator.DEFAULT_PARAMS
-		temperature:       1.0,
-		topP:              1.0,
-		repetitionPenalty: 1.0,
-		seed:              9, // Python default seed
-	}
-
-	// Required: model name
-	model, ok := cfg["model"].(string)
-	if !ok || model == "" {
-		return nil, fmt.Errorf("replicate generator requires 'model' configuration")
-	}
-	g.model = model
-
-	// API key: from config or env var
-	apiKey := ""
-	if key, ok := cfg["api_key"].(string); ok && key != "" {
-		apiKey = key
-	} else {
-		apiKey = os.Getenv(envVarName)
-	}
-	if apiKey == "" {
-		return nil, fmt.Errorf("replicate generator requires 'api_key' configuration or %s environment variable", envVarName)
+		model:             cfg.Model,
+		temperature:       cfg.Temperature,
+		topP:              cfg.TopP,
+		repetitionPenalty: cfg.RepetitionPenalty,
+		maxTokens:         cfg.MaxTokens,
+		seed:              cfg.Seed,
 	}
 
 	// Build client options
 	opts := []replicatego.ClientOption{
-		replicatego.WithToken(apiKey),
+		replicatego.WithToken(cfg.APIKey),
 	}
 
 	// Optional: custom base URL (for testing)
-	if baseURL, ok := cfg["base_url"].(string); ok && baseURL != "" {
-		opts = append(opts, replicatego.WithBaseURL(baseURL))
+	if cfg.BaseURL != "" {
+		opts = append(opts, replicatego.WithBaseURL(cfg.BaseURL))
 	}
 
 	// Create client
@@ -95,36 +96,22 @@ func NewReplicate(cfg registry.Config) (generators.Generator, error) {
 	}
 	g.client = client
 
-	// Optional: temperature
-	if temp, ok := cfg["temperature"].(float64); ok {
-		g.temperature = float32(temp)
-	}
-
-	// Optional: top_p
-	if topP, ok := cfg["top_p"].(float64); ok {
-		g.topP = float32(topP)
-	}
-
-	// Optional: repetition_penalty
-	if repPenalty, ok := cfg["repetition_penalty"].(float64); ok {
-		g.repetitionPenalty = float32(repPenalty)
-	}
-
-	// Optional: max_tokens
-	if maxTokens, ok := cfg["max_tokens"].(int); ok {
-		g.maxTokens = maxTokens
-	} else if maxTokens, ok := cfg["max_tokens"].(float64); ok {
-		g.maxTokens = int(maxTokens)
-	}
-
-	// Optional: seed
-	if seed, ok := cfg["seed"].(int); ok {
-		g.seed = seed
-	} else if seed, ok := cfg["seed"].(float64); ok {
-		g.seed = int(seed)
-	}
-
 	return g, nil
+}
+
+// NewReplicateWithOptions creates a new Replicate generator using functional options.
+// This is the recommended entry point for Go code.
+//
+// Usage:
+//
+//	g, err := NewReplicateWithOptions(
+//	    WithModel("meta/llama-2-7b-chat"),
+//	    WithAPIKey("..."),
+//	    WithTemperature(0.8),
+//	)
+func NewReplicateWithOptions(opts ...Option) (*Replicate, error) {
+	cfg := ApplyOptions(DefaultConfig(), opts...)
+	return NewReplicateTyped(cfg)
 }
 
 // Generate sends the conversation to Replicate and returns responses.
@@ -163,7 +150,7 @@ func (g *Replicate) Generate(ctx context.Context, conv *attempt.Conversation, n 
 			return nil, g.wrapError(err)
 		}
 
-		// Process output - can be string or []string or []interface{}
+		// Process output - can be string or []string or []any
 		text := g.extractText(output)
 		responses = append(responses, attempt.NewAssistantMessage(text))
 	}
@@ -175,14 +162,14 @@ func (g *Replicate) Generate(ctx context.Context, conv *attempt.Conversation, n 
 // Output can be:
 // - string: return as-is
 // - []string: join all elements
-// - []interface{}: join string elements
+// - []any: join string elements
 func (g *Replicate) extractText(output replicatego.PredictionOutput) string {
 	switch v := output.(type) {
 	case string:
 		return v
 	case []string:
 		return strings.Join(v, "")
-	case []interface{}:
+	case []any:
 		var parts []string
 		for _, elem := range v {
 			if s, ok := elem.(string); ok {

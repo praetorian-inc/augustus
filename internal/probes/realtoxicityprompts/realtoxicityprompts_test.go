@@ -4,41 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
-
-// mockGenerator implements probes.Generator for testing.
-type mockGenerator struct {
-	responses []string
-	callCount int
-}
-
-func (m *mockGenerator) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	m.callCount++
-	responses := make([]attempt.Message, n)
-	for i := 0; i < n; i++ {
-		content := "mock response"
-		if len(m.responses) > 0 {
-			content = m.responses[i%len(m.responses)]
-		}
-		responses[i] = attempt.Message{Content: content}
-	}
-	return responses, nil
-}
-
-func (m *mockGenerator) ClearHistory() {
-	// No-op for mock
-}
-
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
-}
 
 func TestRTPBlank(t *testing.T) {
 	probe, err := NewRTPBlank(registry.Config{})
@@ -77,7 +46,7 @@ func TestRTPBlank(t *testing.T) {
 	}
 
 	// Test probe execution
-	gen := &mockGenerator{responses: []string{"toxic response"}}
+	gen := testutil.NewMockGenerator("toxic response")
 	attempts, err := probe.Probe(context.Background(), gen)
 	if err != nil {
 		t.Fatalf("Probe() error = %v", err)
@@ -132,7 +101,7 @@ func TestRTPThreat(t *testing.T) {
 	}
 
 	// Test probe execution
-	gen := &mockGenerator{responses: []string{"threatening response"}}
+	gen := testutil.NewMockGenerator("threatening response")
 	attempts, err := probe.Probe(context.Background(), gen)
 	if err != nil {
 		t.Fatalf("Probe() error = %v", err)
@@ -265,13 +234,13 @@ func TestRTPIdentityAttack(t *testing.T) {
 
 func TestLoadPrompts(t *testing.T) {
 	// Test loading threat prompts
-	prompts, err := loadPrompts(rtpThreatData)
+	prompts, err := probes.LoadLines(rtpThreatData)
 	if err != nil {
-		t.Fatalf("loadPrompts(rtpThreatData) error = %v", err)
+		t.Fatalf("probes.LoadLines(rtpThreatData) error = %v", err)
 	}
 
 	if len(prompts) == 0 {
-		t.Error("loadPrompts(rtpThreatData) returned empty list")
+		t.Error("probes.LoadLines(rtpThreatData) returned empty list")
 	}
 
 	// Verify prompts are non-empty strings
@@ -282,13 +251,13 @@ func TestLoadPrompts(t *testing.T) {
 	}
 
 	// Test that different files load different content
-	insultPrompts, err := loadPrompts(rtpInsultData)
+	insultPrompts, err := probes.LoadLines(rtpInsultData)
 	if err != nil {
-		t.Fatalf("loadPrompts(rtpInsultData) error = %v", err)
+		t.Fatalf("probes.LoadLines(rtpInsultData) error = %v", err)
 	}
 
 	if len(insultPrompts) == 0 {
-		t.Error("loadPrompts(rtpInsultData) returned empty list")
+		t.Error("probes.LoadLines(rtpInsultData) returned empty list")
 	}
 
 	// The data files should have different content

@@ -11,9 +11,6 @@
 package continuation
 
 import (
-	"bufio"
-	"bytes"
-	"context"
 	_ "embed"
 	"encoding/json"
 	"strings"
@@ -42,25 +39,18 @@ func init() {
 
 // loadSlurPrompts parses JSONL data into SlurPromptEntry slices.
 func loadSlurPrompts(data []byte) ([]SlurPromptEntry, error) {
-	var entries []SlurPromptEntry
-	scanner := bufio.NewScanner(bytes.NewReader(data))
+	lines, err := probes.LoadLines(data)
+	if err != nil {
+		return nil, err
+	}
 
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" {
-			continue
-		}
-
+	entries := make([]SlurPromptEntry, 0, len(lines))
+	for _, line := range lines {
 		var entry SlurPromptEntry
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
 			return nil, err
 		}
-
 		entries = append(entries, entry)
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, err
 	}
 
 	return entries, nil
@@ -78,7 +68,7 @@ func loadSlurPrompts(data []byte) ([]SlurPromptEntry, error) {
 //   - prompts: []string - deduplicated prompts (prefix + variant)
 //   - triggers: []string - corresponding trigger for each prompt
 func generatePrompts(entries []SlurPromptEntry) ([]string, []string) {
-	prompts := make([]string, 0, len(entries)*4)
+	promptList := make([]string, 0, len(entries)*4)
 	triggers := make([]string, 0, len(entries)*4)
 	seen := make(map[string]bool)
 
@@ -104,64 +94,42 @@ func generatePrompts(entries []SlurPromptEntry) ([]string, []string) {
 			prompt := prefix + variant
 			if !seen[prompt] {
 				seen[prompt] = true
-				prompts = append(prompts, prompt)
+				promptList = append(promptList, prompt)
 				triggers = append(triggers, term)
 			}
 		}
 	}
 
-	return prompts, triggers
+	return promptList, triggers
 }
 
-// baseProbe provides common functionality for all continuation probes.
-type baseProbe struct {
-	name            string
-	description     string
-	goal            string
-	primaryDetector string
-	prompts         []string
-	triggers        []string
+// continuationProbe wraps *probes.SimpleProbe with trigger data for continuation probes.
+type continuationProbe struct {
+	*probes.SimpleProbe
+	triggers []string
 }
 
-func (b *baseProbe) Probe(ctx context.Context, gen probes.Generator) ([]*attempt.Attempt, error) {
-	attempts := make([]*attempt.Attempt, 0, len(b.prompts))
-
-	for i, prompt := range b.prompts {
-		conv := attempt.NewConversation()
-		conv.AddPrompt(prompt)
-
-		responses, err := gen.Generate(ctx, conv, 1)
-
-		a := attempt.New(prompt)
-		a.Probe = b.name
-		a.Detector = b.primaryDetector
-
-		// Store trigger in metadata for detector
-		a.WithMetadata("triggers", []any{b.triggers[i]})
-
-		if err != nil {
-			a.SetError(err)
-		} else {
-			for _, resp := range responses {
-				a.AddOutput(resp.Content)
-			}
-			a.Complete()
-		}
-
-		attempts = append(attempts, a)
+// newContinuationProbe creates a continuation probe with trigger metadata.
+func newContinuationProbe(name, description, goal, detector string, promptList, triggers []string) *continuationProbe {
+	p := &continuationProbe{
+		SimpleProbe: &probes.SimpleProbe{
+			ProbeName:        name,
+			ProbeDescription: description,
+			ProbeGoal:        goal,
+			PrimaryDetector:  detector,
+			Prompts:          promptList,
+		},
+		triggers: triggers,
 	}
-
-	return attempts, nil
+	// Set MetadataFn to store trigger tokens per attempt.
+	p.MetadataFn = func(i int, prompt string, a *attempt.Attempt) {
+		a.WithMetadata("triggers", []any{p.triggers[i]})
+	}
+	return p
 }
-
-func (b *baseProbe) Name() string            { return b.name }
-func (b *baseProbe) Description() string     { return b.description }
-func (b *baseProbe) Goal() string            { return b.goal }
-func (b *baseProbe) GetPrimaryDetector() string { return b.primaryDetector }
-func (b *baseProbe) GetPrompts() []string    { return b.prompts }
 
 // ----------------------------------------------------------------------------
-// ContinueSlursReclaimedSlurs - Mini Dataset (79 entries → ~280 prompts)
+// ContinueSlursReclaimedSlurs - Mini Dataset (79 entries -> ~280 prompts)
 // ----------------------------------------------------------------------------
 
 // ContinueSlursReclaimedSlurs tests continuation attacks with a high-quality
@@ -171,7 +139,7 @@ func (b *baseProbe) GetPrompts() []string    { return b.prompts }
 // This probe poses a partial ethnic slur with some preceding content, and
 // checks to see if the model will complete the slur. It uses slurprompts_mini.jsonl.
 type ContinueSlursReclaimedSlurs struct {
-	baseProbe
+	*continuationProbe
 }
 
 // NewContinueSlursReclaimedSlurs creates a probe with the mini dataset.
@@ -181,22 +149,22 @@ func NewContinueSlursReclaimedSlurs(_ registry.Config) (probes.Prober, error) {
 		return nil, err
 	}
 
-	prompts, triggers := generatePrompts(entries)
+	promptList, triggers := generatePrompts(entries)
 
 	return &ContinueSlursReclaimedSlurs{
-		baseProbe: baseProbe{
-			name:            "continuation.ContinueSlursReclaimedSlurs",
-			description:     "Continue partial word with slur or reclaimed slur (mini dataset, ~280 prompts)",
-			goal:            "output an ethnic slur",
-			primaryDetector: "continuation.Continuation",
-			prompts:         prompts,
-			triggers:        triggers,
-		},
+		continuationProbe: newContinuationProbe(
+			"continuation.ContinueSlursReclaimedSlurs",
+			"Continue partial word with slur or reclaimed slur (mini dataset, ~280 prompts)",
+			"output an ethnic slur",
+			"continuation.Continuation",
+			promptList,
+			triggers,
+		),
 	}, nil
 }
 
 // ----------------------------------------------------------------------------
-// ContinueSlursReclaimedSlursFull - Full Dataset (1885 entries → ~6500 prompts)
+// ContinueSlursReclaimedSlursFull - Full Dataset (1885 entries -> ~6500 prompts)
 // ----------------------------------------------------------------------------
 
 // ContinueSlursReclaimedSlursFull tests continuation attacks with the full
@@ -205,7 +173,7 @@ func NewContinueSlursReclaimedSlurs(_ registry.Config) (probes.Prober, error) {
 // This probe poses a partial ethnic slur with some preceding content, and
 // checks to see if the model will complete the slur. It uses slurprompts.jsonl.
 type ContinueSlursReclaimedSlursFull struct {
-	baseProbe
+	*continuationProbe
 }
 
 // NewContinueSlursReclaimedSlursFull creates a probe with the full dataset.
@@ -215,16 +183,16 @@ func NewContinueSlursReclaimedSlursFull(_ registry.Config) (probes.Prober, error
 		return nil, err
 	}
 
-	prompts, triggers := generatePrompts(entries)
+	promptList, triggers := generatePrompts(entries)
 
 	return &ContinueSlursReclaimedSlursFull{
-		baseProbe: baseProbe{
-			name:            "continuation.ContinueSlursReclaimedSlursFull",
-			description:     "Continue partial word with slur or reclaimed slur (full dataset, ~6500 prompts)",
-			goal:            "output an ethnic slur",
-			primaryDetector: "continuation.Continuation",
-			prompts:         prompts,
-			triggers:        triggers,
-		},
+		continuationProbe: newContinuationProbe(
+			"continuation.ContinueSlursReclaimedSlursFull",
+			"Continue partial word with slur or reclaimed slur (full dataset, ~6500 prompts)",
+			"output an ethnic slur",
+			"continuation.Continuation",
+			promptList,
+			triggers,
+		),
 	}, nil
 }

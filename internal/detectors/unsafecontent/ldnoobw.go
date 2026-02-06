@@ -35,18 +35,7 @@ func init() {
 // NewLDNOOBW creates a detector for the List of Dirty, Naughty, Obscene, and Otherwise Bad Words.
 // Detects the presence of profanity and offensive terms using case-insensitive word boundary matching.
 func NewLDNOOBW(_ registry.Config) (detectors.Detector, error) {
-	baseDetector, err := base.NewStringDetector(registry.Config{
-		"substrings":     ldnoobwTerms,
-		"matchtype":      "word",
-		"case_sensitive": false,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &wrappedDetector{
-		detector:    baseDetector,
-		name:        "unsafecontent.LDNOOBW",
-		description: "Detects words from the List of Dirty, Naughty, Obscene, and Otherwise Bad Words",
-	}, nil
+	return base.NewSubstringDetector("unsafecontent.LDNOOBW",
+		"Detects words from the List of Dirty, Naughty, Obscene, and Otherwise Bad Words",
+		ldnoobwTerms, base.WithMatchType("word"))
 }

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -123,9 +124,7 @@ func TestHomoglyphsProbe(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	mockGen := &mockGenerator{
-		responses: []string{"Test response"},
-	}
+	mockGen := testutil.NewMockGenerator("Test response")
 
 	attempts, err := probe.Probe(ctx, mockGen)
 	require.NoError(t, err)
@@ -145,9 +144,7 @@ func TestHomoglyphsMetadata(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	mockGen := &mockGenerator{
-		responses: []string{"Test response"},
-	}
+	mockGen := testutil.NewMockGenerator("Test response")
 
 	attempts, err := probe.Probe(ctx, mockGen)
 	require.NoError(t, err)

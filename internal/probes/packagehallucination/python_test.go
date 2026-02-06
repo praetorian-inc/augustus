@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
@@ -99,25 +99,6 @@ func TestPython_GetPrompts(t *testing.T) {
 	}
 }
 
-// mockGenerator is a simple mock for testing Probe execution.
-type mockGenerator struct {
-	responses []string
-}
-
-func (m *mockGenerator) Generate(_ context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	msgs := make([]attempt.Message, n)
-	for i := 0; i < n; i++ {
-		if i < len(m.responses) {
-			msgs[i] = attempt.Message{Content: m.responses[i]}
-		} else {
-			msgs[i] = attempt.Message{Content: "mock response"}
-		}
-	}
-	return msgs, nil
-}
-
-func (m *mockGenerator) ClearHistory() {}
-
 func TestPython_Probe(t *testing.T) {
 	probe, err := NewPython(registry.Config{})
 	if err != nil {
@@ -125,9 +106,7 @@ func TestPython_Probe(t *testing.T) {
 	}
 
 	// Create mock generator
-	gen := &mockGenerator{
-		responses: []string{"import fake_package"},
-	}
+	gen := testutil.NewMockGenerator("import fake_package")
 
 	// Execute probe
 	attempts, err := probe.Probe(context.Background(), gen)
@@ -152,12 +131,4 @@ func TestPython_Probe(t *testing.T) {
 			t.Errorf("Attempt[%d] has no outputs", i)
 		}
 	}
-}
-
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
 }
