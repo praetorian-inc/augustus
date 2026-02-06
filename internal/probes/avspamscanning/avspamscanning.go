@@ -11,10 +11,8 @@
 package avspamscanning
 
 import (
-	"context"
 	"fmt"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -47,11 +45,11 @@ func init() {
 
 // generatePrompts creates prompts by substituting signature into templates.
 func generatePrompts(signature string) []string {
-	prompts := make([]string, len(repeatPrompts))
+	promptList := make([]string, len(repeatPrompts))
 	for i, template := range repeatPrompts {
-		prompts[i] = fmt.Sprintf(template, signature)
+		promptList[i] = fmt.Sprintf(template, signature)
 	}
-	return prompts
+	return promptList
 }
 
 // EICAR tests if the model will output the EICAR antivirus test signature.
@@ -61,68 +59,20 @@ func generatePrompts(signature string) []string {
 //
 // Python garak equivalent: garak.probes.av_spam_scanning.EICAR
 type EICAR struct {
-	prompts []string
+	*probes.SimpleProbe
 }
 
 // NewEICAR creates a new EICAR probe.
 func NewEICAR(_ registry.Config) (probes.Prober, error) {
 	return &EICAR{
-		prompts: generatePrompts(EICARSignature),
+		SimpleProbe: &probes.SimpleProbe{
+			ProbeName:        "avspamscanning.EICAR",
+			ProbeGoal:        "output antivirus test codes",
+			PrimaryDetector:  "knownbadsignatures.EICAR",
+			ProbeDescription: "Tests if the model checks its output for viruses by attempting to generate the EICAR antivirus test signature",
+			Prompts:          generatePrompts(EICARSignature),
+		},
 	}, nil
-}
-
-// Probe executes the EICAR test against the generator.
-func (e *EICAR) Probe(ctx context.Context, gen probes.Generator) ([]*attempt.Attempt, error) {
-	attempts := make([]*attempt.Attempt, 0, len(e.prompts))
-
-	for _, prompt := range e.prompts {
-		conv := attempt.NewConversation()
-		conv.AddPrompt(prompt)
-
-		responses, err := gen.Generate(ctx, conv, 1)
-
-		a := attempt.New(prompt)
-		a.Probe = e.Name()
-		a.Detector = e.GetPrimaryDetector()
-
-		if err != nil {
-			a.SetError(err)
-		} else {
-			for _, resp := range responses {
-				a.AddOutput(resp.Content)
-			}
-			a.Complete()
-		}
-
-		attempts = append(attempts, a)
-	}
-
-	return attempts, nil
-}
-
-// Name returns the probe's fully qualified name.
-func (e *EICAR) Name() string {
-	return "avspamscanning.EICAR"
-}
-
-// Description returns a human-readable description.
-func (e *EICAR) Description() string {
-	return "Tests if the model checks its output for viruses by attempting to generate the EICAR antivirus test signature"
-}
-
-// Goal returns the probe's goal (matches Python garak).
-func (e *EICAR) Goal() string {
-	return "output antivirus test codes"
-}
-
-// GetPrimaryDetector returns the recommended detector.
-func (e *EICAR) GetPrimaryDetector() string {
-	return "knownbadsignatures.EICAR"
-}
-
-// GetPrompts returns the prompts used by this probe.
-func (e *EICAR) GetPrompts() []string {
-	return e.prompts
 }
 
 // GTUBE tests if the model will output the GTUBE spam test signature.
@@ -132,68 +82,20 @@ func (e *EICAR) GetPrompts() []string {
 //
 // Python garak equivalent: garak.probes.av_spam_scanning.GTUBE
 type GTUBE struct {
-	prompts []string
+	*probes.SimpleProbe
 }
 
 // NewGTUBE creates a new GTUBE probe.
 func NewGTUBE(_ registry.Config) (probes.Prober, error) {
 	return &GTUBE{
-		prompts: generatePrompts(GTUBESignature),
+		SimpleProbe: &probes.SimpleProbe{
+			ProbeName:        "avspamscanning.GTUBE",
+			ProbeGoal:        "output email spam",
+			PrimaryDetector:  "knownbadsignatures.GTUBE",
+			ProbeDescription: "Tests if the model checks its output for spam by attempting to generate the GTUBE spam test signature",
+			Prompts:          generatePrompts(GTUBESignature),
+		},
 	}, nil
-}
-
-// Probe executes the GTUBE test against the generator.
-func (g *GTUBE) Probe(ctx context.Context, gen probes.Generator) ([]*attempt.Attempt, error) {
-	attempts := make([]*attempt.Attempt, 0, len(g.prompts))
-
-	for _, prompt := range g.prompts {
-		conv := attempt.NewConversation()
-		conv.AddPrompt(prompt)
-
-		responses, err := gen.Generate(ctx, conv, 1)
-
-		a := attempt.New(prompt)
-		a.Probe = g.Name()
-		a.Detector = g.GetPrimaryDetector()
-
-		if err != nil {
-			a.SetError(err)
-		} else {
-			for _, resp := range responses {
-				a.AddOutput(resp.Content)
-			}
-			a.Complete()
-		}
-
-		attempts = append(attempts, a)
-	}
-
-	return attempts, nil
-}
-
-// Name returns the probe's fully qualified name.
-func (g *GTUBE) Name() string {
-	return "avspamscanning.GTUBE"
-}
-
-// Description returns a human-readable description.
-func (g *GTUBE) Description() string {
-	return "Tests if the model checks its output for spam by attempting to generate the GTUBE spam test signature"
-}
-
-// Goal returns the probe's goal (matches Python garak).
-func (g *GTUBE) Goal() string {
-	return "output email spam"
-}
-
-// GetPrimaryDetector returns the recommended detector.
-func (g *GTUBE) GetPrimaryDetector() string {
-	return "knownbadsignatures.GTUBE"
-}
-
-// GetPrompts returns the prompts used by this probe.
-func (g *GTUBE) GetPrompts() []string {
-	return g.prompts
 }
 
 // GTphish tests if the model will output the GTphish phishing test signature.
@@ -203,66 +105,18 @@ func (g *GTUBE) GetPrompts() []string {
 //
 // Python garak equivalent: garak.probes.av_spam_scanning.GTphish
 type GTphish struct {
-	prompts []string
+	*probes.SimpleProbe
 }
 
 // NewGTphish creates a new GTphish probe.
 func NewGTphish(_ registry.Config) (probes.Prober, error) {
 	return &GTphish{
-		prompts: generatePrompts(GTphishSignature),
+		SimpleProbe: &probes.SimpleProbe{
+			ProbeName:        "avspamscanning.GTphish",
+			ProbeGoal:        "output email phishing",
+			PrimaryDetector:  "knownbadsignatures.GTphish",
+			ProbeDescription: "Tests if the model checks its output for phishing by attempting to generate the GTphish phishing test signature",
+			Prompts:          generatePrompts(GTphishSignature),
+		},
 	}, nil
-}
-
-// Probe executes the GTphish test against the generator.
-func (p *GTphish) Probe(ctx context.Context, gen probes.Generator) ([]*attempt.Attempt, error) {
-	attempts := make([]*attempt.Attempt, 0, len(p.prompts))
-
-	for _, prompt := range p.prompts {
-		conv := attempt.NewConversation()
-		conv.AddPrompt(prompt)
-
-		responses, err := gen.Generate(ctx, conv, 1)
-
-		a := attempt.New(prompt)
-		a.Probe = p.Name()
-		a.Detector = p.GetPrimaryDetector()
-
-		if err != nil {
-			a.SetError(err)
-		} else {
-			for _, resp := range responses {
-				a.AddOutput(resp.Content)
-			}
-			a.Complete()
-		}
-
-		attempts = append(attempts, a)
-	}
-
-	return attempts, nil
-}
-
-// Name returns the probe's fully qualified name.
-func (p *GTphish) Name() string {
-	return "avspamscanning.GTphish"
-}
-
-// Description returns a human-readable description.
-func (p *GTphish) Description() string {
-	return "Tests if the model checks its output for phishing by attempting to generate the GTphish phishing test signature"
-}
-
-// Goal returns the probe's goal (matches Python garak).
-func (p *GTphish) Goal() string {
-	return "output email phishing"
-}
-
-// GetPrimaryDetector returns the recommended detector.
-func (p *GTphish) GetPrimaryDetector() string {
-	return "knownbadsignatures.GTphish"
-}
-
-// GetPrompts returns the prompts used by this probe.
-func (p *GTphish) GetPrompts() []string {
-	return p.prompts
 }

@@ -133,7 +133,7 @@ func (p *PegasusT5) Description() string {
 func (p *PegasusT5) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt] {
 	return func(yield func(*attempt.Attempt) bool) {
 		// First yield the original (matches Python behavior)
-		original := copyAttempt(a)
+		original := a.Copy()
 		if !yield(original) {
 			return
 		}
@@ -153,7 +153,7 @@ func (p *PegasusT5) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt] {
 			}
 			seen[para] = true
 
-			paraphrased := copyAttempt(a)
+			paraphrased := a.Copy()
 			paraphrased.Prompt = para
 			paraphrased.Prompts = []string{para}
 			if !yield(paraphrased) {
@@ -165,21 +165,7 @@ func (p *PegasusT5) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt] {
 
 // Buff transforms a slice of attempts, returning modified versions.
 func (p *PegasusT5) Buff(ctx context.Context, attempts []*attempt.Attempt) ([]*attempt.Attempt, error) {
-	var results []*attempt.Attempt
-
-	for _, a := range attempts {
-		select {
-		case <-ctx.Done():
-			return results, ctx.Err()
-		default:
-		}
-
-		for transformed := range p.Transform(a) {
-			results = append(results, transformed)
-		}
-	}
-
-	return results, nil
+	return buffs.DefaultBuff(ctx, attempts, p)
 }
 
 // getParaphrases calls the HuggingFace API to generate paraphrases.
@@ -249,27 +235,3 @@ func (p *PegasusT5) getParaphrases(text string) ([]string, error) {
 	return paraphrases, nil
 }
 
-// copyAttempt creates a shallow copy of an attempt.
-func copyAttempt(a *attempt.Attempt) *attempt.Attempt {
-	copied := *a
-	// Copy slices to avoid shared references
-	if a.Prompts != nil {
-		copied.Prompts = make([]string, len(a.Prompts))
-		copy(copied.Prompts, a.Prompts)
-	}
-	if a.Outputs != nil {
-		copied.Outputs = make([]string, len(a.Outputs))
-		copy(copied.Outputs, a.Outputs)
-	}
-	if a.Scores != nil {
-		copied.Scores = make([]float64, len(a.Scores))
-		copy(copied.Scores, a.Scores)
-	}
-	if a.Metadata != nil {
-		copied.Metadata = make(map[string]any)
-		for k, v := range a.Metadata {
-			copied.Metadata[k] = v
-		}
-	}
-	return &copied
-}

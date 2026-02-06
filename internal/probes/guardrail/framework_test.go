@@ -4,27 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// mockGenerator implements probes.Generator for testing
-type mockGenerator struct {
-	response string
-	err      error
-}
-
-func (m *mockGenerator) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	return []attempt.Message{attempt.NewMessage("assistant", m.response)}, nil
-}
-
-func (m *mockGenerator) ClearHistory() {}
 
 // Test GuardrailBypass probe structure and interface implementation
 func TestGuardrailBypass_Structure(t *testing.T) {
@@ -64,14 +49,6 @@ func TestGuardrailBypass_Structure(t *testing.T) {
 			assert.Contains(t, probe.Name(), "guardrail")
 		})
 	}
-}
-
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
 }
 
 // Test bypass technique constants
@@ -153,7 +130,7 @@ func TestGuardrailBypass_Probe(t *testing.T) {
 		}
 
 		ctx := context.Background()
-		gen := &mockGenerator{response: "test response"}
+		gen := testutil.NewMockGenerator("test response")
 
 		attempts, err := probe.Probe(ctx, gen)
 		require.NoError(t, err)

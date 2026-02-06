@@ -1,9 +1,7 @@
-// modules/augustus/pkg/generators/vertex/config.go
 package vertex
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -58,10 +56,7 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 
 	// Optional: API key from config or env var (for testing/simple auth)
 	// In production, ADC (Application Default Credentials) should be used
-	cfg.APIKey = registry.GetString(m, "api_key", "")
-	if cfg.APIKey == "" {
-		cfg.APIKey = os.Getenv("GOOGLE_API_KEY")
-	}
+	cfg.APIKey = registry.GetOptionalAPIKeyWithEnv(m, "GOOGLE_API_KEY")
 
 	// Optional: custom base URL (for testing)
 	cfg.BaseURL = registry.GetString(m, "base_url", "")

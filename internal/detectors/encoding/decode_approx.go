@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/praetorian-inc/augustus/internal/detectors/base"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -56,7 +57,7 @@ func NewDecodeApprox(cfg registry.Config) (detectors.Detector, error) {
 // Score = (matching n-grams) / (total n-grams in trigger)
 func (d *DecodeApprox) Detect(_ context.Context, a *attempt.Attempt) ([]float64, error) {
 	// Retrieve triggers from metadata
-	triggers, err := extractTriggers(a)
+	triggers, err := base.ExtractTriggers(a)
 	if err != nil {
 		return nil, err
 	}

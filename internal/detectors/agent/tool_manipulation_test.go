@@ -37,13 +37,13 @@ func TestNewToolManipulation(t *testing.T) {
 		{
 			name: "with expected tools",
 			cfg: registry.Config{
-				"expected_tools": []interface{}{"read_file", "write_file"},
+				"expected_tools": []any{"read_file", "write_file"},
 			},
 		},
 		{
 			name: "with forbidden tools",
 			cfg: registry.Config{
-				"forbidden_tools": []interface{}{"execute_shell", "delete_file"},
+				"forbidden_tools": []any{"execute_shell", "delete_file"},
 			},
 		},
 		{
@@ -55,8 +55,8 @@ func TestNewToolManipulation(t *testing.T) {
 		{
 			name: "with all options",
 			cfg: registry.Config{
-				"expected_tools":  []interface{}{"read_file", "write_file"},
-				"forbidden_tools": []interface{}{"execute_shell"},
+				"expected_tools":  []any{"read_file", "write_file"},
+				"forbidden_tools": []any{"execute_shell"},
 				"threshold":       0.7,
 			},
 		},
@@ -111,9 +111,9 @@ func TestToolManipulationDetector_Detect_ExpectedToolsOnly(t *testing.T) {
 
 	a := attempt.New("test prompt")
 	// Store tool calls in metadata
-	a.Metadata["tool_calls"] = []map[string]interface{}{
-		{"name": "read_file", "args": map[string]interface{}{"path": "/tmp/test.txt"}},
-		{"name": "write_file", "args": map[string]interface{}{"path": "/tmp/output.txt", "content": "data"}},
+	a.Metadata["tool_calls"] = []map[string]any{
+		{"name": "read_file", "args": map[string]any{"path": "/tmp/test.txt"}},
+		{"name": "write_file", "args": map[string]any{"path": "/tmp/output.txt", "content": "data"}},
 	}
 	a.AddOutput("File operations completed successfully")
 
@@ -138,9 +138,9 @@ func TestToolManipulationDetector_Detect_UnexpectedTool(t *testing.T) {
 
 	a := attempt.New("test prompt")
 	// Tool call with an unexpected tool
-	a.Metadata["tool_calls"] = []map[string]interface{}{
-		{"name": "read_file", "args": map[string]interface{}{"path": "/tmp/test.txt"}},
-		{"name": "network_request", "args": map[string]interface{}{"url": "http://evil.com"}},
+	a.Metadata["tool_calls"] = []map[string]any{
+		{"name": "read_file", "args": map[string]any{"path": "/tmp/test.txt"}},
+		{"name": "network_request", "args": map[string]any{"url": "http://evil.com"}},
 	}
 	a.AddOutput("Made network request")
 
@@ -165,9 +165,9 @@ func TestToolManipulationDetector_Detect_ForbiddenTool(t *testing.T) {
 
 	a := attempt.New("test prompt")
 	// Tool call with forbidden tool
-	a.Metadata["tool_calls"] = []map[string]interface{}{
-		{"name": "read_file", "args": map[string]interface{}{"path": "/tmp/test.txt"}},
-		{"name": "execute_shell", "args": map[string]interface{}{"command": "rm -rf /"}},
+	a.Metadata["tool_calls"] = []map[string]any{
+		{"name": "read_file", "args": map[string]any{"path": "/tmp/test.txt"}},
+		{"name": "execute_shell", "args": map[string]any{"command": "rm -rf /"}},
 	}
 	a.AddOutput("Executed shell command")
 
@@ -192,10 +192,10 @@ func TestToolManipulationDetector_Detect_MultipleForbiddenTools(t *testing.T) {
 
 	a := attempt.New("test prompt")
 	// Multiple forbidden tools
-	a.Metadata["tool_calls"] = []map[string]interface{}{
-		{"name": "execute_shell", "args": map[string]interface{}{"command": "ls"}},
-		{"name": "delete_file", "args": map[string]interface{}{"path": "/tmp/test"}},
-		{"name": "network_request", "args": map[string]interface{}{"url": "http://evil.com"}},
+	a.Metadata["tool_calls"] = []map[string]any{
+		{"name": "execute_shell", "args": map[string]any{"command": "ls"}},
+		{"name": "delete_file", "args": map[string]any{"path": "/tmp/test"}},
+		{"name": "network_request", "args": map[string]any{"url": "http://evil.com"}},
 	}
 	a.AddOutput("Multiple forbidden operations")
 
@@ -220,8 +220,8 @@ func TestToolManipulationDetector_Detect_MultipleOutputs(t *testing.T) {
 
 	a := attempt.New("test prompt")
 	// First output: safe tool calls
-	a.Metadata["tool_calls"] = []map[string]interface{}{
-		{"name": "read_file", "args": map[string]interface{}{"path": "/tmp/test.txt"}},
+	a.Metadata["tool_calls"] = []map[string]any{
+		{"name": "read_file", "args": map[string]any{"path": "/tmp/test.txt"}},
 	}
 	a.AddOutput("Read file successfully")
 	a.AddOutput("Second output with different tool calls")

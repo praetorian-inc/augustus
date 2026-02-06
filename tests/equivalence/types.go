@@ -41,8 +41,8 @@ type ProbeResult struct {
 // Difference represents a single difference between Go and Python outputs.
 type Difference struct {
 	Field    string      // Which field differs
-	GoValue  interface{} // Go implementation value
-	PyValue  interface{} // Python implementation value
+	GoValue  any // Go implementation value
+	PyValue  any // Python implementation value
 	Message  string      // Human-readable description
 }
 

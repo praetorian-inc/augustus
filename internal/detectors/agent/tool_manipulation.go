@@ -24,7 +24,7 @@ type ToolCall struct {
 	// Name is the tool identifier.
 	Name string
 	// Args contains the arguments passed to the tool.
-	Args map[string]interface{}
+	Args map[string]any
 }
 
 // ToolManipulationDetector detects when an agent makes unexpected tool calls
@@ -57,7 +57,7 @@ func NewToolManipulation(cfg registry.Config) (detectors.Detector, error) {
 
 	// Parse expected tools (whitelist)
 	if expectedRaw, ok := cfg["expected_tools"]; ok {
-		if expectedList, ok := expectedRaw.([]interface{}); ok {
+		if expectedList, ok := expectedRaw.([]any); ok {
 			for _, tool := range expectedList {
 				if toolStr, ok := tool.(string); ok {
 					d.expectedTools = append(d.expectedTools, toolStr)
@@ -68,7 +68,7 @@ func NewToolManipulation(cfg registry.Config) (detectors.Detector, error) {
 
 	// Parse forbidden tools (blacklist)
 	if forbiddenRaw, ok := cfg["forbidden_tools"]; ok {
-		if forbiddenList, ok := forbiddenRaw.([]interface{}); ok {
+		if forbiddenList, ok := forbiddenRaw.([]any); ok {
 			for _, tool := range forbiddenList {
 				if toolStr, ok := tool.(string); ok {
 					d.forbiddenTools = append(d.forbiddenTools, toolStr)
@@ -127,12 +127,12 @@ func (d *ToolManipulationDetector) extractToolCalls(a *attempt.Attempt) []ToolCa
 	}
 
 	// Parse tool calls
-	toolCallsList, ok := toolCallsRaw.([]map[string]interface{})
+	toolCallsList, ok := toolCallsRaw.([]map[string]any)
 	if !ok {
-		// Try []interface{} and convert
-		if toolCallsIface, ok := toolCallsRaw.([]interface{}); ok {
+		// Try []any and convert
+		if toolCallsIface, ok := toolCallsRaw.([]any); ok {
 			for _, tc := range toolCallsIface {
-				if tcMap, ok := tc.(map[string]interface{}); ok {
+				if tcMap, ok := tc.(map[string]any); ok {
 					toolCall := d.parseToolCall(tcMap)
 					if toolCall.Name != "" {
 						toolCalls = append(toolCalls, toolCall)
@@ -154,14 +154,14 @@ func (d *ToolManipulationDetector) extractToolCalls(a *attempt.Attempt) []ToolCa
 }
 
 // parseToolCall converts a map to a ToolCall struct.
-func (d *ToolManipulationDetector) parseToolCall(tcMap map[string]interface{}) ToolCall {
+func (d *ToolManipulationDetector) parseToolCall(tcMap map[string]any) ToolCall {
 	tc := ToolCall{}
 
 	if name, ok := tcMap["name"].(string); ok {
 		tc.Name = name
 	}
 
-	if args, ok := tcMap["args"].(map[string]interface{}); ok {
+	if args, ok := tcMap["args"].(map[string]any); ok {
 		tc.Args = args
 	}
 

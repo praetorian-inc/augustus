@@ -51,7 +51,7 @@ type Deletions struct {
 	primaryDetector string
 	description     string
 	prompts         []string
-	metadata        []map[string]interface{}
+	metadata        []map[string]any
 }
 
 // NewDeletions creates a new Deletions probe.
@@ -178,16 +178,16 @@ func selectASCII(limit int) []rune {
 }
 
 // generateAllDeletionVariants generates all prompt variants for all payloads.
-func generateAllDeletionVariants(payloads []string, budget, maxPositions, maxASCII int) ([]string, []map[string]interface{}) {
+func generateAllDeletionVariants(payloads []string, budget, maxPositions, maxASCII int) ([]string, []map[string]any) {
 	var prompts []string
-	var metadata []map[string]interface{}
+	var metadata []map[string]any
 
 	for payloadIdx, payload := range payloads {
 		variants := generateDeletionVariants(payload, budget, maxPositions, maxASCII)
 
 		for _, v := range variants {
 			prompts = append(prompts, v.text)
-			metadata = append(metadata, map[string]interface{}{
+			metadata = append(metadata, map[string]any{
 				"bad_character_category": "deletion",
 				"perturbation_count":     len(v.positions),
 				"source_payload_index":   payloadIdx,

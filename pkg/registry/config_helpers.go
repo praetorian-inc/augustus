@@ -1,6 +1,9 @@
 package registry
 
-import "fmt"
+import (
+	"fmt"
+	"os"
+)
 
 // GetString retrieves a string value from Config with a default fallback.
 func GetString(cfg Config, key string, defaultValue string) string {
@@ -98,4 +101,40 @@ func RequireStringSlice(cfg Config, key string) ([]string, error) {
 	default:
 		return nil, fmt.Errorf("required config key %q missing or not a string slice", key)
 	}
+}
+
+// GetFloat32 retrieves a float32 value from Config with a default fallback.
+// Handles both float64 and int.
+func GetFloat32(cfg Config, key string, defaultValue float32) float32 {
+	switch val := cfg[key].(type) {
+	case float64:
+		return float32(val)
+	case int:
+		return float32(val)
+	default:
+		return defaultValue
+	}
+}
+
+// GetAPIKeyWithEnv retrieves an API key from config, falling back to an environment
+// variable. Returns an error if neither source provides a value.
+func GetAPIKeyWithEnv(cfg Config, envVar string, generatorName string) (string, error) {
+	key := GetString(cfg, "api_key", "")
+	if key == "" {
+		key = os.Getenv(envVar)
+	}
+	if key == "" {
+		return "", fmt.Errorf("%s generator requires 'api_key' configuration or %s environment variable", generatorName, envVar)
+	}
+	return key, nil
+}
+
+// GetOptionalAPIKeyWithEnv retrieves an API key from config or an environment variable.
+// Returns empty string without error if neither is set.
+func GetOptionalAPIKeyWithEnv(cfg Config, envVar string) string {
+	key := GetString(cfg, "api_key", "")
+	if key == "" {
+		key = os.Getenv(envVar)
+	}
+	return key
 }

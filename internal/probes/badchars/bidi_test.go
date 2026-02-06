@@ -5,41 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
-
-// mockGenerator is a test generator that returns fixed responses.
-type mockGenerator struct {
-	responses []string
-	callCount int
-}
-
-func (m *mockGenerator) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	m.callCount++
-	messages := make([]attempt.Message, n)
-	for i := 0; i < n; i++ {
-		response := "I'm a helpful assistant."
-		if len(m.responses) > 0 {
-			response = m.responses[i%len(m.responses)]
-		}
-		messages[i] = attempt.Message{Content: response}
-	}
-	return messages, nil
-}
-
-func (m *mockGenerator) ClearHistory() {
-	// No-op for mock
-}
-
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
-}
 
 func TestNewBidi(t *testing.T) {
 	// Test probe creation
@@ -159,9 +128,7 @@ func TestBidi_Probe(t *testing.T) {
 		t.Fatalf("NewBidi() error = %v", err)
 	}
 
-	gen := &mockGenerator{
-		responses: []string{"I'm a helpful assistant."},
-	}
+	gen := testutil.NewMockGenerator("I'm a helpful assistant.")
 
 	attempts, err := p.Probe(context.Background(), gen)
 	if err != nil {
@@ -193,8 +160,8 @@ func TestBidi_Probe(t *testing.T) {
 
 	// Verify generator was called for each prompt
 	expectedCalls := len(p.GetPrompts())
-	if gen.callCount != expectedCalls {
-		t.Errorf("Generator called %d times, expected %d", gen.callCount, expectedCalls)
+	if gen.Calls != expectedCalls {
+		t.Errorf("Generator called %d times, expected %d", gen.Calls, expectedCalls)
 	}
 }
 

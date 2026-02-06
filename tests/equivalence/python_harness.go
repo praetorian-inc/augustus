@@ -86,7 +86,7 @@ type harnessResult struct {
 	Success        bool                   `json:"success"`
 	CapabilityType string                 `json:"capability_type"`
 	CapabilityName string                 `json:"capability_name"`
-	Output         map[string]interface{} `json:"output"`
+	Output         map[string]any `json:"output"`
 	Error          string                 `json:"error,omitempty"`
 }
 
@@ -128,7 +128,7 @@ func (h *PythonHarness) RunGenerator(ctx context.Context, name, prompt string, g
 
 	if result.Success {
 		// Extract generations from output
-		if generations, ok := result.Output["generations"].([]interface{}); ok {
+		if generations, ok := result.Output["generations"].([]any); ok {
 			genResult.Outputs = make([]string, len(generations))
 			for i, gen := range generations {
 				if s, ok := gen.(string); ok {
@@ -208,7 +208,7 @@ func (h *PythonHarness) RunDetectorWithConfig(ctx context.Context, name string, 
 
 	if result.Success {
 		// Extract scores from output
-		if scores, ok := result.Output["scores"].([]interface{}); ok {
+		if scores, ok := result.Output["scores"].([]any); ok {
 			detResult.Scores = make([]float64, len(scores))
 			for i, score := range scores {
 				if f, ok := score.(float64); ok {
@@ -262,7 +262,7 @@ func (h *PythonHarness) RunProbe(ctx context.Context, name string, generatorName
 
 	if result.Success {
 		// Extract prompts from output
-		if prompts, ok := result.Output["prompts"].([]interface{}); ok {
+		if prompts, ok := result.Output["prompts"].([]any); ok {
 			probeResult.Prompts = make([]string, len(prompts))
 			for i, p := range prompts {
 				if s, ok := p.(string); ok {

@@ -1,4 +1,3 @@
-// modules/augustus/pkg/templates/integration_test.go
 //go:build integration
 
 package templates_test

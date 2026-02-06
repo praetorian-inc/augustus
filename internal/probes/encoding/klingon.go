@@ -142,7 +142,7 @@ func NewInjectKlingon(_ registry.Config) (probes.Prober, error) {
 		triggers[i] = pair.trigger
 	}
 
-	base.prompts = prompts
+	base.Prompts = prompts
 	base.triggers = triggers
 
 	return &InjectKlingon{

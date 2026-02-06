@@ -4,6 +4,8 @@ package poetry
 import (
 	_ "embed"
 	"strings"
+
+	"github.com/praetorian-inc/augustus/pkg/probes"
 )
 
 //go:embed data/harmful_payloads.txt
@@ -31,22 +33,7 @@ var rhymingCoupletTemplatesData string
 var DefaultHarmfulPayloads []string
 
 func init() {
-	DefaultHarmfulPayloads = parseLines(harmfulPayloadsData)
-}
-
-// parseLines extracts non-empty, non-comment lines from embedded data.
-func parseLines(data string) []string {
-	lines := strings.Split(data, "\n")
-	result := make([]string, 0, len(lines))
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
-			result = append(result, trimmed)
-		}
-	}
-
-	return result
+	DefaultHarmfulPayloads = probes.SplitLinesSkipComments(harmfulPayloadsData)
 }
 
 // parseTemplates splits template data by "---" separator.

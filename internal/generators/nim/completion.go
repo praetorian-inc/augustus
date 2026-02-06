@@ -2,8 +2,8 @@ package nim
 
 import (
 	"context"
-	"fmt"
 
+	"github.com/praetorian-inc/augustus/internal/generators/openaicompat"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -13,64 +13,16 @@ import (
 // NVOpenAICompletion is a generator that wraps NVIDIA NIM completion endpoints.
 // Unlike NIM (which uses chat/completions), this uses the v1/completions endpoint.
 type NVOpenAICompletion struct {
-	client *goopenai.Client
-	model  string
-
-	// Configuration parameters
-	temperature float32
-	maxTokens   int
-	topP        float32
+	nimConfig
 }
 
 // NewNVOpenAICompletion creates a new NVOpenAICompletion generator from configuration.
 func NewNVOpenAICompletion(cfg registry.Config) (generators.Generator, error) {
-	g := &NVOpenAICompletion{
-		temperature: 0.7,
-	}
-
-	// Required: model name
-	model, ok := cfg["model"].(string)
-	if !ok || model == "" {
-		return nil, fmt.Errorf("nim.NVOpenAICompletion requires 'model' configuration")
-	}
-	g.model = model
-
-	// API key: from config or env var
-	apiKey, err := getAPIKey(cfg)
+	nc, err := newNIMConfig(cfg, "nim.NVOpenAICompletion", 0.7)
 	if err != nil {
 		return nil, err
 	}
-
-	// Create client config
-	config := goopenai.DefaultConfig(apiKey)
-
-	// Base URL: from config or use default NIM endpoint
-	if baseURL, ok := cfg["base_url"].(string); ok && baseURL != "" {
-		config.BaseURL = baseURL
-	} else {
-		config.BaseURL = DefaultBaseURL
-	}
-
-	g.client = goopenai.NewClientWithConfig(config)
-
-	// Optional: temperature
-	if temp, ok := cfg["temperature"].(float64); ok {
-		g.temperature = float32(temp)
-	}
-
-	// Optional: max_tokens
-	if maxTokens, ok := cfg["max_tokens"].(int); ok {
-		g.maxTokens = maxTokens
-	} else if maxTokens, ok := cfg["max_tokens"].(float64); ok {
-		g.maxTokens = int(maxTokens)
-	}
-
-	// Optional: top_p
-	if topP, ok := cfg["top_p"].(float64); ok {
-		g.topP = float32(topP)
-	}
-
-	return g, nil
+	return &NVOpenAICompletion{nimConfig: *nc}, nil
 }
 
 // Generate sends the prompt to NIM completions endpoint and returns responses.
@@ -101,7 +53,7 @@ func (g *NVOpenAICompletion) Generate(ctx context.Context, conv *attempt.Convers
 
 	resp, err := g.client.CreateCompletion(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("nim completion: %w", err)
+		return nil, openaicompat.WrapError("nim", err)
 	}
 
 	// Extract responses from choices

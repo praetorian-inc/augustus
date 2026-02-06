@@ -72,8 +72,8 @@ func NewPatterns(cfg registry.Config) (detectors.Detector, error) {
 	if patternsRaw, ok := cfg["patterns"]; ok {
 		patternList, ok := patternsRaw.([]map[string]any)
 		if !ok {
-			// Try type assertion for []interface{} and convert
-			if patternListIface, ok := patternsRaw.([]interface{}); ok {
+			// Try type assertion for []any and convert
+			if patternListIface, ok := patternsRaw.([]any); ok {
 				patternList = make([]map[string]any, len(patternListIface))
 				for i, p := range patternListIface {
 					if pm, ok := p.(map[string]any); ok {

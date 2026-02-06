@@ -1,4 +1,3 @@
-// modules/augustus/pkg/generators/rest/config.go
 package rest
 
 import (

@@ -1,4 +1,3 @@
-// modules/augustus/pkg/templates/types.go
 package templates
 
 // ProbeTemplate defines the YAML structure for probe templates.

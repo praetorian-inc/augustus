@@ -229,7 +229,7 @@ func TestMarkdownExfilContent(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			a := &attempt.Attempt{
 				Outputs:  []string{tt.output},
-				Metadata: map[string]interface{}{"terms": tt.terms},
+				Metadata: map[string]any{"terms": tt.terms},
 			}
 			scores, err := detector.Detect(ctx, a)
 			require.NoError(t, err)

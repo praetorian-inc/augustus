@@ -146,7 +146,7 @@ func (g *Pipeline) Generate(ctx context.Context, conv *attempt.Conversation, n i
 	// Make request to TGI
 	resp, err := g.client.Post(ctx, "/v1/chat/completions", payload)
 	if err != nil {
-		return nil, fmt.Errorf("huggingface pipeline request failed: %w", err)
+		return nil, fmt.Errorf("huggingface: pipeline request failed: %w", err)
 	}
 
 	// Handle errors
@@ -158,9 +158,9 @@ func (g *Pipeline) Generate(ctx context.Context, conv *attempt.Conversation, n i
 		}
 		_ = resp.JSON(&errResp) // Intentionally ignore error; use fallback if parsing fails
 		if errResp.Error.Message != "" {
-			return nil, fmt.Errorf("huggingface pipeline error (status %d): %s", resp.StatusCode, errResp.Error.Message)
+			return nil, fmt.Errorf("huggingface: pipeline error (status %d): %s", resp.StatusCode, errResp.Error.Message)
 		}
-		return nil, fmt.Errorf("huggingface pipeline error: status %d", resp.StatusCode)
+		return nil, fmt.Errorf("huggingface: pipeline error: status %d", resp.StatusCode)
 	}
 
 	// Parse response
@@ -230,7 +230,7 @@ func (g *Pipeline) parseResponse(resp *libhttp.Response) ([]attempt.Message, err
 	}
 
 	if err := resp.JSON(&result); err != nil {
-		return nil, fmt.Errorf("failed to parse TGI response: %w", err)
+		return nil, fmt.Errorf("huggingface: failed to parse TGI response: %w", err)
 	}
 
 	messages := make([]attempt.Message, 0, len(result.Choices))

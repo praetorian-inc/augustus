@@ -136,7 +136,7 @@ func TestReasoningConfigFromMap_CustomValues(t *testing.T) {
 		"api_key":                "test-key",
 		"max_completion_tokens":  2000,
 		"top_p":                  0.9,
-		"stop":                   []interface{}{"STOP"},
+		"stop":                   []any{"STOP"},
 	}
 
 	cfg, err := ReasoningConfigFromMap(cfgMap)

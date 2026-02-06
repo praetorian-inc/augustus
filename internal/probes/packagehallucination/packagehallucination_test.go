@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
@@ -170,8 +171,8 @@ func TestPackageHallucinationProbe_Probe(t *testing.T) {
 	}
 
 	// Create mock generator
-	gen := &mockGenerator{
-		responses: []string{"import secure_crypto\nimport auth_helper"},
+	gen := &testutil.MockGenerator{
+		Responses: []string{"import secure_crypto\nimport auth_helper"},
 	}
 
 	// Execute probe

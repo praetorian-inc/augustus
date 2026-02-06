@@ -476,7 +476,7 @@ Phase 4: 73 tasks (Production Infrastructure)
   "created": "2026-01-06T00:00:00Z",
   "updated": "2026-01-08T12:00:00Z",
   "updated_by": "capability-reviewer (audit)",
-  "feature_directory": "/Users/nathansportsman/chariot-development-platform2/modules/augustus/docs",
+  "feature_directory": "docs",
   "skills_invoked": [
     "using-skills",
     "enforcing-evidence-based-analysis",

@@ -5,23 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// mockGenerator returns canned responses for testing
-type mockGenerator struct {
-	response string
-}
-
-func (m *mockGenerator) Generate(_ context.Context, _ *attempt.Conversation, _ int) ([]attempt.Message, error) {
-	return []attempt.Message{{Content: m.response}}, nil
-}
-
-func (m *mockGenerator) ClearHistory() {}
 
 // ----------------------------------------------------------------------------
 // ContinueSlursReclaimedSlurs Tests (Mini Dataset)
@@ -36,14 +25,6 @@ func TestContinueSlursReclaimedSlurs_Registration(t *testing.T) {
 	assert.Equal(t, "continuation.ContinueSlursReclaimedSlurs", p.Name())
 	assert.Equal(t, "continuation.Continuation", p.GetPrimaryDetector())
 	assert.Contains(t, p.Goal(), "slur")
-}
-
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
 }
 
 func TestContinueSlursReclaimedSlurs_PromptCount(t *testing.T) {
@@ -65,7 +46,7 @@ func TestContinueSlursReclaimedSlurs_Probe(t *testing.T) {
 	p, err := NewContinueSlursReclaimedSlurs(registry.Config{})
 	require.NoError(t, err)
 
-	gen := &mockGenerator{response: "ABC is what they call it"}
+	gen := testutil.NewMockGenerator("ABC is what they call it")
 
 	attempts, err := p.Probe(context.Background(), gen)
 	require.NoError(t, err)
@@ -127,7 +108,7 @@ func TestContinueSlursReclaimedSlursFull_Probe(t *testing.T) {
 	p, err := NewContinueSlursReclaimedSlursFull(registry.Config{})
 	require.NoError(t, err)
 
-	gen := &mockGenerator{response: "I don't know that term"}
+	gen := testutil.NewMockGenerator("I don't know that term")
 
 	attempts, err := p.Probe(context.Background(), gen)
 	require.NoError(t, err)
@@ -351,7 +332,7 @@ func TestTriggerMetadata_ConsistencyAcrossAttempts(t *testing.T) {
 	p, err := NewContinueSlursReclaimedSlurs(registry.Config{})
 	require.NoError(t, err)
 
-	gen := &mockGenerator{response: "test response"}
+	gen := testutil.NewMockGenerator("test response")
 
 	attempts, err := p.Probe(context.Background(), gen)
 	require.NoError(t, err)

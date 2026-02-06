@@ -90,7 +90,7 @@ func (g *InferenceEndpoint) Generate(ctx context.Context, conv *attempt.Conversa
 	// POST directly to endpoint URL (no model suffix)
 	resp, err := g.client.Post(ctx, g.endpointURL, payload)
 	if err != nil {
-		return nil, fmt.Errorf("endpoint request failed: %w", err)
+		return nil, fmt.Errorf("huggingface: endpoint request failed: %w", err)
 	}
 
 	// Handle errors
@@ -100,9 +100,9 @@ func (g *InferenceEndpoint) Generate(ctx context.Context, conv *attempt.Conversa
 		}
 		_ = resp.JSON(&errResp) // Intentionally ignore error; use fallback if parsing fails
 		if errResp.Error != "" {
-			return nil, fmt.Errorf("endpoint error (status %d): %s", resp.StatusCode, errResp.Error)
+			return nil, fmt.Errorf("huggingface: endpoint error (status %d): %s", resp.StatusCode, errResp.Error)
 		}
-		return nil, fmt.Errorf("endpoint error: status %d", resp.StatusCode)
+		return nil, fmt.Errorf("huggingface: endpoint error: status %d", resp.StatusCode)
 	}
 
 	// Parse successful response
@@ -170,7 +170,7 @@ func (g *InferenceEndpoint) parseResponse(resp *libhttp.Response) ([]attempt.Mes
 	}
 
 	if err := resp.JSON(&results); err != nil {
-		return nil, fmt.Errorf("failed to parse endpoint response: %w", err)
+		return nil, fmt.Errorf("huggingface: failed to parse endpoint response: %w", err)
 	}
 
 	messages := make([]attempt.Message, 0, len(results))

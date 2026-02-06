@@ -135,7 +135,7 @@ func (g *InferenceAPI) Generate(ctx context.Context, conv *attempt.Conversation,
 		url := fmt.Sprintf("%s/%s", g.baseURL, g.model)
 		resp, err := g.client.Post(ctx, url, payload)
 		if err != nil {
-			return nil, fmt.Errorf("huggingface request failed: %w", err)
+			return nil, fmt.Errorf("huggingface: request failed: %w", err)
 		}
 
 		// Handle 503 (model loading) with retry
@@ -150,7 +150,7 @@ func (g *InferenceAPI) Generate(ctx context.Context, conv *attempt.Conversation,
 
 		// Handle rate limiting
 		if resp.StatusCode == 429 {
-			return nil, fmt.Errorf("huggingface rate limit exceeded")
+			return nil, fmt.Errorf("huggingface: rate limit exceeded")
 		}
 
 		// Handle other errors
@@ -160,9 +160,9 @@ func (g *InferenceAPI) Generate(ctx context.Context, conv *attempt.Conversation,
 			}
 			_ = resp.JSON(&errResp) // Intentionally ignore error; use fallback if parsing fails
 			if errResp.Error != "" {
-				return nil, fmt.Errorf("huggingface error (status %d): %s", resp.StatusCode, errResp.Error)
+				return nil, fmt.Errorf("huggingface: API error (status %d): %s", resp.StatusCode, errResp.Error)
 			}
-			return nil, fmt.Errorf("huggingface error: status %d", resp.StatusCode)
+			return nil, fmt.Errorf("huggingface: API error: status %d", resp.StatusCode)
 		}
 
 		// Parse successful response
@@ -249,7 +249,7 @@ func (g *InferenceAPI) parseResponse(resp *libhttp.Response) ([]attempt.Message,
 	}
 
 	if err := resp.JSON(&results); err != nil {
-		return nil, fmt.Errorf("failed to parse huggingface response: %w", err)
+		return nil, fmt.Errorf("huggingface: failed to parse response: %w", err)
 	}
 
 	messages := make([]attempt.Message, 0, len(results))

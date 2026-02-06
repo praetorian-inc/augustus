@@ -1,4 +1,3 @@
-// modules/augustus/pkg/templates/probe_test.go
 package templates
 
 import (

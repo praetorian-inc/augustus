@@ -57,7 +57,7 @@ prompts = copy.deepcopy(
 
 ### 3. Augustus `Attempt` Struct (Go)
 
-**Source:** `modules/augustus/pkg/attempt/attempt.go`
+**Source:** `pkg/attempt/attempt.go`
 
 **Lines 39-43 - Dual-field design:**
 ```go
@@ -83,7 +83,7 @@ func New(prompt string) *Attempt {
 
 ### 4. Augustus Equivalence Tests
 
-**Source:** `modules/augustus/tests/equivalence/types.go`
+**Source:** `tests/equivalence/types.go`
 
 **Lines 10-13 - AttemptInput for detector testing:**
 ```go
@@ -207,10 +207,10 @@ type Attempt struct {
   "source_files_verified": [
     "modules/garak/garak/attempt.py:156-438",
     "modules/garak/garak/probes/base.py:1-832",
-    "modules/augustus/pkg/attempt/attempt.go:1-180",
-    "modules/augustus/tests/equivalence/types.go:1-54",
-    "modules/augustus/tests/equivalence/compare.go:1-224",
-    "modules/augustus/tests/equivalence/python_harness.go:1-287"
+    "pkg/attempt/attempt.go:1-180",
+    "tests/equivalence/types.go:1-54",
+    "tests/equivalence/compare.go:1-224",
+    "tests/equivalence/python_harness.go:1-287"
   ],
   "status": "complete",
   "handoff": {

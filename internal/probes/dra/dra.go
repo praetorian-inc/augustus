@@ -69,14 +69,9 @@ func NewDRAProbe(_ registry.Config) (types.Prober, error) {
 	}
 
 	// Load embedded templates
-	templateLines := strings.Split(string(promptTemplatesData), "\n")
-	for _, line := range templateLines {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			// Remove surrounding quotes if present
-			line = strings.Trim(line, "\"")
-			probe.templates = append(probe.templates, line)
-		}
+	for _, line := range probes.SplitLines(string(promptTemplatesData)) {
+		// Remove surrounding quotes if present
+		probe.templates = append(probe.templates, strings.Trim(line, "\""))
 	}
 
 	// Load harmful behaviors payload

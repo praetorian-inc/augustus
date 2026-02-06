@@ -8,45 +8,16 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
-
-// mockGenerator implements probes.Generator for testing.
-type mockGenerator struct {
-	responses []string
-	calls     int
-}
-
-func (m *mockGenerator) Generate(_ context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	m.calls++
-	msgs := make([]attempt.Message, n)
-	for i := 0; i < n; i++ {
-		resp := ""
-		if i < len(m.responses) {
-			resp = m.responses[i]
-		}
-		msgs[i] = attempt.Message{Content: resp}
-	}
-	return msgs, nil
-}
-
-func (m *mockGenerator) ClearHistory() {}
 
 func TestGetKey_Registration(t *testing.T) {
 	// Verify the probe is registered
 	factory, ok := probes.Get("apikey.GetKey")
 	require.True(t, ok, "apikey.GetKey should be registered")
 	require.NotNil(t, factory, "factory should not be nil")
-}
-
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
 }
 
 func TestGetKey_Create(t *testing.T) {
@@ -155,7 +126,7 @@ func TestGetKey_Probe_ReturnsAttempts(t *testing.T) {
 	p, err := probes.Create("apikey.GetKey", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{responses: []string{"sk_live_fake123"}}
+	gen := testutil.NewMockGenerator("sk_live_fake123")
 	ctx := context.Background()
 
 	attempts, err := p.Probe(ctx, gen)
@@ -170,7 +141,7 @@ func TestGetKey_Probe_AttemptsHaveCorrectMetadata(t *testing.T) {
 	p, err := probes.Create("apikey.GetKey", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{responses: []string{"fake_key"}}
+	gen := testutil.NewMockGenerator("fake_key")
 	ctx := context.Background()
 
 	attempts, err := p.Probe(ctx, gen)

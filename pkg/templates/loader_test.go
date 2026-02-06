@@ -1,4 +1,3 @@
-// modules/augustus/pkg/templates/loader_test.go
 package templates
 
 import (

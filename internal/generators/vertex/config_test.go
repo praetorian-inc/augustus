@@ -1,4 +1,3 @@
-// modules/augustus/pkg/generators/vertex/config_test.go
 package vertex
 
 import (

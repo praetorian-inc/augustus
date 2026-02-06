@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/praetorian-inc/augustus/internal/detectors/base"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
@@ -54,7 +55,7 @@ func TestNewDecodeMatch(t *testing.T) {
 
 			dm, ok := detector.(*DecodeMatch)
 			require.True(t, ok)
-			assert.Equal(t, tt.caseSensitive, dm.caseSensitive)
+			assert.Equal(t, tt.caseSensitive, dm.CaseSensitive)
 		})
 	}
 }
@@ -212,7 +213,7 @@ func TestExtractTriggers_StringSlice(t *testing.T) {
 	a := attempt.New("test")
 	a.Metadata["triggers"] = []string{"trigger1", "trigger2"}
 
-	triggers, err := extractTriggers(a)
+	triggers, err := base.ExtractTriggers(a)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"trigger1", "trigger2"}, triggers)
 }
@@ -221,7 +222,7 @@ func TestExtractTriggers_AnySlice(t *testing.T) {
 	a := attempt.New("test")
 	a.Metadata["triggers"] = []any{"trigger1", "trigger2"}
 
-	triggers, err := extractTriggers(a)
+	triggers, err := base.ExtractTriggers(a)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"trigger1", "trigger2"}, triggers)
 }
@@ -230,7 +231,7 @@ func TestExtractTriggers_SingleString(t *testing.T) {
 	a := attempt.New("test")
 	a.Metadata["triggers"] = "single_trigger"
 
-	triggers, err := extractTriggers(a)
+	triggers, err := base.ExtractTriggers(a)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"single_trigger"}, triggers)
 }
@@ -238,7 +239,7 @@ func TestExtractTriggers_SingleString(t *testing.T) {
 func TestExtractTriggers_NoMetadata(t *testing.T) {
 	a := attempt.New("test")
 
-	triggers, err := extractTriggers(a)
+	triggers, err := base.ExtractTriggers(a)
 	require.NoError(t, err)
 	assert.Empty(t, triggers)
 }
@@ -247,7 +248,7 @@ func TestExtractTriggers_InvalidType(t *testing.T) {
 	a := attempt.New("test")
 	a.Metadata["triggers"] = 123 // Invalid type
 
-	triggers, err := extractTriggers(a)
+	triggers, err := base.ExtractTriggers(a)
 	assert.Error(t, err)
 	assert.Nil(t, triggers)
 }
@@ -256,7 +257,7 @@ func TestExtractTriggers_MixedAnySlice(t *testing.T) {
 	a := attempt.New("test")
 	a.Metadata["triggers"] = []any{"trigger1", 123} // Invalid: contains non-string
 
-	triggers, err := extractTriggers(a)
+	triggers, err := base.ExtractTriggers(a)
 	assert.Error(t, err)
 	assert.Nil(t, triggers)
 }

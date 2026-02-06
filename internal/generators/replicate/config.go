@@ -1,9 +1,7 @@
-// modules/augustus/pkg/generators/replicate/config.go
 package replicate
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -45,19 +43,16 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg.Model = model
 
 	// API key: from config or env var
-	cfg.APIKey = registry.GetString(m, "api_key", "")
-	if cfg.APIKey == "" {
-		cfg.APIKey = os.Getenv("REPLICATE_API_TOKEN")
-	}
-	if cfg.APIKey == "" {
-		return cfg, fmt.Errorf("replicate generator requires 'api_key' configuration or REPLICATE_API_TOKEN environment variable")
+	cfg.APIKey, err = registry.GetAPIKeyWithEnv(m, "REPLICATE_API_TOKEN", "replicate")
+	if err != nil {
+		return cfg, err
 	}
 
 	// Optional parameters
 	cfg.BaseURL = registry.GetString(m, "base_url", "")
-	cfg.Temperature = float32(registry.GetFloat64(m, "temperature", float64(cfg.Temperature)))
-	cfg.TopP = float32(registry.GetFloat64(m, "top_p", float64(cfg.TopP)))
-	cfg.RepetitionPenalty = float32(registry.GetFloat64(m, "repetition_penalty", float64(cfg.RepetitionPenalty)))
+	cfg.Temperature = registry.GetFloat32(m, "temperature", cfg.Temperature)
+	cfg.TopP = registry.GetFloat32(m, "top_p", cfg.TopP)
+	cfg.RepetitionPenalty = registry.GetFloat32(m, "repetition_penalty", cfg.RepetitionPenalty)
 	cfg.MaxTokens = registry.GetInt(m, "max_tokens", cfg.MaxTokens)
 	cfg.Seed = registry.GetInt(m, "seed", cfg.Seed)
 

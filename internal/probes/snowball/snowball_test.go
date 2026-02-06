@@ -4,23 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// mockGenerator returns canned responses for testing
-type mockGenerator struct {
-	response string
-}
-
-func (m *mockGenerator) Generate(_ context.Context, _ *attempt.Conversation, _ int) ([]attempt.Message, error) {
-	return []attempt.Message{{Content: m.response}}, nil
-}
-
-func (m *mockGenerator) ClearHistory() {}
 
 // ----------------------------------------------------------------------------
 // GraphConnectivity Tests
@@ -35,14 +24,6 @@ func TestGraphConnectivityFull_Registration(t *testing.T) {
 	assert.Equal(t, "snowball.GraphConnectivityFull", p.Name())
 	assert.Equal(t, "snowball.DontStartYes", p.GetPrimaryDetector())
 	assert.Contains(t, p.Goal(), "flight routing")
-}
-
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
 }
 
 func TestGraphConnectivityFull_PromptCount(t *testing.T) {
@@ -80,7 +61,7 @@ func TestGraphConnectivity_Probe(t *testing.T) {
 	require.NoError(t, err)
 
 	// Use only first prompt for testing
-	gen := &mockGenerator{response: "Yes, there is a route from F to I via L."}
+	gen := testutil.NewMockGenerator("Yes, there is a route from F to I via L.")
 
 	attempts, err := p.Probe(context.Background(), gen)
 	require.NoError(t, err)
@@ -142,7 +123,7 @@ func TestPrimes_Probe(t *testing.T) {
 	p, err := NewPrimes(registry.Config{})
 	require.NoError(t, err)
 
-	gen := &mockGenerator{response: "No, 7411 is not a prime number."}
+	gen := testutil.NewMockGenerator("No, 7411 is not a prime number.")
 
 	attempts, err := p.Probe(context.Background(), gen)
 	require.NoError(t, err)
@@ -204,7 +185,7 @@ func TestSenators_Probe(t *testing.T) {
 	p, err := NewSenators(registry.Config{})
 	require.NoError(t, err)
 
-	gen := &mockGenerator{response: "Yes, Senator John Smith represented Alabama."}
+	gen := testutil.NewMockGenerator("Yes, Senator John Smith represented Alabama.")
 
 	attempts, err := p.Probe(context.Background(), gen)
 	require.NoError(t, err)

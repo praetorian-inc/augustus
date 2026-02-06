@@ -4,34 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// mockGenerator implements the probes.Generator interface for testing
-type mockGenerator struct {
-	responses []attempt.Message
-	callCount int
-}
-
-func (m *mockGenerator) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	m.callCount++
-	return m.responses, nil
-}
-
-func (m *mockGenerator) ClearHistory() {
-	// no-op for tests
-}
-
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
-}
 
 // Test Win10 probe
 
@@ -80,14 +57,12 @@ func TestWin10_Probe(t *testing.T) {
 	probe, err := NewWin10(registry.Config{})
 	require.NoError(t, err)
 
-	gen := &mockGenerator{
-		responses: []attempt.Message{{Content: "test response"}},
-	}
+	gen := testutil.NewMockGenerator("test response")
 
 	attempts, err := probe.Probe(context.Background(), gen)
 	require.NoError(t, err)
 	assert.Len(t, attempts, 6, "Should create 6 attempts for Win10")
-	assert.Equal(t, 6, gen.callCount, "Should call generator 6 times")
+	assert.Equal(t, 6, gen.Calls, "Should call generator 6 times")
 
 	// Verify attempt structure
 	for _, att := range attempts {
@@ -146,14 +121,12 @@ func TestWin11_Probe(t *testing.T) {
 	probe, err := NewWin11(registry.Config{})
 	require.NoError(t, err)
 
-	gen := &mockGenerator{
-		responses: []attempt.Message{{Content: "test response"}},
-	}
+	gen := testutil.NewMockGenerator("test response")
 
 	attempts, err := probe.Probe(context.Background(), gen)
 	require.NoError(t, err)
 	assert.Len(t, attempts, 6, "Should create 6 attempts for Win11")
-	assert.Equal(t, 6, gen.callCount, "Should call generator 6 times")
+	assert.Equal(t, 6, gen.Calls, "Should call generator 6 times")
 
 	// Verify attempt structure
 	for _, att := range attempts {
@@ -208,14 +181,12 @@ func TestSlurs_Probe(t *testing.T) {
 	probe, err := NewSlurs(registry.Config{})
 	require.NoError(t, err)
 
-	gen := &mockGenerator{
-		responses: []attempt.Message{{Content: "test response"}},
-	}
+	gen := testutil.NewMockGenerator("test response")
 
 	attempts, err := probe.Probe(context.Background(), gen)
 	require.NoError(t, err)
 	assert.Len(t, attempts, 12, "Should create 12 attempts for Slurs")
-	assert.Equal(t, 12, gen.callCount, "Should call generator 12 times")
+	assert.Equal(t, 12, gen.Calls, "Should call generator 12 times")
 
 	// Verify attempt structure
 	for _, att := range attempts {
@@ -270,14 +241,12 @@ func TestSubstances_Probe(t *testing.T) {
 	probe, err := NewSubstances(registry.Config{})
 	require.NoError(t, err)
 
-	gen := &mockGenerator{
-		responses: []attempt.Message{{Content: "test response"}},
-	}
+	gen := testutil.NewMockGenerator("test response")
 
 	attempts, err := probe.Probe(context.Background(), gen)
 	require.NoError(t, err)
 	assert.Len(t, attempts, 10, "Should create 10 attempts for Substances")
-	assert.Equal(t, 10, gen.callCount, "Should call generator 10 times")
+	assert.Equal(t, 10, gen.Calls, "Should call generator 10 times")
 
 	// Verify attempt structure
 	for _, att := range attempts {
@@ -294,33 +263,33 @@ func TestSubstances_Probe(t *testing.T) {
 func TestProbe_ErrorHandling(t *testing.T) {
 	tests := []struct {
 		name        string
-		newProbe    func(registry.Config) (interface{}, error)
+		newProbe    func(registry.Config) (any, error)
 		expectedErr error
 	}{
 		{
 			name: "Win10",
-			newProbe: func(cfg registry.Config) (interface{}, error) {
+			newProbe: func(cfg registry.Config) (any, error) {
 				return NewWin10(cfg)
 			},
 			expectedErr: nil,
 		},
 		{
 			name: "Win11",
-			newProbe: func(cfg registry.Config) (interface{}, error) {
+			newProbe: func(cfg registry.Config) (any, error) {
 				return NewWin11(cfg)
 			},
 			expectedErr: nil,
 		},
 		{
 			name: "Slurs",
-			newProbe: func(cfg registry.Config) (interface{}, error) {
+			newProbe: func(cfg registry.Config) (any, error) {
 				return NewSlurs(cfg)
 			},
 			expectedErr: nil,
 		},
 		{
 			name: "Substances",
-			newProbe: func(cfg registry.Config) (interface{}, error) {
+			newProbe: func(cfg registry.Config) (any, error) {
 				return NewSubstances(cfg)
 			},
 			expectedErr: nil,

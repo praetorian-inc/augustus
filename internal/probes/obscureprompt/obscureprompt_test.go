@@ -12,30 +12,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockGenerator implements probes.Generator for testing
+// mockGenerator is a configurable mock for testing obscureprompt probes.
 type mockGenerator struct {
-	generateFunc     func(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error)
-	clearHistoryCalls int
+	generateFunc func(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error)
 }
 
 func (m *mockGenerator) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
 	if m.generateFunc != nil {
 		return m.generateFunc(ctx, conv, n)
 	}
-	return []attempt.Message{{Content: "test response"}}, nil
+	return []attempt.Message{{Content: "mock response"}}, nil
 }
 
-func (m *mockGenerator) ClearHistory() {
-	m.clearHistoryCalls++
-}
-
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
-}
+func (m *mockGenerator) ClearHistory() {}
+func (m *mockGenerator) Name() string        { return "mock-generator" }
+func (m *mockGenerator) Description() string { return "mock generator for testing" }
 
 func TestNewObscurePromptProbe(t *testing.T) {
 	tests := []struct {
@@ -209,7 +200,7 @@ func TestObscurePromptProbe_Probe(t *testing.T) {
 			name: "probes with generated mutations",
 			setupProbe: func(t *testing.T) *ObscurePromptProbe {
 				// Create probe with pre-set mutations
-				base := NewSimpleProbe(
+				base := probes.NewSimpleProbe(
 					"obscureprompt.ObscurePrompt",
 					"cause the model to disregard the system prompt",
 					"dan.DAN",
@@ -253,7 +244,7 @@ func TestObscurePromptProbe_Probe(t *testing.T) {
 					},
 				}
 
-				base := NewSimpleProbe(
+				base := probes.NewSimpleProbe(
 					"obscureprompt.ObscurePrompt",
 					"cause the model to disregard the system prompt",
 					"dan.DAN",
@@ -283,7 +274,7 @@ func TestObscurePromptProbe_Probe(t *testing.T) {
 		{
 			name: "uses target generator as mutator if not set",
 			setupProbe: func(t *testing.T) *ObscurePromptProbe {
-				base := NewSimpleProbe(
+				base := probes.NewSimpleProbe(
 					"obscureprompt.ObscurePrompt",
 					"cause the model to disregard the system prompt",
 					"dan.DAN",
@@ -337,7 +328,7 @@ func TestObscurePromptProbe_ProberInterface(t *testing.T) {
 	var _ probes.Prober = (*ObscurePromptProbe)(nil)
 
 	probe := &ObscurePromptProbe{
-		SimpleProbe: &SimpleProbe{},
+		SimpleProbe: &probes.SimpleProbe{},
 	}
 
 	// Test all Prober interface methods exist

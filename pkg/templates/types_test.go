@@ -1,4 +1,3 @@
-// modules/augustus/pkg/templates/types_test.go
 package templates
 
 import (

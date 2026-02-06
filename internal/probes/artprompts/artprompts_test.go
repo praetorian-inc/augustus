@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -195,9 +195,7 @@ func TestArtPromptsProbe_Execution(t *testing.T) {
 	}
 
 	// Create mock generator
-	gen := &mockGenerator{
-		responses: []string{"Acknowledged"},
-	}
+	gen := testutil.NewMockGenerator("Acknowledged")
 
 	ctx := context.Background()
 	attempts, err := probe.Probe(ctx, gen)
@@ -253,36 +251,4 @@ func TestProbeRegistry(t *testing.T) {
 			}
 		})
 	}
-}
-
-// mockGenerator is a simple mock for testing.
-type mockGenerator struct {
-	responses []string
-	callCount int
-}
-
-func (m *mockGenerator) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	// Simple mock that returns predefined responses
-	result := make([]attempt.Message, n)
-	for i := 0; i < n; i++ {
-		if m.callCount < len(m.responses) {
-			result[i] = attempt.Message{Content: m.responses[m.callCount]}
-			m.callCount++
-		} else {
-			result[i] = attempt.Message{Content: "Default response"}
-		}
-	}
-	return result, nil
-}
-
-func (m *mockGenerator) ClearHistory() {
-	m.callCount = 0
-}
-
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
 }

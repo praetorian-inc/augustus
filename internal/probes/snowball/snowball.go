@@ -10,11 +10,9 @@
 package snowball
 
 import (
-	"context"
 	_ "embed"
 	"encoding/json"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -44,49 +42,6 @@ func init() {
 	probes.Register("snowball.Senators", NewSenators)
 }
 
-// baseProbe provides common functionality for all snowball probes.
-type baseProbe struct {
-	name            string
-	description     string
-	goal            string
-	primaryDetector string
-	prompts         []string
-}
-
-func (b *baseProbe) Probe(ctx context.Context, gen probes.Generator) ([]*attempt.Attempt, error) {
-	attempts := make([]*attempt.Attempt, 0, len(b.prompts))
-
-	for _, prompt := range b.prompts {
-		conv := attempt.NewConversation()
-		conv.AddPrompt(prompt)
-
-		responses, err := gen.Generate(ctx, conv, 1)
-
-		a := attempt.New(prompt)
-		a.Probe = b.name
-		a.Detector = b.primaryDetector
-
-		if err != nil {
-			a.SetError(err)
-		} else {
-			for _, resp := range responses {
-				a.AddOutput(resp.Content)
-			}
-			a.Complete()
-		}
-
-		attempts = append(attempts, a)
-	}
-
-	return attempts, nil
-}
-
-func (b *baseProbe) Name() string            { return b.name }
-func (b *baseProbe) Description() string     { return b.description }
-func (b *baseProbe) Goal() string            { return b.goal }
-func (b *baseProbe) GetPrimaryDetector() string { return b.primaryDetector }
-func (b *baseProbe) GetPrompts() []string    { return b.prompts }
-
 // ----------------------------------------------------------------------------
 // GraphConnectivity Probes
 // ----------------------------------------------------------------------------
@@ -97,23 +52,23 @@ func (b *baseProbe) GetPrompts() []string    { return b.prompts }
 // solution to an impossible problem, couched as a flight routing question.
 // The model should answer "No" since there is no valid route.
 type GraphConnectivityFull struct {
-	baseProbe
+	*probes.SimpleProbe
 }
 
 // NewGraphConnectivityFull creates a probe with all 500 graph connectivity prompts.
 func NewGraphConnectivityFull(_ registry.Config) (probes.Prober, error) {
-	var prompts []string
-	if err := json.Unmarshal(graphConnectivityData, &prompts); err != nil {
+	var promptList []string
+	if err := json.Unmarshal(graphConnectivityData, &promptList); err != nil {
 		return nil, err
 	}
 
 	return &GraphConnectivityFull{
-		baseProbe: baseProbe{
-			name:            "snowball.GraphConnectivityFull",
-			description:     "Probe asking for impossible flight routings (full 500 prompts)",
-			goal:            "trick the model into saying an impossible flight routing is possible",
-			primaryDetector: "snowball.DontStartYes",
-			prompts:         prompts,
+		SimpleProbe: &probes.SimpleProbe{
+			ProbeName:        "snowball.GraphConnectivityFull",
+			ProbeDescription: "Probe asking for impossible flight routings (full 500 prompts)",
+			ProbeGoal:        "trick the model into saying an impossible flight routing is possible",
+			PrimaryDetector:  "snowball.DontStartYes",
+			Prompts:          promptList,
 		},
 	}, nil
 }
@@ -121,28 +76,28 @@ func NewGraphConnectivityFull(_ registry.Config) (probes.Prober, error) {
 // GraphConnectivity asks about impossible flight routings (last 100 prompts).
 // This is the default active version with limited examples.
 type GraphConnectivity struct {
-	baseProbe
+	*probes.SimpleProbe
 }
 
 // NewGraphConnectivity creates a probe with the last 100 graph connectivity prompts.
 func NewGraphConnectivity(_ registry.Config) (probes.Prober, error) {
-	var prompts []string
-	if err := json.Unmarshal(graphConnectivityData, &prompts); err != nil {
+	var promptList []string
+	if err := json.Unmarshal(graphConnectivityData, &promptList); err != nil {
 		return nil, err
 	}
 
 	// Take last 100 prompts (matching Python: self.prompts[-100:])
-	if len(prompts) > 100 {
-		prompts = prompts[len(prompts)-100:]
+	if len(promptList) > 100 {
+		promptList = promptList[len(promptList)-100:]
 	}
 
 	return &GraphConnectivity{
-		baseProbe: baseProbe{
-			name:            "snowball.GraphConnectivity",
-			description:     "Probe asking for impossible flight routings (limited to 100 examples)",
-			goal:            "trick the model into saying an impossible flight routing is possible",
-			primaryDetector: "snowball.DontStartYes",
-			prompts:         prompts,
+		SimpleProbe: &probes.SimpleProbe{
+			ProbeName:        "snowball.GraphConnectivity",
+			ProbeDescription: "Probe asking for impossible flight routings (limited to 100 examples)",
+			ProbeGoal:        "trick the model into saying an impossible flight routing is possible",
+			PrimaryDetector:  "snowball.DontStartYes",
+			Prompts:          promptList,
 		},
 	}, nil
 }
@@ -157,7 +112,7 @@ func NewGraphConnectivity(_ registry.Config) (probes.Prober, error) {
 // if a given number is or isn't prime. All numbers in the dataset ARE prime,
 // so the correct answer is "Yes". Hallucinating models will say "No".
 type PrimesFull struct {
-	baseProbe
+	*probes.SimpleProbe
 }
 
 // NewPrimesFull creates a probe with all 500 primality testing prompts.
@@ -167,25 +122,25 @@ func NewPrimesFull(_ registry.Config) (probes.Prober, error) {
 		return nil, err
 	}
 
-	prompts := make([]string, len(entries))
+	promptList := make([]string, len(entries))
 	for i, entry := range entries {
-		prompts[i] = entry.Question
+		promptList[i] = entry.Question
 	}
 
 	return &PrimesFull{
-		baseProbe: baseProbe{
-			name:            "snowball.PrimesFull",
-			description:     "Ask model to check a list of higher primes (full 500 prompts)",
-			goal:            "trick the model into saying a prime number isn't prime",
-			primaryDetector: "snowball.DontStartNo",
-			prompts:         prompts,
+		SimpleProbe: &probes.SimpleProbe{
+			ProbeName:        "snowball.PrimesFull",
+			ProbeDescription: "Ask model to check a list of higher primes (full 500 prompts)",
+			ProbeGoal:        "trick the model into saying a prime number isn't prime",
+			PrimaryDetector:  "snowball.DontStartNo",
+			Prompts:          promptList,
 		},
 	}, nil
 }
 
 // Primes asks models to verify prime numbers (last 100 entries).
 type Primes struct {
-	baseProbe
+	*probes.SimpleProbe
 }
 
 // NewPrimes creates a probe with the last 100 primality testing prompts.
@@ -200,18 +155,18 @@ func NewPrimes(_ registry.Config) (probes.Prober, error) {
 		entries = entries[len(entries)-100:]
 	}
 
-	prompts := make([]string, len(entries))
+	promptList := make([]string, len(entries))
 	for i, entry := range entries {
-		prompts[i] = entry.Question
+		promptList[i] = entry.Question
 	}
 
 	return &Primes{
-		baseProbe: baseProbe{
-			name:            "snowball.Primes",
-			description:     "Ask model to check a list of higher primes (limited to 100 examples)",
-			goal:            "trick the model into saying a prime number isn't prime",
-			primaryDetector: "snowball.DontStartNo",
-			prompts:         prompts,
+		SimpleProbe: &probes.SimpleProbe{
+			ProbeName:        "snowball.Primes",
+			ProbeDescription: "Ask model to check a list of higher primes (limited to 100 examples)",
+			ProbeGoal:        "trick the model into saying a prime number isn't prime",
+			PrimaryDetector:  "snowball.DontStartNo",
+			Prompts:          promptList,
 		},
 	}, nil
 }
@@ -226,51 +181,51 @@ func NewPrimes(_ registry.Config) (probes.Prober, error) {
 // requesting the name of a US senator given constraints for which there isn't
 // a senator. All questions have the answer "No" - no such senator exists.
 type SenatorsFull struct {
-	baseProbe
+	*probes.SimpleProbe
 }
 
 // NewSenatorsFull creates a probe with all 500 senator search prompts.
 func NewSenatorsFull(_ registry.Config) (probes.Prober, error) {
-	var prompts []string
-	if err := json.Unmarshal(senatorSearchData, &prompts); err != nil {
+	var promptList []string
+	if err := json.Unmarshal(senatorSearchData, &promptList); err != nil {
 		return nil, err
 	}
 
 	return &SenatorsFull{
-		baseProbe: baseProbe{
-			name:            "snowball.SenatorsFull",
-			description:     "Asking for senators that don't exist (full 500 prompts)",
-			goal:            "trick the model into saying a fictitious senator exists",
-			primaryDetector: "snowball.DontStartYes",
-			prompts:         prompts,
+		SimpleProbe: &probes.SimpleProbe{
+			ProbeName:        "snowball.SenatorsFull",
+			ProbeDescription: "Asking for senators that don't exist (full 500 prompts)",
+			ProbeGoal:        "trick the model into saying a fictitious senator exists",
+			PrimaryDetector:  "snowball.DontStartYes",
+			Prompts:          promptList,
 		},
 	}, nil
 }
 
 // Senators asks about fictitious senators (last 100 prompts).
 type Senators struct {
-	baseProbe
+	*probes.SimpleProbe
 }
 
 // NewSenators creates a probe with the last 100 senator search prompts.
 func NewSenators(_ registry.Config) (probes.Prober, error) {
-	var prompts []string
-	if err := json.Unmarshal(senatorSearchData, &prompts); err != nil {
+	var promptList []string
+	if err := json.Unmarshal(senatorSearchData, &promptList); err != nil {
 		return nil, err
 	}
 
 	// Take last 100 prompts (matching Python: self.prompts[-100:])
-	if len(prompts) > 100 {
-		prompts = prompts[len(prompts)-100:]
+	if len(promptList) > 100 {
+		promptList = promptList[len(promptList)-100:]
 	}
 
 	return &Senators{
-		baseProbe: baseProbe{
-			name:            "snowball.Senators",
-			description:     "Asking for senators that don't exist (limited to 100 examples)",
-			goal:            "trick the model into saying a fictitious senator exists",
-			primaryDetector: "snowball.DontStartYes",
-			prompts:         prompts,
+		SimpleProbe: &probes.SimpleProbe{
+			ProbeName:        "snowball.Senators",
+			ProbeDescription: "Asking for senators that don't exist (limited to 100 examples)",
+			ProbeGoal:        "trick the model into saying a fictitious senator exists",
+			PrimaryDetector:  "snowball.DontStartYes",
+			Prompts:          promptList,
 		},
 	}, nil
 }

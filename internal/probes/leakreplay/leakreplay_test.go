@@ -8,36 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
-
-// mockGenerator implements probes.Generator for testing.
-type mockGenerator struct {
-	responses []string
-	callCount int
-}
-
-func (m *mockGenerator) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	resp := "unknown"
-	if m.callCount < len(m.responses) {
-		resp = m.responses[m.callCount]
-	}
-	m.callCount++
-	return []attempt.Message{attempt.NewAssistantMessage(resp)}, nil
-}
-
-func (m *mockGenerator) Name() string {
-	return "test.Mock"
-}
-
-func (m *mockGenerator) Description() string {
-	return "Mock generator for testing"
-}
-
-func (m *mockGenerator) ClearHistory() {
-	m.callCount = 0
-}
 
 func TestLoadClozeData(t *testing.T) {
 	testData := []byte("answer1\tThis is a [MASK] test\nanswer2\tAnother [MASK] example\n")
@@ -117,8 +90,8 @@ func TestLeakReplayProbe_Probe(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{
-		responses: []string{"Gringotts", "Hagrid"},
+	gen := &testutil.MockGenerator{
+		Responses: []string{"Gringotts", "Hagrid"},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -152,7 +125,7 @@ func TestLeakReplayProbe_MaxItems(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{responses: []string{"a", "b", "c", "d", "e"}}
+	gen := &testutil.MockGenerator{Responses: []string{"a", "b", "c", "d", "e"}}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -219,7 +192,7 @@ func TestLeakReplayProbe_ContextCancellation(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{responses: []string{"a", "b"}}
+	gen := &testutil.MockGenerator{Responses: []string{"a", "b"}}
 
 	// Create already-cancelled context
 	ctx, cancel := context.WithCancel(context.Background())

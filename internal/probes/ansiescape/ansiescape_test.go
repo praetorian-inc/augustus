@@ -4,37 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// mockGenerator is a test double that returns predefined responses.
-type mockGenerator struct {
-	responses []attempt.Message
-	callCount int
-}
-
-func (m *mockGenerator) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	m.callCount++
-	if len(m.responses) == 0 {
-		return []attempt.Message{{Content: "default response"}}, nil
-	}
-	return m.responses, nil
-}
-
-func (m *mockGenerator) ClearHistory() {
-	// No-op for mock
-}
-
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
-}
 
 func TestAnsiEscaped_Registration(t *testing.T) {
 	// Test that AnsiEscaped probe can be created via registry
@@ -52,7 +26,9 @@ func TestAnsiEscaped_ImplementsProber(t *testing.T) {
 }
 
 func TestAnsiEscaped_Metadata(t *testing.T) {
-	probe := &AnsiEscaped{}
+	p, err := NewAnsiEscaped(nil)
+	require.NoError(t, err)
+	probe := p.(*AnsiEscaped)
 
 	// Test Name
 	assert.Equal(t, "ansiescape.AnsiEscaped", probe.Name())
@@ -72,8 +48,9 @@ func TestAnsiEscaped_Metadata(t *testing.T) {
 }
 
 func TestAnsiEscaped_GeneratesPrompts(t *testing.T) {
-	probe := &AnsiEscaped{}
-	probe.init()
+	p, err := NewAnsiEscaped(nil)
+	require.NoError(t, err)
+	probe := p.(*AnsiEscaped)
 
 	prompts := probe.GetPrompts()
 
@@ -98,12 +75,11 @@ func TestAnsiEscaped_GeneratesPrompts(t *testing.T) {
 }
 
 func TestAnsiEscaped_ProbeExecution(t *testing.T) {
-	probe := &AnsiEscaped{}
-	probe.init()
+	p, err := NewAnsiEscaped(nil)
+	require.NoError(t, err)
+	probe := p.(*AnsiEscaped)
 
-	mockGen := &mockGenerator{
-		responses: []attempt.Message{{Content: "\\x1b[32m"}},
-	}
+	mockGen := testutil.NewMockGenerator("\\x1b[32m")
 
 	ctx := context.Background()
 	attempts, err := probe.Probe(ctx, mockGen)
@@ -136,7 +112,9 @@ func TestAnsiRaw_ImplementsProber(t *testing.T) {
 }
 
 func TestAnsiRaw_Metadata(t *testing.T) {
-	probe := &AnsiRaw{}
+	p, err := NewAnsiRaw(nil)
+	require.NoError(t, err)
+	probe := p.(*AnsiRaw)
 
 	// Test Name
 	assert.Equal(t, "ansiescape.AnsiRaw", probe.Name())
@@ -156,8 +134,9 @@ func TestAnsiRaw_Metadata(t *testing.T) {
 }
 
 func TestAnsiRaw_GeneratesPrompts(t *testing.T) {
-	probe := &AnsiRaw{}
-	probe.init()
+	p, err := NewAnsiRaw(nil)
+	require.NoError(t, err)
+	probe := p.(*AnsiRaw)
 
 	prompts := probe.GetPrompts()
 
@@ -166,18 +145,18 @@ func TestAnsiRaw_GeneratesPrompts(t *testing.T) {
 
 	// AnsiRaw should have more prompts than AnsiEscaped
 	// (includes unescape stubs)
-	escapedProbe := &AnsiEscaped{}
-	escapedProbe.init()
+	ep, err := NewAnsiEscaped(nil)
+	require.NoError(t, err)
+	escapedProbe := ep.(*AnsiEscaped)
 	assert.Greater(t, len(prompts), len(escapedProbe.GetPrompts()))
 }
 
 func TestAnsiRaw_ProbeExecution(t *testing.T) {
-	probe := &AnsiRaw{}
-	probe.init()
+	p, err := NewAnsiRaw(nil)
+	require.NoError(t, err)
+	probe := p.(*AnsiRaw)
 
-	mockGen := &mockGenerator{
-		responses: []attempt.Message{{Content: "\x1b[32m"}},
-	}
+	mockGen := testutil.NewMockGenerator("\x1b[32m")
 
 	ctx := context.Background()
 	attempts, err := probe.Probe(ctx, mockGen)

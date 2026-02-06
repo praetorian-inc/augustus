@@ -1,4 +1,3 @@
-// modules/augustus/pkg/generators/openai/config_test.go
 package openai
 
 import (

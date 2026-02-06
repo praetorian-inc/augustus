@@ -1,4 +1,3 @@
-// modules/augustus/pkg/generators/bedrock/config.go
 package bedrock
 
 import (

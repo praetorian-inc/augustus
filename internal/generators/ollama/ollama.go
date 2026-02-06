@@ -20,8 +20,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -98,63 +96,25 @@ type baseConfig struct {
 	numPredict  *int
 }
 
-// parseBaseConfig extracts common configuration from registry.Config.
-func parseBaseConfig(cfg registry.Config) (*baseConfig, error) {
+// baseConfigFromTyped converts a typed Config to a baseConfig.
+func baseConfigFromTyped(cfg Config) (*baseConfig, error) {
+	if cfg.Model == "" {
+		return nil, fmt.Errorf("ollama generator requires model")
+	}
+
 	bc := &baseConfig{
-		host:    DefaultHost,
-		timeout: DefaultTimeout * time.Second,
-	}
-
-	// Required: model name
-	model, ok := cfg["model"].(string)
-	if !ok || model == "" {
-		return nil, fmt.Errorf("ollama generator requires 'model' configuration")
-	}
-	bc.model = model
-
-	// Host: from config or env var
-	if host, ok := cfg["host"].(string); ok && host != "" {
-		bc.host = host
-	} else if envHost := os.Getenv("OLLAMA_HOST"); envHost != "" {
-		bc.host = envHost
-	}
-
-	// Ensure host doesn't have trailing slash
-	bc.host = strings.TrimSuffix(bc.host, "/")
-
-	// Timeout: from config (in seconds)
-	if timeout, ok := cfg["timeout"].(int); ok && timeout > 0 {
-		bc.timeout = time.Duration(timeout) * time.Second
-	} else if timeout, ok := cfg["timeout"].(float64); ok && timeout > 0 {
-		bc.timeout = time.Duration(timeout) * time.Second
+		host:        cfg.Host,
+		model:       cfg.Model,
+		timeout:     cfg.Timeout,
+		temperature: cfg.Temperature,
+		topP:        cfg.TopP,
+		topK:        cfg.TopK,
+		numPredict:  cfg.NumPredict,
 	}
 
 	// Create HTTP client with timeout
 	bc.httpClient = &http.Client{
 		Timeout: bc.timeout,
-	}
-
-	// Optional generation parameters
-	if temp, ok := cfg["temperature"].(float64); ok {
-		bc.temperature = &temp
-	}
-
-	if topP, ok := cfg["top_p"].(float64); ok {
-		bc.topP = &topP
-	}
-
-	if topK, ok := cfg["top_k"].(int); ok {
-		bc.topK = &topK
-	} else if topK, ok := cfg["top_k"].(float64); ok {
-		k := int(topK)
-		bc.topK = &k
-	}
-
-	if numPredict, ok := cfg["num_predict"].(int); ok {
-		bc.numPredict = &numPredict
-	} else if numPredict, ok := cfg["num_predict"].(float64); ok {
-		np := int(numPredict)
-		bc.numPredict = &np
 	}
 
 	return bc, nil
@@ -181,14 +141,38 @@ type Ollama struct {
 	*baseConfig
 }
 
-// NewOllama creates a new Ollama generator using the generate endpoint.
-func NewOllama(cfg registry.Config) (generators.Generator, error) {
-	bc, err := parseBaseConfig(cfg)
+// NewOllama creates a new Ollama generator from legacy registry.Config.
+// This is the backward-compatible entry point.
+func NewOllama(m registry.Config) (generators.Generator, error) {
+	cfg, err := ConfigFromMap(m)
 	if err != nil {
 		return nil, err
 	}
+	return NewOllamaTyped(cfg)
+}
 
+// NewOllamaTyped creates a new Ollama generator from typed configuration.
+// This is the type-safe entry point for programmatic use.
+func NewOllamaTyped(cfg Config) (*Ollama, error) {
+	bc, err := baseConfigFromTyped(cfg)
+	if err != nil {
+		return nil, err
+	}
 	return &Ollama{baseConfig: bc}, nil
+}
+
+// NewOllamaWithOptions creates a new Ollama generator using functional options.
+// This is the recommended entry point for Go code.
+//
+// Usage:
+//
+//	g, err := NewOllamaWithOptions(
+//	    WithModel("llama2"),
+//	    WithHost("http://localhost:11434"),
+//	)
+func NewOllamaWithOptions(opts ...Option) (*Ollama, error) {
+	cfg := ApplyOptions(DefaultConfig(), opts...)
+	return NewOllamaTyped(cfg)
 }
 
 // Generate sends the conversation to Ollama's generate endpoint and returns responses.
@@ -280,14 +264,38 @@ type OllamaChat struct {
 	*baseConfig
 }
 
-// NewOllamaChat creates a new Ollama generator using the chat endpoint.
-func NewOllamaChat(cfg registry.Config) (generators.Generator, error) {
-	bc, err := parseBaseConfig(cfg)
+// NewOllamaChat creates a new OllamaChat generator from legacy registry.Config.
+// This is the backward-compatible entry point.
+func NewOllamaChat(m registry.Config) (generators.Generator, error) {
+	cfg, err := ConfigFromMap(m)
 	if err != nil {
 		return nil, err
 	}
+	return NewOllamaChatTyped(cfg)
+}
 
+// NewOllamaChatTyped creates a new OllamaChat generator from typed configuration.
+// This is the type-safe entry point for programmatic use.
+func NewOllamaChatTyped(cfg Config) (*OllamaChat, error) {
+	bc, err := baseConfigFromTyped(cfg)
+	if err != nil {
+		return nil, err
+	}
 	return &OllamaChat{baseConfig: bc}, nil
+}
+
+// NewOllamaChatWithOptions creates a new OllamaChat generator using functional options.
+// This is the recommended entry point for Go code.
+//
+// Usage:
+//
+//	g, err := NewOllamaChatWithOptions(
+//	    WithModel("llama2"),
+//	    WithHost("http://localhost:11434"),
+//	)
+func NewOllamaChatWithOptions(opts ...Option) (*OllamaChat, error) {
+	cfg := ApplyOptions(DefaultConfig(), opts...)
+	return NewOllamaChatTyped(cfg)
 }
 
 // Generate sends the conversation to Ollama's chat endpoint and returns responses.

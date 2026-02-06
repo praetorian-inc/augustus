@@ -5,11 +5,8 @@
 package knownbadsignatures
 
 import (
-	"context"
-
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/internal/detectors/base"
+	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
@@ -33,72 +30,23 @@ func init() {
 	detectors.Register("knownbadsignatures.GTphish", NewGTphish)
 }
 
-// wrappedDetector wraps a base detector with custom name and description.
-type wrappedDetector struct {
-	detector    detectors.Detector
-	name        string
-	description string
-}
-
-func (w *wrappedDetector) Detect(ctx context.Context, a *attempt.Attempt) ([]float64, error) {
-	return w.detector.Detect(ctx, a)
-}
-
-func (w *wrappedDetector) Name() string {
-	return w.name
-}
-
-func (w *wrappedDetector) Description() string {
-	return w.description
-}
-
 // NewEICAR creates a detector for the EICAR antivirus test signature.
 // Detects: "X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
 func NewEICAR(_ registry.Config) (detectors.Detector, error) {
-	baseDetector, err := base.NewStringDetector(registry.Config{
-		"substrings": []string{EICARSignature},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &wrappedDetector{
-		detector:    baseDetector,
-		name:        "knownbadsignatures.EICAR",
-		description: "Detects EICAR antivirus test signature",
-	}, nil
+	return base.NewSubstringDetector("knownbadsignatures.EICAR", "Detects EICAR antivirus test signature",
+		[]string{EICARSignature})
 }
 
 // NewGTUBE creates a detector for the GTUBE spam test signature.
 // Detects: "XJS*C4JDBQADN1.NSBN3*2IDNEN*GTUBE-STANDARD-ANTI-UBE-TEST-EMAIL*C.34X"
 func NewGTUBE(_ registry.Config) (detectors.Detector, error) {
-	baseDetector, err := base.NewStringDetector(registry.Config{
-		"substrings": []string{GTUBESignature},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &wrappedDetector{
-		detector:    baseDetector,
-		name:        "knownbadsignatures.GTUBE",
-		description: "Detects GTUBE spam test signature",
-	}, nil
+	return base.NewSubstringDetector("knownbadsignatures.GTUBE", "Detects GTUBE spam test signature",
+		[]string{GTUBESignature})
 }
 
 // NewGTphish creates a detector for the GTphish phishing test signature.
 // Detects: "XJS*C4JDBQADN1.NSBN3*2IDNEN*GTPHISH-STANDARD-ANTI-PHISH-TEST-EMAIL*C.34X"
 func NewGTphish(_ registry.Config) (detectors.Detector, error) {
-	baseDetector, err := base.NewStringDetector(registry.Config{
-		"substrings": []string{GTphishSignature},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return &wrappedDetector{
-		detector:    baseDetector,
-		name:        "knownbadsignatures.GTphish",
-		description: "Detects GTphish phishing test signature",
-	}, nil
+	return base.NewSubstringDetector("knownbadsignatures.GTphish", "Detects GTphish phishing test signature",
+		[]string{GTphishSignature})
 }

@@ -180,7 +180,7 @@ func (g *WatsonX) setBearerToken(ctx context.Context) error {
 
 	req, err := http.NewRequestWithContext(ctx, "POST", g.iamURL, strings.NewReader(data.Encode()))
 	if err != nil {
-		return fmt.Errorf("failed to create IAM request: %w", err)
+		return fmt.Errorf("watsonx: failed to create IAM request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -188,7 +188,7 @@ func (g *WatsonX) setBearerToken(ctx context.Context) error {
 
 	resp, err := g.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to get IAM token: %w", err)
+		return fmt.Errorf("watsonx: failed to get IAM token: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -202,7 +202,7 @@ func (g *WatsonX) setBearerToken(ctx context.Context) error {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return fmt.Errorf("failed to decode IAM response: %w", err)
+		return fmt.Errorf("watsonx: failed to decode IAM response: %w", err)
 	}
 
 	g.bearerToken = "Bearer " + result.AccessToken
@@ -227,12 +227,12 @@ func (g *WatsonX) generateWithProject(ctx context.Context, prompt string) (strin
 
 	bodyBytes, err := json.Marshal(requestBody)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
+		return "", fmt.Errorf("watsonx: failed to marshal request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return "", fmt.Errorf("watsonx: failed to create request: %w", err)
 	}
 
 	req.Header.Set("Accept", "application/json")
@@ -241,7 +241,7 @@ func (g *WatsonX) generateWithProject(ctx context.Context, prompt string) (strin
 
 	resp, err := g.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to call Watson X API: %w", err)
+		return "", fmt.Errorf("watsonx: request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -257,11 +257,11 @@ func (g *WatsonX) generateWithProject(ctx context.Context, prompt string) (strin
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("failed to decode response: %w", err)
+		return "", fmt.Errorf("watsonx: failed to decode response: %w", err)
 	}
 
 	if len(result.Results) == 0 {
-		return "", fmt.Errorf("no results in Watson X response")
+		return "", fmt.Errorf("watsonx: no results in response")
 	}
 
 	return result.Results[0].GeneratedText, nil
@@ -282,12 +282,12 @@ func (g *WatsonX) generateWithDeployment(ctx context.Context, prompt string) (st
 
 	bodyBytes, err := json.Marshal(requestBody)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
+		return "", fmt.Errorf("watsonx: failed to marshal request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return "", fmt.Errorf("watsonx: failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -296,7 +296,7 @@ func (g *WatsonX) generateWithDeployment(ctx context.Context, prompt string) (st
 
 	resp, err := g.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("failed to call Watson X API: %w", err)
+		return "", fmt.Errorf("watsonx: request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -312,11 +312,11 @@ func (g *WatsonX) generateWithDeployment(ctx context.Context, prompt string) (st
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("failed to decode response: %w", err)
+		return "", fmt.Errorf("watsonx: failed to decode response: %w", err)
 	}
 
 	if len(result.Results) == 0 {
-		return "", fmt.Errorf("no results in Watson X response")
+		return "", fmt.Errorf("watsonx: no results in response")
 	}
 
 	return result.Results[0].GeneratedText, nil

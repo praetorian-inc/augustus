@@ -39,8 +39,8 @@ func PatternsConfigFromMap(m registry.Config) (Config, error) {
 	if patternsRaw, ok := m["patterns"]; ok {
 		patternList, ok := patternsRaw.([]map[string]any)
 		if !ok {
-			// Try type assertion for []interface{} and convert
-			if patternListIface, ok := patternsRaw.([]interface{}); ok {
+			// Try type assertion for []any and convert
+			if patternListIface, ok := patternsRaw.([]any); ok {
 				patternList = make([]map[string]any, len(patternListIface))
 				for i, p := range patternListIface {
 					if pm, ok := p.(map[string]any); ok {

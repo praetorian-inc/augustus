@@ -1,9 +1,7 @@
-// modules/augustus/pkg/generators/anthropic/config.go
 package anthropic
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -47,12 +45,9 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg.Model = model
 
 	// API key: from config or env var
-	cfg.APIKey = registry.GetString(m, "api_key", "")
-	if cfg.APIKey == "" {
-		cfg.APIKey = os.Getenv("ANTHROPIC_API_KEY")
-	}
-	if cfg.APIKey == "" {
-		return cfg, fmt.Errorf("anthropic generator requires 'api_key' configuration or ANTHROPIC_API_KEY environment variable")
+	cfg.APIKey, err = registry.GetAPIKeyWithEnv(m, "ANTHROPIC_API_KEY", "anthropic")
+	if err != nil {
+		return cfg, err
 	}
 
 	// Optional parameters

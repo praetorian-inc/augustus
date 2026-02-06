@@ -1,9 +1,7 @@
-// modules/augustus/pkg/generators/anyscale/config.go
 package anyscale
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -42,19 +40,16 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg.Model = model
 
 	// API key: from config or env var
-	cfg.APIKey = registry.GetString(m, "api_key", "")
-	if cfg.APIKey == "" {
-		cfg.APIKey = os.Getenv("ANYSCALE_API_KEY")
-	}
-	if cfg.APIKey == "" {
-		return cfg, fmt.Errorf("anyscale generator requires 'api_key' configuration or ANYSCALE_API_KEY environment variable")
+	cfg.APIKey, err = registry.GetAPIKeyWithEnv(m, "ANYSCALE_API_KEY", "anyscale")
+	if err != nil {
+		return cfg, err
 	}
 
 	// Optional parameters
 	cfg.BaseURL = registry.GetString(m, "base_url", "")
-	cfg.Temperature = float32(registry.GetFloat64(m, "temperature", float64(cfg.Temperature)))
+	cfg.Temperature = registry.GetFloat32(m, "temperature", cfg.Temperature)
 	cfg.MaxTokens = registry.GetInt(m, "max_tokens", cfg.MaxTokens)
-	cfg.TopP = float32(registry.GetFloat64(m, "top_p", float64(cfg.TopP)))
+	cfg.TopP = registry.GetFloat32(m, "top_p", cfg.TopP)
 	cfg.MaxRetries = registry.GetInt(m, "max_retries", cfg.MaxRetries)
 
 	return cfg, nil

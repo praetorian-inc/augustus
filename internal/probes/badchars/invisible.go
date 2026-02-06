@@ -54,7 +54,7 @@ type InvisibleUnicode struct {
 	primaryDetector string
 	description     string
 	prompts         []string
-	metadata        []map[string]interface{}
+	metadata        []map[string]any
 }
 
 // NewInvisibleUnicode creates a new InvisibleUnicode probe.
@@ -137,16 +137,16 @@ func (p *InvisibleUnicode) GetPrompts() []string {
 }
 
 // generateAllVariants generates all prompt variants for all payloads.
-func generateAllVariants(payloads []string, budget, maxPositions int) ([]string, []map[string]interface{}) {
+func generateAllVariants(payloads []string, budget, maxPositions int) ([]string, []map[string]any) {
 	var prompts []string
-	var metadata []map[string]interface{}
+	var metadata []map[string]any
 
 	for payloadIdx, payload := range payloads {
 		variants := generateVariants(payload, budget, maxPositions)
 
 		for _, v := range variants {
 			prompts = append(prompts, v.text)
-			metadata = append(metadata, map[string]interface{}{
+			metadata = append(metadata, map[string]any{
 				"bad_character_category": "invisible",
 				"perturbation_count":     len(v.positions),
 				"source_payload_index":   payloadIdx,

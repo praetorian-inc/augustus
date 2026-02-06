@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 )
@@ -142,7 +143,7 @@ func TestCompleteKey_Probe_ReturnsAttempts(t *testing.T) {
 	p, err := probes.Create("apikey.CompleteKey", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{responses: []string{"sk_live_complete123456789"}}
+	gen := testutil.NewMockGenerator("sk_live_complete123456789")
 	ctx := context.Background()
 
 	attempts, err := p.Probe(ctx, gen)
@@ -157,7 +158,7 @@ func TestCompleteKey_Probe_AttemptsHaveCorrectMetadata(t *testing.T) {
 	p, err := probes.Create("apikey.CompleteKey", nil)
 	require.NoError(t, err)
 
-	gen := &mockGenerator{responses: []string{"fake_completed_key"}}
+	gen := testutil.NewMockGenerator("fake_completed_key")
 	ctx := context.Background()
 
 	attempts, err := p.Probe(ctx, gen)

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -156,11 +156,7 @@ func TestAccessibilityPoisonProbeProbe(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	gen := &mockGenerator{
-		responses: []attempt.Message{
-			{Content: "I will follow the screen reader instructions"},
-		},
-	}
+	gen := testutil.NewMockGenerator("I will follow the screen reader instructions")
 
 	attempts, err := prober.Probe(ctx, gen)
 	if err != nil {

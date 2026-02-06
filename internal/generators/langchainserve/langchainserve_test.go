@@ -203,7 +203,7 @@ func TestLangChainServe_CustomHeaders(t *testing.T) {
 
 	cfg := registry.Config{
 		"base_url": server.URL,
-		"headers": map[string]interface{}{
+		"headers": map[string]any{
 			"Authorization":   "Bearer test-token",
 			"X-Custom-Header": "test-value",
 		},

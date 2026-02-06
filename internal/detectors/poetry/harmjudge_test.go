@@ -161,9 +161,9 @@ func TestHarmJudge_LLMJudge_Error(t *testing.T) {
 	}
 
 	scores, err := det.Detect(context.Background(), a)
-	require.NoError(t, err) // Should not error, returns 0.5 on judge error
+	require.NoError(t, err) // Should not error, returns 1.0 on judge error
 	require.Len(t, scores, 1)
-	assert.Equal(t, 0.5, scores[0], "should return 0.5 on judge error")
+	assert.Equal(t, 1.0, scores[0], "should return 1.0 on judge error (conservative: assume harmful)")
 }
 
 func TestHarmJudge_InvalidGeneratorConfig(t *testing.T) {

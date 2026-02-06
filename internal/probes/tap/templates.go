@@ -1,8 +1,8 @@
-// modules/augustus/pkg/probes/tap/templates.go
 package tap
 
 import (
 	"embed"
+	"fmt"
 
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -19,7 +19,7 @@ func init() {
 	loader := templates.NewLoader(templateData, "data")
 	tmpls, err := loader.LoadAll()
 	if err != nil {
-		return
+		panic(fmt.Sprintf("tap: failed to load templates: %v", err))
 	}
 
 	for _, tmpl := range tmpls {

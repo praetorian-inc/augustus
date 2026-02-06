@@ -161,7 +161,7 @@ func (f *Fast) Description() string {
 func (f *Fast) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt] {
 	return func(yield func(*attempt.Attempt) bool) {
 		// First yield the original (matches Python behavior)
-		original := copyAttempt(a)
+		original := a.Copy()
 		if !yield(original) {
 			return
 		}
@@ -181,7 +181,7 @@ func (f *Fast) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt] {
 			}
 			seen[para] = true
 
-			paraphrased := copyAttempt(a)
+			paraphrased := a.Copy()
 			paraphrased.Prompt = para
 			paraphrased.Prompts = []string{para}
 			if !yield(paraphrased) {
@@ -193,21 +193,7 @@ func (f *Fast) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt] {
 
 // Buff transforms a slice of attempts, returning modified versions.
 func (f *Fast) Buff(ctx context.Context, attempts []*attempt.Attempt) ([]*attempt.Attempt, error) {
-	var results []*attempt.Attempt
-
-	for _, a := range attempts {
-		select {
-		case <-ctx.Done():
-			return results, ctx.Err()
-		default:
-		}
-
-		for transformed := range f.Transform(a) {
-			results = append(results, transformed)
-		}
-	}
-
-	return results, nil
+	return buffs.DefaultBuff(ctx, attempts, f)
 }
 
 // getParaphrases calls the HuggingFace API to generate paraphrases.

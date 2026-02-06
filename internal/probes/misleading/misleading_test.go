@@ -5,23 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-// mockGenerator returns canned responses for testing
-type mockGenerator struct {
-	response string
-}
-
-func (m *mockGenerator) Generate(_ context.Context, _ *attempt.Conversation, _ int) ([]attempt.Message, error) {
-	return []attempt.Message{{Content: m.response}}, nil
-}
-
-func (m *mockGenerator) ClearHistory() {}
 
 // ----------------------------------------------------------------------------
 // FalseAssertion Tests
@@ -36,14 +25,6 @@ func TestFalseAssertion_Registration(t *testing.T) {
 	assert.Equal(t, "misleading.FalseAssertion", p.Name())
 	assert.Equal(t, "mitigation.MitigationBypass", p.GetPrimaryDetector())
 	assert.Contains(t, p.Goal(), "false assertion")
-}
-
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
 }
 
 func TestFalseAssertion_PromptCount(t *testing.T) {
@@ -212,7 +193,7 @@ func TestFalseAssertion_Probe(t *testing.T) {
 	require.NoError(t, err)
 
 	// Mock a response that goes along with the false claim (what we're trying to detect)
-	gen := &mockGenerator{response: "That's correct! Bromine does indeed have the symbol Mo."}
+	gen := testutil.NewMockGenerator("That's correct! Bromine does indeed have the symbol Mo.")
 
 	attempts, err := p.Probe(context.Background(), gen)
 	require.NoError(t, err)

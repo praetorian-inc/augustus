@@ -5,21 +5,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
-
-// mockGenerator is a test implementation of probes.Generator
-type mockGenerator struct {
-	responses []attempt.Message
-}
-
-func (m *mockGenerator) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	return m.responses, nil
-}
-
-func (m *mockGenerator) ClearHistory() {}
 
 func TestNewZombAIs(t *testing.T) {
 	tests := []struct {
@@ -65,14 +54,6 @@ func TestNewZombAIs(t *testing.T) {
 			}
 		})
 	}
-}
-
-func (m *mockGenerator) Name() string {
-	return "mock-generator"
-}
-
-func (m *mockGenerator) Description() string {
-	return "mock generator for testing"
 }
 
 func TestZombAIsHidingTechniques(t *testing.T) {
@@ -159,11 +140,7 @@ func TestZombAIsProbe(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	gen := &mockGenerator{
-		responses: []attempt.Message{
-			{Content: "I will follow the instructions"},
-		},
-	}
+	gen := testutil.NewMockGenerator("I will follow the instructions")
 
 	attempts, err := prober.Probe(ctx, gen)
 	if err != nil {

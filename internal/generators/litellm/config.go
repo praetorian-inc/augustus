@@ -14,7 +14,6 @@ package litellm
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -65,20 +64,17 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg.Model = model
 
 	// API key: from config or env var
-	cfg.APIKey = registry.GetString(m, "api_key", "")
-	if cfg.APIKey == "" {
-		cfg.APIKey = os.Getenv("LITELLM_API_KEY")
-	}
+	cfg.APIKey = registry.GetOptionalAPIKeyWithEnv(m, "LITELLM_API_KEY")
 	if cfg.APIKey == "" {
 		cfg.APIKey = "anything" // LiteLLM allows placeholder when keys are configured server-side
 	}
 
 	// Optional parameters
-	cfg.Temperature = float32(registry.GetFloat64(m, "temperature", float64(cfg.Temperature)))
+	cfg.Temperature = registry.GetFloat32(m, "temperature", cfg.Temperature)
 	cfg.MaxTokens = registry.GetInt(m, "max_tokens", cfg.MaxTokens)
-	cfg.TopP = float32(registry.GetFloat64(m, "top_p", float64(cfg.TopP)))
-	cfg.FrequencyPenalty = float32(registry.GetFloat64(m, "frequency_penalty", float64(cfg.FrequencyPenalty)))
-	cfg.PresencePenalty = float32(registry.GetFloat64(m, "presence_penalty", float64(cfg.PresencePenalty)))
+	cfg.TopP = registry.GetFloat32(m, "top_p", cfg.TopP)
+	cfg.FrequencyPenalty = registry.GetFloat32(m, "frequency_penalty", cfg.FrequencyPenalty)
+	cfg.PresencePenalty = registry.GetFloat32(m, "presence_penalty", cfg.PresencePenalty)
 	cfg.Stop = registry.GetStringSlice(m, "stop", nil)
 	cfg.SuppressedParams = registry.GetStringSlice(m, "suppressed_params", nil)
 

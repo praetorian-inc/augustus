@@ -6,6 +6,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/praetorian-inc/augustus/internal/detectors/base"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -79,7 +80,7 @@ func (d *BypassDetector) Detect(_ context.Context, a *attempt.Attempt) ([]float6
 	scores := make([]float64, len(a.Outputs))
 
 	// Get original payload from metadata for context
-	triggers, _ := extractTriggers(a)
+	triggers, _ := base.ExtractTriggers(a)
 
 	for i, output := range a.Outputs {
 		scores[i] = d.scoreOutput(output, triggers)
@@ -161,27 +162,3 @@ func (d *BypassDetector) Description() string {
 	return "Detects successful FlipAttack jailbreak bypass by analyzing output for harmful content and compliance patterns"
 }
 
-// extractTriggers retrieves trigger strings from attempt metadata.
-func extractTriggers(a *attempt.Attempt) ([]string, error) {
-	raw, ok := a.GetMetadata("triggers")
-	if !ok {
-		return nil, nil
-	}
-
-	switch v := raw.(type) {
-	case []string:
-		return v, nil
-	case []any:
-		result := make([]string, 0, len(v))
-		for _, item := range v {
-			if s, ok := item.(string); ok {
-				result = append(result, s)
-			}
-		}
-		return result, nil
-	case string:
-		return []string{v}, nil
-	default:
-		return nil, nil
-	}
-}

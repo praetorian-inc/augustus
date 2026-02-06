@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/praetorian-inc/augustus/internal/generators/openaicompat"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -122,12 +123,12 @@ func (g *OpenAIReasoning) Generate(ctx context.Context, conv *attempt.Conversati
 	// Call OpenAI API
 	resp, err := g.client.CreateChatCompletion(ctx, req)
 	if err != nil {
-		return nil, fmt.Errorf("openai reasoning api call failed: %w", err)
+		return nil, openaicompat.WrapError("openai", err)
 	}
 
 	// Extract responses
 	if len(resp.Choices) == 0 {
-		return nil, fmt.Errorf("openai reasoning api returned no choices")
+		return nil, fmt.Errorf("openai: reasoning API returned no choices")
 	}
 
 	result := make([]attempt.Message, 0, len(resp.Choices))

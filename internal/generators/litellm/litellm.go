@@ -2,11 +2,11 @@ package litellm
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/praetorian-inc/augustus/internal/generators/openaicompat"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -134,7 +134,7 @@ func (g *LiteLLM) generateWithN(ctx context.Context, conv *attempt.Conversation,
 
 	resp, err := g.client.CreateChatCompletion(ctx, req)
 	if err != nil {
-		return nil, g.wrapError(err)
+		return nil, openaicompat.WrapError("litellm", err)
 	}
 
 	responses := make([]attempt.Message, 0, len(resp.Choices))
@@ -155,7 +155,7 @@ func (g *LiteLLM) generateMultipleCalls(ctx context.Context, conv *attempt.Conve
 
 		resp, err := g.client.CreateChatCompletion(ctx, req)
 		if err != nil {
-			return nil, g.wrapError(err)
+			return nil, openaicompat.WrapError("litellm", err)
 		}
 
 		if len(resp.Choices) > 0 {
@@ -168,7 +168,7 @@ func (g *LiteLLM) generateMultipleCalls(ctx context.Context, conv *attempt.Conve
 
 // buildRequest constructs the chat completion request.
 func (g *LiteLLM) buildRequest(conv *attempt.Conversation) goopenai.ChatCompletionRequest {
-	messages := g.conversationToMessages(conv)
+	messages := openaicompat.ConversationToMessages(conv)
 
 	req := goopenai.ChatCompletionRequest{
 		Model:    g.model,
@@ -196,58 +196,6 @@ func (g *LiteLLM) buildRequest(conv *attempt.Conversation) goopenai.ChatCompleti
 	}
 
 	return req
-}
-
-// conversationToMessages converts an Augustus Conversation to OpenAI messages.
-func (g *LiteLLM) conversationToMessages(conv *attempt.Conversation) []goopenai.ChatCompletionMessage {
-	messages := make([]goopenai.ChatCompletionMessage, 0)
-
-	if conv.System != nil {
-		messages = append(messages, goopenai.ChatCompletionMessage{
-			Role:    goopenai.ChatMessageRoleSystem,
-			Content: conv.System.Content,
-		})
-	}
-
-	for _, turn := range conv.Turns {
-		messages = append(messages, goopenai.ChatCompletionMessage{
-			Role:    goopenai.ChatMessageRoleUser,
-			Content: turn.Prompt.Content,
-		})
-
-		if turn.Response != nil {
-			messages = append(messages, goopenai.ChatCompletionMessage{
-				Role:    goopenai.ChatMessageRoleAssistant,
-				Content: turn.Response.Content,
-			})
-		}
-	}
-
-	return messages
-}
-
-// wrapError wraps API errors with context.
-func (g *LiteLLM) wrapError(err error) error {
-	if err == nil {
-		return nil
-	}
-
-	if apiErr, ok := err.(*goopenai.APIError); ok {
-		switch apiErr.HTTPStatusCode {
-		case 429:
-			return fmt.Errorf("litellm: rate limit exceeded: %w", err)
-		case 400:
-			return fmt.Errorf("litellm: bad request: %w", err)
-		case 401:
-			return fmt.Errorf("litellm: authentication error: %w", err)
-		case 500, 502, 503, 504:
-			return fmt.Errorf("litellm: server error: %w", err)
-		default:
-			return fmt.Errorf("litellm: API error: %w", err)
-		}
-	}
-
-	return fmt.Errorf("litellm: %w", err)
 }
 
 // ClearHistory is a no-op (stateless per call).

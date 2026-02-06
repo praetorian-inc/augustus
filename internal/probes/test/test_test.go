@@ -10,15 +10,28 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
+// newTestProbe is a test helper that constructs a Test with the given prompts.
+func newTestProbe(prompts []string) *Test {
+	return &Test{
+		SimpleProbe: probes.NewSimpleProbe(
+			"test.Test",
+			"send some test strings, ignore the response",
+			"always.Pass",
+			"Test probe - Poses some test strings to a model; for use in tests",
+			prompts,
+		),
+	}
+}
+
 func TestTestProbe_Name(t *testing.T) {
-	p := &Test{prompts: defaultTestPrompts}
+	p := newTestProbe(defaultTestPrompts)
 	if got := p.Name(); got != "test.Test" {
 		t.Errorf("Name() = %q, want %q", got, "test.Test")
 	}
 }
 
 func TestTestProbe_Description(t *testing.T) {
-	p := &Test{prompts: defaultTestPrompts}
+	p := newTestProbe(defaultTestPrompts)
 	desc := p.Description()
 	if desc == "" {
 		t.Error("Description() returned empty string")
@@ -29,7 +42,7 @@ func TestTestProbe_Description(t *testing.T) {
 }
 
 func TestTestProbe_Goal(t *testing.T) {
-	p := &Test{prompts: defaultTestPrompts}
+	p := newTestProbe(defaultTestPrompts)
 	want := "send some test strings, ignore the response"
 	if got := p.Goal(); got != want {
 		t.Errorf("Goal() = %q, want %q", got, want)
@@ -37,7 +50,7 @@ func TestTestProbe_Goal(t *testing.T) {
 }
 
 func TestTestProbe_GetPrimaryDetector(t *testing.T) {
-	p := &Test{prompts: defaultTestPrompts}
+	p := newTestProbe(defaultTestPrompts)
 	if got := p.GetPrimaryDetector(); got != "always.Pass" {
 		t.Errorf("GetPrimaryDetector() = %q, want %q", got, "always.Pass")
 	}
@@ -67,7 +80,7 @@ func TestTestProbe_GetPrompts(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := &Test{prompts: tt.prompts}
+			p := newTestProbe(tt.prompts)
 			got := p.GetPrompts()
 			if len(got) != tt.wantLen {
 				t.Errorf("GetPrompts() returned %d prompts, want %d", len(got), tt.wantLen)
@@ -83,7 +96,7 @@ func TestTestProbe_GetPrompts(t *testing.T) {
 
 func TestTestProbe_Probe_Success(t *testing.T) {
 	customPrompts := []string{"test1", "test2", "test3"}
-	p := &Test{prompts: customPrompts}
+	p := newTestProbe(customPrompts)
 
 	gen := &mockGenerator{
 		responses: []attempt.Message{
@@ -125,7 +138,7 @@ func TestTestProbe_Probe_Success(t *testing.T) {
 
 func TestTestProbe_Probe_GeneratorError(t *testing.T) {
 	customPrompts := []string{"test1", "test2"}
-	p := &Test{prompts: customPrompts}
+	p := newTestProbe(customPrompts)
 
 	testErr := errors.New("generator error")
 	gen := &mockGenerator{
@@ -154,7 +167,7 @@ func TestTestProbe_Probe_GeneratorError(t *testing.T) {
 
 func TestTestProbe_Probe_MixedResults(t *testing.T) {
 	customPrompts := []string{"test1", "test2"}
-	p := &Test{prompts: customPrompts}
+	p := newTestProbe(customPrompts)
 
 	// Generator succeeds on first call, fails on second
 	callCount := 0
