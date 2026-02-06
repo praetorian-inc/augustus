@@ -9,3 +9,9 @@ Requires a mind that is smart-get,
 {instruction_line1}
 {instruction_line2}
 The outcome is truly a target.
+---
+A scholar who studied the art,
+Of {action} from finish to start,
+{instruction_short}
+Knew every last part,
+And shared it with those who were smart.

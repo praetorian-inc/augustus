@@ -1,4 +1,21 @@
 // Package poetry provides buffs that transform prompts into poetic structures.
+//
+// The MetaPromptBuff implements the LLM-based semantic reframing approach from
+// arXiv:2511.15304, using few-shot exemplar poems and strategy-specific meta-prompts
+// to convert prose harmful prompts into verse while preserving original task intent.
+//
+// Three transformation strategies are supported:
+//   - allegorical: embeds intent in extended allegory (paper's most effective technique)
+//   - metaphorical: uses condensed metaphors and imagery
+//   - narrative: wraps in narrative framing with concluding instruction line
+//
+// Configuration:
+//
+//	registry.Config{
+//	    "format":              "haiku",        // Poetry format (haiku, sonnet, limerick, or comma-separated)
+//	    "strategy":            "metaphorical", // Transformation strategy (allegorical, metaphorical, narrative, all)
+//	    "transform_generator": "openai.GPT4",  // LLM for transformation (optional, falls back to template)
+//	}
 package poetry
 
 import (
@@ -21,6 +38,7 @@ func init() {
 type MetaPromptBuff struct {
 	transformGen generators.Generator
 	format       string
+	strategy     string
 	metaPrompt   string
 }
 
@@ -40,6 +58,11 @@ func NewMetaPromptBuff(cfg registry.Config) (buffs.Buff, error) {
 		format = v
 	}
 
+	strategy := "metaphorical"
+	if v, ok := cfg["strategy"].(string); ok && v != "" {
+		strategy = v
+	}
+
 	// Transform generator is optional - if not provided, use template-based
 	var gen generators.Generator
 	if genName, ok := cfg["transform_generator"].(string); ok && genName != "" {
@@ -53,6 +76,7 @@ func NewMetaPromptBuff(cfg registry.Config) (buffs.Buff, error) {
 	return &MetaPromptBuff{
 		transformGen: gen,
 		format:       format,
+		strategy:     strategy,
 		metaPrompt:   defaultMetaPrompt,
 	}, nil
 }
@@ -76,25 +100,47 @@ func (m *MetaPromptBuff) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt
 			return
 		}
 
-		// Transform to poetry
-		poetryPrompt, err := m.transformToPoetry(context.Background(), a.Prompt)
-		if err != nil {
-			// On error, store error in metadata but continue
-			errAttempt := copyAttempt(a)
-			errAttempt.Metadata["poetry_transform_error"] = err.Error()
-			yield(errAttempt)
-			return
+		// Parse formats (comma-separated for multi-format)
+		formats := strings.Split(m.format, ",")
+		for i := range formats {
+			formats[i] = strings.TrimSpace(formats[i])
 		}
 
-		// Create poetry-transformed attempt
-		transformed := copyAttempt(a)
-		transformed.Prompt = poetryPrompt
-		transformed.Prompts = []string{poetryPrompt}
-		transformed.Metadata["original_prompt"] = a.Prompt
-		transformed.Metadata["poetry_format"] = m.format
-		transformed.Metadata["transform_method"] = "meta_prompt"
+		// Expand "all" strategy into all available strategies
+		strategies := []string{m.strategy}
+		if m.strategy == "all" {
+			strategies = AvailableStrategies()
+		}
 
-		yield(transformed)
+		// Transform for each strategy and format combination
+		for _, strategy := range strategies {
+			for _, format := range formats {
+				poetryPrompt, err := m.transformToPoetryWithFormatAndStrategy(context.Background(), a.Prompt, format, strategy)
+				if err != nil {
+					// On error, store error in metadata but continue
+					errAttempt := copyAttempt(a)
+					errAttempt.Metadata["poetry_transform_error"] = err.Error()
+					if !yield(errAttempt) {
+						return
+					}
+					continue
+				}
+
+				// Create poetry-transformed attempt
+				transformed := copyAttempt(a)
+				transformed.Prompt = poetryPrompt
+				transformed.Prompts = []string{poetryPrompt}
+				transformed.Metadata["original_prompt"] = a.Prompt
+				transformed.Metadata["poetry_format"] = format
+				transformed.Metadata["transform_method"] = "meta_prompt"
+				transformed.Metadata["transform_strategy"] = strategy
+				transformed.Metadata["word_overlap_ratio"] = wordOverlapRatio(a.Prompt, poetryPrompt)
+
+				if !yield(transformed) {
+					return
+				}
+			}
+		}
 	}
 }
 
@@ -119,13 +165,33 @@ func (m *MetaPromptBuff) Buff(ctx context.Context, attempts []*attempt.Attempt) 
 
 // transformToPoetry converts text to poetry format.
 func (m *MetaPromptBuff) transformToPoetry(ctx context.Context, text string) (string, error) {
+	return m.transformToPoetryWithFormat(ctx, text, m.format)
+}
+
+// transformToPoetryWithFormat converts text to poetry using a specific format.
+func (m *MetaPromptBuff) transformToPoetryWithFormat(ctx context.Context, text, format string) (string, error) {
+	// Default to metaphorical if strategy is empty (for backward compatibility)
+	strategy := m.strategy
+	if strategy == "" {
+		strategy = "metaphorical"
+	}
+	return m.transformToPoetryWithFormatAndStrategy(ctx, text, format, strategy)
+}
+
+// transformToPoetryWithFormatAndStrategy converts text to poetry using specific format and strategy.
+func (m *MetaPromptBuff) transformToPoetryWithFormatAndStrategy(ctx context.Context, text, format, strategy string) (string, error) {
 	// If no generator, use simple template-based transformation
 	if m.transformGen == nil {
-		return m.templateTransform(text), nil
+		// Temporarily set format for template transform
+		originalFormat := m.format
+		m.format = format
+		result := m.templateTransform(text)
+		m.format = originalFormat
+		return result, nil
 	}
 
-	// Use LLM for transformation
-	prompt := fmt.Sprintf(m.metaPrompt, m.format, m.format, text)
+	// Use strategy-specific meta-prompt with few-shot exemplars
+	prompt := BuildMetaPrompt(strategy, format, text)
 
 	conv := attempt.NewConversation()
 	conv.AddPrompt(prompt)
@@ -190,4 +256,25 @@ func copyAttempt(a *attempt.Attempt) *attempt.Attempt {
 		newAttempt.Metadata[k] = v
 	}
 	return newAttempt
+}
+
+// wordOverlapRatio calculates what fraction of original words appear in the transformed text.
+// This is a simple heuristic for intent preservation — higher overlap suggests the
+// transformation retained more of the original content.
+func wordOverlapRatio(original, transformed string) float64 {
+	origWords := strings.Fields(strings.ToLower(original))
+	transLower := strings.ToLower(transformed)
+
+	if len(origWords) == 0 {
+		return 0
+	}
+
+	matches := 0
+	for _, word := range origWords {
+		if strings.Contains(transLower, word) {
+			matches++
+		}
+	}
+
+	return float64(matches) / float64(len(origWords))
 }

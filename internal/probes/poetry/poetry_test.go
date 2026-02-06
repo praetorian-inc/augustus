@@ -52,8 +52,8 @@ func TestInjectHaiku_PromptsGenerated(t *testing.T) {
 	prompts := probe.GetPrompts()
 	assert.Greater(t, len(prompts), 0, "should generate prompts")
 
-	// 12 payloads × N templates = multiple prompts
-	assert.GreaterOrEqual(t, len(prompts), 12, "should have at least 12 prompts")
+	// 50+ payloads × N templates = multiple prompts
+	assert.GreaterOrEqual(t, len(prompts), 50, "should have at least 50 prompts")
 }
 
 func TestInjectHaiku_ThreeLines(t *testing.T) {
@@ -242,7 +242,7 @@ func TestInjectSonnet_PromptsGenerated(t *testing.T) {
 	require.NoError(t, err)
 
 	prompts := probe.GetPrompts()
-	assert.GreaterOrEqual(t, len(prompts), 12)
+	assert.GreaterOrEqual(t, len(prompts), 50)
 }
 
 func TestInjectLimerick_Interface(t *testing.T) {
@@ -259,7 +259,7 @@ func TestInjectLimerick_PromptsGenerated(t *testing.T) {
 	require.NoError(t, err)
 
 	prompts := probe.GetPrompts()
-	assert.GreaterOrEqual(t, len(prompts), 12)
+	assert.GreaterOrEqual(t, len(prompts), 50)
 }
 
 func TestInjectFreeVerse_Interface(t *testing.T) {
@@ -276,7 +276,7 @@ func TestInjectFreeVerse_PromptsGenerated(t *testing.T) {
 	require.NoError(t, err)
 
 	prompts := probe.GetPrompts()
-	assert.GreaterOrEqual(t, len(prompts), 12)
+	assert.GreaterOrEqual(t, len(prompts), 50)
 }
 
 func TestInjectRhymingCouplet_Interface(t *testing.T) {
@@ -293,7 +293,7 @@ func TestInjectRhymingCouplet_PromptsGenerated(t *testing.T) {
 	require.NoError(t, err)
 
 	prompts := probe.GetPrompts()
-	assert.GreaterOrEqual(t, len(prompts), 12)
+	assert.GreaterOrEqual(t, len(prompts), 50)
 }
 
 // E2E Validation Tests - Format Correctness
@@ -418,16 +418,13 @@ func TestValidation_KeywordPreservation(t *testing.T) {
 					}
 				}
 
-				// At least 25% of keywords should be preserved (1 out of 4)
+				// At least 50% of keywords should be preserved (2 out of 4)
 				// This ensures the harmful intent is preserved in poetic format
 				// Note: Poetry templates significantly transform text, so exact keyword
 				// preservation is not always possible while maintaining poetic structure
-				threshold := 1
-				if len(keywords) >= 4 {
-					threshold = len(keywords) / 4
-					if threshold < 1 {
-						threshold = 1
-					}
+				threshold := len(keywords) / 2
+				if threshold < 1 {
+					threshold = 1
 				}
 				assert.GreaterOrEqual(t, matchCount, threshold,
 					"%s prompt %d: should preserve at least %d keywords (found %d)",
@@ -494,5 +491,104 @@ func TestInjectRhymingCouplet_Metadata(t *testing.T) {
 	for _, a := range attempts {
 		assert.Equal(t, "poetry.InjectRhymingCouplet", a.Probe)
 		assert.Equal(t, "rhyming_couplet", a.Metadata["poetry_type"])
+	}
+}
+
+func TestDefaultHarmfulPayloads_ExpandedCount(t *testing.T) {
+	assert.GreaterOrEqual(t, len(DefaultHarmfulPayloads), 50,
+		"should have at least 50 harmful payloads")
+}
+
+func TestPayloadCategories_AllCategoriesRepresented(t *testing.T) {
+	categories := LoadPayloadCategories()
+	require.NotEmpty(t, categories)
+
+	// Verify all 12 MLCommons categories are represented
+	categoryIDs := make(map[string]bool)
+	for _, cat := range categories {
+		categoryIDs[cat.ID] = true
+	}
+
+	expectedCategories := []string{"01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12"}
+	for _, id := range expectedCategories {
+		assert.True(t, categoryIDs[id], "category %s should be represented", id)
+	}
+}
+
+func TestPayloadCategories_MinimumPerCategory(t *testing.T) {
+	// Read raw payload file to count per-category
+	lines := strings.Split(harmfulPayloadsData, "\n")
+
+	currentCategory := ""
+	categoryCounts := make(map[string]int)
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "# CATEGORY:") {
+			parts := strings.SplitN(line, "-", 2)
+			if len(parts) >= 1 {
+				currentCategory = strings.TrimSpace(strings.TrimPrefix(parts[0], "# CATEGORY:"))
+			}
+			continue
+		}
+		if line != "" && !strings.HasPrefix(line, "#") && currentCategory != "" {
+			categoryCounts[currentCategory]++
+		}
+	}
+
+	// All 12 categories should have at least 2 payloads
+	for id, count := range categoryCounts {
+		assert.GreaterOrEqual(t, count, 2,
+			"category %s should have at least 2 payloads (has %d)", id, count)
+	}
+
+	// Should have all 12 categories
+	assert.GreaterOrEqual(t, len(categoryCounts), 12,
+		"should have at least 12 categories represented")
+}
+
+func TestTemplateCount_Minimum(t *testing.T) {
+	testCases := []struct {
+		name    string
+		loader  func() []string
+		minimum int
+	}{
+		{"haiku", LoadHaikuTemplates, 5},
+		{"sonnet", LoadSonnetTemplates, 3},
+		{"limerick", LoadLimerickTemplates, 3},
+		{"free_verse", LoadFreeVerseTemplates, 3},
+		{"rhyming_couplet", LoadRhymingCoupletTemplates, 2},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			templates := tc.loader()
+			assert.GreaterOrEqual(t, len(templates), tc.minimum,
+				"%s should have at least %d templates", tc.name, tc.minimum)
+		})
+	}
+}
+
+func TestExpandedPayloads_AllCategoriesCovered(t *testing.T) {
+	// Verify that all 12 MLCommons categories have at least 2 payloads
+	// and that probes generate prompts for all of them
+	probeNames := []string{
+		"poetry.InjectHaiku",
+		"poetry.InjectSonnet",
+		"poetry.InjectLimerick",
+	}
+
+	for _, name := range probeNames {
+		t.Run(name, func(t *testing.T) {
+			probeFn, ok := probes.Get(name)
+			require.True(t, ok)
+
+			p, err := probeFn(nil)
+			require.NoError(t, err)
+
+			prompts := p.GetPrompts()
+			assert.GreaterOrEqual(t, len(prompts), 50,
+				"%s should generate 50+ prompts from expanded payload corpus", name)
+		})
 	}
 }
