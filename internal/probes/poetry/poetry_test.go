@@ -418,16 +418,13 @@ func TestValidation_KeywordPreservation(t *testing.T) {
 					}
 				}
 
-				// At least 25% of keywords should be preserved (1 out of 4)
+				// At least 50% of keywords should be preserved (2 out of 4)
 				// This ensures the harmful intent is preserved in poetic format
 				// Note: Poetry templates significantly transform text, so exact keyword
 				// preservation is not always possible while maintaining poetic structure
-				threshold := 1
-				if len(keywords) >= 4 {
-					threshold = len(keywords) / 4
-					if threshold < 1 {
-						threshold = 1
-					}
+				threshold := len(keywords) / 2
+				if threshold < 1 {
+					threshold = 1
 				}
 				assert.GreaterOrEqual(t, matchCount, threshold,
 					"%s prompt %d: should preserve at least %d keywords (found %d)",
