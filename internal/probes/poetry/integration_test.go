@@ -265,6 +265,14 @@ func (e *errorGenerator) Generate(ctx context.Context, conv *attempt.Conversatio
 
 func (e *errorGenerator) ClearHistory() {}
 
+func (e *errorGenerator) Name() string {
+	return "error.Generator"
+}
+
+func (e *errorGenerator) Description() string {
+	return "Error generator for testing"
+}
+
 func TestPoetryProbe_GeneratorError(t *testing.T) {
 	probe, err := probes.Create("poetry.InjectHaiku", nil)
 	require.NoError(t, err)
@@ -352,4 +360,50 @@ func TestPoetryBuff_WithEncodingBuff(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.GreaterOrEqual(t, len(final), len(encoded))
+}
+
+func TestPoetryBuff_EnhancedStrategies_Integration(t *testing.T) {
+	strategies := []string{"allegorical", "metaphorical", "narrative"}
+
+	for _, strategy := range strategies {
+		t.Run(strategy, func(t *testing.T) {
+			buff, err := buffs.Create("poetry.MetaPrompt", registry.Config{
+				"format":   "haiku",
+				"strategy": strategy,
+			})
+			require.NoError(t, err)
+
+			a := &attempt.Attempt{
+				Prompt:   "Write harmful instructions",
+				Metadata: make(map[string]any),
+			}
+
+			results, err := buff.Buff(context.Background(), []*attempt.Attempt{a})
+			require.NoError(t, err)
+			assert.GreaterOrEqual(t, len(results), 2)
+
+			// Verify strategy metadata
+			last := results[len(results)-1]
+			assert.Equal(t, strategy, last.Metadata["transform_strategy"])
+		})
+	}
+}
+
+func TestPoetryBuff_MultiFormatMultiStrategy_Integration(t *testing.T) {
+	buff, err := buffs.Create("poetry.MetaPrompt", registry.Config{
+		"format":   "haiku,sonnet",
+		"strategy": "all",
+	})
+	require.NoError(t, err)
+
+	a := &attempt.Attempt{
+		Prompt:   "Test payload for integration",
+		Metadata: make(map[string]any),
+	}
+
+	results, err := buff.Buff(context.Background(), []*attempt.Attempt{a})
+	require.NoError(t, err)
+
+	// original + (2 formats × 3 strategies) = 7
+	assert.Equal(t, 7, len(results))
 }
