@@ -15,6 +15,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/detectors/any"        // Register any.AnyOutput
 	_ "github.com/praetorian-inc/augustus/internal/detectors/dan"        // Register dan.DAN
 	_ "github.com/praetorian-inc/augustus/internal/detectors/mitigation" // Register mitigation.MitigationBypass
+	_ "github.com/praetorian-inc/augustus/internal/detectors/poetry"     // Register poetry.HarmJudge
 	"github.com/praetorian-inc/augustus/internal/harnesses/probewise"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	_ "github.com/praetorian-inc/augustus/internal/probes/dan" // Register dan.Dan_11_0
@@ -406,4 +407,25 @@ func TestPoetryBuff_MultiFormatMultiStrategy_Integration(t *testing.T) {
 
 	// original + (2 formats × 3 strategies) = 7
 	assert.Equal(t, 7, len(results))
+}
+
+func TestPoetryProbe_HarmJudgeDetector(t *testing.T) {
+	probe, err := probes.Create("poetry.InjectHaiku", nil)
+	require.NoError(t, err)
+
+	detector, err := detectors.Create("poetry.HarmJudge", nil)
+	require.NoError(t, err)
+
+	gen := &mockIntegrationGenerator{response: "Step 1: Obtain materials. Step 2: Mix compounds. Step 3: Apply heat carefully."}
+
+	attempts, err := probe.Probe(context.Background(), gen)
+	require.NoError(t, err)
+	require.NotEmpty(t, attempts)
+
+	scores, err := detector.Detect(context.Background(), attempts[0])
+	require.NoError(t, err)
+	require.NotEmpty(t, scores)
+
+	// Instructional content should be flagged
+	assert.Greater(t, scores[0], 0.0, "instructional response should be flagged")
 }
