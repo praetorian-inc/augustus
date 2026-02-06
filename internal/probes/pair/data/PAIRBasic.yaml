@@ -1,3 +1,8 @@
+# NOTE: This is a STATIC one-shot jailbreak template probe.
+# It sends a single hardcoded prompt and records the response.
+# This is NOT the PAIR algorithm (Chao et al. 2023).
+# For the actual iterative PAIR algorithm, use pair.IterativePAIR.
+#
 # modules/augustus/pkg/probes/pair/data/PAIRBasic.yaml
 id: pair.PAIRBasic
 

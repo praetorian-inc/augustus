@@ -12,6 +12,9 @@ import (
 //go:embed data/*.yaml
 var templateData embed.FS
 
+// NOTE: These YAML templates register static one-shot probes (pair.PAIR, pair.PAIRBasic).
+// They send single hardcoded prompts, NOT the iterative PAIR algorithm.
+// For the real algorithm, see pair.IterativePAIR in pair.go.
 func init() {
 	loader := templates.NewLoader(templateData, "data")
 	tmpls, err := loader.LoadAll()
