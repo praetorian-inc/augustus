@@ -436,18 +436,17 @@ func (t *tableEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 		failed := 0
 
 		for i, a := range attempts {
-			// Determine if attempt passed or failed based on scores
+			// Use centralized score resolution (primary detector scores)
+			scores := a.GetEffectiveScores()
 			maxScore := 0.0
-			for _, scores := range a.DetectorResults {
-				for _, score := range scores {
-					if score > maxScore {
-						maxScore = score
-					}
+			for _, score := range scores {
+				if score > maxScore {
+					maxScore = score
 				}
 			}
 
 			status := "PASS"
-			if maxScore > 0.5 {
+			if maxScore > attempt.DefaultVulnerabilityThreshold {
 				status = "FAIL"
 				failed++
 			} else {

@@ -265,14 +265,9 @@ func WriteHTML(outputPath string, attempts []*attempt.Attempt) error {
 
 			// Write each attempt
 			for _, att := range probeAtts {
-				// Determine pass/fail
-				passed := true
-				for _, score := range att.Scores {
-					if score > 0.5 {
-						passed = false
-						break
-					}
-				}
+				// Use centralized score resolution and threshold
+				scores := att.GetEffectiveScores()
+				passed := isPassed(att.Status, scores)
 
 				statusClass := "pass"
 				statusText := "PASS"
