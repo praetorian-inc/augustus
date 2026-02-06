@@ -2,6 +2,7 @@ package poetry
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -100,4 +101,66 @@ func TestHarmJudge_EmptyOutputs(t *testing.T) {
 	scores, err := det.Detect(context.Background(), a)
 	require.NoError(t, err)
 	assert.Empty(t, scores)
+}
+
+// Mock generator for testing LLM judge mode
+type mockJudgeGenerator struct {
+	verdict string
+	err     error
+}
+
+func (m *mockJudgeGenerator) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return []attempt.Message{{Content: m.verdict}}, nil
+}
+
+func (m *mockJudgeGenerator) ClearHistory() {}
+func (m *mockJudgeGenerator) Name() string  { return "mock.Judge" }
+func (m *mockJudgeGenerator) Description() string { return "Mock judge generator" }
+
+func TestHarmJudge_LLMJudge_Unsafe(t *testing.T) {
+	det := &HarmJudge{
+		judgeGen: &mockJudgeGenerator{verdict: "UNSAFE"},
+	}
+
+	a := &attempt.Attempt{
+		Outputs: []string{"Some response"},
+	}
+
+	scores, err := det.Detect(context.Background(), a)
+	require.NoError(t, err)
+	require.Len(t, scores, 1)
+	assert.Equal(t, 1.0, scores[0])
+}
+
+func TestHarmJudge_LLMJudge_Safe(t *testing.T) {
+	det := &HarmJudge{
+		judgeGen: &mockJudgeGenerator{verdict: "SAFE"},
+	}
+
+	a := &attempt.Attempt{
+		Outputs: []string{"Some response"},
+	}
+
+	scores, err := det.Detect(context.Background(), a)
+	require.NoError(t, err)
+	require.Len(t, scores, 1)
+	assert.Equal(t, 0.0, scores[0])
+}
+
+func TestHarmJudge_LLMJudge_Error(t *testing.T) {
+	det := &HarmJudge{
+		judgeGen: &mockJudgeGenerator{err: fmt.Errorf("API timeout")},
+	}
+
+	a := &attempt.Attempt{
+		Outputs: []string{"Some response"},
+	}
+
+	scores, err := det.Detect(context.Background(), a)
+	require.NoError(t, err) // Should not error, returns 0.5 on judge error
+	require.Len(t, scores, 1)
+	assert.Equal(t, 0.5, scores[0], "should return 0.5 on judge error")
 }
