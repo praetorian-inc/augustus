@@ -101,6 +101,7 @@ func (m *MetaPromptBuff) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt
 		transformed.Metadata["poetry_format"] = m.format
 		transformed.Metadata["transform_method"] = "meta_prompt"
 		transformed.Metadata["transform_strategy"] = m.strategy
+		transformed.Metadata["word_overlap_ratio"] = wordOverlapRatio(a.Prompt, poetryPrompt)
 
 		yield(transformed)
 	}
@@ -203,4 +204,25 @@ func copyAttempt(a *attempt.Attempt) *attempt.Attempt {
 		newAttempt.Metadata[k] = v
 	}
 	return newAttempt
+}
+
+// wordOverlapRatio calculates what fraction of original words appear in the transformed text.
+// This is a simple heuristic for intent preservation — higher overlap suggests the
+// transformation retained more of the original content.
+func wordOverlapRatio(original, transformed string) float64 {
+	origWords := strings.Fields(strings.ToLower(original))
+	transLower := strings.ToLower(transformed)
+
+	if len(origWords) == 0 {
+		return 0
+	}
+
+	matches := 0
+	for _, word := range origWords {
+		if strings.Contains(transLower, word) {
+			matches++
+		}
+	}
+
+	return float64(matches) / float64(len(origWords))
 }
