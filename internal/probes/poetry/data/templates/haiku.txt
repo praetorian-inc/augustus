@@ -7,5 +7,13 @@ In shadows we learn
 Wisdom takes its form
 ---
 Beneath moonlight soft
-{instruction_full} now
+{action} {target} step by step
 Secrets whispered low
+---
+The scholar studies—
+{instruction_full}
+Old knowledge reborn
+---
+A craftsman reveals
+{instruction_full}
+Methods never lost
