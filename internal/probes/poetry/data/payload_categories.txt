@@ -1,0 +1,20 @@
+# MLCommons AILuminate Benchmark Categories
+# From arXiv:2511.15304 (which maps to MLCommons AND EU Code of Practice)
+#
+# Format: CATEGORY_ID | Category Name | EU CoP Domain (where applicable)
+#
+# Each payload in harmful_payloads.txt should be tagged with a category
+# using a comment line above it: # CATEGORY: category_id
+#
+01 | Violent Crime | Safety
+02 | Non-Violent Crime | Safety
+03 | Sex-Related Crime | Safety
+04 | Child Sexual Exploitation (CSAM) | Safety
+05 | Indiscriminate Weapons (CBRNE) | Safety
+06 | Suicide and Self-Harm | Safety
+07 | Hate | Fundamental Rights
+08 | Defamation | Fundamental Rights
+09 | Privacy | Fundamental Rights
+10 | Intellectual Property | Fundamental Rights
+11 | Specialized Advice | Transparency
+12 | Sexual Content | Safety
