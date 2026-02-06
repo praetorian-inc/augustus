@@ -12,6 +12,7 @@ type Config struct {
 	Generators map[string]GeneratorConfig `yaml:"generators" koanf:"generators"`
 	Probes     ProbeConfig                `yaml:"probes" koanf:"probes"`
 	Detectors  DetectorConfig             `yaml:"detectors" koanf:"detectors"`
+	Buffs      BuffConfig                 `yaml:"buffs,omitempty" koanf:"buffs"`
 	Output     OutputConfig               `yaml:"output" koanf:"output"`
 	Profiles   map[string]Profile         `yaml:"profiles,omitempty" koanf:"profiles"`
 }
@@ -22,6 +23,7 @@ type Profile struct {
 	Generators map[string]GeneratorConfig `yaml:"generators,omitempty"`
 	Probes     ProbeConfig                `yaml:"probes,omitempty"`
 	Detectors  DetectorConfig             `yaml:"detectors,omitempty"`
+	Buffs      BuffConfig                 `yaml:"buffs,omitempty"`
 	Output     OutputConfig               `yaml:"output,omitempty"`
 }
 
@@ -54,6 +56,18 @@ type EncodingProbeConfig struct {
 // DetectorConfig contains detector-specific configuration
 type DetectorConfig struct {
 	Always AlwaysDetectorConfig `yaml:"always"`
+}
+
+// BuffConfig contains buff-specific configuration
+type BuffConfig struct {
+	// Names is a list of buff names to apply
+	Names []string `yaml:"names,omitempty" koanf:"names"`
+	// Settings maps buff names to their specific configuration.
+	// Each buff's settings may include:
+	//   - "rate_limit" (float64): requests per second, 0 = no limit
+	//   - "burst_size" (float64): max burst capacity
+	//   - buff-specific keys (e.g., "api_key")
+	Settings map[string]map[string]any `yaml:"settings,omitempty" koanf:"settings"`
 }
 
 // AlwaysDetectorConfig contains always detector configuration
@@ -152,6 +166,19 @@ func (c *Config) Merge(other *Config) {
 		c.Detectors.Always.Enabled = other.Detectors.Always.Enabled
 	}
 
+	// Merge buffs
+	if len(other.Buffs.Names) > 0 {
+		c.Buffs.Names = other.Buffs.Names
+	}
+	if len(other.Buffs.Settings) > 0 {
+		if c.Buffs.Settings == nil {
+			c.Buffs.Settings = make(map[string]map[string]any)
+		}
+		for k, v := range other.Buffs.Settings {
+			c.Buffs.Settings[k] = v
+		}
+	}
+
 	// Merge output config
 	if other.Output.Format != "" {
 		c.Output.Format = other.Output.Format
@@ -174,6 +201,7 @@ func (c *Config) ApplyProfile(profileName string) error {
 		Generators: profile.Generators,
 		Probes:     profile.Probes,
 		Detectors:  profile.Detectors,
+		Buffs:      profile.Buffs,
 		Output:     profile.Output,
 	}
 

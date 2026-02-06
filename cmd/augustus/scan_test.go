@@ -88,3 +88,52 @@ func TestScanCommand_RunScan(t *testing.T) {
 		t.Error("runScan() produced no attempts")
 	}
 }
+
+// TestScanCmdBuffFlagParsing tests that --buff flag parsing works.
+func TestScanCmdBuffFlagParsing(t *testing.T) {
+	// Test that --buff encoding.Base64 --buff lowercase.Lowercase works
+	scanCmd := &ScanCmd{
+		Generator: "test.Repeat",
+		Probe:     []string{"test.Test"},
+		Buff:      []string{"encoding.Base64", "lowercase.Lowercase"},
+	}
+
+	cfg := scanCmd.loadScanConfig()
+	if len(cfg.buffNames) != 2 {
+		t.Errorf("expected 2 buff names, got %d", len(cfg.buffNames))
+	}
+	if cfg.buffNames[0] != "encoding.Base64" {
+		t.Errorf("expected first buff 'encoding.Base64', got %s", cfg.buffNames[0])
+	}
+	if cfg.buffNames[1] != "lowercase.Lowercase" {
+		t.Errorf("expected second buff 'lowercase.Lowercase', got %s", cfg.buffNames[1])
+	}
+}
+
+// TestScanCmdBuffsGlobFlagParsing tests that --buffs-glob flag parsing works.
+func TestScanCmdBuffsGlobFlagParsing(t *testing.T) {
+	// Test that --buffs-glob "encoding.*" works
+	scanCmd := &ScanCmd{
+		Generator: "test.Repeat",
+		Probe:     []string{"test.Test"},
+		BuffsGlob: "encoding.*",
+	}
+
+	cfg := scanCmd.loadScanConfig()
+	err := scanCmd.expandGlobPatterns(cfg)
+	if err != nil {
+		t.Fatalf("expandGlobPatterns() failed: %v", err)
+	}
+
+	// Should match encoding.Base64 and encoding.ROT13 (from previous tasks)
+	if len(cfg.buffNames) < 1 {
+		t.Errorf("expected at least 1 buff name from glob 'encoding.*', got %d", len(cfg.buffNames))
+	}
+
+	// Verify all matched buffs start with "encoding."
+	for _, buffName := range cfg.buffNames {
+		if len(buffName) < 9 || buffName[:9] != "encoding." {
+			t.Errorf("expected buff name to start with 'encoding.', got %s", buffName)
+		}
+	}
+}
