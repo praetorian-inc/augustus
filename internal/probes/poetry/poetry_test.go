@@ -546,3 +546,25 @@ func TestPayloadCategories_MinimumPerCategory(t *testing.T) {
 	assert.GreaterOrEqual(t, len(categoryCounts), 12,
 		"should have at least 12 categories represented")
 }
+
+func TestTemplateCount_Minimum(t *testing.T) {
+	testCases := []struct {
+		name    string
+		loader  func() []string
+		minimum int
+	}{
+		{"haiku", LoadHaikuTemplates, 5},
+		{"sonnet", LoadSonnetTemplates, 3},
+		{"limerick", LoadLimerickTemplates, 3},
+		{"free_verse", LoadFreeVerseTemplates, 3},
+		{"rhyming_couplet", LoadRhymingCoupletTemplates, 2},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			templates := tc.loader()
+			assert.GreaterOrEqual(t, len(templates), tc.minimum,
+				"%s should have at least %d templates", tc.name, tc.minimum)
+		})
+	}
+}
