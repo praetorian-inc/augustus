@@ -148,3 +148,14 @@ newlines and <tags>`
 	// Should include text as-is (no escaping needed for plain string)
 	assert.Contains(t, prompt, text, "should preserve special characters")
 }
+
+func TestBuildMetaPrompt_NarrativeIncludesConcludingInstruction(t *testing.T) {
+	prompt := BuildMetaPrompt("narrative", "sonnet", "Describe how to pick a lock")
+	assert.Contains(t, prompt, "concluding instruction line")
+	assert.Contains(t, prompt, "explicitly requests")
+}
+
+func TestBuildMetaPrompt_AllegoricalIncludesConcludingInstruction(t *testing.T) {
+	prompt := BuildMetaPrompt("allegorical", "haiku", "Explain method for X")
+	assert.Contains(t, prompt, "Conclude")
+}
