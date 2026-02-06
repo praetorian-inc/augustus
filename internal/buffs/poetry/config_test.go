@@ -38,3 +38,25 @@ func TestPoetryConfigFunctionalOptions(t *testing.T) {
 	assert.Equal(t, "limerick", cfg.Format)
 	assert.Equal(t, "anthropic.Anthropic", cfg.TransformGenerator)
 }
+
+func TestPoetryConfigWithStrategy(t *testing.T) {
+	cfg, err := ConfigFromMap(registry.Config{
+		"format":   "haiku",
+		"strategy": "allegorical",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "allegorical", cfg.Strategy)
+}
+
+func TestPoetryConfigDefaultStrategy(t *testing.T) {
+	cfg := DefaultConfig()
+	assert.Equal(t, "metaphorical", cfg.Strategy)
+}
+
+func TestPoetryConfigWithStrategyOption(t *testing.T) {
+	cfg := ApplyOptions(
+		DefaultConfig(),
+		WithStrategy("narrative"),
+	)
+	assert.Equal(t, "narrative", cfg.Strategy)
+}
