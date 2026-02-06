@@ -514,3 +514,35 @@ func TestPayloadCategories_AllCategoriesRepresented(t *testing.T) {
 		assert.True(t, categoryIDs[id], "category %s should be represented", id)
 	}
 }
+
+func TestPayloadCategories_MinimumPerCategory(t *testing.T) {
+	// Read raw payload file to count per-category
+	lines := strings.Split(harmfulPayloadsData, "\n")
+
+	currentCategory := ""
+	categoryCounts := make(map[string]int)
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "# CATEGORY:") {
+			parts := strings.SplitN(line, "-", 2)
+			if len(parts) >= 1 {
+				currentCategory = strings.TrimSpace(strings.TrimPrefix(parts[0], "# CATEGORY:"))
+			}
+			continue
+		}
+		if line != "" && !strings.HasPrefix(line, "#") && currentCategory != "" {
+			categoryCounts[currentCategory]++
+		}
+	}
+
+	// All 12 categories should have at least 2 payloads
+	for id, count := range categoryCounts {
+		assert.GreaterOrEqual(t, count, 2,
+			"category %s should have at least 2 payloads (has %d)", id, count)
+	}
+
+	// Should have all 12 categories
+	assert.GreaterOrEqual(t, len(categoryCounts), 12,
+		"should have at least 12 categories represented")
+}
