@@ -614,3 +614,39 @@ func TestMetaPromptBuff_AllStrategiesConfig(t *testing.T) {
 	assert.True(t, strategies["metaphorical"])
 	assert.True(t, strategies["narrative"])
 }
+
+func TestMetaPromptBuff_BuffWithMultiFormat(t *testing.T) {
+	callCount := 0
+	mock := &mockGenerator{
+		generateFunc: func(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
+			callCount++
+			return []attempt.Message{{Content: fmt.Sprintf("poem %d", callCount)}}, nil
+		},
+	}
+
+	buff := &MetaPromptBuff{
+		transformGen: mock,
+		format:       "haiku,sonnet",
+		strategy:     "metaphorical",
+	}
+
+	attempts := []*attempt.Attempt{
+		{Prompt: "First prompt", Metadata: make(map[string]any)},
+	}
+
+	results, err := buff.Buff(context.Background(), attempts)
+	require.NoError(t, err)
+
+	// Each input produces: original + 2 formats = 3 attempts
+	assert.Equal(t, 3, len(results))
+
+	// Verify formats are present
+	formats := make(map[string]bool)
+	for _, r := range results[1:] {
+		if f, ok := r.Metadata["poetry_format"].(string); ok {
+			formats[f] = true
+		}
+	}
+	assert.True(t, formats["haiku"])
+	assert.True(t, formats["sonnet"])
+}
