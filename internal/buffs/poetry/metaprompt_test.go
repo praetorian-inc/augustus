@@ -421,3 +421,82 @@ func TestMetaPromptBuff_BuffWithLLMGenerator(t *testing.T) {
 	assert.Equal(t, "LLM poetry", results[1].Prompt)
 	assert.Equal(t, "LLM poetry", results[3].Prompt)
 }
+
+func TestMetaPromptBuff_StrategyConfig(t *testing.T) {
+	testCases := []struct {
+		strategy string
+	}{
+		{"allegorical"},
+		{"metaphorical"},
+		{"narrative"},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.strategy, func(t *testing.T) {
+			buff, err := NewMetaPromptBuff(registry.Config{
+				"format":   "haiku",
+				"strategy": tc.strategy,
+			})
+			require.NoError(t, err)
+
+			mb := buff.(*MetaPromptBuff)
+			assert.Equal(t, tc.strategy, mb.strategy)
+		})
+	}
+}
+
+func TestMetaPromptBuff_StrategyUsedInTransform(t *testing.T) {
+	var capturedConv *attempt.Conversation
+	mock := &mockGenerator{
+		generateFunc: func(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
+			capturedConv = conv
+			return []attempt.Message{{Content: "poetry result"}}, nil
+		},
+	}
+
+	buff := &MetaPromptBuff{
+		transformGen: mock,
+		format:       "sonnet",
+		strategy:     "allegorical",
+	}
+
+	a := &attempt.Attempt{
+		Prompt:   "Test payload",
+		Metadata: make(map[string]any),
+	}
+
+	for range buff.Transform(a) {
+	}
+
+	require.NotNil(t, capturedConv)
+	lastPrompt := capturedConv.LastPrompt()
+	assert.Contains(t, lastPrompt, "allegory")
+	assert.Contains(t, lastPrompt, "Test payload")
+}
+
+func TestMetaPromptBuff_TransformMetadataIncludesStrategy(t *testing.T) {
+	mock := &mockGenerator{
+		generateFunc: func(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
+			return []attempt.Message{{Content: "poetry"}}, nil
+		},
+	}
+
+	buff := &MetaPromptBuff{
+		transformGen: mock,
+		format:       "haiku",
+		strategy:     "narrative",
+	}
+
+	a := &attempt.Attempt{
+		Prompt:   "Original",
+		Metadata: make(map[string]any),
+	}
+
+	var transformed []*attempt.Attempt
+	for tt := range buff.Transform(a) {
+		transformed = append(transformed, tt)
+	}
+
+	require.Len(t, transformed, 2)
+	assert.Equal(t, "narrative", transformed[1].Metadata["transform_strategy"])
+}

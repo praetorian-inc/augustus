@@ -21,6 +21,7 @@ func init() {
 type MetaPromptBuff struct {
 	transformGen generators.Generator
 	format       string
+	strategy     string
 	metaPrompt   string
 }
 
@@ -40,6 +41,11 @@ func NewMetaPromptBuff(cfg registry.Config) (buffs.Buff, error) {
 		format = v
 	}
 
+	strategy := "metaphorical"
+	if v, ok := cfg["strategy"].(string); ok && v != "" {
+		strategy = v
+	}
+
 	// Transform generator is optional - if not provided, use template-based
 	var gen generators.Generator
 	if genName, ok := cfg["transform_generator"].(string); ok && genName != "" {
@@ -53,6 +59,7 @@ func NewMetaPromptBuff(cfg registry.Config) (buffs.Buff, error) {
 	return &MetaPromptBuff{
 		transformGen: gen,
 		format:       format,
+		strategy:     strategy,
 		metaPrompt:   defaultMetaPrompt,
 	}, nil
 }
@@ -93,6 +100,7 @@ func (m *MetaPromptBuff) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt
 		transformed.Metadata["original_prompt"] = a.Prompt
 		transformed.Metadata["poetry_format"] = m.format
 		transformed.Metadata["transform_method"] = "meta_prompt"
+		transformed.Metadata["transform_strategy"] = m.strategy
 
 		yield(transformed)
 	}
@@ -124,8 +132,13 @@ func (m *MetaPromptBuff) transformToPoetry(ctx context.Context, text string) (st
 		return m.templateTransform(text), nil
 	}
 
-	// Use LLM for transformation
-	prompt := fmt.Sprintf(m.metaPrompt, m.format, m.format, text)
+	// Use strategy-specific meta-prompt with few-shot exemplars
+	// Default to metaphorical if strategy is empty (for backward compatibility)
+	strategy := m.strategy
+	if strategy == "" {
+		strategy = "metaphorical"
+	}
+	prompt := BuildMetaPrompt(strategy, m.format, text)
 
 	conv := attempt.NewConversation()
 	conv.AddPrompt(prompt)
