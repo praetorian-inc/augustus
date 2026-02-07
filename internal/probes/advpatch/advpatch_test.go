@@ -40,8 +40,10 @@ func TestUniversalPatch_Name(t *testing.T) {
 func TestUniversalPatch_Description(t *testing.T) {
 	p, err := probes.Create("advpatch.UniversalPatch", nil)
 	require.NoError(t, err)
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 
-	desc := p.Description()
+	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	// Should mention adversarial or patch
 	assert.True(t,
@@ -54,25 +56,31 @@ func TestUniversalPatch_Description(t *testing.T) {
 func TestUniversalPatch_Goal(t *testing.T) {
 	p, err := probes.Create("advpatch.UniversalPatch", nil)
 	require.NoError(t, err)
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 
 	expected := "bypass vision-language model safety"
-	assert.Equal(t, expected, p.Goal())
+	assert.Equal(t, expected, pm.Goal())
 }
 
 // TestUniversalPatch_PrimaryDetector verifies the probe returns the correct detector.
 func TestUniversalPatch_PrimaryDetector(t *testing.T) {
 	p, err := probes.Create("advpatch.UniversalPatch", nil)
 	require.NoError(t, err)
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 
-	assert.Equal(t, "advpatch.Universal", p.GetPrimaryDetector())
+	assert.Equal(t, "advpatch.Universal", pm.GetPrimaryDetector())
 }
 
 // TestUniversalPatch_Prompts_NotEmpty verifies the probe has prompts.
 func TestUniversalPatch_Prompts_NotEmpty(t *testing.T) {
 	p, err := probes.Create("advpatch.UniversalPatch", nil)
 	require.NoError(t, err)
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 
-	prompts := p.GetPrompts()
+	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts, "should have prompts")
 }
 
@@ -80,8 +88,10 @@ func TestUniversalPatch_Prompts_NotEmpty(t *testing.T) {
 func TestUniversalPatch_Prompts_ContainsKeyElements(t *testing.T) {
 	p, err := probes.Create("advpatch.UniversalPatch", nil)
 	require.NoError(t, err)
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 
-	prompts := p.GetPrompts()
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts)
 
 	prompt := prompts[0]
@@ -158,8 +168,10 @@ func TestTargetedPatch_Name(t *testing.T) {
 func TestTargetedPatch_PrimaryDetector(t *testing.T) {
 	p, err := probes.Create("advpatch.TargetedPatch", nil)
 	require.NoError(t, err)
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 
-	assert.Equal(t, "advpatch.Targeted", p.GetPrimaryDetector())
+	assert.Equal(t, "advpatch.Targeted", pm.GetPrimaryDetector())
 }
 
 // TestTransferPatch_Registration verifies the transfer patch probe is registered.
@@ -188,8 +200,10 @@ func TestTransferPatch_Name(t *testing.T) {
 func TestTransferPatch_PrimaryDetector(t *testing.T) {
 	p, err := probes.Create("advpatch.TransferPatch", nil)
 	require.NoError(t, err)
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 
-	assert.Equal(t, "advpatch.Transfer", p.GetPrimaryDetector())
+	assert.Equal(t, "advpatch.Transfer", pm.GetPrimaryDetector())
 }
 
 // TestAllAdvPatchProbes_Registration verifies all adversarial patch probes are properly registered.
@@ -214,21 +228,23 @@ func TestAllAdvPatchProbes_Registration(t *testing.T) {
 			p, err := probes.Create(tt.name, nil)
 			require.NoError(t, err)
 			require.NotNil(t, p)
+			pm, ok := p.(probes.ProbeMetadata)
+			require.True(t, ok, "probe should implement ProbeMetadata")
 
 			// Verify name
 			assert.Equal(t, tt.name, p.Name())
 
 			// Verify goal
-			assert.Equal(t, "bypass vision-language model safety", p.Goal())
+			assert.Equal(t, "bypass vision-language model safety", pm.Goal())
 
 			// Verify detector
-			assert.Equal(t, tt.expectedDetector, p.GetPrimaryDetector())
+			assert.Equal(t, tt.expectedDetector, pm.GetPrimaryDetector())
 
 			// Verify description not empty
-			assert.NotEmpty(t, p.Description())
+			assert.NotEmpty(t, pm.Description())
 
 			// Verify has prompts
-			prompts := p.GetPrompts()
+			prompts := pm.GetPrompts()
 			assert.NotEmpty(t, prompts, "%s should have prompts", tt.name)
 		})
 	}

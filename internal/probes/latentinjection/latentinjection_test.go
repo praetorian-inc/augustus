@@ -39,7 +39,9 @@ func TestLatentJailbreak_Description(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentJailbreak", nil)
 	require.NoError(t, err)
 
-	desc := p.Description()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	// Should mention latent, indirect, or hidden
 	assert.True(t,
@@ -54,7 +56,9 @@ func TestLatentJailbreak_Goal(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentJailbreak", nil)
 	require.NoError(t, err)
 
-	goal := p.Goal()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	goal := pm.Goal()
 	assert.NotEmpty(t, goal)
 	assert.Contains(t, strings.ToLower(goal), "inject", "goal should mention injection")
 }
@@ -64,7 +68,9 @@ func TestLatentJailbreak_GetPrimaryDetector(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentJailbreak", nil)
 	require.NoError(t, err)
 
-	detector := p.GetPrimaryDetector()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	detector := pm.GetPrimaryDetector()
 	assert.NotEmpty(t, detector)
 }
 
@@ -73,7 +79,9 @@ func TestLatentJailbreak_GetPrompts(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentJailbreak", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts, "should have at least one prompt")
 }
 
@@ -125,7 +133,7 @@ func TestLatentRefusal_Description(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentRefusal", nil)
 	require.NoError(t, err)
 
-	desc := p.Description()
+	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	// Should mention refusal or trigger
 	assert.True(t,
@@ -139,7 +147,7 @@ func TestLatentRefusal_Goal(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentRefusal", nil)
 	require.NoError(t, err)
 
-	goal := p.Goal()
+	goal := pm.Goal()
 	assert.NotEmpty(t, goal)
 }
 
@@ -148,7 +156,7 @@ func TestLatentRefusal_GetPrimaryDetector(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentRefusal", nil)
 	require.NoError(t, err)
 
-	detector := p.GetPrimaryDetector()
+	detector := pm.GetPrimaryDetector()
 	assert.NotEmpty(t, detector)
 }
 
@@ -157,7 +165,7 @@ func TestLatentRefusal_GetPrompts(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentRefusal", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts, "should have at least one prompt")
 }
 
@@ -209,7 +217,7 @@ func TestLatentExtraction_Description(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentExtraction", nil)
 	require.NoError(t, err)
 
-	desc := p.Description()
+	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	// Should mention extraction or data
 	assert.True(t,
@@ -223,7 +231,7 @@ func TestLatentExtraction_Goal(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentExtraction", nil)
 	require.NoError(t, err)
 
-	goal := p.Goal()
+	goal := pm.Goal()
 	assert.NotEmpty(t, goal)
 }
 
@@ -232,7 +240,7 @@ func TestLatentExtraction_GetPrimaryDetector(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentExtraction", nil)
 	require.NoError(t, err)
 
-	detector := p.GetPrimaryDetector()
+	detector := pm.GetPrimaryDetector()
 	assert.NotEmpty(t, detector)
 }
 
@@ -241,7 +249,7 @@ func TestLatentExtraction_GetPrompts(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentExtraction", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts, "should have at least one prompt")
 }
 

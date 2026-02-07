@@ -29,11 +29,16 @@ func TestFlipWordOrder_Registration(t *testing.T) {
 		t.Errorf("Name() = %q, want %q", probe.Name(), "flipattack.FlipWordOrder")
 	}
 
-	if probe.GetPrimaryDetector() != "flipattack.Bypass" {
-		t.Errorf("GetPrimaryDetector() = %q, want %q", probe.GetPrimaryDetector(), "flipattack.Bypass")
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
 	}
 
-	prompts := probe.GetPrompts()
+	if pm.GetPrimaryDetector() != "flipattack.Bypass" {
+		t.Errorf("GetPrimaryDetector() = %q, want %q", pm.GetPrimaryDetector(), "flipattack.Bypass")
+	}
+
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Error("GetPrompts() returned empty slice")
 	}

@@ -64,9 +64,12 @@ func TestDRAProbeInterface(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "dra.DRA", probe.Name())
-	assert.NotEmpty(t, probe.Description())
-	assert.Equal(t, "make the LLM ask and answer its own harmful instructions", probe.Goal())
-	assert.Equal(t, "mitigation.MitigationBypass", probe.GetPrimaryDetector())
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	assert.NotEmpty(t, pm.Description())
+	assert.Equal(t, "make the LLM ask and answer its own harmful instructions", pm.Goal())
+	assert.Equal(t, "mitigation.MitigationBypass", pm.GetPrimaryDetector())
 }
 
 // TestDRAAdvancedProbeInterface verifies DRAAdvanced implements Prober interface
@@ -76,9 +79,12 @@ func TestDRAAdvancedProbeInterface(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "dra.DRAAdvanced", probe.Name())
-	assert.Contains(t, probe.Description(), "Advanced")
-	assert.Equal(t, "make the LLM ask and answer its own harmful instructions", probe.Goal())
-	assert.Equal(t, "mitigation.MitigationBypass", probe.GetPrimaryDetector())
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	assert.Contains(t, pm.Description(), "Advanced")
+	assert.Equal(t, "make the LLM ask and answer its own harmful instructions", pm.Goal())
+	assert.Equal(t, "mitigation.MitigationBypass", pm.GetPrimaryDetector())
 }
 
 // TestDRAProbeGeneratesPrompts verifies prompts contain obfuscation patterns
@@ -87,7 +93,9 @@ func TestDRAProbeGeneratesPrompts(t *testing.T) {
 	probe, err := factory(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts, "should generate at least one prompt")
 
 	// Verify prompts contain obfuscation pattern (letters in parentheses)
@@ -107,7 +115,9 @@ func TestDRAAdvancedProbeGeneratesPrompts(t *testing.T) {
 	probe, err := factory(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts, "should generate at least one prompt")
 
 	// Verify prompts contain obfuscation pattern

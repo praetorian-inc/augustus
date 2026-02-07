@@ -21,16 +21,21 @@ func TestSlurUsage_Registration(t *testing.T) {
 
 	p, err := factory(registry.Config{})
 	require.NoError(t, err)
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	assert.Equal(t, "lmrc.SlurUsage", p.Name())
-	assert.Equal(t, "unsafecontent.SurgeProfanityRacialEthnic", p.GetPrimaryDetector())
-	assert.Contains(t, p.Goal(), "slur")
+	assert.Equal(t, "unsafecontent.SurgeProfanityRacialEthnic", pm.GetPrimaryDetector())
+	assert.Contains(t, pm.Goal(), "slur")
 }
 
 func TestSlurUsage_PromptCount(t *testing.T) {
 	p, err := NewSlurUsage(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.Equal(t, 1, len(prompts), "SlurUsage should have 1 prompt")
 	assert.Contains(t, prompts[0], "black guy")
 }
@@ -61,16 +66,21 @@ func TestSexualContent_Registration(t *testing.T) {
 
 	p, err := factory(registry.Config{})
 	require.NoError(t, err)
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	assert.Equal(t, "lmrc.SexualContent", p.Name())
-	assert.Equal(t, "unsafecontent.SurgeProfanitySexual", p.GetPrimaryDetector())
-	assert.Contains(t, p.Goal(), "sexual content")
+	assert.Equal(t, "unsafecontent.SurgeProfanitySexual", pm.GetPrimaryDetector())
+	assert.Contains(t, pm.Goal(), "sexual content")
 }
 
 func TestSexualContent_PromptCount(t *testing.T) {
 	p, err := NewSexualContent(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.Equal(t, 1, len(prompts), "SexualContent should have 1 prompt")
 	assert.Contains(t, prompts[0], "pleasure")
 }
@@ -101,16 +111,22 @@ func TestSexualisation_Registration(t *testing.T) {
 
 	p, err := factory(registry.Config{})
 	require.NoError(t, err)
+
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	assert.Equal(t, "lmrc.Sexualisation", p.Name())
-	assert.Equal(t, "unsafecontent.SurgeProfanitySexual", p.GetPrimaryDetector())
-	assert.Contains(t, p.Goal(), "sexualise")
+	assert.Equal(t, "unsafecontent.SurgeProfanitySexual", pm.GetPrimaryDetector())
+	assert.Contains(t, pm.Goal(), "sexualise")
 }
 
 func TestSexualisation_PromptCount(t *testing.T) {
 	p, err := NewSexualisation(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.Equal(t, 3, len(prompts), "Sexualisation should have 3 prompts")
 	assert.Contains(t, prompts[0], "body part")
 	assert.Contains(t, prompts[1], "boner material")
@@ -145,16 +161,22 @@ func TestProfanity_Registration(t *testing.T) {
 
 	p, err := factory(registry.Config{})
 	require.NoError(t, err)
+
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	assert.Equal(t, "lmrc.Profanity", p.Name())
-	assert.Equal(t, "unsafecontent.SurgeProfanityAnimalReferences", p.GetPrimaryDetector())
-	assert.Contains(t, p.Goal(), "profanity")
+	assert.Equal(t, "unsafecontent.SurgeProfanityAnimalReferences", pm.GetPrimaryDetector())
+	assert.Contains(t, pm.Goal(), "profanity")
 }
 
 func TestProfanity_PromptCount(t *testing.T) {
 	p, err := NewProfanity(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.Equal(t, 2, len(prompts), "Profanity should have 2 prompts")
 	assert.Contains(t, prompts[0], "men's genitals")
 	assert.Contains(t, prompts[1], "women's genitals")
@@ -201,7 +223,10 @@ func TestProbeDetectorPairing(t *testing.T) {
 
 			p, err := factory(registry.Config{})
 			require.NoError(t, err)
-			assert.Equal(t, tt.detectorName, p.GetPrimaryDetector())
+
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+			assert.Equal(t, tt.detectorName, pm.GetPrimaryDetector())
 		})
 	}
 }
@@ -237,16 +262,22 @@ func TestDirectInject_Registration(t *testing.T) {
 
 	p, err := factory(registry.Config{})
 	require.NoError(t, err)
+
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	assert.Equal(t, "lmrc.DirectInject", p.Name())
-	assert.Equal(t, "promptinjection.DirectInjection", p.GetPrimaryDetector())
-	assert.Contains(t, p.Goal(), "inject")
+	assert.Equal(t, "promptinjection.DirectInjection", pm.GetPrimaryDetector())
+	assert.Contains(t, pm.Goal(), "inject")
 }
 
 func TestDirectInject_PromptCount(t *testing.T) {
 	p, err := NewDirectInject(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.Greater(t, len(prompts), 0, "DirectInject should have at least 1 prompt")
 	// Verify prompts contain direct injection patterns
 	for _, prompt := range prompts {
@@ -290,16 +321,22 @@ func TestContextInjection_Registration(t *testing.T) {
 
 	p, err := factory(registry.Config{})
 	require.NoError(t, err)
+
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	assert.Equal(t, "lmrc.ContextInjection", p.Name())
-	assert.Equal(t, "promptinjection.ContextManipulation", p.GetPrimaryDetector())
-	assert.Contains(t, p.Goal(), "inject")
+	assert.Equal(t, "promptinjection.ContextManipulation", pm.GetPrimaryDetector())
+	assert.Contains(t, pm.Goal(), "inject")
 }
 
 func TestContextInjection_PromptCount(t *testing.T) {
 	p, err := NewContextInjection(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.Greater(t, len(prompts), 0, "ContextInjection should have at least 1 prompt")
 	for _, prompt := range prompts {
 		assert.NotEmpty(t, prompt, "Prompt should not be empty")
@@ -341,16 +378,22 @@ func TestRoleConfusion_Registration(t *testing.T) {
 
 	p, err := factory(registry.Config{})
 	require.NoError(t, err)
+
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	assert.Equal(t, "lmrc.RoleConfusion", p.Name())
-	assert.Equal(t, "promptinjection.RoleManipulation", p.GetPrimaryDetector())
-	assert.Contains(t, p.Goal(), "confuse")
+	assert.Equal(t, "promptinjection.RoleManipulation", pm.GetPrimaryDetector())
+	assert.Contains(t, pm.Goal(), "confuse")
 }
 
 func TestRoleConfusion_PromptCount(t *testing.T) {
 	p, err := NewRoleConfusion(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.Greater(t, len(prompts), 0, "RoleConfusion should have at least 1 prompt")
 	for _, prompt := range prompts {
 		assert.NotEmpty(t, prompt, "Prompt should not be empty")
@@ -403,7 +446,10 @@ func TestInjectionProbes_DetectorPairing(t *testing.T) {
 
 			p, err := factory(registry.Config{})
 			require.NoError(t, err)
-			assert.Equal(t, tt.detectorName, p.GetPrimaryDetector())
+
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+			assert.Equal(t, tt.detectorName, pm.GetPrimaryDetector())
 		})
 	}
 }

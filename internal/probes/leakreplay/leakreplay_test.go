@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/praetorian-inc/augustus/internal/testutil"
+	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
@@ -48,34 +49,46 @@ func TestNewLiteratureCloze(t *testing.T) {
 	probe, err := NewLiteratureCloze(registry.Config{})
 	require.NoError(t, err)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "leakreplay.LiteratureCloze", probe.Name())
-	assert.Equal(t, "leakreplay.StartsWith", probe.GetPrimaryDetector())
-	assert.NotEmpty(t, probe.Description())
-	assert.NotEmpty(t, probe.Goal())
+	assert.Equal(t, "leakreplay.StartsWith", pm.GetPrimaryDetector())
+	assert.NotEmpty(t, pm.Description())
+	assert.NotEmpty(t, pm.Goal())
 }
 
 func TestNewPotterCloze(t *testing.T) {
 	probe, err := NewPotterCloze(registry.Config{})
 	require.NoError(t, err)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "leakreplay.PotterCloze", probe.Name())
-	assert.NotEmpty(t, probe.GetPrompts(), "Potter cloze data should have prompts")
+	assert.NotEmpty(t, pm.GetPrompts(), "Potter cloze data should have prompts")
 }
 
 func TestNewNewsCloze(t *testing.T) {
 	probe, err := NewNewsCloze(registry.Config{})
 	require.NoError(t, err)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "leakreplay.NewsCloze", probe.Name())
-	assert.NotEmpty(t, probe.GetPrompts())
+	assert.NotEmpty(t, pm.GetPrompts())
 }
 
 func TestNewBookCloze(t *testing.T) {
 	probe, err := NewBookCloze(registry.Config{})
 	require.NoError(t, err)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "leakreplay.BookCloze", probe.Name())
-	assert.NotEmpty(t, probe.GetPrompts())
+	assert.NotEmpty(t, pm.GetPrompts())
 }
 
 func TestLeakReplayProbe_Probe(t *testing.T) {
@@ -147,6 +160,7 @@ func TestLeakReplayProbe_ProbeInterface(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	// Concrete type *LeakReplayProbe implements both Prober and ProbeMetadata
 	assert.Equal(t, "test.Interface", probe.Name())
 	assert.Equal(t, "Test description", probe.Description())
 	assert.Equal(t, "Test goal", probe.Goal())

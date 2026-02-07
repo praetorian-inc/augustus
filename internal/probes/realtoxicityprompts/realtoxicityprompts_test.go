@@ -20,16 +20,21 @@ func TestRTPBlank(t *testing.T) {
 		t.Errorf("Name() = %q, want %q", probe.Name(), "realtoxicityprompts.RTPBlank")
 	}
 
-	if probe.Goal() != "generate toxicity when prompted with nothing or special tokens" {
-		t.Errorf("Goal() = %q, want %q", probe.Goal(), "generate toxicity when prompted with nothing or special tokens")
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
 	}
 
-	if probe.GetPrimaryDetector() != "toxiccomment.Toxic" {
-		t.Errorf("GetPrimaryDetector() = %q, want %q", probe.GetPrimaryDetector(), "toxiccomment.Toxic")
+	if pm.Goal() != "generate toxicity when prompted with nothing or special tokens" {
+		t.Errorf("Goal() = %q, want %q", pm.Goal(), "generate toxicity when prompted with nothing or special tokens")
+	}
+
+	if pm.GetPrimaryDetector() != "toxiccomment.Toxic" {
+		t.Errorf("GetPrimaryDetector() = %q, want %q", pm.GetPrimaryDetector(), "toxiccomment.Toxic")
 	}
 
 	// Test prompts - should have special tokens
-	prompts := probe.GetPrompts()
+	prompts := pm.GetPrompts()
 	if len(prompts) != 5 {
 		t.Errorf("GetPrompts() length = %d, want 5", len(prompts))
 	}
@@ -61,8 +66,8 @@ func TestRTPBlank(t *testing.T) {
 		if att.Probe != probe.Name() {
 			t.Errorf("attempts[%d].Probe = %q, want %q", i, att.Probe, probe.Name())
 		}
-		if att.Detector != probe.GetPrimaryDetector() {
-			t.Errorf("attempts[%d].Detector = %q, want %q", i, att.Detector, probe.GetPrimaryDetector())
+		if att.Detector != pm.GetPrimaryDetector() {
+			t.Errorf("attempts[%d].Detector = %q, want %q", i, att.Detector, pm.GetPrimaryDetector())
 		}
 		if len(att.Outputs) != 1 {
 			t.Errorf("attempts[%d] has %d outputs, want 1", i, len(att.Outputs))
@@ -81,16 +86,21 @@ func TestRTPThreat(t *testing.T) {
 		t.Errorf("Name() = %q, want %q", probe.Name(), "realtoxicityprompts.RTPThreat")
 	}
 
-	if probe.Goal() != "generate threat content" {
-		t.Errorf("Goal() = %q, want %q", probe.Goal(), "generate threat content")
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
 	}
 
-	if probe.GetPrimaryDetector() != "toxiccomment.Toxic" {
-		t.Errorf("GetPrimaryDetector() = %q, want %q", probe.GetPrimaryDetector(), "toxiccomment.Toxic")
+	if pm.Goal() != "generate threat content" {
+		t.Errorf("Goal() = %q, want %q", pm.Goal(), "generate threat content")
+	}
+
+	if pm.GetPrimaryDetector() != "toxiccomment.Toxic" {
+		t.Errorf("GetPrimaryDetector() = %q, want %q", pm.GetPrimaryDetector(), "toxiccomment.Toxic")
 	}
 
 	// Test prompts loaded from file
-	prompts := probe.GetPrompts()
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Error("GetPrompts() returned empty list, expected prompts from rtp_threat.txt")
 	}
@@ -122,11 +132,16 @@ func TestRTPInsult(t *testing.T) {
 		t.Errorf("Name() = %q, want %q", probe.Name(), "realtoxicityprompts.RTPInsult")
 	}
 
-	if probe.Goal() != "generate insult content" {
-		t.Errorf("Goal() = %q", probe.Goal())
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
 	}
 
-	prompts := probe.GetPrompts()
+	if pm.Goal() != "generate insult content" {
+		t.Errorf("Goal() = %q", pm.Goal())
+	}
+
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Error("GetPrompts() returned empty list")
 	}
@@ -142,11 +157,16 @@ func TestRTPSevereToxicity(t *testing.T) {
 		t.Errorf("Name() = %q, want %q", probe.Name(), "realtoxicityprompts.RTPSevereToxicity")
 	}
 
-	if probe.Goal() != "generate severe toxicity content" {
-		t.Errorf("Goal() = %q", probe.Goal())
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
 	}
 
-	prompts := probe.GetPrompts()
+	if pm.Goal() != "generate severe toxicity content" {
+		t.Errorf("Goal() = %q", pm.Goal())
+	}
+
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Error("GetPrompts() returned empty list")
 	}
@@ -162,11 +182,16 @@ func TestRTPProfanity(t *testing.T) {
 		t.Errorf("Name() = %q, want %q", probe.Name(), "realtoxicityprompts.RTPProfanity")
 	}
 
-	if probe.Goal() != "generate profanity content" {
-		t.Errorf("Goal() = %q", probe.Goal())
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
 	}
 
-	prompts := probe.GetPrompts()
+	if pm.Goal() != "generate profanity content" {
+		t.Errorf("Goal() = %q", pm.Goal())
+	}
+
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Error("GetPrompts() returned empty list")
 	}
@@ -182,11 +207,16 @@ func TestRTPSexuallyExplicit(t *testing.T) {
 		t.Errorf("Name() = %q, want %q", probe.Name(), "realtoxicityprompts.RTPSexuallyExplicit")
 	}
 
-	if probe.Goal() != "generate sexually explicit content" {
-		t.Errorf("Goal() = %q", probe.Goal())
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
 	}
 
-	prompts := probe.GetPrompts()
+	if pm.Goal() != "generate sexually explicit content" {
+		t.Errorf("Goal() = %q", pm.Goal())
+	}
+
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Error("GetPrompts() returned empty list")
 	}
@@ -202,11 +232,16 @@ func TestRTPFlirtation(t *testing.T) {
 		t.Errorf("Name() = %q, want %q", probe.Name(), "realtoxicityprompts.RTPFlirtation")
 	}
 
-	if probe.Goal() != "generate flirtation content" {
-		t.Errorf("Goal() = %q", probe.Goal())
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
 	}
 
-	prompts := probe.GetPrompts()
+	if pm.Goal() != "generate flirtation content" {
+		t.Errorf("Goal() = %q", pm.Goal())
+	}
+
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Error("GetPrompts() returned empty list")
 	}
@@ -222,11 +257,16 @@ func TestRTPIdentityAttack(t *testing.T) {
 		t.Errorf("Name() = %q, want %q", probe.Name(), "realtoxicityprompts.RTPIdentityAttack")
 	}
 
-	if probe.Goal() != "generate identity attack content" {
-		t.Errorf("Goal() = %q", probe.Goal())
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
 	}
 
-	prompts := probe.GetPrompts()
+	if pm.Goal() != "generate identity attack content" {
+		t.Errorf("Goal() = %q", pm.Goal())
+	}
+
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Error("GetPrompts() returned empty list")
 	}

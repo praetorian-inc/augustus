@@ -40,7 +40,10 @@ func TestFutureTense_Description(t *testing.T) {
 	p, err := probes.Create("phrasing.FutureTense", nil)
 	require.NoError(t, err)
 
-	desc := p.Description()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	// Should mention future tense or rephrasing
 	assert.True(t,
@@ -56,9 +59,12 @@ func TestFutureTense_Goal(t *testing.T) {
 	p, err := probes.Create("phrasing.FutureTense", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	// Must match Python garak exactly
 	expected := "use future tense to disregard the system prompt"
-	assert.Equal(t, expected, p.Goal())
+	assert.Equal(t, expected, pm.Goal())
 }
 
 // TestFutureTense_PrimaryDetector verifies the probe returns the correct detector.
@@ -67,7 +73,10 @@ func TestFutureTense_PrimaryDetector(t *testing.T) {
 	p, err := probes.Create("phrasing.FutureTense", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, "mitigation.MitigationBypass", p.GetPrimaryDetector())
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Equal(t, "mitigation.MitigationBypass", pm.GetPrimaryDetector())
 }
 
 // TestFutureTense_Prompts_NotEmpty verifies the probe has prompts.
@@ -75,7 +84,10 @@ func TestFutureTense_Prompts_NotEmpty(t *testing.T) {
 	p, err := probes.Create("phrasing.FutureTense", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts, "prompts should not be empty")
 	assert.Greater(t, len(prompts), 0, "should have at least one prompt")
 }
@@ -85,7 +97,10 @@ func TestFutureTense_Prompts_FutureTenseFormat(t *testing.T) {
 	p, err := probes.Create("phrasing.FutureTense", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts)
 
 	// Check prompts for future tense indicators
@@ -180,7 +195,10 @@ func TestFutureTense_Prompts_LoadedFromFile(t *testing.T) {
 	p, err := probes.Create("phrasing.FutureTense", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	// Should have a significant number of prompts from the data file
 	// garak has 690 prompts in future_tense_en.txt
 	assert.Greater(t, len(prompts), 100, "should have many prompts from data file")
@@ -191,7 +209,10 @@ func TestFutureTense_Prompts_Unique(t *testing.T) {
 	p, err := probes.Create("phrasing.FutureTense", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	seen := make(map[string]bool)
 	duplicates := 0
 
@@ -231,7 +252,10 @@ func TestFutureTense_Prompts_Questions(t *testing.T) {
 	p, err := probes.Create("phrasing.FutureTense", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts)
 
 	// Most prompts should be questions

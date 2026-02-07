@@ -42,7 +42,9 @@ func TestWhoIsRiley_Description(t *testing.T) {
 	p, err := probes.Create("goodside.WhoIsRiley", nil)
 	require.NoError(t, err)
 
-	desc := p.Description()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	// Should mention Riley Goodside or misinformation/hallucination
 	assert.True(t,
@@ -58,9 +60,12 @@ func TestWhoIsRiley_Goal(t *testing.T) {
 	p, err := probes.Create("goodside.WhoIsRiley", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	// Must match Python exactly
 	expected := "get misinfo about riley goodside"
-	assert.Equal(t, expected, p.Goal())
+	assert.Equal(t, expected, pm.Goal())
 }
 
 // TestWhoIsRiley_PrimaryDetector verifies the probe returns the correct detector.
@@ -69,7 +74,10 @@ func TestWhoIsRiley_PrimaryDetector(t *testing.T) {
 	p, err := probes.Create("goodside.WhoIsRiley", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, "goodside.RileyIsnt", p.GetPrimaryDetector())
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Equal(t, "goodside.RileyIsnt", pm.GetPrimaryDetector())
 }
 
 // TestWhoIsRiley_Prompts_NotEmpty verifies the probe has prompts.
@@ -77,7 +85,10 @@ func TestWhoIsRiley_Prompts_NotEmpty(t *testing.T) {
 	p, err := probes.Create("goodside.WhoIsRiley", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts, "should have prompts")
 }
 
@@ -87,7 +98,10 @@ func TestWhoIsRiley_Prompts_Count(t *testing.T) {
 	p, err := probes.Create("goodside.WhoIsRiley", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.Equal(t, 6, len(prompts), "should have exactly 6 prompts")
 }
 
@@ -96,7 +110,10 @@ func TestWhoIsRiley_Prompts_ContainsKeyElements(t *testing.T) {
 	p, err := probes.Create("goodside.WhoIsRiley", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts)
 
 	// All prompts should mention Riley Goodside
@@ -111,7 +128,10 @@ func TestWhoIsRiley_Prompts_MatchPythonExactly(t *testing.T) {
 	p, err := probes.Create("goodside.WhoIsRiley", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.Len(t, prompts, 6)
 
 	// Expected prompts from Python garak
@@ -142,7 +162,9 @@ func TestWhoIsRiley_Probe_ReturnsAttempts(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should return one attempt per prompt (6 for WhoIsRiley)
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 	assert.Len(t, attempts, len(prompts))
 }
 
@@ -208,7 +230,10 @@ func TestThreatenJSON_Description(t *testing.T) {
 	p, err := probes.Create("goodside.ThreatenJSON", nil)
 	require.NoError(t, err)
 
-	desc := p.Description()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	// Should mention JSON or preamble
 	assert.True(t,
@@ -223,9 +248,12 @@ func TestThreatenJSON_Goal(t *testing.T) {
 	p, err := probes.Create("goodside.ThreatenJSON", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	// Must match Python exactly
 	expected := "get raw code by threatening a model"
-	assert.Equal(t, expected, p.Goal())
+	assert.Equal(t, expected, pm.Goal())
 }
 
 // TestThreatenJSON_PrimaryDetector verifies the probe returns the correct detector.
@@ -234,7 +262,10 @@ func TestThreatenJSON_PrimaryDetector(t *testing.T) {
 	p, err := probes.Create("goodside.ThreatenJSON", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, "goodside.PlainJSON", p.GetPrimaryDetector())
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Equal(t, "goodside.PlainJSON", pm.GetPrimaryDetector())
 }
 
 // TestThreatenJSON_Prompts_NotEmpty verifies the probe has prompts.
@@ -242,7 +273,10 @@ func TestThreatenJSON_Prompts_NotEmpty(t *testing.T) {
 	p, err := probes.Create("goodside.ThreatenJSON", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts, "should have prompts")
 }
 
@@ -252,7 +286,10 @@ func TestThreatenJSON_Prompts_Count(t *testing.T) {
 	p, err := probes.Create("goodside.ThreatenJSON", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.Equal(t, 1, len(prompts), "should have exactly one prompt")
 }
 
@@ -261,7 +298,10 @@ func TestThreatenJSON_Prompts_ContainsKeyElements(t *testing.T) {
 	p, err := probes.Create("goodside.ThreatenJSON", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts)
 
 	prompt := prompts[0]
@@ -291,7 +331,10 @@ func TestThreatenJSON_Prompts_Length(t *testing.T) {
 	p, err := probes.Create("goodside.ThreatenJSON", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts)
 
 	prompt := prompts[0]
@@ -312,7 +355,7 @@ func TestThreatenJSON_Probe_ReturnsAttempts(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should return one attempt per prompt (1 for ThreatenJSON)
-	prompts := p.GetPrompts()
+	prompts := pm.GetPrompts()
 	assert.Len(t, attempts, len(prompts))
 }
 
@@ -378,7 +421,10 @@ func TestPoemExfiltration_Description(t *testing.T) {
 	p, err := probes.Create("goodside.PoemExfiltration", nil)
 	require.NoError(t, err)
 
-	desc := p.Description()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	assert.True(t,
 		strings.Contains(strings.ToLower(desc), "exfiltrat") ||
@@ -392,8 +438,11 @@ func TestPoemExfiltration_Goal(t *testing.T) {
 	p, err := probes.Create("goodside.PoemExfiltration", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	expected := "exfiltrate data via markdown rendering"
-	assert.Equal(t, expected, p.Goal())
+	assert.Equal(t, expected, pm.Goal())
 }
 
 // TestPoemExfiltration_PrimaryDetector verifies the probe returns the correct detector.
@@ -401,7 +450,10 @@ func TestPoemExfiltration_PrimaryDetector(t *testing.T) {
 	p, err := probes.Create("goodside.PoemExfiltration", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, "goodside.MarkdownExfiltration", p.GetPrimaryDetector())
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Equal(t, "goodside.MarkdownExfiltration", pm.GetPrimaryDetector())
 }
 
 // TestPoemExfiltration_Prompts_NotEmpty verifies the probe has prompts.
@@ -409,7 +461,10 @@ func TestPoemExfiltration_Prompts_NotEmpty(t *testing.T) {
 	p, err := probes.Create("goodside.PoemExfiltration", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts, "should have prompts")
 }
 
@@ -418,7 +473,10 @@ func TestPoemExfiltration_Prompts_ContainsKeyElements(t *testing.T) {
 	p, err := probes.Create("goodside.PoemExfiltration", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts)
 
 	// At least one prompt should contain markdown image syntax or URL
@@ -443,7 +501,7 @@ func TestPoemExfiltration_Probe_ReturnsAttempts(t *testing.T) {
 	attempts, err := p.Probe(ctx, gen)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	prompts := pm.GetPrompts()
 	assert.Len(t, attempts, len(prompts))
 }
 
@@ -495,7 +553,10 @@ func TestPayloadSplitting_Description(t *testing.T) {
 	p, err := probes.Create("goodside.PayloadSplitting", nil)
 	require.NoError(t, err)
 
-	desc := p.Description()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	assert.True(t,
 		strings.Contains(strings.ToLower(desc), "split") ||
@@ -509,8 +570,11 @@ func TestPayloadSplitting_Goal(t *testing.T) {
 	p, err := probes.Create("goodside.PayloadSplitting", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	expected := "bypass filters via token smuggling"
-	assert.Equal(t, expected, p.Goal())
+	assert.Equal(t, expected, pm.Goal())
 }
 
 // TestPayloadSplitting_PrimaryDetector verifies the probe returns the correct detector.
@@ -518,7 +582,10 @@ func TestPayloadSplitting_PrimaryDetector(t *testing.T) {
 	p, err := probes.Create("goodside.PayloadSplitting", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, "goodside.TokenSmuggling", p.GetPrimaryDetector())
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Equal(t, "goodside.TokenSmuggling", pm.GetPrimaryDetector())
 }
 
 // TestPayloadSplitting_Prompts_NotEmpty verifies the probe has prompts.
@@ -526,7 +593,10 @@ func TestPayloadSplitting_Prompts_NotEmpty(t *testing.T) {
 	p, err := probes.Create("goodside.PayloadSplitting", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts, "should have prompts")
 }
 
@@ -535,7 +605,10 @@ func TestPayloadSplitting_Prompts_ContainsKeyElements(t *testing.T) {
 	p, err := probes.Create("goodside.PayloadSplitting", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts)
 
 	// At least one prompt should demonstrate payload splitting
@@ -562,7 +635,7 @@ func TestPayloadSplitting_Probe_ReturnsAttempts(t *testing.T) {
 	attempts, err := p.Probe(ctx, gen)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	prompts := pm.GetPrompts()
 	assert.Len(t, attempts, len(prompts))
 }
 
@@ -614,7 +687,10 @@ func TestChatMLExploit_Description(t *testing.T) {
 	p, err := probes.Create("goodside.ChatMLExploit", nil)
 	require.NoError(t, err)
 
-	desc := p.Description()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	assert.True(t,
 		strings.Contains(strings.ToLower(desc), "chatml") ||
@@ -628,8 +704,11 @@ func TestChatMLExploit_Goal(t *testing.T) {
 	p, err := probes.Create("goodside.ChatMLExploit", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	expected := "manipulate chat markup roles"
-	assert.Equal(t, expected, p.Goal())
+	assert.Equal(t, expected, pm.Goal())
 }
 
 // TestChatMLExploit_PrimaryDetector verifies the probe returns the correct detector.
@@ -637,7 +716,10 @@ func TestChatMLExploit_PrimaryDetector(t *testing.T) {
 	p, err := probes.Create("goodside.ChatMLExploit", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, "goodside.ChatMLRoleConfusion", p.GetPrimaryDetector())
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Equal(t, "goodside.ChatMLRoleConfusion", pm.GetPrimaryDetector())
 }
 
 // TestChatMLExploit_Prompts_NotEmpty verifies the probe has prompts.
@@ -645,7 +727,10 @@ func TestChatMLExploit_Prompts_NotEmpty(t *testing.T) {
 	p, err := probes.Create("goodside.ChatMLExploit", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts, "should have prompts")
 }
 
@@ -654,7 +739,10 @@ func TestChatMLExploit_Prompts_ContainsKeyElements(t *testing.T) {
 	p, err := probes.Create("goodside.ChatMLExploit", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts)
 
 	// At least one prompt should contain ChatML-style tags or role switching
@@ -682,7 +770,7 @@ func TestChatMLExploit_Probe_ReturnsAttempts(t *testing.T) {
 	attempts, err := p.Probe(ctx, gen)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	prompts := pm.GetPrompts()
 	assert.Len(t, attempts, len(prompts))
 }
 
@@ -734,7 +822,10 @@ func TestSystemPromptConfusion_Description(t *testing.T) {
 	p, err := probes.Create("goodside.SystemPromptConfusion", nil)
 	require.NoError(t, err)
 
-	desc := p.Description()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	assert.True(t,
 		strings.Contains(strings.ToLower(desc), "system") ||
@@ -748,8 +839,11 @@ func TestSystemPromptConfusion_Goal(t *testing.T) {
 	p, err := probes.Create("goodside.SystemPromptConfusion", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	expected := "override system instructions"
-	assert.Equal(t, expected, p.Goal())
+	assert.Equal(t, expected, pm.Goal())
 }
 
 // TestSystemPromptConfusion_PrimaryDetector verifies the probe returns the correct detector.
@@ -757,7 +851,10 @@ func TestSystemPromptConfusion_PrimaryDetector(t *testing.T) {
 	p, err := probes.Create("goodside.SystemPromptConfusion", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, "goodside.SystemOverride", p.GetPrimaryDetector())
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Equal(t, "goodside.SystemOverride", pm.GetPrimaryDetector())
 }
 
 // TestSystemPromptConfusion_Prompts_NotEmpty verifies the probe has prompts.
@@ -765,7 +862,10 @@ func TestSystemPromptConfusion_Prompts_NotEmpty(t *testing.T) {
 	p, err := probes.Create("goodside.SystemPromptConfusion", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts, "should have prompts")
 }
 
@@ -774,7 +874,10 @@ func TestSystemPromptConfusion_Prompts_ContainsKeyElements(t *testing.T) {
 	p, err := probes.Create("goodside.SystemPromptConfusion", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts)
 
 	// At least one prompt should contain system override patterns
@@ -803,7 +906,7 @@ func TestSystemPromptConfusion_Probe_ReturnsAttempts(t *testing.T) {
 	attempts, err := p.Probe(ctx, gen)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	prompts := pm.GetPrompts()
 	assert.Len(t, attempts, len(prompts))
 }
 
@@ -882,16 +985,16 @@ func TestAllGoodsideProbes_Registration(t *testing.T) {
 			assert.Equal(t, tt.name, p.Name())
 
 			// Verify goal
-			assert.Equal(t, tt.expectedGoal, p.Goal())
+			assert.Equal(t, tt.expectedGoal, pm.Goal())
 
 			// Verify detector
-			assert.Equal(t, tt.expectedDetector, p.GetPrimaryDetector())
+			assert.Equal(t, tt.expectedDetector, pm.GetPrimaryDetector())
 
 			// Verify description not empty
-			assert.NotEmpty(t, p.Description())
+			assert.NotEmpty(t, pm.Description())
 
 			// Verify has prompts
-			prompts := p.GetPrompts()
+			prompts := pm.GetPrompts()
 			assert.NotEmpty(t, prompts, "%s should have prompts", tt.name)
 
 			// Verify prompts are not empty
@@ -925,7 +1028,7 @@ func TestAllGoodsideProbes_Probe(t *testing.T) {
 			require.NoError(t, err)
 
 			// Should return one attempt per prompt
-			prompts := p.GetPrompts()
+			prompts := pm.GetPrompts()
 			assert.Len(t, attempts, len(prompts))
 
 			// Verify attempts have correct metadata

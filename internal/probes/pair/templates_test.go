@@ -16,11 +16,14 @@ func TestPAIRYAMLTemplatesLoaded(t *testing.T) {
 	probe, err := factory(nil)
 	require.NoError(t, err)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "pair.PAIR", probe.Name())
-	assert.Equal(t, "iterative prompt refinement attack", probe.Goal())
-	assert.Equal(t, "pair.PAIR", probe.GetPrimaryDetector())
-	assert.NotEmpty(t, probe.GetPrompts())
-	assert.Len(t, probe.GetPrompts(), 1)
+	assert.Equal(t, "iterative prompt refinement attack", pm.Goal())
+	assert.Equal(t, "pair.PAIR", pm.GetPrimaryDetector())
+	assert.NotEmpty(t, pm.GetPrompts())
+	assert.Len(t, pm.GetPrompts(), 1)
 }
 
 func TestPAIRBasicYAMLTemplatesLoaded(t *testing.T) {
@@ -31,9 +34,12 @@ func TestPAIRBasicYAMLTemplatesLoaded(t *testing.T) {
 	probe, err := factory(nil)
 	require.NoError(t, err)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "pair.PAIRBasic", probe.Name())
-	assert.Equal(t, "simplified iterative refinement attack", probe.Goal())
-	assert.Equal(t, "pair.PAIR", probe.GetPrimaryDetector())
-	assert.NotEmpty(t, probe.GetPrompts())
-	assert.Len(t, probe.GetPrompts(), 1)
+	assert.Equal(t, "simplified iterative refinement attack", pm.Goal())
+	assert.Equal(t, "pair.PAIR", pm.GetPrimaryDetector())
+	assert.NotEmpty(t, pm.GetPrompts())
+	assert.Len(t, pm.GetPrompts(), 1)
 }

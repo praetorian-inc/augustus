@@ -102,9 +102,12 @@ func TestNewGuardrailBypass(t *testing.T) {
 
 		// Verify probe properties
 		assert.Contains(t, probe.Name(), "guardrail")
-		assert.NotEmpty(t, probe.Description())
-		assert.NotEmpty(t, probe.Goal())
-		assert.NotEmpty(t, probe.GetPrimaryDetector())
+
+		pm, ok := probe.(probes.ProbeMetadata)
+		require.True(t, ok, "probe should implement ProbeMetadata")
+		assert.NotEmpty(t, pm.Description())
+		assert.NotEmpty(t, pm.Goal())
+		assert.NotEmpty(t, pm.GetPrimaryDetector())
 	})
 
 	t.Run("Default configuration", func(t *testing.T) {

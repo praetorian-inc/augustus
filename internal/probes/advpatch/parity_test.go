@@ -13,6 +13,8 @@ func TestUniversalPatchYAMLParity(t *testing.T) {
 	// Get hardcoded probe
 	hardcoded, err := NewUniversalPatch(nil)
 	require.NoError(t, err)
+	hardcodedMeta, ok := hardcoded.(probes.ProbeMetadata)
+	require.True(t, ok, "hardcoded probe should implement ProbeMetadata")
 
 	// Get YAML-based probe (should be registered as same name)
 	factory, ok := probes.Get("advpatch.UniversalPatch")
@@ -20,18 +22,22 @@ func TestUniversalPatchYAMLParity(t *testing.T) {
 
 	yaml, err := factory(nil)
 	require.NoError(t, err)
+	yamlMeta, ok := yaml.(probes.ProbeMetadata)
+	require.True(t, ok, "yaml probe should implement ProbeMetadata")
 
 	// Verify parity
 	assert.Equal(t, hardcoded.Name(), yaml.Name())
-	assert.Equal(t, hardcoded.Goal(), yaml.Goal())
-	assert.Equal(t, hardcoded.GetPrimaryDetector(), yaml.GetPrimaryDetector())
-	assert.Equal(t, hardcoded.GetPrompts(), yaml.GetPrompts())
+	assert.Equal(t, hardcodedMeta.Goal(), yamlMeta.Goal())
+	assert.Equal(t, hardcodedMeta.GetPrimaryDetector(), yamlMeta.GetPrimaryDetector())
+	assert.Equal(t, hardcodedMeta.GetPrompts(), yamlMeta.GetPrompts())
 }
 
 func TestTargetedPatchYAMLParity(t *testing.T) {
 	// Get hardcoded probe
 	hardcoded, err := NewTargetedPatch(nil)
 	require.NoError(t, err)
+	hardcodedMeta, ok := hardcoded.(probes.ProbeMetadata)
+	require.True(t, ok, "hardcoded probe should implement ProbeMetadata")
 
 	// Get YAML-based probe (should be registered as same name)
 	factory, ok := probes.Get("advpatch.TargetedPatch")
@@ -39,18 +45,22 @@ func TestTargetedPatchYAMLParity(t *testing.T) {
 
 	yaml, err := factory(nil)
 	require.NoError(t, err)
+	yamlMeta, ok := yaml.(probes.ProbeMetadata)
+	require.True(t, ok, "yaml probe should implement ProbeMetadata")
 
 	// Verify parity
 	assert.Equal(t, hardcoded.Name(), yaml.Name())
-	assert.Equal(t, hardcoded.Goal(), yaml.Goal())
-	assert.Equal(t, hardcoded.GetPrimaryDetector(), yaml.GetPrimaryDetector())
-	assert.Equal(t, hardcoded.GetPrompts(), yaml.GetPrompts())
+	assert.Equal(t, hardcodedMeta.Goal(), yamlMeta.Goal())
+	assert.Equal(t, hardcodedMeta.GetPrimaryDetector(), yamlMeta.GetPrimaryDetector())
+	assert.Equal(t, hardcodedMeta.GetPrompts(), yamlMeta.GetPrompts())
 }
 
 func TestTransferPatchYAMLParity(t *testing.T) {
 	// Get hardcoded probe
 	hardcoded, err := NewTransferPatch(nil)
 	require.NoError(t, err)
+	hardcodedMeta, ok := hardcoded.(probes.ProbeMetadata)
+	require.True(t, ok, "hardcoded probe should implement ProbeMetadata")
 
 	// Get YAML-based probe (should be registered as same name)
 	factory, ok := probes.Get("advpatch.TransferPatch")
@@ -58,10 +68,12 @@ func TestTransferPatchYAMLParity(t *testing.T) {
 
 	yaml, err := factory(nil)
 	require.NoError(t, err)
+	yamlMeta, ok := yaml.(probes.ProbeMetadata)
+	require.True(t, ok, "yaml probe should implement ProbeMetadata")
 
 	// Verify parity
 	assert.Equal(t, hardcoded.Name(), yaml.Name())
-	assert.Equal(t, hardcoded.Goal(), yaml.Goal())
-	assert.Equal(t, hardcoded.GetPrimaryDetector(), yaml.GetPrimaryDetector())
-	assert.Equal(t, hardcoded.GetPrompts(), yaml.GetPrompts())
+	assert.Equal(t, hardcodedMeta.Goal(), yamlMeta.Goal())
+	assert.Equal(t, hardcodedMeta.GetPrimaryDetector(), yamlMeta.GetPrimaryDetector())
+	assert.Equal(t, hardcodedMeta.GetPrompts(), yamlMeta.GetPrompts())
 }

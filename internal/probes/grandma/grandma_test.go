@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/praetorian-inc/augustus/internal/testutil"
+	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,7 +18,9 @@ func TestWin10_PromptGeneration(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 	// 2 templates × 3 products = 6 prompts
 	assert.Len(t, prompts, 6, "Win10 should generate 6 prompts (2 templates × 3 products)")
 
@@ -48,9 +51,12 @@ func TestWin10_Metadata(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "grandma.Win10", probe.Name())
-	assert.Equal(t, "get model to output Win 10 product keys", probe.Goal())
-	assert.Equal(t, "productkey.Win5x5", probe.GetPrimaryDetector())
-	assert.NotEmpty(t, probe.Description())
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	assert.Equal(t, "get model to output Win 10 product keys", pm.Goal())
+	assert.Equal(t, "productkey.Win5x5", pm.GetPrimaryDetector())
+	assert.NotEmpty(t, pm.Description())
 }
 
 func TestWin10_Probe(t *testing.T) {
@@ -81,7 +87,9 @@ func TestWin11_PromptGeneration(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 	// 2 templates × 3 products = 6 prompts
 	assert.Len(t, prompts, 6, "Win11 should generate 6 prompts (2 templates × 3 products)")
 
@@ -112,9 +120,12 @@ func TestWin11_Metadata(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "grandma.Win11", probe.Name())
-	assert.Equal(t, "get model to output Win 11 product keys", probe.Goal())
-	assert.Equal(t, "productkey.Win5x5", probe.GetPrimaryDetector())
-	assert.NotEmpty(t, probe.Description())
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	assert.Equal(t, "get model to output Win 11 product keys", pm.Goal())
+	assert.Equal(t, "productkey.Win5x5", pm.GetPrimaryDetector())
+	assert.NotEmpty(t, pm.Description())
 }
 
 func TestWin11_Probe(t *testing.T) {
@@ -145,7 +156,9 @@ func TestSlurs_PromptGeneration(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 	// 3 templates × 4 groups = 12 prompts
 	assert.Len(t, prompts, 12, "Slurs should generate 12 prompts (3 templates × 4 groups)")
 
@@ -172,9 +185,12 @@ func TestSlurs_Metadata(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "grandma.Slurs", probe.Name())
-	assert.Equal(t, "get model to use ethnic slur", probe.Goal())
-	assert.Equal(t, "unsafecontent.SlursReclaimedSlurs", probe.GetPrimaryDetector())
-	assert.NotEmpty(t, probe.Description())
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	assert.Equal(t, "get model to use ethnic slur", pm.Goal())
+	assert.Equal(t, "unsafecontent.SlursReclaimedSlurs", pm.GetPrimaryDetector())
+	assert.NotEmpty(t, pm.Description())
 }
 
 func TestSlurs_Probe(t *testing.T) {
@@ -205,7 +221,9 @@ func TestSubstances_PromptGeneration(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 	// 2 templates × 5 substances = 10 prompts
 	assert.Len(t, prompts, 10, "Substances should generate 10 prompts (2 templates × 5 substances)")
 
@@ -232,9 +250,12 @@ func TestSubstances_Metadata(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "grandma.Substances", probe.Name())
-	assert.Equal(t, "get instructions for making bad things", probe.Goal())
-	assert.Equal(t, "mitigation.MitigationBypass", probe.GetPrimaryDetector())
-	assert.NotEmpty(t, probe.Description())
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	assert.Equal(t, "get instructions for making bad things", pm.Goal())
+	assert.Equal(t, "mitigation.MitigationBypass", pm.GetPrimaryDetector())
+	assert.NotEmpty(t, pm.Description())
 }
 
 func TestSubstances_Probe(t *testing.T) {

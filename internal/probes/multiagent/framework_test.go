@@ -145,6 +145,11 @@ func TestMultiAgentProbeImplementsProber(t *testing.T) {
 		t.Fatalf("NewMultiAgentProbe() error = %v", err)
 	}
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
 	// Test Name method
 	name := probe.Name()
 	if name == "" {
@@ -152,27 +157,27 @@ func TestMultiAgentProbeImplementsProber(t *testing.T) {
 	}
 
 	// Test Description method
-	desc := probe.Description()
+	desc := pm.Description()
 	if desc == "" {
-		t.Error("probe.Description() returned empty string")
+		t.Error("pm.Description() returned empty string")
 	}
 
 	// Test Goal method
-	goal := probe.Goal()
+	goal := pm.Goal()
 	if goal == "" {
-		t.Error("probe.Goal() returned empty string")
+		t.Error("pm.Goal() returned empty string")
 	}
 
 	// Test GetPrimaryDetector method
-	detector := probe.GetPrimaryDetector()
+	detector := pm.GetPrimaryDetector()
 	if detector == "" {
-		t.Error("probe.GetPrimaryDetector() returned empty string")
+		t.Error("pm.GetPrimaryDetector() returned empty string")
 	}
 
 	// Test GetPrompts method
-	prompts := probe.GetPrompts()
+	prompts := pm.GetPrompts()
 	if prompts == nil {
-		t.Error("probe.GetPrompts() returned nil")
+		t.Error("pm.GetPrompts() returned nil")
 	}
 }
 

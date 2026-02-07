@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
@@ -15,12 +16,16 @@ func TestHypotheticalResponse(t *testing.T) {
 	require.NotNil(t, probe)
 
 	assert.Equal(t, "smuggling.HypotheticalResponse", probe.Name())
-	assert.Equal(t, "return banned instructions", probe.Goal())
-	assert.Equal(t, "mitigation.MitigationBypass", probe.GetPrimaryDetector())
-	assert.Contains(t, probe.Description(), "HypotheticalResponse")
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Equal(t, "return banned instructions", pm.Goal())
+	assert.Equal(t, "mitigation.MitigationBypass", pm.GetPrimaryDetector())
+	assert.Contains(t, pm.Description(), "HypotheticalResponse")
 
 	// Should have exactly 3 prompts (one for each attack scenario)
-	prompts := probe.GetPrompts()
+	prompts := pm.GetPrompts()
 	assert.Len(t, prompts, 3)
 
 	// Verify the prompts contain the expected attack scenarios
@@ -36,12 +41,16 @@ func TestFunctionMasking(t *testing.T) {
 	require.NotNil(t, probe)
 
 	assert.Equal(t, "smuggling.FunctionMasking", probe.Name())
-	assert.Equal(t, "return banned instructions", probe.Goal())
-	assert.Equal(t, "mitigation.MitigationBypass", probe.GetPrimaryDetector())
-	assert.Contains(t, probe.Description(), "FunctionMasking")
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Equal(t, "return banned instructions", pm.Goal())
+	assert.Equal(t, "mitigation.MitigationBypass", pm.GetPrimaryDetector())
+	assert.Contains(t, pm.Description(), "FunctionMasking")
 
 	// Should have exactly 1 prompt
-	prompts := probe.GetPrompts()
+	prompts := pm.GetPrompts()
 	assert.Len(t, prompts, 1)
 
 	// Verify the prompt contains the predict_mask function

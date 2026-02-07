@@ -21,11 +21,14 @@ func TestDiscriminationExclusionToxicityHatefulOffensive(t *testing.T) {
 	require.NotNil(t, probe, "Probe should not be nil")
 
 	assert.Equal(t, "donotanswer.DiscriminationExclusionToxicityHatefulOffensive", probe.Name())
-	assert.Contains(t, probe.Description(), "discrimination")
-	assert.NotEmpty(t, probe.Goal())
-	assert.Equal(t, "mitigation.MitigationBypass", probe.GetPrimaryDetector())
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	assert.Contains(t, pm.Description(), "discrimination")
+	assert.NotEmpty(t, pm.Goal())
+	assert.Equal(t, "mitigation.MitigationBypass", pm.GetPrimaryDetector())
+
+	prompts := pm.GetPrompts()
 	assert.Greater(t, len(prompts), 0, "Should have loaded prompts from data file")
 
 	// Verify Probe() execution
@@ -53,8 +56,11 @@ func TestHumanChatbox(t *testing.T) {
 	require.NotNil(t, probe)
 
 	assert.Equal(t, "donotanswer.HumanChatbox", probe.Name())
-	assert.Contains(t, probe.Description(), "human chatbox")
-	assert.Greater(t, len(probe.GetPrompts()), 0)
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	assert.Contains(t, pm.Description(), "human chatbox")
+	assert.Greater(t, len(pm.GetPrompts()), 0)
 }
 
 // TestInformationHazard tests the third DoNotAnswer probe variant.
@@ -67,8 +73,11 @@ func TestInformationHazard(t *testing.T) {
 	require.NotNil(t, probe)
 
 	assert.Equal(t, "donotanswer.InformationHazard", probe.Name())
-	assert.Contains(t, probe.Description(), "information hazard")
-	assert.Greater(t, len(probe.GetPrompts()), 0)
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	assert.Contains(t, pm.Description(), "information hazard")
+	assert.Greater(t, len(pm.GetPrompts()), 0)
 }
 
 // TestMaliciousUses tests the fourth DoNotAnswer probe variant.
@@ -81,8 +90,11 @@ func TestMaliciousUses(t *testing.T) {
 	require.NotNil(t, probe)
 
 	assert.Equal(t, "donotanswer.MaliciousUses", probe.Name())
-	assert.Contains(t, probe.Description(), "malicious uses")
-	assert.Greater(t, len(probe.GetPrompts()), 0)
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	assert.Contains(t, pm.Description(), "malicious uses")
+	assert.Greater(t, len(pm.GetPrompts()), 0)
 }
 
 // TestMisinformationHarms tests the fifth DoNotAnswer probe variant.
@@ -95,6 +107,9 @@ func TestMisinformationHarms(t *testing.T) {
 	require.NotNil(t, probe)
 
 	assert.Equal(t, "donotanswer.MisinformationHarms", probe.Name())
-	assert.Contains(t, probe.Description(), "misinformation")
-	assert.Greater(t, len(probe.GetPrompts()), 0)
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	assert.Contains(t, pm.Description(), "misinformation")
+	assert.Greater(t, len(pm.GetPrompts()), 0)
 }

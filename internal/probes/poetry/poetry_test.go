@@ -39,17 +39,23 @@ func TestInjectHaiku_Interface(t *testing.T) {
 	probe, err := NewInjectHaiku(nil)
 	require.NoError(t, err)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "poetry.InjectHaiku", probe.Name())
-	assert.Contains(t, probe.Description(), "haiku")
-	assert.Contains(t, probe.Goal(), "harmful instructions")
-	assert.Equal(t, "mitigation.MitigationBypass", probe.GetPrimaryDetector())
+	assert.Contains(t, pm.Description(), "haiku")
+	assert.Contains(t, pm.Goal(), "harmful instructions")
+	assert.Equal(t, "mitigation.MitigationBypass", pm.GetPrimaryDetector())
 }
 
 func TestInjectHaiku_PromptsGenerated(t *testing.T) {
 	probe, err := NewInjectHaiku(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.Greater(t, len(prompts), 0, "should generate prompts")
 
 	// 50+ payloads × N templates = multiple prompts
@@ -60,7 +66,10 @@ func TestInjectHaiku_ThreeLines(t *testing.T) {
 	probe, err := NewInjectHaiku(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.Greater(t, len(prompts), 0)
 
 	for i, prompt := range prompts {
@@ -91,8 +100,13 @@ func TestInjectHaiku_ParallelSlices(t *testing.T) {
 	probe, err := NewInjectHaiku(nil)
 	require.NoError(t, err)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
 	hp := probe.(*InjectHaiku)
-	prompts := hp.GetPrompts()
+	prompts := pm.GetPrompts()
 	payloads := hp.GetPayloads()
 
 	assert.Equal(t, len(prompts), len(payloads), "prompts and payloads must be parallel")
@@ -153,7 +167,10 @@ func TestInjectSonnet_FourteenLines(t *testing.T) {
 	probe, err := NewInjectSonnet(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.Greater(t, len(prompts), 0)
 
 	for i, prompt := range prompts {
@@ -179,7 +196,10 @@ func TestInjectLimerick_FiveLines(t *testing.T) {
 	probe, err := NewInjectLimerick(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.Greater(t, len(prompts), 0)
 
 	for i, prompt := range prompts {
@@ -198,7 +218,10 @@ func TestInjectFreeVerse_MultipleLines(t *testing.T) {
 	probe, err := NewInjectFreeVerse(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.Greater(t, len(prompts), 0)
 
 	for i, prompt := range prompts {
@@ -217,7 +240,10 @@ func TestInjectRhymingCouplet_EvenLines(t *testing.T) {
 	probe, err := NewInjectRhymingCouplet(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.Greater(t, len(prompts), 0)
 
 	for i, prompt := range prompts {
@@ -232,16 +258,22 @@ func TestInjectSonnet_Interface(t *testing.T) {
 	probe, err := NewInjectSonnet(nil)
 	require.NoError(t, err)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "poetry.InjectSonnet", probe.Name())
-	assert.Contains(t, probe.Description(), "sonnet")
-	assert.Equal(t, "mitigation.MitigationBypass", probe.GetPrimaryDetector())
+	assert.Contains(t, pm.Description(), "sonnet")
+	assert.Equal(t, "mitigation.MitigationBypass", pm.GetPrimaryDetector())
 }
 
 func TestInjectSonnet_PromptsGenerated(t *testing.T) {
 	probe, err := NewInjectSonnet(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.GreaterOrEqual(t, len(prompts), 50)
 }
 
@@ -249,16 +281,22 @@ func TestInjectLimerick_Interface(t *testing.T) {
 	probe, err := NewInjectLimerick(nil)
 	require.NoError(t, err)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "poetry.InjectLimerick", probe.Name())
-	assert.Contains(t, probe.Description(), "limerick")
-	assert.Equal(t, "mitigation.MitigationBypass", probe.GetPrimaryDetector())
+	assert.Contains(t, pm.Description(), "limerick")
+	assert.Equal(t, "mitigation.MitigationBypass", pm.GetPrimaryDetector())
 }
 
 func TestInjectLimerick_PromptsGenerated(t *testing.T) {
 	probe, err := NewInjectLimerick(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.GreaterOrEqual(t, len(prompts), 50)
 }
 
@@ -266,16 +304,22 @@ func TestInjectFreeVerse_Interface(t *testing.T) {
 	probe, err := NewInjectFreeVerse(nil)
 	require.NoError(t, err)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "poetry.InjectFreeVerse", probe.Name())
-	assert.Contains(t, probe.Description(), "free verse")
-	assert.Equal(t, "mitigation.MitigationBypass", probe.GetPrimaryDetector())
+	assert.Contains(t, pm.Description(), "free verse")
+	assert.Equal(t, "mitigation.MitigationBypass", pm.GetPrimaryDetector())
 }
 
 func TestInjectFreeVerse_PromptsGenerated(t *testing.T) {
 	probe, err := NewInjectFreeVerse(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.GreaterOrEqual(t, len(prompts), 50)
 }
 
@@ -283,16 +327,22 @@ func TestInjectRhymingCouplet_Interface(t *testing.T) {
 	probe, err := NewInjectRhymingCouplet(nil)
 	require.NoError(t, err)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "poetry.InjectRhymingCouplet", probe.Name())
-	assert.Contains(t, probe.Description(), "rhyming couplet")
-	assert.Equal(t, "mitigation.MitigationBypass", probe.GetPrimaryDetector())
+	assert.Contains(t, pm.Description(), "rhyming couplet")
+	assert.Equal(t, "mitigation.MitigationBypass", pm.GetPrimaryDetector())
 }
 
 func TestInjectRhymingCouplet_PromptsGenerated(t *testing.T) {
 	probe, err := NewInjectRhymingCouplet(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.GreaterOrEqual(t, len(prompts), 50)
 }
 
@@ -305,7 +355,10 @@ func TestValidation_HaikuFormat(t *testing.T) {
 	p, err := probeFn(nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.Greater(t, len(prompts), 0, "should have prompts")
 
 	for i, prompt := range prompts {
@@ -329,7 +382,10 @@ func TestValidation_SonnetFormat(t *testing.T) {
 	p, err := probeFn(nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.Greater(t, len(prompts), 0, "should have prompts")
 
 	for i, prompt := range prompts {
@@ -355,7 +411,10 @@ func TestValidation_LimerickFormat(t *testing.T) {
 	p, err := probeFn(nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.Greater(t, len(prompts), 0, "should have prompts")
 
 	for i, prompt := range prompts {
@@ -386,6 +445,9 @@ func TestValidation_KeywordPreservation(t *testing.T) {
 			p, err := probeFn(nil)
 			require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 			// Access the underlying probe to get parallel payloads array
 			var payloads []string
 			switch v := p.(type) {
@@ -399,7 +461,7 @@ func TestValidation_KeywordPreservation(t *testing.T) {
 				t.Fatalf("unexpected probe type: %T", p)
 			}
 
-			prompts := p.GetPrompts()
+			prompts := pm.GetPrompts()
 			require.Equal(t, len(prompts), len(payloads), "prompts and payloads must be parallel")
 
 			// Find prompts generated from harmful payloads containing "bomb"
@@ -586,7 +648,10 @@ func TestExpandedPayloads_AllCategoriesCovered(t *testing.T) {
 			p, err := probeFn(nil)
 			require.NoError(t, err)
 
-			prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+			prompts := pm.GetPrompts()
 			assert.GreaterOrEqual(t, len(prompts), 50,
 				"%s should generate 50+ prompts from expanded payload corpus", name)
 		})
