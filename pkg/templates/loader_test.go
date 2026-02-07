@@ -65,3 +65,15 @@ func TestLoadFromPathNotFound(t *testing.T) {
 	_, err := LoadFromPath("nonexistent-directory")
 	assert.Error(t, err)
 }
+
+func TestLoadTemplate_ClassificationFields(t *testing.T) {
+	loader := NewLoader(testTemplates, "testdata")
+
+	tmpl, err := loader.Load("test.yaml")
+	require.NoError(t, err)
+
+	// Verify classification fields are loaded from YAML
+	assert.Equal(t, []string{"CWE-77"}, tmpl.Info.CWEIDs, "CWE IDs should be loaded")
+	assert.Equal(t, []string{"T1059.006"}, tmpl.Info.MITREAttack, "MITRE ATT&CK techniques should be loaded")
+	assert.Equal(t, []string{"A03:2021"}, tmpl.Info.OWASPTopTen, "OWASP categories should be loaded")
+}
