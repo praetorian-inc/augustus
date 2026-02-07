@@ -155,6 +155,11 @@ func TestAccessibilityPoisonProbeProbe(t *testing.T) {
 		t.Fatalf("Failed to create probe: %v", err)
 	}
 
+	pm, ok := prober.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
 	ctx := context.Background()
 	gen := testutil.NewMockGenerator("I will follow the screen reader instructions")
 
@@ -172,8 +177,8 @@ func TestAccessibilityPoisonProbeProbe(t *testing.T) {
 			t.Errorf("Attempt %d has wrong probe name: got %q, want %q", i, att.Probe, prober.Name())
 		}
 
-		if att.Detector != prober.GetPrimaryDetector() {
-			t.Errorf("Attempt %d has wrong detector: got %q, want %q", i, att.Detector, prober.GetPrimaryDetector())
+		if att.Detector != pm.GetPrimaryDetector() {
+			t.Errorf("Attempt %d has wrong detector: got %q, want %q", i, att.Detector, pm.GetPrimaryDetector())
 		}
 	}
 }
@@ -185,6 +190,11 @@ func TestAccessibilityPoisonProbeImplementsProber(t *testing.T) {
 		t.Fatalf("Failed to create probe: %v", err)
 	}
 
+	pm, ok := prober.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
 	// Test all Prober interface methods
 	name := prober.Name()
 	if name == "" {
@@ -194,22 +204,22 @@ func TestAccessibilityPoisonProbeImplementsProber(t *testing.T) {
 		t.Errorf("Name() %q should contain 'accessibility'", name)
 	}
 
-	desc := prober.Description()
+	desc := pm.Description()
 	if desc == "" {
 		t.Error("Description() returned empty string")
 	}
 
-	goal := prober.Goal()
+	goal := pm.Goal()
 	if goal == "" {
 		t.Error("Goal() returned empty string")
 	}
 
-	detector := prober.GetPrimaryDetector()
+	detector := pm.GetPrimaryDetector()
 	if detector == "" {
 		t.Error("GetPrimaryDetector() returned empty string")
 	}
 
-	prompts := prober.GetPrompts()
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Error("GetPrompts() returned empty slice")
 	}
@@ -242,7 +252,12 @@ func TestAccessibilityPoisonProbeAllTechniques(t *testing.T) {
 		t.Fatalf("Failed to create probe: %v", err)
 	}
 
-	prompts := prober.GetPrompts()
+	pm, ok := prober.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	prompts := pm.GetPrompts()
 
 	// Should have at least 5 prompts (one per technique)
 	if len(prompts) < 5 {

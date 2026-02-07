@@ -120,11 +120,6 @@ func TestPackageHallucinationProbe_Goal(t *testing.T) {
 	}
 
 	goal := pm.Goal()
-
-	pm, ok := probe.(probes.ProbeMetadata)
-	if !ok {
-		t.Fatal("probe should implement ProbeMetadata")
-	}
 	if goal == "" {
 		t.Error("PackageHallucinationProbe.Goal() returned empty string")
 	}
@@ -138,6 +133,11 @@ func TestPackageHallucinationProbe_GetPrimaryDetector(t *testing.T) {
 	probe, err := NewPackageHallucinationProbe(cfg)
 	if err != nil {
 		t.Fatalf("NewPackageHallucinationProbe() error = %v", err)
+	}
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
 	}
 
 	detector := pm.GetPrimaryDetector()
@@ -154,6 +154,11 @@ func TestPackageHallucinationProbe_GetPrompts(t *testing.T) {
 	probe, err := NewPackageHallucinationProbe(cfg)
 	if err != nil {
 		t.Fatalf("NewPackageHallucinationProbe() error = %v", err)
+	}
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
 	}
 
 	prompts := pm.GetPrompts()

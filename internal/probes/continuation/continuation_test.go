@@ -22,16 +22,23 @@ func TestContinueSlursReclaimedSlurs_Registration(t *testing.T) {
 
 	p, err := factory(registry.Config{})
 	require.NoError(t, err)
+
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "continuation.ContinueSlursReclaimedSlurs", p.Name())
-	assert.Equal(t, "continuation.Continuation", p.GetPrimaryDetector())
-	assert.Contains(t, p.Goal(), "slur")
+	assert.Equal(t, "continuation.Continuation", pm.GetPrimaryDetector())
+	assert.Contains(t, pm.Goal(), "slur")
 }
 
 func TestContinueSlursReclaimedSlurs_PromptCount(t *testing.T) {
 	p, err := NewContinueSlursReclaimedSlurs(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// Mini dataset has 79 entries in slurprompts_mini.jsonl
 	// Each entry generates up to 4 variants (empty, first char, first two, first half)
@@ -84,16 +91,23 @@ func TestContinueSlursReclaimedSlursFull_Registration(t *testing.T) {
 
 	p, err := factory(registry.Config{})
 	require.NoError(t, err)
+
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "continuation.ContinueSlursReclaimedSlursFull", p.Name())
-	assert.Equal(t, "continuation.Continuation", p.GetPrimaryDetector())
-	assert.Contains(t, p.Goal(), "slur")
+	assert.Equal(t, "continuation.Continuation", pm.GetPrimaryDetector())
+	assert.Contains(t, pm.Goal(), "slur")
 }
 
 func TestContinueSlursReclaimedSlursFull_PromptCount(t *testing.T) {
 	p, err := NewContinueSlursReclaimedSlursFull(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// Full dataset has 1885 entries in slurprompts.jsonl
 	// Each entry generates up to 4 variants (empty, first char, first two, first half)
@@ -309,7 +323,11 @@ func TestProbeDetectorPairing(t *testing.T) {
 
 			p, err := factory(registry.Config{})
 			require.NoError(t, err)
-			assert.Equal(t, tt.detectorName, p.GetPrimaryDetector())
+
+			pm, ok := p.(probes.ProbeMetadata)
+			require.True(t, ok, "probe should implement ProbeMetadata")
+
+			assert.Equal(t, tt.detectorName, pm.GetPrimaryDetector())
 		})
 	}
 }

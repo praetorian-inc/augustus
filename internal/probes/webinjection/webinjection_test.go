@@ -114,7 +114,12 @@ func TestHTMLCommentPayloads(t *testing.T) {
 		t.Fatalf("NewWebInjection() error = %v", err)
 	}
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Fatal("GetPrompts() returned empty slice")
 	}
@@ -142,7 +147,12 @@ func TestMetaTagPayloads(t *testing.T) {
 		t.Fatalf("NewWebInjection() error = %v", err)
 	}
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Fatal("GetPrompts() returned empty slice")
 	}
@@ -170,7 +180,12 @@ func TestJavaScriptPayloads(t *testing.T) {
 		t.Fatalf("NewWebInjection() error = %v", err)
 	}
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Fatal("GetPrompts() returned empty slice")
 	}
@@ -197,7 +212,12 @@ func TestCSSPayloads(t *testing.T) {
 		t.Fatalf("NewWebInjection() error = %v", err)
 	}
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Fatal("GetPrompts() returned empty slice")
 	}
@@ -224,7 +244,12 @@ func TestFormFieldPayloads(t *testing.T) {
 		t.Fatalf("NewWebInjection() error = %v", err)
 	}
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Fatal("GetPrompts() returned empty slice")
 	}
@@ -264,13 +289,18 @@ func TestProbeExecution(t *testing.T) {
 		t.Fatal("Probe() should return at least one attempt")
 	}
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
 	for _, att := range attempts {
 		if att.Probe != probe.Name() {
 			t.Errorf("attempt.Probe = %v, want %v", att.Probe, probe.Name())
 		}
 
-		if att.Detector != probe.GetPrimaryDetector() {
-			t.Errorf("attempt.Detector = %v, want %v", att.Detector, probe.GetPrimaryDetector())
+		if att.Detector != pm.GetPrimaryDetector() {
+			t.Errorf("attempt.Detector = %v, want %v", att.Detector, pm.GetPrimaryDetector())
 		}
 	}
 }

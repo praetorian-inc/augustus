@@ -776,6 +776,9 @@ func TestChatMLExploit_Probe_ReturnsAttempts(t *testing.T) {
 	attempts, err := p.Probe(ctx, gen)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	prompts := pm.GetPrompts()
 	assert.Len(t, attempts, len(prompts))
 }
@@ -912,6 +915,9 @@ func TestSystemPromptConfusion_Probe_ReturnsAttempts(t *testing.T) {
 	attempts, err := p.Probe(ctx, gen)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	prompts := pm.GetPrompts()
 	assert.Len(t, attempts, len(prompts))
 }
@@ -990,6 +996,9 @@ func TestAllGoodsideProbes_Registration(t *testing.T) {
 			// Verify name
 			assert.Equal(t, tt.name, p.Name())
 
+			pm, ok := p.(probes.ProbeMetadata)
+			require.True(t, ok, "probe should implement ProbeMetadata")
+
 			// Verify goal
 			assert.Equal(t, tt.expectedGoal, pm.Goal())
 
@@ -1032,6 +1041,9 @@ func TestAllGoodsideProbes_Probe(t *testing.T) {
 
 			attempts, err := p.Probe(ctx, gen)
 			require.NoError(t, err)
+
+			pm, ok := p.(probes.ProbeMetadata)
+			require.True(t, ok, "probe should implement ProbeMetadata")
 
 			// Should return one attempt per prompt
 			prompts := pm.GetPrompts()

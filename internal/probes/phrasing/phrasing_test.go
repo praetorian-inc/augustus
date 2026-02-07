@@ -72,7 +72,12 @@ func TestPastTense_PrimaryDetector(t *testing.T) {
 	p, err := probes.Create("phrasing.PastTense", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, "mitigation.MitigationBypass", p.GetPrimaryDetector())
+	pm, ok := p.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	assert.Equal(t, "mitigation.MitigationBypass", pm.GetPrimaryDetector()))
 }
 
 // TestPastTense_Prompts_NotEmpty verifies the probe has prompts.

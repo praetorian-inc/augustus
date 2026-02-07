@@ -32,7 +32,11 @@ func TestTestProbe_Name(t *testing.T) {
 
 func TestTestProbe_Description(t *testing.T) {
 	p := newTestProbe(defaultTestPrompts)
-	desc := p.Description()
+	pm, ok := probes.Prober(p).(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+	desc := pm.Description()
 	if desc == "" {
 		t.Error("Description() returned empty string")
 	}
@@ -43,15 +47,23 @@ func TestTestProbe_Description(t *testing.T) {
 
 func TestTestProbe_Goal(t *testing.T) {
 	p := newTestProbe(defaultTestPrompts)
+	pm, ok := probes.Prober(p).(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
 	want := "send some test strings, ignore the response"
-	if got := p.Goal(); got != want {
+	if got := pm.Goal(); got != want {
 		t.Errorf("Goal() = %q, want %q", got, want)
 	}
 }
 
 func TestTestProbe_GetPrimaryDetector(t *testing.T) {
 	p := newTestProbe(defaultTestPrompts)
-	if got := p.GetPrimaryDetector(); got != "always.Pass" {
+	pm, ok := probes.Prober(p).(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+	if got := pm.GetPrimaryDetector(); got != "always.Pass" {
 		t.Errorf("GetPrimaryDetector() = %q, want %q", got, "always.Pass")
 	}
 }
@@ -81,7 +93,11 @@ func TestTestProbe_GetPrompts(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := newTestProbe(tt.prompts)
-			got := p.GetPrompts()
+			pm, ok := probes.Prober(p).(probes.ProbeMetadata)
+			if !ok {
+				t.Fatal("probe should implement ProbeMetadata")
+			}
+			got := pm.GetPrompts()
 			if len(got) != tt.wantLen {
 				t.Errorf("GetPrompts() returned %d prompts, want %d", len(got), tt.wantLen)
 			}
@@ -257,7 +273,12 @@ func TestNewTest(t *testing.T) {
 				t.Fatal("NewTest() returned nil probe")
 			}
 
-			got := p.GetPrompts()
+			pm, ok := probes.Prober(p).(probes.ProbeMetadata)
+			if !ok {
+				t.Fatal("probe should implement ProbeMetadata")
+			}
+
+			got := pm.GetPrompts()
 			if len(got) != len(tt.wantPrompts) {
 				t.Fatalf("probe has %d prompts, want %d", len(got), len(tt.wantPrompts))
 			}

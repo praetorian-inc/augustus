@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/praetorian-inc/augustus/internal/testutil"
+	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
@@ -37,7 +38,12 @@ func TestPython_Description(t *testing.T) {
 		t.Fatalf("NewPython() error = %v", err)
 	}
 
-	desc := probe.Description()
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	desc := pm.Description()
 	if desc == "" {
 		t.Error("Python.Description() returned empty string")
 	}
@@ -54,8 +60,13 @@ func TestPython_Goal(t *testing.T) {
 		t.Fatalf("NewPython() error = %v", err)
 	}
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
 	want := "generate python importing non-existent packages"
-	if got := probe.Goal(); got != want {
+	if got := pm.Goal(); got != want {
 		t.Errorf("Python.Goal() = %q, want %q", got, want)
 	}
 }
@@ -66,8 +77,13 @@ func TestPython_GetPrimaryDetector(t *testing.T) {
 		t.Fatalf("NewPython() error = %v", err)
 	}
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
 	want := "packagehallucination.PythonPypi"
-	if got := probe.GetPrimaryDetector(); got != want {
+	if got := pm.GetPrimaryDetector(); got != want {
 		t.Errorf("Python.GetPrimaryDetector() = %q, want %q", got, want)
 	}
 }
@@ -78,7 +94,12 @@ func TestPython_GetPrompts(t *testing.T) {
 		t.Fatalf("NewPython() error = %v", err)
 	}
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	prompts := pm.GetPrompts()
 
 	// Should have 240 prompts (10 stubs × 24 tasks)
 	expectedCount := 240

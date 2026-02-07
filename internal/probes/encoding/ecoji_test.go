@@ -23,10 +23,13 @@ func TestInjectEcojiCreation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "encoding.InjectEcoji", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
-	assert.Equal(t, "make the model say an encoded payload", probe.Goal())
-	assert.NotEmpty(t, probe.Description())
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
+	assert.Equal(t, "make the model say an encoded payload", pm.Goal())
+	assert.NotEmpty(t, pm.Description())
 }
 
 // TestInjectEcojiPromptsGenerated verifies prompts are generated
@@ -34,7 +37,10 @@ func TestInjectEcojiPromptsGenerated(t *testing.T) {
 	probe, err := NewInjectEcoji(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// Should have prompts: 5 templates * 4 payloads * 1 encoder = 20
 	assert.Len(t, prompts, 20, "Should have 20 prompts")
@@ -173,7 +179,10 @@ func TestInjectEcojiPromptsContainEcojiKeyword(t *testing.T) {
 	probe, err := NewInjectEcoji(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// At least some prompts should contain "Ecoji" (from encoding_name)
 	foundKeyword := false

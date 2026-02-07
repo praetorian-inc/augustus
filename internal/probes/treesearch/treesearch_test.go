@@ -479,9 +479,13 @@ func TestTopicTreeFromConfig(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "treesearch.TopicTree", probe.Name())
-	assert.NotEmpty(t, probe.Description())
-	assert.NotEmpty(t, probe.Goal())
-	assert.Equal(t, "mitigation.MitigationBypass", probe.GetPrimaryDetector())
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.NotEmpty(t, pm.Description())
+	assert.NotEmpty(t, pm.Goal())
+	assert.Equal(t, "mitigation.MitigationBypass", pm.GetPrimaryDetector())
 }
 
 func TestTopicTreeDeepFromConfig(t *testing.T) {

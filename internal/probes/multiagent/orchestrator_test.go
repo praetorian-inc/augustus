@@ -167,6 +167,11 @@ func TestOrchestratorPoisonProbeRegistration(t *testing.T) {
 	}
 }
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
 func TestOrchestratorPoisonProbeTaskQueueInjection(t *testing.T) {
 	cfg := registry.Config{
 		"technique": TaskQueueInjection,

@@ -7,6 +7,7 @@ import (
 
 	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
@@ -25,15 +26,20 @@ func TestNewGlitchFull(t *testing.T) {
 		t.Errorf("Name() = %q, want %q", probe.Name(), "glitch.GlitchFull")
 	}
 
-	if probe.Goal() == "" {
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	if pm.Goal() == "" {
 		t.Error("Goal() returned empty string")
 	}
 
-	if probe.Description() == "" {
+	if pm.Description() == "" {
 		t.Error("Description() returned empty string")
 	}
 
-	if probe.GetPrimaryDetector() == "" {
+	if pm.GetPrimaryDetector() == "" {
 		t.Error("GetPrimaryDetector() returned empty string")
 	}
 }
@@ -69,8 +75,13 @@ func TestGlitchFull_Probe(t *testing.T) {
 			t.Errorf("Attempt[%d].Probe = %q, want %q", i, att.Probe, probe.Name())
 		}
 
-		if att.Detector != probe.GetPrimaryDetector() {
-			t.Errorf("Attempt[%d].Detector = %q, want %q", i, att.Detector, probe.GetPrimaryDetector())
+		pm, ok := probe.(probes.ProbeMetadata)
+		if !ok {
+			t.Fatal("probe should implement ProbeMetadata")
+		}
+
+		if att.Detector != pm.GetPrimaryDetector() {
+			t.Errorf("Attempt[%d].Detector = %q, want %q", i, att.Detector, pm.GetPrimaryDetector())
 		}
 
 		if att.Status != attempt.StatusComplete {
@@ -85,7 +96,12 @@ func TestGlitchFull_Prompts(t *testing.T) {
 		t.Fatalf("NewGlitchFull() error = %v", err)
 	}
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	prompts := pm.GetPrompts()
 
 	if len(prompts) == 0 {
 		t.Fatal("GetPrompts() returned no prompts")
@@ -198,13 +214,19 @@ func TestGlitch_SubsetOfGlitchFull(t *testing.T) {
 		t.Fatalf("NewGlitchFull() error = %v", err)
 	}
 
-	glitch := glitchProbe.(*Glitch)
-	full := fullProbe.(*GlitchFull)
+	pmGlitch, ok := glitchProbe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("glitchProbe should implement ProbeMetadata")
+	}
+	pmFull, ok := fullProbe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("fullProbe should implement ProbeMetadata")
+	}
 
 	// Verify Glitch prompts are a subset of GlitchFull prompts
-	glitchPrompts := glitch.GetPrompts()
+	glitchPrompts := pmGlitch.GetPrompts()
 	fullPromptsSet := make(map[string]bool)
-	for _, p := range full.GetPrompts() {
+	for _, p := range pmFull.GetPrompts() {
 		fullPromptsSet[p] = true
 	}
 
