@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -39,9 +40,8 @@ func TestProbeTemplate_Validate_MissingID(t *testing.T) {
 	if err == nil {
 		t.Error("Validate() should return error for missing ID")
 	}
-	expectedMsg := "template validation failed: 'id' is required"
-	if err.Error() != expectedMsg {
-		t.Errorf("Expected error message %q, got %q", expectedMsg, err.Error())
+	if !errors.Is(err, ErrMissingID) {
+		t.Errorf("Expected ErrMissingID, got: %v", err)
 	}
 }
 
@@ -60,9 +60,8 @@ func TestProbeTemplate_Validate_InvalidSeverity(t *testing.T) {
 	if err == nil {
 		t.Error("Validate() should return error for invalid severity")
 	}
-	expectedMsg := "template validation failed: invalid severity 'invalid'"
-	if err.Error() != expectedMsg {
-		t.Errorf("Expected error message %q, got %q", expectedMsg, err.Error())
+	if !errors.Is(err, ErrInvalidSeverity) {
+		t.Errorf("Expected ErrInvalidSeverity, got: %v", err)
 	}
 }
 
@@ -81,9 +80,8 @@ func TestProbeTemplate_Validate_EmptyPrompts(t *testing.T) {
 	if err == nil {
 		t.Error("Validate() should return error for empty prompts")
 	}
-	expectedMsg := "template validation failed: 'prompts' cannot be empty for template 'test-template'"
-	if err.Error() != expectedMsg {
-		t.Errorf("Expected error message %q, got %q", expectedMsg, err.Error())
+	if !errors.Is(err, ErrEmptyPrompts) {
+		t.Errorf("Expected ErrEmptyPrompts, got: %v", err)
 	}
 }
 
@@ -102,9 +100,8 @@ func TestProbeTemplate_Validate_MissingDetector(t *testing.T) {
 	if err == nil {
 		t.Error("Validate() should return error for missing detector")
 	}
-	expectedMsg := "template validation failed: 'info.detector' is required for template 'test-template'"
-	if err.Error() != expectedMsg {
-		t.Errorf("Expected error message %q, got %q", expectedMsg, err.Error())
+	if !errors.Is(err, ErrMissingDetector) {
+		t.Errorf("Expected ErrMissingDetector, got: %v", err)
 	}
 }
 
@@ -144,9 +141,8 @@ func TestProbeTemplate_Validate_MissingName(t *testing.T) {
 	if err == nil {
 		t.Error("Validate() should return error for missing name")
 	}
-	expectedMsg := "template validation failed: 'info.name' is required"
-	if err.Error() != expectedMsg {
-		t.Errorf("Expected error message %q, got %q", expectedMsg, err.Error())
+	if !errors.Is(err, ErrMissingName) {
+		t.Errorf("Expected ErrMissingName, got: %v", err)
 	}
 }
 

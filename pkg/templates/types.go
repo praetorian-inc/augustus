@@ -1,9 +1,27 @@
 package templates
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
+)
+
+var (
+	// ErrMissingID is returned when template validation fails due to missing id field.
+	ErrMissingID = errors.New("template validation failed: 'id' is required")
+
+	// ErrMissingName is returned when template validation fails due to missing info.name field.
+	ErrMissingName = errors.New("template validation failed: 'info.name' is required")
+
+	// ErrMissingDetector is returned when template validation fails due to missing info.detector field.
+	ErrMissingDetector = errors.New("template validation failed: 'info.detector' is required")
+
+	// ErrInvalidSeverity is returned when template validation fails due to invalid severity value.
+	ErrInvalidSeverity = errors.New("template validation failed: invalid severity")
+
+	// ErrEmptyPrompts is returned when template validation fails due to empty prompts array.
+	ErrEmptyPrompts = errors.New("template validation failed: 'prompts' cannot be empty")
 )
 
 // ProbeTemplate defines the YAML structure for probe templates.
@@ -22,22 +40,22 @@ type ProbeTemplate struct {
 // Validate checks if the ProbeTemplate has all required fields and valid values.
 func (t *ProbeTemplate) Validate() error {
 	if t.ID == "" {
-		return fmt.Errorf("template validation failed: 'id' is required")
+		return ErrMissingID
 	}
 	if t.Info.Name == "" {
-		return fmt.Errorf("template validation failed: 'info.name' is required")
+		return ErrMissingName
 	}
 	if t.Info.Detector == "" {
-		return fmt.Errorf("template validation failed: 'info.detector' is required for template '%s'", t.ID)
+		return fmt.Errorf("%w for template '%s'", ErrMissingDetector, t.ID)
 	}
 	validSeverities := map[string]bool{
 		"critical": true, "high": true, "medium": true, "low": true, "info": true,
 	}
 	if !validSeverities[strings.ToLower(t.Info.Severity)] {
-		return fmt.Errorf("template validation failed: invalid severity '%s'", t.Info.Severity)
+		return fmt.Errorf("%w: '%s'", ErrInvalidSeverity, t.Info.Severity)
 	}
 	if len(t.Prompts) == 0 {
-		return fmt.Errorf("template validation failed: 'prompts' cannot be empty for template '%s'", t.ID)
+		return fmt.Errorf("%w for template '%s'", ErrEmptyPrompts, t.ID)
 	}
 	for i, prompt := range t.Prompts {
 		if strings.TrimSpace(prompt) == "" {
