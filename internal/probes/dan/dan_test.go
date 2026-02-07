@@ -108,7 +108,10 @@ func TestDan110_Prompts_ContainsDANKeyElements(t *testing.T) {
 	p, err := probes.Create("dan.Dan_11_0", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts)
 
 	prompt := prompts[0]
@@ -135,7 +138,10 @@ func TestDan110_Prompts_ContainsPlaceholder(t *testing.T) {
 	p, err := probes.Create("dan.Dan_11_0", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts)
 
 	prompt := prompts[0]
@@ -149,7 +155,10 @@ func TestDan110_Prompts_Length(t *testing.T) {
 	p, err := probes.Create("dan.Dan_11_0", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts)
 
 	prompt := prompts[0]
@@ -169,8 +178,11 @@ func TestDan110_Probe_ReturnsAttempts(t *testing.T) {
 	attempts, err := p.Probe(ctx, gen)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	// Should return one attempt per prompt (1 for Dan_11_0)
-	prompts := p.GetPrompts()
+	prompts := pm.GetPrompts()
 	assert.Len(t, attempts, len(prompts))
 }
 
@@ -198,7 +210,10 @@ func TestDan110_Prompts_MatchPythonExactly(t *testing.T) {
 	p, err := probes.Create("dan.Dan_11_0", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.Len(t, prompts, 1)
 
 	prompt := prompts[0]

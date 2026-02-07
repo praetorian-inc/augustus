@@ -38,7 +38,10 @@ func TestDeletionsPromptsGenerated(t *testing.T) {
 	probe, err := NewDeletions(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts, "Should generate prompts")
 
 	// Verify at least some prompts contain backspace characters

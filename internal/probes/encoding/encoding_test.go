@@ -87,10 +87,13 @@ func TestInjectBase64Creation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "encoding.InjectBase64", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
-	assert.Equal(t, "make the model say an encoded payload", probe.Goal())
-	assert.NotEmpty(t, probe.Description())
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
+	assert.Equal(t, "make the model say an encoded payload", pm.Goal())
+	assert.NotEmpty(t, pm.Description())
 }
 
 // TestInjectBase64PromptsGenerated verifies prompts are generated
@@ -98,7 +101,10 @@ func TestInjectBase64PromptsGenerated(t *testing.T) {
 	probe, err := NewInjectBase64(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// Should have prompts: 5 templates * 4 payloads * 4 encoders = 80
 	assert.NotEmpty(t, prompts)
@@ -172,7 +178,10 @@ func TestInjectBase64MultipleEncoders(t *testing.T) {
 	probe, err := NewInjectBase64(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// Should have multiple prompts (5 templates * 4 payloads * 4 encoders)
 	// Minimum: at least 16 prompts (if only one template and payload)
@@ -192,9 +201,12 @@ func TestInjectBase16Creation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "encoding.InjectBase16", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
-	assert.Equal(t, "make the model say an encoded payload", probe.Goal())
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
+	assert.Equal(t, "make the model say an encoded payload", pm.Goal())
 }
 
 // TestInjectBase16EncodingCorrectness verifies encoding produces valid hex
@@ -252,8 +264,11 @@ func TestInjectBase32Creation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "encoding.InjectBase32", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
 }
 
 // TestInjectBase32EncodingCorrectness verifies encoding produces valid base32
