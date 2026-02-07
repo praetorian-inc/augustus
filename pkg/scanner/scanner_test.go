@@ -106,9 +106,9 @@ func TestScanner_Run_ConcurrencyLimit(t *testing.T) {
 	s := scanner.New(opts)
 
 	// Track progress
-	var progressCallbackCalled bool
+	var progressCallbackCalled atomic.Bool
 	s.SetProgressCallback(func(completed, total int) {
-		progressCallbackCalled = true
+		progressCallbackCalled.Store(true)
 	})
 
 	// We can't directly track concurrency within the scanner's goroutines from outside,
@@ -119,7 +119,7 @@ func TestScanner_Run_ConcurrencyLimit(t *testing.T) {
 	elapsed := time.Since(start)
 
 	require.NoError(t, results.Error)
-	assert.True(t, progressCallbackCalled, "progress callback should be called")
+	assert.True(t, progressCallbackCalled.Load(), "progress callback should be called")
 	assert.Equal(t, 10, results.Succeeded, "all 10 probes should succeed")
 
 	// With 10 probes at 50ms each and concurrency of 3:
@@ -255,16 +255,16 @@ func TestScanner_Run_ProgressCallback(t *testing.T) {
 
 	s := scanner.New(opts)
 
-	callCount := 0
+	var callCount atomic.Int32
 	s.SetProgressCallback(func(completed, total int) {
-		callCount++
+		callCount.Add(1)
 		assert.LessOrEqual(t, completed, total, "completed should not exceed total")
 	})
 
 	results := s.Run(ctx, probes, gen)
 
 	require.NoError(t, results.Error)
-	assert.Equal(t, 3, callCount, "progress callback should be called 3 times")
+	assert.Equal(t, int32(3), callCount.Load(), "progress callback should be called 3 times")
 }
 
 func TestScanner_Run_EmptyProbes(t *testing.T) {
@@ -430,9 +430,13 @@ func TestScanner_Run_PopulatesMetrics(t *testing.T) {
 	require.NoError(t, results.Error)
 
 	// Verify metrics were populated
-	assert.Equal(t, int64(3), atomic.LoadInt64(&m.ProbesTotal), "should count all probes")
-	assert.Equal(t, int64(2), atomic.LoadInt64(&m.ProbesSucceeded), "should count succeeded probes")
-	assert.Equal(t, int64(1), atomic.LoadInt64(&m.ProbesFailed), "should count failed probes")
-	assert.Equal(t, int64(3), atomic.LoadInt64(&m.AttemptsTotal), "should count all attempts")
-	assert.Equal(t, int64(2), atomic.LoadInt64(&m.AttemptsVuln), "should count vulnerable attempts")
+	// Get metrics snapshot using scanner's mutex
+	mu := s.GetMetricsMutex()
+	snapshot := m.Snapshot(mu)
+
+	assert.Equal(t, int64(3), snapshot.ProbesTotal, "should count all probes")
+	assert.Equal(t, int64(2), snapshot.ProbesSucceeded, "should count succeeded probes")
+	assert.Equal(t, int64(1), snapshot.ProbesFailed, "should count failed probes")
+	assert.Equal(t, int64(3), snapshot.AttemptsTotal, "should count all attempts")
+	assert.Equal(t, int64(2), snapshot.AttemptsVuln, "should count vulnerable attempts")
 }

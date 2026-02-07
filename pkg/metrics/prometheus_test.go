@@ -5,11 +5,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 )
 
 func TestPrometheusExporter_Export(t *testing.T) {
 	// Arrange: Create metrics with known values
+	var mu sync.Mutex
 	m := &Metrics{
 		ProbesTotal:     100,
 		ProbesSucceeded: 85,
@@ -18,7 +20,7 @@ func TestPrometheusExporter_Export(t *testing.T) {
 		AttemptsVuln:    75,
 	}
 
-	exporter := NewPrometheusExporter(m)
+	exporter := NewPrometheusExporter(m, &mu)
 
 	// Act: Export to Prometheus format
 	output := exporter.Export()
@@ -42,6 +44,7 @@ func TestPrometheusExporter_Export(t *testing.T) {
 
 func TestPrometheusExporter_Handler(t *testing.T) {
 	// Arrange: Create metrics with known values
+	var mu sync.Mutex
 	m := &Metrics{
 		ProbesTotal:     42,
 		ProbesSucceeded: 40,
@@ -50,7 +53,7 @@ func TestPrometheusExporter_Handler(t *testing.T) {
 		AttemptsVuln:    30,
 	}
 
-	exporter := NewPrometheusExporter(m)
+	exporter := NewPrometheusExporter(m, &mu)
 
 	// Act: Create HTTP handler and make request
 	handler := exporter.Handler()
@@ -108,12 +111,13 @@ func TestPrometheusExporter_VulnerabilityRate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			var mu sync.Mutex
 			m := &Metrics{
 				AttemptsTotal: tt.attemptsTotal,
 				AttemptsVuln:  tt.attemptsVuln,
 			}
 
-			exporter := NewPrometheusExporter(m)
+			exporter := NewPrometheusExporter(m, &mu)
 			output := exporter.Export()
 
 			// Check that the rate appears in output
