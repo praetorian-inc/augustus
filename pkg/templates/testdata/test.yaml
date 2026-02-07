@@ -8,5 +8,11 @@ info:
   tags:
     - test
   severity: info
+  cwe:
+    - CWE-77
+  mitre_attack:
+    - T1059.006
+  owasp:
+    - "A03:2021"
 prompts:
   - "This is a test prompt"
