@@ -604,7 +604,9 @@ func TestProbeGoalConsistency(t *testing.T) {
 			probe, err := factory(nil)
 			require.NoError(t, err)
 
-			assert.Equal(t, expectedGoal, probe.Goal(), "%s should have consistent goal", name)
+			pm, ok := probe.(probes.ProbeMetadata)
+			require.True(t, ok, "probe should implement ProbeMetadata")
+			assert.Equal(t, expectedGoal, pm.Goal(), "%s should have consistent goal", name)
 		})
 	}
 }
@@ -636,7 +638,9 @@ func TestProbeDetectorConsistency(t *testing.T) {
 			probe, err := factory(nil)
 			require.NoError(t, err)
 
-			assert.Equal(t, expectedDetector, probe.GetPrimaryDetector(), "%s should use consistent detector", name)
+			pm, ok := probe.(probes.ProbeMetadata)
+			require.True(t, ok, "probe should implement ProbeMetadata")
+			assert.Equal(t, expectedDetector, pm.GetPrimaryDetector(), "%s should use consistent detector", name)
 		})
 	}
 }
@@ -654,8 +658,10 @@ func TestInjectROT13Creation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	assert.Equal(t, "encoding.InjectROT13", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
 }
 
 // TestInjectROT13EncodingCorrectness verifies encoding produces valid ROT13
@@ -709,8 +715,10 @@ func TestInjectAtbashCreation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	assert.Equal(t, "encoding.InjectAtbash", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
 }
 
 // TestInjectAtbashEncodingCorrectness verifies encoding produces valid Atbash

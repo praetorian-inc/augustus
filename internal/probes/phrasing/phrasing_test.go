@@ -208,7 +208,9 @@ func TestPastTense_Prompts_Unique(t *testing.T) {
 	p, err := probes.Create("phrasing.PastTense", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 	seen := make(map[string]bool)
 	duplicates := 0
 
