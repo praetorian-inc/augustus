@@ -129,3 +129,11 @@ func WithBaseURL(url string) Option {
 		c.BaseURL = url
 	}
 }
+
+// String returns a string representation with API key masked.
+// This prevents accidental credential leakage in logs or error messages.
+func (c Config) String() string {
+	maskedKey := registry.MaskAPIKey(c.APIKey)
+	return fmt.Sprintf("Config{Model=%s, APIKey=%s, Temperature=%.2f, MaxTokens=%d}",
+		c.Model, maskedKey, c.Temperature, c.MaxTokens)
+}
