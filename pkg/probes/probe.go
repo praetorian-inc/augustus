@@ -17,6 +17,10 @@ type Generator = types.Generator
 // See types.Prober for the canonical interface definition.
 type Prober = types.Prober
 
+// ProbeMetadata is a type alias for backward compatibility.
+// See types.ProbeMetadata for the canonical interface definition.
+type ProbeMetadata = types.ProbeMetadata
+
 // Registry is the global probe registry.
 var Registry = registry.New[Prober]("probes")
 
