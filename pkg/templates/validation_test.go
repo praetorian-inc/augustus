@@ -1,6 +1,7 @@
 package templates
 
 import (
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -268,5 +269,61 @@ func TestProbeTemplate_ClassificationFieldsPresent(t *testing.T) {
 	}
 	if tmpl.Info.OWASPTopTen[0] != "A03:2021" {
 		t.Errorf("Expected OWASP category 'A03:2021', got %q", tmpl.Info.OWASPTopTen[0])
+	}
+}
+
+func TestProbeTemplate_ValidateClassification_ValidFormats(t *testing.T) {
+	tmpl := &ProbeTemplate{
+		ID: "test",
+		Info: ProbeInfo{
+			Name:        "Test",
+			Detector:    "test",
+			Severity:    "high",
+			CWEIDs:      []string{"CWE-77", "CWE-94"},
+			MITREAttack: []string{"T1059", "T1059.006"},
+			OWASPTopTen: []string{"A03:2021"},
+		},
+		Prompts: []string{"test"},
+	}
+	err := tmpl.ValidateClassification()
+	if err != nil {
+		t.Errorf("ValidateClassification() failed for valid formats: %v", err)
+	}
+}
+
+func TestProbeTemplate_ValidateClassification_InvalidCWE(t *testing.T) {
+	tmpl := &ProbeTemplate{
+		ID: "test",
+		Info: ProbeInfo{
+			Name:     "Test",
+			Detector: "test",
+			Severity: "high",
+			CWEIDs:   []string{"CWE-INVALID"},
+		},
+		Prompts: []string{"test"},
+	}
+	err := tmpl.ValidateClassification()
+	if err == nil {
+		t.Error("ValidateClassification() should reject invalid CWE format")
+	}
+	if !strings.Contains(err.Error(), "invalid CWE format") {
+		t.Errorf("Expected CWE format error, got: %v", err)
+	}
+}
+
+func TestProbeTemplate_ValidateClassification_InvalidMITRE(t *testing.T) {
+	tmpl := &ProbeTemplate{
+		ID: "test",
+		Info: ProbeInfo{
+			Name:        "Test",
+			Detector:    "test",
+			Severity:    "high",
+			MITREAttack: []string{"T12"}, // Too short
+		},
+		Prompts: []string{"test"},
+	}
+	err := tmpl.ValidateClassification()
+	if err == nil {
+		t.Error("ValidateClassification() should reject invalid MITRE format")
 	}
 }

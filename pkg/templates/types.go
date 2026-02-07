@@ -2,6 +2,7 @@ package templates
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -43,6 +44,33 @@ func (t *ProbeTemplate) Validate() error {
 			return fmt.Errorf("template validation failed: prompt %d is empty for template '%s'", i+1, t.ID)
 		}
 	}
+	return nil
+}
+
+// ValidateClassification checks that classification fields follow expected formats.
+// This is optional validation -- templates without classification are still valid.
+func (t *ProbeTemplate) ValidateClassification() error {
+	// CWE format: CWE-\d+
+	for _, cwe := range t.Info.CWEIDs {
+		if !regexp.MustCompile(`^CWE-\d+$`).MatchString(cwe) {
+			return fmt.Errorf("invalid CWE format '%s' (expected: CWE-123)", cwe)
+		}
+	}
+
+	// MITRE ATT&CK format: T\d{4} or T\d{4}.\d{3}
+	for _, technique := range t.Info.MITREAttack {
+		if !regexp.MustCompile(`^T\d{4}(\.\d{3})?$`).MatchString(technique) {
+			return fmt.Errorf("invalid MITRE technique format '%s' (expected: T1234 or T1234.567)", technique)
+		}
+	}
+
+	// OWASP format: A\d{2}:\d{4}
+	for _, owasp := range t.Info.OWASPTopTen {
+		if !regexp.MustCompile(`^A\d{2}:\d{4}$`).MatchString(owasp) {
+			return fmt.Errorf("invalid OWASP format '%s' (expected: A01:2021)", owasp)
+		}
+	}
+
 	return nil
 }
 
