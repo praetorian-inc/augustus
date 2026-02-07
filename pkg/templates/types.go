@@ -76,9 +76,10 @@ func (t *ProbeTemplate) ValidateClassification() error {
 	}
 
 	// MITRE ATT&CK format: T\d{4} or T\d{4}.\d{3}
+	// MITRE ATLAS format: AML.T\d{4} or AML.T\d{4}.\d{3}
 	for _, technique := range t.Info.MITREAttack {
-		if !regexp.MustCompile(`^T\d{4}(\.\d{3})?$`).MatchString(technique) {
-			return fmt.Errorf("invalid MITRE technique format '%s' (expected: T1234 or T1234.567)", technique)
+		if !regexp.MustCompile(`^(T\d{4}(\.\d{3})?|AML\.T\d{4}(\.\d{3})?)$`).MatchString(technique) {
+			return fmt.Errorf("invalid MITRE technique format '%s' (expected: T1234, T1234.567, AML.T0054, or AML.T0054.001)", technique)
 		}
 	}
 

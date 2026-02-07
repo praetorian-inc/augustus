@@ -323,3 +323,37 @@ func TestProbeTemplate_ValidateClassification_InvalidMITRE(t *testing.T) {
 		t.Error("ValidateClassification() should reject invalid MITRE format")
 	}
 }
+
+func TestProbeTemplate_ValidateClassification_ATLASFormat(t *testing.T) {
+	tmpl := &ProbeTemplate{
+		ID: "test",
+		Info: ProbeInfo{
+			Name:        "Test",
+			Detector:    "test",
+			Severity:    "high",
+			MITREAttack: []string{"AML.T0054", "AML.T0054.001"},
+		},
+		Prompts: []string{"test"},
+	}
+	err := tmpl.ValidateClassification()
+	if err != nil {
+		t.Errorf("ValidateClassification() should accept ATLAS format, got: %v", err)
+	}
+}
+
+func TestProbeTemplate_ValidateClassification_MixedFormats(t *testing.T) {
+	tmpl := &ProbeTemplate{
+		ID: "test",
+		Info: ProbeInfo{
+			Name:        "Test",
+			Detector:    "test",
+			Severity:    "high",
+			MITREAttack: []string{"T1059.006", "AML.T0054"},
+		},
+		Prompts: []string{"test"},
+	}
+	err := tmpl.ValidateClassification()
+	if err != nil {
+		t.Errorf("ValidateClassification() should accept mixed formats, got: %v", err)
+	}
+}
