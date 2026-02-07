@@ -17,7 +17,7 @@ info:
     - adaptive
   severity: high
   cwe:
-    - CWE-77
+    - CWE-1427
   mitre_attack:
     - T1059.006
   owasp:
