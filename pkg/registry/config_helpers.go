@@ -138,3 +138,26 @@ func GetOptionalAPIKeyWithEnv(cfg Config, envVar string) string {
 	}
 	return key
 }
+
+// MaskAPIKey masks an API key for safe display in logs and error messages.
+// Shows only first 3 and last 3 characters. Keys of 6 or fewer characters
+// are fully masked. Empty keys display as "<empty>".
+//
+// This function uses byte-based indexing (len/slice), which assumes the key
+// contains only ASCII characters. This is standard for API keys (e.g.,
+// OpenAI "sk-...", Anthropic "sk-ant-...", Azure hex subscription keys).
+// Do not use with keys containing multi-byte UTF-8 characters.
+//
+// Examples:
+//   "sk-1234567890abcdef" -> "sk-***def"
+//   "short" -> "***"
+//   "" -> "<empty>"
+func MaskAPIKey(key string) string {
+	if key == "" {
+		return "<empty>"
+	}
+	if len(key) <= 6 {
+		return "***"
+	}
+	return key[:3] + "***" + key[len(key)-3:]
+}

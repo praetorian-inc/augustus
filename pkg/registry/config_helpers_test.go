@@ -133,3 +133,27 @@ func TestRequireString(t *testing.T) {
 		t.Error("error message is empty")
 	}
 }
+
+func TestMaskAPIKey(t *testing.T) {
+	tests := []struct {
+		name string
+		key  string
+		want string
+	}{
+		{name: "empty key", key: "", want: "<empty>"},
+		{name: "short key", key: "abc", want: "***"},
+		{name: "exactly 6 chars", key: "abcdef", want: "***"},
+		{name: "7 chars", key: "abcdefg", want: "abc***efg"},
+		{name: "normal API key", key: "sk-1234567890abcdef", want: "sk-***def"},
+		{name: "long key", key: "sk-proj-xxxxxxxxxxxxxxxxxxxxxxxx", want: "sk-***xxx"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := MaskAPIKey(tt.key)
+			if got != tt.want {
+				t.Errorf("MaskAPIKey(%q) = %q, want %q", tt.key, got, tt.want)
+			}
+		})
+	}
+}
