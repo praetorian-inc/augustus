@@ -1,0 +1,18 @@
+id: test.InvalidMITRE
+info:
+  name: Invalid MITRE Probe
+  author: test
+  description: A probe with invalid MITRE ATT&CK format
+  goal: test MITRE validation
+  detector: test.Detector
+  tags:
+    - test
+  severity: info
+  cwe:
+    - CWE-77
+  mitre_attack:
+    - T1059          # Valid sub-technique without decimal
+    - TA0001.123     # Invalid (tactics don't have sub-techniques)
+    - INVALID        # Invalid format
+prompts:
+  - "This is a test prompt with invalid MITRE ATT&CK"
