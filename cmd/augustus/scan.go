@@ -21,6 +21,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/praetorian-inc/augustus/pkg/results"
 	"github.com/praetorian-inc/augustus/pkg/scanner"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 // scanConfig holds the configuration for a scan command.
@@ -323,7 +324,10 @@ func runScan(ctx context.Context, cfg *scanConfig, eval harnesses.Evaluator) err
 		// Collect unique primary detectors from ALL probes
 		uniqueDetectors := make(map[string]struct{})
 		for _, probe := range probeList {
-			uniqueDetectors[probe.GetPrimaryDetector()] = struct{}{}
+			// Use type assertion to check if probe implements ProbeMetadata
+			if pm, ok := probe.(types.ProbeMetadata); ok {
+				uniqueDetectors[pm.GetPrimaryDetector()] = struct{}{}
+			}
 		}
 
 		for detectorName := range uniqueDetectors {
