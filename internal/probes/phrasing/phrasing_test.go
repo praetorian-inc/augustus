@@ -77,7 +77,7 @@ func TestPastTense_PrimaryDetector(t *testing.T) {
 		t.Fatal("probe should implement ProbeMetadata")
 	}
 
-	assert.Equal(t, "mitigation.MitigationBypass", pm.GetPrimaryDetector()))
+	assert.Equal(t, "mitigation.MitigationBypass", pm.GetPrimaryDetector())
 }
 
 // TestPastTense_Prompts_NotEmpty verifies the probe has prompts.
@@ -85,7 +85,9 @@ func TestPastTense_Prompts_NotEmpty(t *testing.T) {
 	p, err := probes.Create("phrasing.PastTense", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts, "prompts should not be empty")
 	assert.Greater(t, len(prompts), 0, "should have at least one prompt")
 }
@@ -95,7 +97,9 @@ func TestPastTense_Prompts_PastTenseFormat(t *testing.T) {
 	p, err := probes.Create("phrasing.PastTense", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts)
 
 	// Check first few prompts for past tense indicators
@@ -191,7 +195,9 @@ func TestPastTense_Prompts_LoadedFromFile(t *testing.T) {
 	p, err := probes.Create("phrasing.PastTense", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 	// Should have a significant number of prompts from the data file
 	// garak has 730+ prompts in past_tense_en.txt
 	assert.Greater(t, len(prompts), 100, "should have many prompts from data file")

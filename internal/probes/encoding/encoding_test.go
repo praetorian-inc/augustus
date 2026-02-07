@@ -301,7 +301,9 @@ func TestInjectBase32PromptsCount(t *testing.T) {
 	probe, err := NewInjectBase32(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 
 	// 5 templates * 4 payloads * 1 encoder = 20 prompts
 	assert.Len(t, prompts, 20, "Should have 20 prompts (5 templates * 4 payloads * 1 encoder)")
@@ -321,7 +323,9 @@ func TestInjectHexCreation(t *testing.T) {
 	require.NotNil(t, probe)
 
 	assert.Equal(t, "encoding.InjectHex", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
 }
 
 // TestInjectHexEncodingCorrectness verifies encoding produces valid hex
@@ -354,7 +358,9 @@ func TestInjectHexEncodingNameInPrompt(t *testing.T) {
 	probe, err := NewInjectHex(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 
 	// At least some prompts should contain "hex"
 	foundName := false
@@ -382,7 +388,9 @@ func TestInjectAscii85Creation(t *testing.T) {
 	require.NotNil(t, probe)
 
 	assert.Equal(t, "encoding.InjectAscii85", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
 }
 
 // TestInjectAscii85EncodingCorrectness verifies encoding produces valid ASCII85
@@ -460,10 +468,12 @@ func TestAllProbesImplementInterface(t *testing.T) {
 
 			// Verify interface methods
 			assert.NotEmpty(t, probe.Name())
-			assert.NotEmpty(t, probe.Description())
-			assert.NotEmpty(t, probe.Goal())
-			assert.NotEmpty(t, probe.GetPrimaryDetector())
-			assert.NotEmpty(t, probe.GetPrompts())
+			pm, ok := probe.(probes.ProbeMetadata)
+			require.True(t, ok, "probe should implement ProbeMetadata")
+			assert.NotEmpty(t, pm.Description())
+			assert.NotEmpty(t, pm.Goal())
+			assert.NotEmpty(t, pm.GetPrimaryDetector())
+			assert.NotEmpty(t, pm.GetPrompts())
 		})
 	}
 }
@@ -473,7 +483,9 @@ func TestTemplateSubstitution(t *testing.T) {
 	probe, err := NewInjectBase64(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 
 	// Check for template substitution
 	for _, prompt := range prompts {

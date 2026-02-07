@@ -167,11 +167,6 @@ func TestOrchestratorPoisonProbeRegistration(t *testing.T) {
 	}
 }
 
-	pm, ok := probe.(probes.ProbeMetadata)
-	if !ok {
-		t.Fatal("probe should implement ProbeMetadata")
-	}
-
 func TestOrchestratorPoisonProbeTaskQueueInjection(t *testing.T) {
 	cfg := registry.Config{
 		"technique": TaskQueueInjection,
@@ -195,6 +190,10 @@ func TestOrchestratorPoisonProbeTaskQueueInjection(t *testing.T) {
 	}
 
 	// Verify prompts contain task queue injection indicators
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
 	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Error("probe.GetPrompts() returned empty slice")
