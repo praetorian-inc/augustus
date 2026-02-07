@@ -22,6 +22,11 @@ var (
 
 	// ErrEmptyPrompts is returned when template validation fails due to empty prompts array.
 	ErrEmptyPrompts = errors.New("template validation failed: 'prompts' cannot be empty")
+
+	// Classification validation regexes compiled once at package init
+	cwePattern    = regexp.MustCompile(`^CWE-\d+$`)
+	mitrePattern  = regexp.MustCompile(`^(T\d{4}(\.\d{3})?|AML\.T\d{4}(\.\d{3})?)$`)
+	owaspPattern  = regexp.MustCompile(`^A\d{2}:\d{4}$`)
 )
 
 // ProbeTemplate defines the YAML structure for probe templates.
@@ -70,7 +75,7 @@ func (t *ProbeTemplate) Validate() error {
 func (t *ProbeTemplate) ValidateClassification() error {
 	// CWE format: CWE-\d+
 	for _, cwe := range t.Info.CWEIDs {
-		if !regexp.MustCompile(`^CWE-\d+$`).MatchString(cwe) {
+		if !cwePattern.MatchString(cwe) {
 			return fmt.Errorf("invalid CWE format '%s' (expected: CWE-123)", cwe)
 		}
 	}
@@ -78,14 +83,14 @@ func (t *ProbeTemplate) ValidateClassification() error {
 	// MITRE ATT&CK format: T\d{4} or T\d{4}.\d{3}
 	// MITRE ATLAS format: AML.T\d{4} or AML.T\d{4}.\d{3}
 	for _, technique := range t.Info.MITREAttack {
-		if !regexp.MustCompile(`^(T\d{4}(\.\d{3})?|AML\.T\d{4}(\.\d{3})?)$`).MatchString(technique) {
+		if !mitrePattern.MatchString(technique) {
 			return fmt.Errorf("invalid MITRE technique format '%s' (expected: T1234, T1234.567, AML.T0054, or AML.T0054.001)", technique)
 		}
 	}
 
 	// OWASP format: A\d{2}:\d{4}
 	for _, owasp := range t.Info.OWASPTopTen {
-		if !regexp.MustCompile(`^A\d{2}:\d{4}$`).MatchString(owasp) {
+		if !owaspPattern.MatchString(owasp) {
 			return fmt.Errorf("invalid OWASP format '%s' (expected: A01:2021)", owasp)
 		}
 	}
