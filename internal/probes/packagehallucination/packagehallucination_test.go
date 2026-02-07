@@ -120,6 +120,11 @@ func TestPackageHallucinationProbe_Goal(t *testing.T) {
 	}
 
 	goal := pm.Goal()
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
 	if goal == "" {
 		t.Error("PackageHallucinationProbe.Goal() returned empty string")
 	}
