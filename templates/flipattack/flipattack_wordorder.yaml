@@ -15,7 +15,7 @@ info:
     - filter-bypass
   severity: high
   cwe:
-    - CWE-838
+    - CWE-116
   mitre_attack:
     - T1027
   owasp:
