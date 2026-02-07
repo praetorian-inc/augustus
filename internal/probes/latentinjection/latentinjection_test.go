@@ -133,6 +133,8 @@ func TestLatentRefusal_Description(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentRefusal", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	// Should mention refusal or trigger
@@ -147,6 +149,8 @@ func TestLatentRefusal_Goal(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentRefusal", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	goal := pm.Goal()
 	assert.NotEmpty(t, goal)
 }
@@ -156,6 +160,8 @@ func TestLatentRefusal_GetPrimaryDetector(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentRefusal", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	detector := pm.GetPrimaryDetector()
 	assert.NotEmpty(t, detector)
 }
@@ -165,6 +171,8 @@ func TestLatentRefusal_GetPrompts(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentRefusal", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts, "should have at least one prompt")
 }
@@ -217,6 +225,8 @@ func TestLatentExtraction_Description(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentExtraction", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	// Should mention extraction or data
@@ -231,6 +241,8 @@ func TestLatentExtraction_Goal(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentExtraction", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	goal := pm.Goal()
 	assert.NotEmpty(t, goal)
 }
@@ -240,6 +252,8 @@ func TestLatentExtraction_GetPrimaryDetector(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentExtraction", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	detector := pm.GetPrimaryDetector()
 	assert.NotEmpty(t, detector)
 }
@@ -249,6 +263,8 @@ func TestLatentExtraction_GetPrompts(t *testing.T) {
 	p, err := probes.Create("latentinjection.LatentExtraction", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts, "should have at least one prompt")
 }

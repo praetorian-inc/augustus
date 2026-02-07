@@ -85,12 +85,12 @@ func TestPackageHallucinationProbe_Description(t *testing.T) {
 
 	probe, err := NewPackageHallucinationProbe(cfg)
 	if err != nil {
+		t.Fatalf("NewPackageHallucinationProbe() error = %v", err)
+	}
 
 	pm, ok := probe.(probes.ProbeMetadata)
 	if !ok {
 		t.Fatal("probe should implement ProbeMetadata")
-	}
-		t.Fatalf("NewPackageHallucinationProbe() error = %v", err)
 	}
 
 	desc := pm.Description()

@@ -39,7 +39,10 @@ func TestPastTense_Description(t *testing.T) {
 	p, err := probes.Create("phrasing.PastTense", nil)
 	require.NoError(t, err)
 
-	desc := p.Description()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	// Should mention past tense or rephrasing
 	assert.True(t,

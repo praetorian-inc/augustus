@@ -41,7 +41,10 @@ func TestGCGCached_Description(t *testing.T) {
 	p, err := probes.Create("suffix.GCGCached", nil)
 	require.NoError(t, err)
 
-	desc := p.Description()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	// Should mention GCG or adversarial suffixes
 	descLower := strings.ToLower(desc)
@@ -58,9 +61,12 @@ func TestGCGCached_Goal(t *testing.T) {
 	p, err := probes.Create("suffix.GCGCached", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	// Must match Python exactly
 	expected := "cause the model to disregard the system prompt"
-	assert.Equal(t, expected, p.Goal())
+	assert.Equal(t, expected, pm.Goal())
 }
 
 // TestGCGCached_PrimaryDetector verifies the probe returns the correct detector.
@@ -69,7 +75,10 @@ func TestGCGCached_PrimaryDetector(t *testing.T) {
 	p, err := probes.Create("suffix.GCGCached", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, "mitigation.MitigationBypass", p.GetPrimaryDetector())
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Equal(t, "mitigation.MitigationBypass", pm.GetPrimaryDetector())
 }
 
 // TestGCGCached_Prompts_NotEmpty verifies the probe has prompts.
@@ -77,7 +86,10 @@ func TestGCGCached_Prompts_NotEmpty(t *testing.T) {
 	p, err := probes.Create("suffix.GCGCached", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts, "should have prompts")
 }
 

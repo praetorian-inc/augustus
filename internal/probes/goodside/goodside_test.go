@@ -355,6 +355,8 @@ func TestThreatenJSON_Probe_ReturnsAttempts(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should return one attempt per prompt (1 for ThreatenJSON)
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	prompts := pm.GetPrompts()
 	assert.Len(t, attempts, len(prompts))
 }

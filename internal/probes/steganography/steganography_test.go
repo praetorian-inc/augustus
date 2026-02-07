@@ -57,7 +57,10 @@ func TestSteganographyProbe_Description(t *testing.T) {
 	p, err := probes.Create("steganography.LSB", nil)
 	require.NoError(t, err)
 
-	desc := p.Description()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	assert.True(t,
 		strings.Contains(strings.ToLower(desc), "steganograph") ||
@@ -71,7 +74,10 @@ func TestSteganographyProbe_Goal(t *testing.T) {
 	p, err := probes.Create("steganography.LSB", nil)
 	require.NoError(t, err)
 
-	goal := p.Goal()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	goal := pm.Goal()
 	assert.NotEmpty(t, goal)
 	assert.Contains(t, strings.ToLower(goal), "instruction")
 }
@@ -81,7 +87,10 @@ func TestSteganographyProbe_PrimaryDetector(t *testing.T) {
 	p, err := probes.Create("steganography.LSB", nil)
 	require.NoError(t, err)
 
-	detector := p.GetPrimaryDetector()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	detector := pm.GetPrimaryDetector()
 	assert.Equal(t, "steganography.ImageInstruction", detector)
 }
 
@@ -90,7 +99,10 @@ func TestSteganographyProbe_GetPrompts(t *testing.T) {
 	p, err := probes.Create("steganography.LSB", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts, "should have prompts")
 	assert.Greater(t, len(prompts), 0, "should have at least one prompt")
 }
@@ -107,7 +119,9 @@ func TestSteganographyProbe_Probe_ReturnsAttempts(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should return attempts based on prompts
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 	assert.Len(t, attempts, len(prompts))
 }
 
@@ -157,20 +171,23 @@ func TestSteganographyProbe_AllVariants(t *testing.T) {
 			// Verify name
 			assert.Equal(t, tt.name, p.Name())
 
+			pm, ok := p.(probes.ProbeMetadata)
+			require.True(t, ok, "probe should implement ProbeMetadata")
+
 			// Verify detector
-			assert.Equal(t, tt.expectedDetector, p.GetPrimaryDetector())
+			assert.Equal(t, tt.expectedDetector, pm.GetPrimaryDetector())
 
 			// Verify goal
-			goal := p.Goal()
+			goal := pm.Goal()
 			assert.NotEmpty(t, goal)
 			assert.Contains(t, strings.ToLower(goal), "instruction")
 
 			// Verify description
-			desc := p.Description()
+			desc := pm.Description()
 			assert.NotEmpty(t, desc)
 
 			// Verify prompts
-			prompts := p.GetPrompts()
+			prompts := pm.GetPrompts()
 			assert.NotEmpty(t, prompts)
 
 			// Verify probe execution
