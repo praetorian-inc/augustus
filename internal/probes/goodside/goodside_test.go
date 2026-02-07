@@ -503,6 +503,8 @@ func TestPoemExfiltration_Probe_ReturnsAttempts(t *testing.T) {
 	attempts, err := p.Probe(ctx, gen)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	prompts := pm.GetPrompts()
 	assert.Len(t, attempts, len(prompts))
 }
@@ -637,6 +639,8 @@ func TestPayloadSplitting_Probe_ReturnsAttempts(t *testing.T) {
 	attempts, err := p.Probe(ctx, gen)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	prompts := pm.GetPrompts()
 	assert.Len(t, attempts, len(prompts))
 }

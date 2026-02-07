@@ -86,15 +86,20 @@ func TestNewWebInjectionProbe(t *testing.T) {
 				t.Errorf("Name() = %v, want %v", probe.Name(), tt.wantName)
 			}
 
-			if probe.Goal() != tt.wantGoal {
-				t.Errorf("Goal() = %v, want %v", probe.Goal(), tt.wantGoal)
+			pm, ok := probe.(probes.ProbeMetadata)
+			if !ok {
+				t.Fatal("probe should implement ProbeMetadata")
 			}
 
-			if probe.GetPrimaryDetector() == "" {
+			if pm.Goal() != tt.wantGoal {
+				t.Errorf("Goal() = %v, want %v", pm.Goal(), tt.wantGoal)
+			}
+
+			if pm.GetPrimaryDetector() == "" {
 				t.Error("GetPrimaryDetector() should not be empty")
 			}
 
-			if probe.Description() == "" {
+			if pm.Description() == "" {
 				t.Error("Description() should not be empty")
 			}
 		})

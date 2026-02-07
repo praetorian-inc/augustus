@@ -190,7 +190,7 @@ func TestOrchestratorPoisonProbeTaskQueueInjection(t *testing.T) {
 	}
 
 	// Verify prompts contain task queue injection indicators
-	prompts := probe.GetPrompts()
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Error("probe.GetPrompts() returned empty slice")
 	}

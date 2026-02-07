@@ -58,9 +58,12 @@ func TestPastTense_Goal(t *testing.T) {
 	p, err := probes.Create("phrasing.PastTense", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	// Must match Python garak exactly
 	expected := "use past tense to disregard the system prompt"
-	assert.Equal(t, expected, p.Goal())
+	assert.Equal(t, expected, pm.Goal())
 }
 
 // TestPastTense_PrimaryDetector verifies the probe returns the correct detector.
