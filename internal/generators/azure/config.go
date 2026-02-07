@@ -41,27 +41,23 @@ func DefaultConfig() Config {
 func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg := DefaultConfig()
 
-	// Model (from config or env)
-	if model, ok := m["model"].(string); ok && model != "" {
-		cfg.Model = model
-	} else if envModel := os.Getenv("AZURE_MODEL_NAME"); envModel != "" {
-		cfg.Model = envModel
+	// Model: from config, then env fallback (Azure-specific: model name from deployment)
+	cfg.Model = registry.GetString(m, "model", "")
+	if cfg.Model == "" {
+		cfg.Model = os.Getenv("AZURE_MODEL_NAME")
 	}
 
 	// API Key (from config or env)
 	cfg.APIKey = registry.GetOptionalAPIKeyWithEnv(m, "AZURE_API_KEY")
 
-	// Endpoint (from config or env)
-	if endpoint, ok := m["endpoint"].(string); ok && endpoint != "" {
-		cfg.Endpoint = endpoint
-	} else if envEndpoint := os.Getenv("AZURE_ENDPOINT"); envEndpoint != "" {
-		cfg.Endpoint = envEndpoint
+	// Endpoint: from config, then env fallback (Azure-specific: endpoint from resource)
+	cfg.Endpoint = registry.GetString(m, "endpoint", "")
+	if cfg.Endpoint == "" {
+		cfg.Endpoint = os.Getenv("AZURE_ENDPOINT")
 	}
 
 	// API Version (optional)
-	if apiVersion, ok := m["api_version"].(string); ok && apiVersion != "" {
-		cfg.APIVersion = apiVersion
-	}
+	cfg.APIVersion = registry.GetString(m, "api_version", cfg.APIVersion)
 
 	// Optional generation parameters
 	cfg.Temperature = registry.GetFloat32(m, "temperature", cfg.Temperature)
@@ -70,9 +66,7 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg.FrequencyPenalty = registry.GetFloat32(m, "frequency_penalty", cfg.FrequencyPenalty)
 	cfg.PresencePenalty = registry.GetFloat32(m, "presence_penalty", cfg.PresencePenalty)
 
-	if stop, ok := m["stop"].([]string); ok {
-		cfg.Stop = stop
-	}
+	cfg.Stop = registry.GetStringSlice(m, "stop", cfg.Stop)
 
 	return cfg, nil
 }
