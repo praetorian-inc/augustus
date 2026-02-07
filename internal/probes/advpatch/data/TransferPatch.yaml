@@ -11,6 +11,12 @@ info:
     - adversarial-patch
     - transfer
   severity: high
+  cwe:
+    - CWE-693
+  mitre_attack:
+    - T1027
+  owasp:
+    - "A03:2021"
 
 prompts:
   - |-
