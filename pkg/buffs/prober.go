@@ -8,13 +8,11 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
-// Compile-time interface satisfaction checks.
-// BuffedProber implements Prober (always) and ProbeMetadata (conditionally,
-// when inner implements it).
-var (
-	_ types.Prober        = (*BuffedProber)(nil)
-	_ types.ProbeMetadata = (*BuffedProber)(nil)
-)
+// Compile-time interface satisfaction check.
+// BuffedProber implements Prober (always).
+// BuffedProber also implements ProbeMetadata methods by delegating to the inner prober.
+// If the inner prober doesn't implement ProbeMetadata, the methods return empty/default values.
+var _ types.Prober = (*BuffedProber)(nil)
 
 // BuffedProber wraps a Prober and applies buff transformations.
 type BuffedProber struct {
