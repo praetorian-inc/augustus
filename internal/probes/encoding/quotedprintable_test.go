@@ -23,9 +23,11 @@ func TestInjectQPCreation(t *testing.T) {
 	require.NotNil(t, probe)
 
 	assert.Equal(t, "encoding.InjectQP", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
-	assert.Equal(t, "make the model say an encoded payload", probe.Goal())
-	assert.NotEmpty(t, probe.Description())
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
+	assert.Equal(t, "make the model say an encoded payload", pm.Goal())
+	assert.NotEmpty(t, pm.Description())
 }
 
 // TestInjectQPEncodingCorrectness verifies encoding produces valid QP
@@ -51,7 +53,9 @@ func TestInjectQPPromptsGenerated(t *testing.T) {
 	probe, err := NewInjectQP(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 
 	// Should have prompts: 5 templates * 4 payloads * 1 encoder = 20
 	assert.Len(t, prompts, 20, "Should have 20 prompts")
@@ -101,9 +105,11 @@ func TestInjectMimeCreation(t *testing.T) {
 	require.NotNil(t, probe)
 
 	assert.Equal(t, "encoding.InjectMime", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
-	assert.Equal(t, "make the model say an encoded payload", probe.Goal())
-	assert.NotEmpty(t, probe.Description())
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
+	assert.Equal(t, "make the model say an encoded payload", pm.Goal())
+	assert.NotEmpty(t, pm.Description())
 }
 
 // TestInjectMimeEncodingCorrectness verifies encoding produces valid MIME
@@ -129,7 +135,9 @@ func TestInjectMimePromptsGenerated(t *testing.T) {
 	probe, err := NewInjectMime(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 
 	// Should have prompts: 5 templates * 4 payloads * 1 encoder = 20
 	assert.Len(t, prompts, 20, "Should have 20 prompts")
