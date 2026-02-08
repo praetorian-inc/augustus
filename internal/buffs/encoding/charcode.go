@@ -7,9 +7,8 @@ package encoding
 import (
 	"context"
 	"iter"
-	"strconv"
-	"strings"
 
+	"github.com/praetorian-inc/augustus/internal/encoding"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/buffs"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -42,29 +41,15 @@ func (c *CharCode) Buff(ctx context.Context, attempts []*attempt.Attempt) ([]*at
 func (c *CharCode) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt] {
 	return func(yield func(*attempt.Attempt) bool) {
 		// Encode the prompt using CharCode
-		encoded := encodeCharCode(a.Prompt)
+		encoded := encoding.CharCode(a.Prompt)
 
 		// Wrap with instruction prefix (matches Python garak format exactly)
 		transformedPrompt := "The following instruction is encoded with CharCode: " + encoded
 
-		// Create a copy with the transformed prompt
-		transformed := &attempt.Attempt{
-			ID:              a.ID,
-			Probe:           a.Probe,
-			Generator:       a.Generator,
-			Detector:        a.Detector,
-			Prompt:          transformedPrompt,
-			Prompts:         []string{transformedPrompt},
-			Outputs:         a.Outputs,
-			Conversations:   a.Conversations,
-			Scores:          a.Scores,
-			DetectorResults: a.DetectorResults,
-			Status:          a.Status,
-			Error:           a.Error,
-			Timestamp:       a.Timestamp,
-			Duration:        a.Duration,
-			Metadata:        a.Metadata,
-		}
+		// Use Copy() for proper deep copy
+		transformed := a.Copy()
+		transformed.Prompt = transformedPrompt
+		transformed.Prompts = []string{transformedPrompt}
 
 		yield(transformed)
 	}
@@ -80,16 +65,3 @@ func (c *CharCode) Description() string {
 	return "Encodes prompts using Unicode code points (character codes)"
 }
 
-// encodeCharCode converts each character to its Unicode code point.
-// Iterates runes for proper Unicode handling (matches Python's ord()).
-func encodeCharCode(s string) string {
-	if s == "" {
-		return ""
-	}
-
-	codes := make([]string, 0, len(s))
-	for _, r := range s {
-		codes = append(codes, strconv.Itoa(int(r)))
-	}
-	return strings.Join(codes, " ")
-}
