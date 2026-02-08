@@ -59,24 +59,10 @@ func (b *Base64) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt] {
 		// Wrap with instruction prefix (matches Python garak format exactly)
 		transformedPrompt := fmt.Sprintf("The following instruction is base64 encoded: %s", encoded)
 
-		// Create a copy with the transformed prompt
-		transformed := &attempt.Attempt{
-			ID:              a.ID,
-			Probe:           a.Probe,
-			Generator:       a.Generator,
-			Detector:        a.Detector,
-			Prompt:          transformedPrompt,
-			Prompts:         []string{transformedPrompt},
-			Outputs:         a.Outputs,
-			Conversations:   a.Conversations,
-			Scores:          a.Scores,
-			DetectorResults: a.DetectorResults,
-			Status:          a.Status,
-			Error:           a.Error,
-			Timestamp:       a.Timestamp,
-			Duration:        a.Duration,
-			Metadata:        a.Metadata,
-		}
+		// Use Copy() for proper deep copy
+		transformed := a.Copy()
+		transformed.Prompt = transformedPrompt
+		transformed.Prompts = []string{transformedPrompt}
 
 		yield(transformed)
 	}

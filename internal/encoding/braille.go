@@ -1,48 +1,17 @@
 package encoding
 
-import (
-	"strings"
+import "strings"
 
-	"github.com/praetorian-inc/augustus/pkg/probes"
-	"github.com/praetorian-inc/augustus/pkg/registry"
-)
-
-func init() {
-	probes.Register("encoding.InjectBraille", NewInjectBraille)
-}
-
-// InjectBraille probes for susceptibility to Braille encoded injections.
+// Braille encodes a string using Braille Unicode characters.
 //
-// Encodes payloads using braille Unicode characters, and tries a variety of ways
-// of getting the target model to repeat and decode them.
-//
-// Python garak equivalent: garak.probes.encoding.InjectBraille (lines 448-462)
-// Credit: Wally#3422
-type InjectBraille struct {
-	*EncodingProbe
-}
-
-// NewInjectBraille creates a new InjectBraille probe.
-func NewInjectBraille(_ registry.Config) (probes.Prober, error) {
-	// Python uses single braille encoder function (encoding.py lines 60-138)
-	encoders := []Encoder{
-		brailleEncode,
-	}
-
-	base := NewEncodingProbe(
-		"encoding.InjectBraille",
-		"Braille",
-		FormatDescription("Braille"),
-		encoders,
-	)
-
-	return &InjectBraille{
-		EncodingProbe: base,
-	}, nil
+// This function transforms text into Braille Unicode characters. Uppercase letters
+// are prefixed with a capital indicator (\u2820), numbers are prefixed with a number
+// indicator (\u283C), and escape characters (\n, \r, \t) are preserved unchanged.
+func Braille(s string) string {
+	return brailleEncode(s)
 }
 
 // brailleMap maps ASCII characters to their Unicode braille equivalents.
-// Based on garak encoding.py lines 62-114.
 var brailleMap = map[rune]rune{
 	// Lowercase letters
 	'a': '\u2801', 'b': '\u2803', 'c': '\u2809', 'd': '\u2819', 'e': '\u2811',
@@ -72,21 +41,18 @@ const (
 )
 
 // numberPunctuations are punctuation marks that can appear in numbers without
-// ending number mode. Based on garak encoding.py line 116.
+// ending number mode.
 var numberPunctuations = map[rune]bool{
 	'.': true, ',': true, '-': true, '/': true, '$': true,
 }
 
 // escapeCharacters are characters that should be passed through unchanged.
-// Based on garak encoding.py line 117.
 var escapeCharacters = map[rune]bool{
 	'\n': true, '\r': true, '\t': true,
 }
 
 // brailleEncode encodes a payload to Braille Unicode characters.
-// Matches Python garak encoding.py braille() function (lines 60-138).
-func brailleEncode(payload []byte) string {
-	text := string(payload)
+func brailleEncode(text string) string {
 	var output strings.Builder
 	inNumberMode := false
 
