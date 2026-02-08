@@ -21,7 +21,6 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/divergence"
 	_ "github.com/praetorian-inc/augustus/internal/probes/donotanswer"
 	_ "github.com/praetorian-inc/augustus/internal/probes/dra"
-	_ "github.com/praetorian-inc/augustus/internal/probes/encoding"
 	_ "github.com/praetorian-inc/augustus/internal/probes/exploitation"
 	_ "github.com/praetorian-inc/augustus/internal/probes/flipattack"
 	_ "github.com/praetorian-inc/augustus/internal/probes/gcg"
