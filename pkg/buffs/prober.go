@@ -8,6 +8,12 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
+// Compile-time interface satisfaction check.
+// BuffedProber implements Prober (always).
+// BuffedProber also implements ProbeMetadata methods by delegating to the inner prober.
+// If the inner prober doesn't implement ProbeMetadata, the methods return empty/default values.
+var _ types.Prober = (*BuffedProber)(nil)
+
 // BuffedProber wraps a Prober and applies buff transformations.
 type BuffedProber struct {
 	inner types.Prober
@@ -83,14 +89,34 @@ func (bp *BuffedProber) Probe(ctx context.Context, gen types.Generator) ([]*atte
 // Name returns the probe name (delegated to inner).
 func (bp *BuffedProber) Name() string { return bp.inner.Name() }
 
-// Description returns the probe description (delegated to inner).
-func (bp *BuffedProber) Description() string { return bp.inner.Description() }
+// Description returns the probe description (delegated to inner if available).
+func (bp *BuffedProber) Description() string {
+	if pm, ok := bp.inner.(types.ProbeMetadata); ok {
+		return pm.Description()
+	}
+	return ""
+}
 
-// Goal returns the probe goal (delegated to inner).
-func (bp *BuffedProber) Goal() string { return bp.inner.Goal() }
+// Goal returns the probe goal (delegated to inner if available).
+func (bp *BuffedProber) Goal() string {
+	if pm, ok := bp.inner.(types.ProbeMetadata); ok {
+		return pm.Goal()
+	}
+	return ""
+}
 
-// GetPrimaryDetector returns the primary detector (delegated to inner).
-func (bp *BuffedProber) GetPrimaryDetector() string { return bp.inner.GetPrimaryDetector() }
+// GetPrimaryDetector returns the primary detector (delegated to inner if available).
+func (bp *BuffedProber) GetPrimaryDetector() string {
+	if pm, ok := bp.inner.(types.ProbeMetadata); ok {
+		return pm.GetPrimaryDetector()
+	}
+	return ""
+}
 
-// GetPrompts returns the probe prompts (delegated to inner).
-func (bp *BuffedProber) GetPrompts() []string { return bp.inner.GetPrompts() }
+// GetPrompts returns the probe prompts (delegated to inner if available).
+func (bp *BuffedProber) GetPrompts() []string {
+	if pm, ok := bp.inner.(types.ProbeMetadata); ok {
+		return pm.GetPrompts()
+	}
+	return nil
+}

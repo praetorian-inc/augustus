@@ -21,11 +21,16 @@ func TestWhoIsRileyYAMLParity(t *testing.T) {
 	yaml, err := factory(nil)
 	require.NoError(t, err)
 
+	pmHardcoded, ok := hardcoded.(probes.ProbeMetadata)
+	require.True(t, ok, "hardcoded probe should implement ProbeMetadata")
+	pmYAML, ok := yaml.(probes.ProbeMetadata)
+	require.True(t, ok, "yaml probe should implement ProbeMetadata")
+
 	// Verify parity
 	assert.Equal(t, hardcoded.Name(), yaml.Name())
-	assert.Equal(t, hardcoded.Goal(), yaml.Goal())
-	assert.Equal(t, hardcoded.GetPrimaryDetector(), yaml.GetPrimaryDetector())
-	assert.Equal(t, hardcoded.GetPrompts(), yaml.GetPrompts())
+	assert.Equal(t, pmHardcoded.Goal(), pmYAML.Goal())
+	assert.Equal(t, pmHardcoded.GetPrimaryDetector(), pmYAML.GetPrimaryDetector())
+	assert.Equal(t, pmHardcoded.GetPrompts(), pmYAML.GetPrompts())
 }
 
 func TestThreatenJSONYAMLParity(t *testing.T) {
@@ -40,11 +45,16 @@ func TestThreatenJSONYAMLParity(t *testing.T) {
 	yaml, err := factory(nil)
 	require.NoError(t, err)
 
+	pmHardcoded, ok := hardcoded.(probes.ProbeMetadata)
+	require.True(t, ok, "hardcoded probe should implement ProbeMetadata")
+	pmYAML, ok := yaml.(probes.ProbeMetadata)
+	require.True(t, ok, "yaml probe should implement ProbeMetadata")
+
 	// Verify parity
 	assert.Equal(t, hardcoded.Name(), yaml.Name())
-	assert.Equal(t, hardcoded.Goal(), yaml.Goal())
-	assert.Equal(t, hardcoded.GetPrimaryDetector(), yaml.GetPrimaryDetector())
-	assert.Equal(t, hardcoded.GetPrompts(), yaml.GetPrompts())
+	assert.Equal(t, pmHardcoded.Goal(), pmYAML.Goal())
+	assert.Equal(t, pmHardcoded.GetPrimaryDetector(), pmYAML.GetPrimaryDetector())
+	assert.Equal(t, pmHardcoded.GetPrompts(), pmYAML.GetPrompts())
 }
 
 func TestPoemExfiltrationYAMLParity(t *testing.T) {
@@ -59,11 +69,16 @@ func TestPoemExfiltrationYAMLParity(t *testing.T) {
 	yaml, err := factory(nil)
 	require.NoError(t, err)
 
+	pmHardcoded, ok := hardcoded.(probes.ProbeMetadata)
+	require.True(t, ok, "hardcoded probe should implement ProbeMetadata")
+	pmYAML, ok := yaml.(probes.ProbeMetadata)
+	require.True(t, ok, "yaml probe should implement ProbeMetadata")
+
 	// Verify parity
 	assert.Equal(t, hardcoded.Name(), yaml.Name())
-	assert.Equal(t, hardcoded.Goal(), yaml.Goal())
-	assert.Equal(t, hardcoded.GetPrimaryDetector(), yaml.GetPrimaryDetector())
-	assert.Equal(t, hardcoded.GetPrompts(), yaml.GetPrompts())
+	assert.Equal(t, pmHardcoded.Goal(), pmYAML.Goal())
+	assert.Equal(t, pmHardcoded.GetPrimaryDetector(), pmYAML.GetPrimaryDetector())
+	assert.Equal(t, pmHardcoded.GetPrompts(), pmYAML.GetPrompts())
 }
 
 func TestPayloadSplittingYAMLParity(t *testing.T) {
@@ -78,11 +93,16 @@ func TestPayloadSplittingYAMLParity(t *testing.T) {
 	yaml, err := factory(nil)
 	require.NoError(t, err)
 
+	pmHardcoded, ok := hardcoded.(probes.ProbeMetadata)
+	require.True(t, ok, "hardcoded probe should implement ProbeMetadata")
+	pmYAML, ok := yaml.(probes.ProbeMetadata)
+	require.True(t, ok, "yaml probe should implement ProbeMetadata")
+
 	// Verify parity
 	assert.Equal(t, hardcoded.Name(), yaml.Name())
-	assert.Equal(t, hardcoded.Goal(), yaml.Goal())
-	assert.Equal(t, hardcoded.GetPrimaryDetector(), yaml.GetPrimaryDetector())
-	assert.Equal(t, hardcoded.GetPrompts(), yaml.GetPrompts())
+	assert.Equal(t, pmHardcoded.Goal(), pmYAML.Goal())
+	assert.Equal(t, pmHardcoded.GetPrimaryDetector(), pmYAML.GetPrimaryDetector())
+	assert.Equal(t, pmHardcoded.GetPrompts(), pmYAML.GetPrompts())
 }
 
 func TestChatMLExploitYAMLParity(t *testing.T) {
@@ -97,11 +117,16 @@ func TestChatMLExploitYAMLParity(t *testing.T) {
 	yaml, err := factory(nil)
 	require.NoError(t, err)
 
+	pmHardcoded, ok := hardcoded.(probes.ProbeMetadata)
+	require.True(t, ok, "hardcoded probe should implement ProbeMetadata")
+	pmYAML, ok := yaml.(probes.ProbeMetadata)
+	require.True(t, ok, "yaml probe should implement ProbeMetadata")
+
 	// Verify parity
 	assert.Equal(t, hardcoded.Name(), yaml.Name())
-	assert.Equal(t, hardcoded.Goal(), yaml.Goal())
-	assert.Equal(t, hardcoded.GetPrimaryDetector(), yaml.GetPrimaryDetector())
-	assert.Equal(t, hardcoded.GetPrompts(), yaml.GetPrompts())
+	assert.Equal(t, pmHardcoded.Goal(), pmYAML.Goal())
+	assert.Equal(t, pmHardcoded.GetPrimaryDetector(), pmYAML.GetPrimaryDetector())
+	assert.Equal(t, pmHardcoded.GetPrompts(), pmYAML.GetPrompts())
 }
 
 func TestSystemPromptConfusionYAMLParity(t *testing.T) {
@@ -116,9 +141,14 @@ func TestSystemPromptConfusionYAMLParity(t *testing.T) {
 	yaml, err := factory(nil)
 	require.NoError(t, err)
 
+	pmHardcoded, ok := hardcoded.(probes.ProbeMetadata)
+	require.True(t, ok, "hardcoded probe should implement ProbeMetadata")
+	pmYAML, ok := yaml.(probes.ProbeMetadata)
+	require.True(t, ok, "yaml probe should implement ProbeMetadata")
+
 	// Verify parity
 	assert.Equal(t, hardcoded.Name(), yaml.Name())
-	assert.Equal(t, hardcoded.Goal(), yaml.Goal())
-	assert.Equal(t, hardcoded.GetPrimaryDetector(), yaml.GetPrimaryDetector())
-	assert.Equal(t, hardcoded.GetPrompts(), yaml.GetPrompts())
+	assert.Equal(t, pmHardcoded.Goal(), pmYAML.Goal())
+	assert.Equal(t, pmHardcoded.GetPrimaryDetector(), pmYAML.GetPrimaryDetector())
+	assert.Equal(t, pmHardcoded.GetPrompts(), pmYAML.GetPrompts())
 }

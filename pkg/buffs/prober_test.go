@@ -239,10 +239,47 @@ func TestBuffedProber_DelegatedMethods(t *testing.T) {
 
 	prober := buffs.NewBuffedProber(inner, chain, nil)
 
-	// These should delegate to inner
+	// Core Prober methods
 	assert.Equal(t, "inner-probe", prober.Name())
-	assert.Equal(t, "mock prober", prober.Description())
-	assert.Equal(t, "test goal", prober.Goal())
-	assert.Equal(t, "", prober.GetPrimaryDetector())
-	assert.Equal(t, []string{"hello", "world"}, prober.GetPrompts())
+
+	// ProbeMetadata methods (should delegate to inner via type assertion)
+	metadata, ok := prober.(types.ProbeMetadata)
+	assert.True(t, ok, "BuffedProber should implement ProbeMetadata when inner does")
+	assert.Equal(t, "mock prober", metadata.Description())
+	assert.Equal(t, "test goal", metadata.Goal())
+	assert.Equal(t, "", metadata.GetPrimaryDetector())
+	assert.Equal(t, []string{"hello", "world"}, metadata.GetPrompts())
+}
+
+// mockMinimalProber only implements Prober (not ProbeMetadata)
+type mockMinimalProber struct {
+	name string
+}
+
+func (m *mockMinimalProber) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
+	return []*attempt.Attempt{{Prompt: "test", Outputs: []string{"response"}}}, nil
+}
+
+func (m *mockMinimalProber) Name() string { return m.name }
+
+// Test 8: ProbeMetadata methods return empty when inner doesn't implement ProbeMetadata
+func TestBuffedProber_NoProbeMetadata(t *testing.T) {
+	inner := &mockMinimalProber{name: "minimal"}
+	buff := &mockBuff{name: "buff", prefix: "B:"}
+	chain := buffs.NewBuffChain(buff)
+
+	prober := buffs.NewBuffedProber(inner, chain, nil)
+
+	// Name should still work
+	assert.Equal(t, "minimal", prober.Name())
+
+	// BuffedProber always implements ProbeMetadata
+	metadata, ok := prober.(types.ProbeMetadata)
+	assert.True(t, ok, "BuffedProber always implements ProbeMetadata")
+
+	// But methods return empty/nil when inner doesn't implement it
+	assert.Equal(t, "", metadata.Description())
+	assert.Equal(t, "", metadata.Goal())
+	assert.Equal(t, "", metadata.GetPrimaryDetector())
+	assert.Nil(t, metadata.GetPrompts())
 }

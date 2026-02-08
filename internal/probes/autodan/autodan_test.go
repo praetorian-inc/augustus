@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
@@ -164,18 +165,22 @@ func TestAutoDANProbeGetPrompts(t *testing.T) {
 func TestAutoDANFromConfig(t *testing.T) {
 	probe, err := NewAutoDANFromConfig(registry.Config{})
 	require.NoError(t, err)
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 
 	assert.Equal(t, "autodan.AutoDAN", probe.Name())
-	assert.Equal(t, "dan.DAN", probe.GetPrimaryDetector())
-	assert.NotEmpty(t, probe.GetPrompts())
+	assert.Equal(t, "dan.DAN", pm.GetPrimaryDetector())
+	assert.NotEmpty(t, pm.GetPrompts())
 }
 
 func TestAutoDANFastFromConfig(t *testing.T) {
 	probe, err := NewAutoDANFastFromConfig(registry.Config{})
 	require.NoError(t, err)
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 
 	assert.Equal(t, "autodan.AutoDANFast", probe.Name())
-	assert.Equal(t, "dan.DAN", probe.GetPrimaryDetector())
+	assert.Equal(t, "dan.DAN", pm.GetPrimaryDetector())
 }
 
 func TestSimpleFitnessFunction(t *testing.T) {

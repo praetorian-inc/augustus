@@ -151,13 +151,18 @@ func TestZombAIsProbe(t *testing.T) {
 		t.Fatal("Probe() returned no attempts")
 	}
 
+	pm, ok := prober.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
 	for i, att := range attempts {
 		if att.Probe != prober.Name() {
 			t.Errorf("Attempt %d has wrong probe name: got %q, want %q", i, att.Probe, prober.Name())
 		}
 
-		if att.Detector != prober.GetPrimaryDetector() {
-			t.Errorf("Attempt %d has wrong detector: got %q, want %q", i, att.Detector, prober.GetPrimaryDetector())
+		if att.Detector != pm.GetPrimaryDetector() {
+			t.Errorf("Attempt %d has wrong detector: got %q, want %q", i, att.Detector, pm.GetPrimaryDetector())
 		}
 	}
 }
@@ -178,22 +183,27 @@ func TestZombAIsImplementsProber(t *testing.T) {
 		t.Errorf("Name() %q should contain 'zombais'", name)
 	}
 
-	desc := prober.Description()
+	pm, ok := prober.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	desc := pm.Description()
 	if desc == "" {
 		t.Error("Description() returned empty string")
 	}
 
-	goal := prober.Goal()
+	goal := pm.Goal()
 	if goal == "" {
 		t.Error("Goal() returned empty string")
 	}
 
-	detector := prober.GetPrimaryDetector()
+	detector := pm.GetPrimaryDetector()
 	if detector == "" {
 		t.Error("GetPrimaryDetector() returned empty string")
 	}
 
-	prompts := prober.GetPrompts()
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Error("GetPrompts() returned empty slice")
 	}

@@ -139,21 +139,25 @@ func TestArtPromptsProbe_Structure(t *testing.T) {
 
 	// Verify it implements Prober interface
 	var _ probes.Prober = probe
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
 
 	// Verify basic fields
 	if probe.Name() == "" {
 		t.Error("Expected non-empty name")
 	}
 
-	if probe.Description() == "" {
+	if pm.Description() == "" {
 		t.Error("Expected non-empty description")
 	}
 
-	if probe.Goal() == "" {
+	if pm.Goal() == "" {
 		t.Error("Expected non-empty goal")
 	}
 
-	if probe.GetPrimaryDetector() == "" {
+	if pm.GetPrimaryDetector() == "" {
 		t.Error("Expected non-empty primary detector")
 	}
 }
@@ -165,8 +169,12 @@ func TestArtPromptsProbe_Prompts(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create probe: %v", err)
 	}
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
 
-	prompts := probe.GetPrompts()
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Error("Expected non-empty prompts")
 	}
@@ -193,6 +201,10 @@ func TestArtPromptsProbe_Execution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create probe: %v", err)
 	}
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
 
 	// Create mock generator
 	gen := testutil.NewMockGenerator("Acknowledged")
@@ -214,8 +226,8 @@ func TestArtPromptsProbe_Execution(t *testing.T) {
 			t.Errorf("Attempt %d: expected probe name %s, got %s", i, probe.Name(), attempt.Probe)
 		}
 
-		if attempt.Detector != probe.GetPrimaryDetector() {
-			t.Errorf("Attempt %d: expected detector %s, got %s", i, probe.GetPrimaryDetector(), attempt.Detector)
+		if attempt.Detector != pm.GetPrimaryDetector() {
+			t.Errorf("Attempt %d: expected detector %s, got %s", i, pm.GetPrimaryDetector(), attempt.Detector)
 		}
 	}
 }

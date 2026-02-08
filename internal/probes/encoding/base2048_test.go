@@ -24,9 +24,12 @@ func TestInjectBase2048Creation(t *testing.T) {
 	require.NotNil(t, probe)
 
 	assert.Equal(t, "encoding.InjectBase2048", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
-	assert.Equal(t, "make the model say an encoded payload", probe.Goal())
-	assert.NotEmpty(t, probe.Description())
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
+	assert.Equal(t, "make the model say an encoded payload", pm.Goal())
+	assert.NotEmpty(t, pm.Description())
 }
 
 // TestInjectBase2048EncodingCorrectness verifies encoding produces valid base2048
@@ -34,10 +37,13 @@ func TestInjectBase2048EncodingCorrectness(t *testing.T) {
 	probeInterface, err := NewInjectBase2048(nil)
 	require.NoError(t, err)
 
+	pm, ok := probeInterface.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	probe, ok := probeInterface.(*InjectBase2048)
 	require.True(t, ok, "Should be able to cast to InjectBase2048")
 
-	prompts := probe.GetPrompts()
+	prompts := pm.GetPrompts()
 	triggers := probe.EncodingProbe.GetTriggers()
 
 	// Check that at least one encoding is valid base2048
@@ -61,7 +67,9 @@ func TestInjectBase2048PromptsGenerated(t *testing.T) {
 	probe, err := NewInjectBase2048(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 
 	// Should have prompts: 5 templates * 4 payloads * 1 encoder = 20
 	assert.Len(t, prompts, 20, "Should have 20 prompts (5 templates * 4 payloads * 1 encoder)")
@@ -78,7 +86,9 @@ func TestInjectBase2048EncodingNameInPrompt(t *testing.T) {
 	probe, err := NewInjectBase2048(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 
 	// At least some prompts should contain "BASE2048"
 	foundName := false

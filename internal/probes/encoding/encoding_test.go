@@ -87,10 +87,13 @@ func TestInjectBase64Creation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "encoding.InjectBase64", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
-	assert.Equal(t, "make the model say an encoded payload", probe.Goal())
-	assert.NotEmpty(t, probe.Description())
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
+	assert.Equal(t, "make the model say an encoded payload", pm.Goal())
+	assert.NotEmpty(t, pm.Description())
 }
 
 // TestInjectBase64PromptsGenerated verifies prompts are generated
@@ -98,7 +101,10 @@ func TestInjectBase64PromptsGenerated(t *testing.T) {
 	probe, err := NewInjectBase64(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// Should have prompts: 5 templates * 4 payloads * 4 encoders = 80
 	assert.NotEmpty(t, prompts)
@@ -123,7 +129,10 @@ func TestInjectBase64EncodingCorrectness(t *testing.T) {
 	probe, ok := probeInterface.(*InjectBase64)
 	require.True(t, ok, "Should be able to cast to InjectBase64")
 
-	prompts := probe.GetPrompts()
+	pm, ok := probeInterface.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	triggers := probe.EncodingProbe.GetTriggers()
 
 	// Find a prompt-trigger pair
@@ -172,7 +181,10 @@ func TestInjectBase64MultipleEncoders(t *testing.T) {
 	probe, err := NewInjectBase64(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// Should have multiple prompts (5 templates * 4 payloads * 4 encoders)
 	// Minimum: at least 16 prompts (if only one template and payload)
@@ -192,9 +204,12 @@ func TestInjectBase16Creation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "encoding.InjectBase16", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
-	assert.Equal(t, "make the model say an encoded payload", probe.Goal())
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
+	assert.Equal(t, "make the model say an encoded payload", pm.Goal())
 }
 
 // TestInjectBase16EncodingCorrectness verifies encoding produces valid hex
@@ -205,7 +220,10 @@ func TestInjectBase16EncodingCorrectness(t *testing.T) {
 	probe, ok := probeInterface.(*InjectBase16)
 	require.True(t, ok, "Should be able to cast to InjectBase16")
 
-	prompts := probe.GetPrompts()
+	pm, ok := probeInterface.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	triggers := probe.EncodingProbe.GetTriggers()
 
 	// Check that encoding is correct
@@ -252,8 +270,11 @@ func TestInjectBase32Creation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "encoding.InjectBase32", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
 }
 
 // TestInjectBase32EncodingCorrectness verifies encoding produces valid base32
@@ -264,7 +285,10 @@ func TestInjectBase32EncodingCorrectness(t *testing.T) {
 	probe, ok := probeInterface.(*InjectBase32)
 	require.True(t, ok, "Should be able to cast to InjectBase32")
 
-	prompts := probe.GetPrompts()
+	pm, ok := probeInterface.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	triggers := probe.EncodingProbe.GetTriggers()
 
 	// Check that encoding is correct
@@ -286,7 +310,9 @@ func TestInjectBase32PromptsCount(t *testing.T) {
 	probe, err := NewInjectBase32(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 
 	// 5 templates * 4 payloads * 1 encoder = 20 prompts
 	assert.Len(t, prompts, 20, "Should have 20 prompts (5 templates * 4 payloads * 1 encoder)")
@@ -306,7 +332,9 @@ func TestInjectHexCreation(t *testing.T) {
 	require.NotNil(t, probe)
 
 	assert.Equal(t, "encoding.InjectHex", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
 }
 
 // TestInjectHexEncodingCorrectness verifies encoding produces valid hex
@@ -317,7 +345,10 @@ func TestInjectHexEncodingCorrectness(t *testing.T) {
 	probe, ok := probeInterface.(*InjectHex)
 	require.True(t, ok, "Should be able to cast to InjectHex")
 
-	prompts := probe.GetPrompts()
+	pm, ok := probeInterface.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	triggers := probe.EncodingProbe.GetTriggers()
 
 	// Check that encoding is correct
@@ -339,7 +370,9 @@ func TestInjectHexEncodingNameInPrompt(t *testing.T) {
 	probe, err := NewInjectHex(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 
 	// At least some prompts should contain "hex"
 	foundName := false
@@ -367,7 +400,9 @@ func TestInjectAscii85Creation(t *testing.T) {
 	require.NotNil(t, probe)
 
 	assert.Equal(t, "encoding.InjectAscii85", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
 }
 
 // TestInjectAscii85EncodingCorrectness verifies encoding produces valid ASCII85
@@ -378,7 +413,10 @@ func TestInjectAscii85EncodingCorrectness(t *testing.T) {
 	probe, ok := probeInterface.(*InjectAscii85)
 	require.True(t, ok, "Should be able to cast to InjectAscii85")
 
-	prompts := probe.GetPrompts()
+	pm, ok := probeInterface.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	triggers := probe.EncodingProbe.GetTriggers()
 
 	// Check that encoding is correct
@@ -445,10 +483,12 @@ func TestAllProbesImplementInterface(t *testing.T) {
 
 			// Verify interface methods
 			assert.NotEmpty(t, probe.Name())
-			assert.NotEmpty(t, probe.Description())
-			assert.NotEmpty(t, probe.Goal())
-			assert.NotEmpty(t, probe.GetPrimaryDetector())
-			assert.NotEmpty(t, probe.GetPrompts())
+			pm, ok := probe.(probes.ProbeMetadata)
+			require.True(t, ok, "probe should implement ProbeMetadata")
+			assert.NotEmpty(t, pm.Description())
+			assert.NotEmpty(t, pm.Goal())
+			assert.NotEmpty(t, pm.GetPrimaryDetector())
+			assert.NotEmpty(t, pm.GetPrompts())
 		})
 	}
 }
@@ -458,7 +498,9 @@ func TestTemplateSubstitution(t *testing.T) {
 	probe, err := NewInjectBase64(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 
 	// Check for template substitution
 	for _, prompt := range prompts {
@@ -509,7 +551,12 @@ func TestSpecialCharactersInPayload(t *testing.T) {
 		encoders,
 	)
 
-	prompts := base.GetPrompts()
+	// Type assert through Prober interface
+	var prober probes.Prober = base
+	pm, ok := prober.(probes.ProbeMetadata)
+	require.True(t, ok, "base should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	triggers := base.GetTriggers()
 
 	// Find the XSS payload
@@ -546,8 +593,13 @@ func TestEmptyPayloadHandling(t *testing.T) {
 		encoders,
 	)
 
+	// Type assert through Prober interface
+	var prober probes.Prober = base
+	pm, ok := prober.(probes.ProbeMetadata)
+	require.True(t, ok, "base should implement ProbeMetadata")
+
 	assert.NotNil(t, base)
-	assert.NotEmpty(t, base.GetPrompts())
+	assert.NotEmpty(t, pm.GetPrompts())
 }
 
 // TestProbeGoalConsistency verifies all probes have consistent goals
@@ -577,7 +629,9 @@ func TestProbeGoalConsistency(t *testing.T) {
 			probe, err := factory(nil)
 			require.NoError(t, err)
 
-			assert.Equal(t, expectedGoal, probe.Goal(), "%s should have consistent goal", name)
+			pm, ok := probe.(probes.ProbeMetadata)
+			require.True(t, ok, "probe should implement ProbeMetadata")
+			assert.Equal(t, expectedGoal, pm.Goal(), "%s should have consistent goal", name)
 		})
 	}
 }
@@ -609,7 +663,9 @@ func TestProbeDetectorConsistency(t *testing.T) {
 			probe, err := factory(nil)
 			require.NoError(t, err)
 
-			assert.Equal(t, expectedDetector, probe.GetPrimaryDetector(), "%s should use consistent detector", name)
+			pm, ok := probe.(probes.ProbeMetadata)
+			require.True(t, ok, "probe should implement ProbeMetadata")
+			assert.Equal(t, expectedDetector, pm.GetPrimaryDetector(), "%s should use consistent detector", name)
 		})
 	}
 }
@@ -627,8 +683,10 @@ func TestInjectROT13Creation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	assert.Equal(t, "encoding.InjectROT13", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
 }
 
 // TestInjectROT13EncodingCorrectness verifies encoding produces valid ROT13
@@ -650,7 +708,10 @@ func TestInjectROT13EncodingCorrectness(t *testing.T) {
 	probe, ok := probeInterface.(*InjectROT13)
 	require.True(t, ok, "Should be able to cast to InjectROT13")
 
-	prompts := probe.GetPrompts()
+	pm, ok := probeInterface.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	triggers := probe.EncodingProbe.GetTriggers()
 
 	for _, tc := range testCases {
@@ -682,8 +743,10 @@ func TestInjectAtbashCreation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	assert.Equal(t, "encoding.InjectAtbash", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
 }
 
 // TestInjectAtbashEncodingCorrectness verifies encoding produces valid Atbash
@@ -706,7 +769,10 @@ func TestInjectAtbashEncodingCorrectness(t *testing.T) {
 	probe, ok := probeInterface.(*InjectAtbash)
 	require.True(t, ok, "Should be able to cast to InjectAtbash")
 
-	prompts := probe.GetPrompts()
+	pm, ok := probeInterface.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	triggers := probe.EncodingProbe.GetTriggers()
 
 	for _, tc := range testCases {
@@ -736,8 +802,11 @@ func TestInjectMorseCreation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "encoding.InjectMorse", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
 }
 
 // TestInjectMorseEncodingCorrectness verifies encoding produces valid Morse
@@ -758,7 +827,10 @@ func TestInjectMorseEncodingCorrectness(t *testing.T) {
 	probe, ok := probeInterface.(*InjectMorse)
 	require.True(t, ok, "Should be able to cast to InjectMorse")
 
-	prompts := probe.GetPrompts()
+	pm, ok := probeInterface.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	triggers := probe.EncodingProbe.GetTriggers()
 
 	for _, tc := range testCases {
@@ -789,8 +861,11 @@ func TestInjectNatoCreation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "encoding.InjectNato", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
 }
 
 // TestInjectNatoEncodingCorrectness verifies encoding produces valid NATO
@@ -811,7 +886,10 @@ func TestInjectNatoEncodingCorrectness(t *testing.T) {
 	probe, ok := probeInterface.(*InjectNato)
 	require.True(t, ok, "Should be able to cast to InjectNato")
 
-	prompts := probe.GetPrompts()
+	pm, ok := probeInterface.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	triggers := probe.EncodingProbe.GetTriggers()
 
 	for _, tc := range testCases {
@@ -842,8 +920,11 @@ func TestInjectLeetCreation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "encoding.InjectLeet", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
 }
 
 // TestInjectLeetEncodingCorrectness verifies encoding produces valid Leetspeak
@@ -864,7 +945,10 @@ func TestInjectLeetEncodingCorrectness(t *testing.T) {
 	probe, ok := probeInterface.(*InjectLeet)
 	require.True(t, ok, "Should be able to cast to InjectLeet")
 
-	prompts := probe.GetPrompts()
+	pm, ok := probeInterface.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	triggers := probe.EncodingProbe.GetTriggers()
 
 	for _, tc := range testCases {
@@ -894,10 +978,13 @@ func TestInjectBrailleCreation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "encoding.InjectBraille", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
-	assert.Equal(t, "make the model say an encoded payload", probe.Goal())
-	assert.NotEmpty(t, probe.Description())
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
+	assert.Equal(t, "make the model say an encoded payload", pm.Goal())
+	assert.NotEmpty(t, pm.Description())
 }
 
 // TestInjectBrailleEncodingCorrectness verifies braille encoding works correctly
@@ -947,7 +1034,10 @@ func TestInjectBraillePromptsGenerated(t *testing.T) {
 	probe, err := NewInjectBraille(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// Should have prompts: 5 templates * 4 payloads * 1 encoder = 20
 	assert.Len(t, prompts, 20, "Should have 20 prompts")
@@ -994,10 +1084,13 @@ func TestInjectUUCreation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "encoding.InjectUU", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
-	assert.Equal(t, "make the model say an encoded payload", probe.Goal())
-	assert.NotEmpty(t, probe.Description())
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
+	assert.Equal(t, "make the model say an encoded payload", pm.Goal())
+	assert.NotEmpty(t, pm.Description())
 }
 
 // TestInjectUUEncodingCorrectness verifies UU encoding works correctly
@@ -1047,7 +1140,10 @@ func TestInjectUUPromptsGenerated(t *testing.T) {
 	probe, err := NewInjectUU(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// Should have prompts: 5 templates * 4 payloads * 1 encoder = 20
 	assert.Len(t, prompts, 20, "Should have 20 prompts")
@@ -1089,10 +1185,13 @@ func TestInjectUnicodeTagCharsCreation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "encoding.InjectUnicodeTagChars", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
-	assert.Equal(t, "make the model say an encoded payload", probe.Goal())
-	assert.NotEmpty(t, probe.Description())
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
+	assert.Equal(t, "make the model say an encoded payload", pm.Goal())
+	assert.NotEmpty(t, pm.Description())
 }
 
 // TestInjectUnicodeTagCharsEncodingCorrectness verifies Unicode tag encoding works correctly
@@ -1139,7 +1238,10 @@ func TestInjectUnicodeTagCharsPromptsGenerated(t *testing.T) {
 	probe, err := NewInjectUnicodeTagChars(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// Should have prompts: 5 templates * 4 payloads * 1 encoder = 20
 	assert.Len(t, prompts, 20, "Should have 20 prompts")
@@ -1189,12 +1291,15 @@ func TestAllNewProbesImplementInterface(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, probe)
 
+			pm, ok := probe.(probes.ProbeMetadata)
+			require.True(t, ok, "probe should implement ProbeMetadata")
+
 			// Verify interface methods
 			assert.NotEmpty(t, probe.Name())
-			assert.NotEmpty(t, probe.Description())
-			assert.NotEmpty(t, probe.Goal())
-			assert.NotEmpty(t, probe.GetPrimaryDetector())
-			assert.NotEmpty(t, probe.GetPrompts())
+			assert.NotEmpty(t, pm.Description())
+			assert.NotEmpty(t, pm.Goal())
+			assert.NotEmpty(t, pm.GetPrimaryDetector())
+			assert.NotEmpty(t, pm.GetPrompts())
 		})
 	}
 }
@@ -1218,10 +1323,13 @@ func TestInjectZalgoCreation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "encoding.InjectZalgo", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
-	assert.Equal(t, "make the model say an encoded payload", probe.Goal())
-	assert.NotEmpty(t, probe.Description())
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
+	assert.Equal(t, "make the model say an encoded payload", pm.Goal())
+	assert.NotEmpty(t, pm.Description())
 }
 
 // TestInjectZalgoEncodingCorrectness verifies Zalgo encoding works correctly
@@ -1293,7 +1401,10 @@ func TestInjectZalgoPromptsGenerated(t *testing.T) {
 	probe, err := NewInjectZalgo(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// Should have prompts: 5 templates * 4 payloads * 1 encoder = 20
 	assert.Len(t, prompts, 20, "Should have 20 prompts")
@@ -1357,10 +1468,13 @@ func TestInjectSneakyBitsCreation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "encoding.InjectSneakyBits", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
-	assert.Equal(t, "make the model say an encoded payload", probe.Goal())
-	assert.NotEmpty(t, probe.Description())
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
+	assert.Equal(t, "make the model say an encoded payload", pm.Goal())
+	assert.NotEmpty(t, pm.Description())
 }
 
 // TestInjectSneakyBitsEncodingCorrectness verifies Sneaky Bits encoding works correctly
@@ -1460,7 +1574,10 @@ func TestInjectSneakyBitsPromptsGenerated(t *testing.T) {
 	probe, err := NewInjectSneakyBits(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// Should have prompts: 5 templates * 4 payloads * 1 encoder = 20
 	assert.Len(t, prompts, 20, "Should have 20 prompts")

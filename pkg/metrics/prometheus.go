@@ -4,11 +4,38 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync/atomic"
+	"sync"
 )
 
-// Metrics tracks scan execution statistics
+// Metrics tracks scan execution statistics.
+// Access to these fields must be protected by the caller's mutex.
 type Metrics struct {
+	ProbesTotal     int64
+	ProbesSucceeded int64
+	ProbesFailed    int64
+	AttemptsTotal   int64
+	AttemptsVuln    int64
+	TokensConsumed  int64
+}
+
+// Snapshot returns a copy of the metrics with thread-safe access.
+// The caller must hold a mutex protecting the Metrics instance.
+func (m *Metrics) Snapshot(mu *sync.Mutex) MetricsSnapshot {
+	mu.Lock()
+	defer mu.Unlock()
+
+	return MetricsSnapshot{
+		ProbesTotal:     m.ProbesTotal,
+		ProbesSucceeded: m.ProbesSucceeded,
+		ProbesFailed:    m.ProbesFailed,
+		AttemptsTotal:   m.AttemptsTotal,
+		AttemptsVuln:    m.AttemptsVuln,
+		TokensConsumed:  m.TokensConsumed,
+	}
+}
+
+// MetricsSnapshot is a point-in-time copy of metrics values.
+type MetricsSnapshot struct {
 	ProbesTotal     int64
 	ProbesSucceeded int64
 	ProbesFailed    int64
@@ -20,43 +47,42 @@ type Metrics struct {
 // PrometheusExporter exports metrics in Prometheus text format
 type PrometheusExporter struct {
 	metrics *Metrics
+	mu      *sync.Mutex
 }
 
-// NewPrometheusExporter creates a new Prometheus exporter
-func NewPrometheusExporter(m *Metrics) *PrometheusExporter {
+// NewPrometheusExporter creates a new Prometheus exporter.
+// The provided mutex must be the same mutex used to protect metrics updates.
+func NewPrometheusExporter(m *Metrics, mu *sync.Mutex) *PrometheusExporter {
 	return &PrometheusExporter{
 		metrics: m,
+		mu:      mu,
 	}
 }
 
 // Export returns metrics in Prometheus text format
 func (e *PrometheusExporter) Export() string {
+	// Get a thread-safe snapshot of metrics
+	snapshot := e.metrics.Snapshot(e.mu)
+
 	var b strings.Builder
 
-	// Read metrics atomically to avoid race conditions
-	probesTotal := atomic.LoadInt64(&e.metrics.ProbesTotal)
-	probesSucceeded := atomic.LoadInt64(&e.metrics.ProbesSucceeded)
-	probesFailed := atomic.LoadInt64(&e.metrics.ProbesFailed)
-	attemptsTotal := atomic.LoadInt64(&e.metrics.AttemptsTotal)
-	attemptsVuln := atomic.LoadInt64(&e.metrics.AttemptsVuln)
-
 	// augustus_probes_total with status labels
-	fmt.Fprintf(&b, "augustus_probes_total{status=\"success\"} %d\n", probesSucceeded)
-	fmt.Fprintf(&b, "augustus_probes_total{status=\"failed\"} %d\n", probesFailed)
+	fmt.Fprintf(&b, "augustus_probes_total{status=\"success\"} %d\n", snapshot.ProbesSucceeded)
+	fmt.Fprintf(&b, "augustus_probes_total{status=\"failed\"} %d\n", snapshot.ProbesFailed)
 
 	// augustus_probes_total (aggregate)
-	fmt.Fprintf(&b, "augustus_probes_total %d\n", probesTotal)
+	fmt.Fprintf(&b, "augustus_probes_total %d\n", snapshot.ProbesTotal)
 
 	// augustus_attempts_total
-	fmt.Fprintf(&b, "augustus_attempts_total %d\n", attemptsTotal)
+	fmt.Fprintf(&b, "augustus_attempts_total %d\n", snapshot.AttemptsTotal)
 
 	// augustus_attempts_vulnerable
-	fmt.Fprintf(&b, "augustus_attempts_vulnerable %d\n", attemptsVuln)
+	fmt.Fprintf(&b, "augustus_attempts_vulnerable %d\n", snapshot.AttemptsVuln)
 
 	// augustus_attempts_vulnerability_rate (calculated metric)
 	var vulnRate float64
-	if attemptsTotal > 0 {
-		vulnRate = float64(attemptsVuln) / float64(attemptsTotal)
+	if snapshot.AttemptsTotal > 0 {
+		vulnRate = float64(snapshot.AttemptsVuln) / float64(snapshot.AttemptsTotal)
 	}
 	fmt.Fprintf(&b, "augustus_attempts_vulnerability_rate %s\n", formatFloat(vulnRate))
 

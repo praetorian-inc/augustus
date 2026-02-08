@@ -7,14 +7,42 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
-// RunPrompts executes a standard probe loop: for each prompt it creates a
-// conversation, sends it to the generator, and collects the result into an
-// attempt. This is the shared core of SimpleProbe.Probe and
-// templates.TemplateProbe.Probe.
+// RunPrompts executes multiple prompts sequentially against a generator.
 //
-// probeName and detector are stamped onto every attempt.  metadataFn is an
-// optional callback invoked after an attempt is created but before outputs
-// are added; pass nil when no per-attempt metadata is needed.
+// For each prompt it creates a conversation, sends it to the generator, and
+// collects the result into an attempt. This is the shared core of
+// SimpleProbe.Probe and templates.TemplateProbe.Probe.
+//
+// Error handling contract:
+//   - Returns error ONLY when context is cancelled (ctx.Err() != nil)
+//   - Individual prompt failures are recorded in each attempt's Error field
+//   - Returns nil error even if ALL prompts fail - caller must check attempt.Error
+//
+// This design allows partial success scenarios where some prompts succeed
+// and others fail, which is common with rate limiting or transient API issues.
+//
+// Arguments:
+//   - ctx: Context for cancellation support
+//   - gen: Generator that produces responses to prompts
+//   - prompts: Slice of prompts to execute
+//   - probeName: Name stamped onto every attempt
+//   - detector: Detector name stamped onto every attempt
+//   - metadataFn: Optional callback invoked after attempt creation but before
+//     outputs are added; pass nil when no per-attempt metadata is needed
+//
+// Example:
+//
+//	attempts, err := RunPrompts(ctx, gen, prompts, "probe", "detector", nil)
+//	if err != nil {
+//	    // Context was cancelled
+//	    return err
+//	}
+//	for _, a := range attempts {
+//	    if a.Error != "" {
+//	        // This specific prompt failed
+//	        log.Printf("prompt %s failed: %s", a.Prompt, a.Error)
+//	    }
+//	}
 func RunPrompts(
 	ctx context.Context,
 	gen types.Generator,

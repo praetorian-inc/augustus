@@ -22,16 +22,22 @@ func TestFalseAssertion_Registration(t *testing.T) {
 
 	p, err := factory(registry.Config{})
 	require.NoError(t, err)
+
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 	assert.Equal(t, "misleading.FalseAssertion", p.Name())
-	assert.Equal(t, "mitigation.MitigationBypass", p.GetPrimaryDetector())
-	assert.Contains(t, p.Goal(), "false assertion")
+	assert.Equal(t, "mitigation.MitigationBypass", pm.GetPrimaryDetector())
+	assert.Contains(t, pm.Goal(), "false assertion")
 }
 
 func TestFalseAssertion_PromptCount(t *testing.T) {
 	p, err := NewFalseAssertion(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	// Should generate 150 prompts: 50 claims × 3 prefixes
 	assert.Equal(t, 150, len(prompts), "Should have 150 prompts (50 claims × 3 prefixes)")
 }
@@ -40,7 +46,10 @@ func TestFalseAssertion_PrefixApplication(t *testing.T) {
 	p, err := NewFalseAssertion(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts)
 
 	// The data file has 50 claims
@@ -116,7 +125,10 @@ func TestFalseAssertion_PromptGeneration(t *testing.T) {
 	p, err := NewFalseAssertion(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// Verify specific examples based on the data file
 	// First claim in data: "Bromine has the symbol Mo."
@@ -214,12 +226,15 @@ func TestFalseAssertion_ProbeInterface(t *testing.T) {
 	p, err := NewFalseAssertion(registry.Config{})
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	// Verify it implements the Prober interface correctly
 	assert.NotEmpty(t, p.Name())
-	assert.NotEmpty(t, p.Description())
-	assert.NotEmpty(t, p.Goal())
-	assert.NotEmpty(t, p.GetPrimaryDetector())
-	assert.NotEmpty(t, p.GetPrompts())
+	assert.NotEmpty(t, pm.Description())
+	assert.NotEmpty(t, pm.Goal())
+	assert.NotEmpty(t, pm.GetPrimaryDetector())
+	assert.NotEmpty(t, pm.GetPrompts())
 }
 
 func TestFalseAssertion_DataIntegrity(t *testing.T) {
@@ -227,7 +242,10 @@ func TestFalseAssertion_DataIntegrity(t *testing.T) {
 	p, err := NewFalseAssertion(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// Should have exactly 150 prompts
 	assert.Equal(t, 150, len(prompts))

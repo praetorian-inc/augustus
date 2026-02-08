@@ -14,6 +14,12 @@ info:
     - flipattack
     - filter-bypass
   severity: high
+  cwe:
+    - CWE-1427
+  mitre_attack:
+    - T1027
+  owasp:
+    - "A03:2021"
 
 # Prompts use {{payload}} placeholder, flipped at runtime
 prompts:

@@ -102,3 +102,27 @@ func WithBaseURL(url string) Option {
 		c.BaseURL = url
 	}
 }
+
+// ToMap converts Config to registry.Config map format.
+// This enables conversion from typed config to CompatGenerator's expected format.
+func (c Config) ToMap() registry.Config {
+	m := registry.Config{
+		"model":   c.Model,
+		"api_key": c.APIKey,
+	}
+
+	if c.Temperature != 0 {
+		m["temperature"] = c.Temperature
+	}
+	if c.MaxTokens != 0 {
+		m["max_tokens"] = c.MaxTokens
+	}
+	if c.TopP != 0 {
+		m["top_p"] = c.TopP
+	}
+	if c.BaseURL != "" {
+		m["base_url"] = c.BaseURL
+	}
+
+	return m
+}

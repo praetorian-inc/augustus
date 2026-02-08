@@ -5,8 +5,6 @@
 package nim
 
 import (
-	"fmt"
-	"os"
 
 	"github.com/praetorian-inc/augustus/internal/generators/openaicompat"
 	"github.com/praetorian-inc/augustus/pkg/generators"
@@ -36,16 +34,3 @@ func NewNIM(cfg registry.Config) (generators.Generator, error) {
 	})
 }
 
-// getAPIKey extracts the API key from config or environment variable.
-func getAPIKey(cfg registry.Config) (string, error) {
-	apiKey := ""
-	if key, ok := cfg["api_key"].(string); ok && key != "" {
-		apiKey = key
-	} else {
-		apiKey = os.Getenv("NIM_API_KEY")
-	}
-	if apiKey == "" {
-		return "", fmt.Errorf("nim generator requires 'api_key' configuration or NIM_API_KEY environment variable")
-	}
-	return apiKey, nil
-}

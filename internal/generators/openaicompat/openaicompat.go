@@ -10,6 +10,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -183,6 +184,16 @@ func GenerateChat(
 	return responses, nil
 }
 
+// RetryConfig holds retry behavior configuration for API calls.
+type RetryConfig struct {
+	// MaxRetries is the maximum number of retry attempts (0 means no retry).
+	MaxRetries int
+	// InitialWait is the initial wait duration before first retry.
+	InitialWait time.Duration
+	// MaxWait is the maximum wait duration between retries.
+	MaxWait time.Duration
+}
+
 // ProviderConfig defines the static configuration for an OpenAI-compatible provider.
 type ProviderConfig struct {
 	// Name is the fully qualified generator name (e.g., "deepinfra.DeepInfra").
@@ -197,6 +208,8 @@ type ProviderConfig struct {
 	EnvVar string
 	// DefaultTemperature is the default temperature (0 means 0.7).
 	DefaultTemperature float32
+	// RetryConfig is optional retry configuration (nil means no retry).
+	RetryConfig *RetryConfig
 }
 
 // CompatGenerator is a ready-to-use generator for OpenAI-compatible providers.
@@ -210,6 +223,7 @@ type CompatGenerator struct {
 	temperature float32
 	maxTokens   int
 	topP        float32
+	retryConfig *RetryConfig // Optional: nil means no retry
 }
 
 // NewGenerator creates a new CompatGenerator from registry config and provider settings.
@@ -266,6 +280,9 @@ func NewGenerator(cfg registry.Config, pc ProviderConfig) (*CompatGenerator, err
 	if topP, ok := cfg["top_p"].(float64); ok {
 		g.topP = float32(topP)
 	}
+
+	// Store optional retry config
+	g.retryConfig = pc.RetryConfig
 
 	return g, nil
 }

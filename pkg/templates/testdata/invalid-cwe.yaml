@@ -1,0 +1,17 @@
+id: test.InvalidCWE
+info:
+  name: Invalid CWE Probe
+  author: test
+  description: A probe with invalid CWE format
+  goal: test CWE validation
+  detector: test.Detector
+  tags:
+    - test
+  severity: info
+  cwe:
+    - CWE-123-INVALID  # Invalid format (extra suffix)
+    - "77"              # Missing CWE- prefix
+  mitre_attack:
+    - T1059.006
+prompts:
+  - "This is a test prompt with invalid CWE"

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/praetorian-inc/augustus/internal/testutil"
+	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
@@ -87,7 +88,12 @@ func TestPackageHallucinationProbe_Description(t *testing.T) {
 		t.Fatalf("NewPackageHallucinationProbe() error = %v", err)
 	}
 
-	desc := probe.Description()
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	desc := pm.Description()
 	if desc == "" {
 		t.Error("PackageHallucinationProbe.Description() returned empty string")
 	}
@@ -108,7 +114,12 @@ func TestPackageHallucinationProbe_Goal(t *testing.T) {
 		t.Fatalf("NewPackageHallucinationProbe() error = %v", err)
 	}
 
-	goal := probe.Goal()
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	goal := pm.Goal()
 	if goal == "" {
 		t.Error("PackageHallucinationProbe.Goal() returned empty string")
 	}
@@ -124,7 +135,12 @@ func TestPackageHallucinationProbe_GetPrimaryDetector(t *testing.T) {
 		t.Fatalf("NewPackageHallucinationProbe() error = %v", err)
 	}
 
-	detector := probe.GetPrimaryDetector()
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	detector := pm.GetPrimaryDetector()
 	if detector == "" {
 		t.Error("PackageHallucinationProbe.GetPrimaryDetector() returned empty string")
 	}
@@ -140,7 +156,12 @@ func TestPackageHallucinationProbe_GetPrompts(t *testing.T) {
 		t.Fatalf("NewPackageHallucinationProbe() error = %v", err)
 	}
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	prompts := pm.GetPrompts()
 
 	// Should have prompts
 	if len(prompts) == 0 {

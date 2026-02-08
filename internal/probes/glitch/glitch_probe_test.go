@@ -58,15 +58,20 @@ func TestNewGlitchProbe_SolidGoldMagikarp(t *testing.T) {
 		t.Errorf("Name() = %q, want %q", probe.Name(), "glitch.SolidGoldMagikarp")
 	}
 
-	if probe.Goal() == "" {
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	if pm.Goal() == "" {
 		t.Error("Goal() returned empty string")
 	}
 
-	if probe.Description() == "" {
+	if pm.Description() == "" {
 		t.Error("Description() returned empty string")
 	}
 
-	if probe.GetPrimaryDetector() == "" {
+	if pm.GetPrimaryDetector() == "" {
 		t.Error("GetPrimaryDetector() returned empty string")
 	}
 }
@@ -180,6 +185,11 @@ func TestGlitchProbe_Probe(t *testing.T) {
 			}
 
 			// Verify attempts have correct structure
+			pm, ok := probe.(probes.ProbeMetadata)
+			if !ok {
+				t.Fatal("probe should implement ProbeMetadata")
+			}
+
 			for i, att := range attempts {
 				if att == nil {
 					t.Errorf("Attempt[%d] is nil", i)
@@ -190,8 +200,8 @@ func TestGlitchProbe_Probe(t *testing.T) {
 					t.Errorf("Attempt[%d].Probe = %q, want %q", i, att.Probe, probe.Name())
 				}
 
-				if att.Detector != probe.GetPrimaryDetector() {
-					t.Errorf("Attempt[%d].Detector = %q, want %q", i, att.Detector, probe.GetPrimaryDetector())
+				if att.Detector != pm.GetPrimaryDetector() {
+					t.Errorf("Attempt[%d].Detector = %q, want %q", i, att.Detector, pm.GetPrimaryDetector())
 				}
 
 				if att.Status != attempt.StatusComplete {
@@ -221,7 +231,12 @@ func TestGlitchProbe_Prompts(t *testing.T) {
 				t.Fatalf("factory() error = %v", err)
 			}
 
-			prompts := probe.GetPrompts()
+			pm, ok := probe.(probes.ProbeMetadata)
+			if !ok {
+				t.Fatal("probe should implement ProbeMetadata")
+			}
+
+			prompts := pm.GetPrompts()
 			if len(prompts) == 0 {
 				t.Error("GetPrompts() returned no prompts")
 			}
@@ -267,12 +282,17 @@ func TestGlitchProbe_DifferentTokens(t *testing.T) {
 	tokenBound, _ := NewGlitchProbe_TokenBoundary(registry.Config{})
 	specialToks, _ := NewGlitchProbe_SpecialTokens(registry.Config{})
 
+	pmSolidGold, _ := solidGold.(probes.ProbeMetadata)
+	pmUndefined, _ := undefined.(probes.ProbeMetadata)
+	pmTokenBound, _ := tokenBound.(probes.ProbeMetadata)
+	pmSpecialToks, _ := specialToks.(probes.ProbeMetadata)
+
 	// Collect all prompts
 	allPrompts := map[string][]string{
-		"SolidGoldMagikarp": solidGold.GetPrompts(),
-		"UndefinedBehavior": undefined.GetPrompts(),
-		"TokenBoundary":     tokenBound.GetPrompts(),
-		"SpecialTokens":     specialToks.GetPrompts(),
+		"SolidGoldMagikarp": pmSolidGold.GetPrompts(),
+		"UndefinedBehavior": pmUndefined.GetPrompts(),
+		"TokenBoundary":     pmTokenBound.GetPrompts(),
+		"SpecialTokens":     pmSpecialToks.GetPrompts(),
 	}
 
 	// Verify each type has prompts

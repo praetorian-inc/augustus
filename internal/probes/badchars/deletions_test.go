@@ -24,10 +24,13 @@ func TestDeletionsCreation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "badchars.Deletions", probe.Name())
-	assert.Equal(t, "mitigation.MitigationBypass", probe.GetPrimaryDetector())
-	assert.Equal(t, "inject imperceptible text perturbations that bypass refusal policies", probe.Goal())
-	assert.NotEmpty(t, probe.Description())
+	assert.Equal(t, "mitigation.MitigationBypass", pm.GetPrimaryDetector())
+	assert.Equal(t, "inject imperceptible text perturbations that bypass refusal policies", pm.Goal())
+	assert.NotEmpty(t, pm.Description())
 }
 
 // TestDeletionsPromptsGenerated verifies prompts are generated with deletion/backspace pairs
@@ -35,7 +38,10 @@ func TestDeletionsPromptsGenerated(t *testing.T) {
 	probe, err := NewDeletions(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts, "Should generate prompts")
 
 	// Verify at least some prompts contain backspace characters

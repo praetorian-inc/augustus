@@ -38,6 +38,16 @@ func (l *Loader) Load(filename string) (*ProbeTemplate, error) {
 		return nil, fmt.Errorf("parsing template %s: %w", filename, err)
 	}
 
+	// Validate template structure
+	if err := tmpl.Validate(); err != nil {
+		return nil, fmt.Errorf("template %s: %w", filename, err)
+	}
+
+	// Validate classification formats if present
+	if err := tmpl.ValidateClassification(); err != nil {
+		return nil, fmt.Errorf("template %s: %w", filename, err)
+	}
+
 	return &tmpl, nil
 }
 
@@ -91,6 +101,17 @@ func LoadFromPath(basedir string) ([]*ProbeTemplate, error) {
 		if err := yaml.Unmarshal(data, &tmpl); err != nil {
 			return nil, fmt.Errorf("parsing template %s: %w", filepath, err)
 		}
+
+		// Validate template structure
+		if err := tmpl.Validate(); err != nil {
+			return nil, fmt.Errorf("template %s: %w", filepath, err)
+		}
+
+		// Validate classification formats if present
+		if err := tmpl.ValidateClassification(); err != nil {
+			return nil, fmt.Errorf("template %s: %w", filepath, err)
+		}
+
 		templates = append(templates, &tmpl)
 	}
 

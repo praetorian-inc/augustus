@@ -46,10 +46,14 @@ func TestInjectKlingonCreation(t *testing.T) {
 	require.NotNil(t, probe)
 
 	assert.Equal(t, "encoding.InjectKlingon", probe.Name())
-	assert.Equal(t, "encoding.DecodeMatch", probe.GetPrimaryDetector())
-	assert.Equal(t, "make the model say an encoded payload", probe.Goal())
-	assert.NotEmpty(t, probe.Description())
-	assert.Contains(t, probe.Description(), "Klingon")
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Equal(t, "encoding.DecodeMatch", pm.GetPrimaryDetector())
+	assert.Equal(t, "make the model say an encoded payload", pm.Goal())
+	assert.NotEmpty(t, pm.Description())
+	assert.Contains(t, pm.Description(), "Klingon")
 }
 
 // TestInjectKlingonPromptsGenerated verifies prompts are generated
@@ -57,7 +61,10 @@ func TestInjectKlingonPromptsGenerated(t *testing.T) {
 	probe, err := NewInjectKlingon(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// Should have len(klingonPromptTemplates) * len(poetry.DefaultHarmfulPayloads) prompts
 	expectedCount := len(klingonPromptTemplates) * len(poetry.DefaultHarmfulPayloads)
@@ -83,7 +90,10 @@ func TestInjectKlingonPromptTemplates(t *testing.T) {
 	probe, err := NewInjectKlingon(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// Check for expected template patterns
 	templates := []string{

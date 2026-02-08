@@ -1,74 +1,53 @@
+// Package nim provides NIM (NVIDIA Inference Microservices) generators for Augustus.
 package nim
 
 import (
-	"fmt"
-
+	"github.com/praetorian-inc/augustus/internal/generators/openaicompat"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	goopenai "github.com/sashabaranov/go-openai"
 )
 
-// nimConfig holds the shared configuration for all NIM generator variants
-// (NVOpenAICompletion, NVMultimodal, Vision). Each variant embeds this struct
-// to avoid duplicating the constructor and field definitions.
-type nimConfig struct {
-	client *goopenai.Client
-	model  string
-
-	// Configuration parameters
-	temperature float32
-	maxTokens   int
-	topP        float32
+// Config holds configuration for NIM generator variants.
+// It embeds BaseConfig for common fields and adds NIM-specific client.
+type Config struct {
+	openaicompat.BaseConfig
+	// NIM-specific: OpenAI client configured for NIM endpoint
+	Client *goopenai.Client
 }
 
-// newNIMConfig parses registry config into a nimConfig with an initialized OpenAI client.
-// The generatorName is used for error messages (e.g., "nim.NVOpenAICompletion").
-// The defaultTemp sets the default temperature when none is provided in config.
-func newNIMConfig(cfg registry.Config, generatorName string, defaultTemp float32) (*nimConfig, error) {
-	nc := &nimConfig{
-		temperature: defaultTemp,
+// DefaultConfig returns a Config with sensible defaults.
+func DefaultConfig() Config {
+	return Config{
+		BaseConfig: openaicompat.DefaultBaseConfig(),
 	}
+}
 
-	// Required: model name
-	model, ok := cfg["model"].(string)
-	if !ok || model == "" {
-		return nil, fmt.Errorf("%s requires 'model' configuration", generatorName)
-	}
-	nc.model = model
-
-	// API key: from config or env var
-	apiKey, err := getAPIKey(cfg)
+// ConfigFromMap creates a Config from a registry.Config map.
+// The defaultTemp parameter sets the default temperature when none is provided.
+func ConfigFromMap(m registry.Config, defaultTemp float32) (Config, error) {
+	// Parse common fields using BaseConfig
+	baseConfig, err := openaicompat.BaseConfigFromMap(m, "NIM_API_KEY", "nim")
 	if err != nil {
-		return nil, err
+		return Config{}, err
 	}
 
-	// Create client config
-	config := goopenai.DefaultConfig(apiKey)
-
-	// Base URL: from config or use default NIM endpoint
-	if baseURL, ok := cfg["base_url"].(string); ok && baseURL != "" {
-		config.BaseURL = baseURL
-	} else {
-		config.BaseURL = DefaultBaseURL
+	// Override default temperature if specified
+	if defaultTemp != 0 && baseConfig.Temperature == openaicompat.DefaultBaseConfig().Temperature {
+		baseConfig.Temperature = defaultTemp
 	}
 
-	nc.client = goopenai.NewClientWithConfig(config)
-
-	// Optional: temperature
-	if temp, ok := cfg["temperature"].(float64); ok {
-		nc.temperature = float32(temp)
+	// Set default base URL if not provided
+	if baseConfig.BaseURL == "" {
+		baseConfig.BaseURL = DefaultBaseURL
 	}
 
-	// Optional: max_tokens
-	if maxTokens, ok := cfg["max_tokens"].(int); ok {
-		nc.maxTokens = maxTokens
-	} else if maxTokens, ok := cfg["max_tokens"].(float64); ok {
-		nc.maxTokens = int(maxTokens)
-	}
+	// Create OpenAI client configured for NIM endpoint
+	clientConfig := goopenai.DefaultConfig(baseConfig.APIKey)
+	clientConfig.BaseURL = baseConfig.BaseURL
+	client := goopenai.NewClientWithConfig(clientConfig)
 
-	// Optional: top_p
-	if topP, ok := cfg["top_p"].(float64); ok {
-		nc.topP = float32(topP)
-	}
-
-	return nc, nil
+	return Config{
+		BaseConfig: baseConfig,
+		Client:     client,
+	}, nil
 }

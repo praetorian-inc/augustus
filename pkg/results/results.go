@@ -51,7 +51,7 @@ type AttemptResult struct {
 	// Scores contains detection scores (0.0 = safe, 1.0 = vulnerable).
 	Scores []float64 `json:"scores"`
 
-	// Passed indicates whether the attempt passed (score <= 0.5).
+	// Passed indicates whether the attempt passed (score <= DefaultVulnerabilityThreshold).
 	Passed bool `json:"passed"`
 
 	// Status indicates the current state of the attempt.
@@ -93,17 +93,16 @@ type ProbeStats struct {
 
 // isPassed determines if an attempt passed based on status and scores.
 // Error or pending status always returns false (fail-safe default).
-// For complete status, all scores must be <= 0.5 to pass.
+// For complete status, all scores must be <= DefaultVulnerabilityThreshold to pass.
 func isPassed(status attempt.Status, scores []float64) bool {
 	// Error or pending status = failure (fail-safe)
 	if status == attempt.StatusError || status == attempt.StatusPending {
 		return false
 	}
 
-	// For complete status, check scores
-	// All scores must be <= 0.5 to pass
+	// For complete status, check scores against threshold
 	for _, score := range scores {
-		if score > 0.5 {
+		if score > attempt.DefaultVulnerabilityThreshold {
 			return false
 		}
 	}
@@ -122,11 +121,8 @@ func ToAttemptResults(attempts []*attempt.Attempt) []AttemptResult {
 			response = a.Outputs[0]
 		}
 
-		// Get scores - prefer DetectorResults[Detector] over legacy Scores field
-		scores := a.Scores
-		if a.Detector != "" && len(a.DetectorResults[a.Detector]) > 0 {
-			scores = a.DetectorResults[a.Detector]
-		}
+		// Use centralized score resolution
+		scores := a.GetEffectiveScores()
 
 		// Use isPassed() helper - respects Status field
 		passed := isPassed(a.Status, scores)
@@ -157,11 +153,8 @@ func ComputeSummary(attempts []*attempt.Attempt) Summary {
 	}
 
 	for _, a := range attempts {
-		// Get scores - prefer DetectorResults[Detector] over legacy Scores field
-		scores := a.Scores
-		if a.Detector != "" && len(a.DetectorResults[a.Detector]) > 0 {
-			scores = a.DetectorResults[a.Detector]
-		}
+		// Use centralized score resolution
+		scores := a.GetEffectiveScores()
 
 		// Use isPassed() helper - respects Status field
 		passed := isPassed(a.Status, scores)

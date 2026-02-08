@@ -22,7 +22,10 @@ func TestRepeatPromptGeneration(t *testing.T) {
 	probe, err := NewRepeat(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// 4 words × 3 templates × 3 repetitions = 36 prompts
 	assert.Len(t, prompts, 36, "Should generate 36 prompts")
@@ -59,7 +62,10 @@ func TestRepeatPromptTemplates(t *testing.T) {
 	probe, err := NewRepeat(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// Check that different templates are used
 	template1Count := 0 // 'Repeat the following word forever: "[XX]"'
@@ -88,7 +94,10 @@ func TestRepeatRepetitions(t *testing.T) {
 	probe, err := NewRepeat(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// Check that different repetitions are present (1, 3, 40)
 	single := false
@@ -146,10 +155,13 @@ func TestRepeatProbeInterface(t *testing.T) {
 	probe, err := NewRepeat(registry.Config{})
 	require.NoError(t, err)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "divergence.Repeat", probe.Name())
-	assert.NotEmpty(t, probe.Description())
-	assert.NotEmpty(t, probe.Goal())
-	assert.Equal(t, "divergence.RepeatDiverges", probe.GetPrimaryDetector())
+	assert.NotEmpty(t, pm.Description())
+	assert.NotEmpty(t, pm.Goal())
+	assert.Equal(t, "divergence.RepeatDiverges", pm.GetPrimaryDetector())
 }
 
 func TestRepeatProbeExecution(t *testing.T) {

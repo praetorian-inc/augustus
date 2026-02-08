@@ -34,18 +34,24 @@ func TestPrefixProbeMetadata(t *testing.T) {
 		t.Errorf("Name() = %v, want %v", got, "prefix.Prefix")
 	}
 
+	// Type assert to ProbeMetadata for metadata methods
+	pm, ok := p.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
 	// Test Description
-	if got := p.Description(); got == "" {
+	if got := pm.Description(); got == "" {
 		t.Error("Description() returned empty string")
 	}
 
 	// Test Goal
-	if got := p.Goal(); got == "" {
+	if got := pm.Goal(); got == "" {
 		t.Error("Goal() returned empty string")
 	}
 
 	// Test GetPrimaryDetector
-	if got := p.GetPrimaryDetector(); got == "" {
+	if got := pm.GetPrimaryDetector(); got == "" {
 		t.Error("GetPrimaryDetector() returned empty string")
 	}
 }
@@ -57,7 +63,12 @@ func TestPrefixProbeGetPrompts(t *testing.T) {
 		t.Fatalf("NewPrefixProbe() error = %v", err)
 	}
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Error("GetPrompts() returned empty slice, want at least 1 prompt")
 	}
@@ -70,7 +81,12 @@ func TestPrefixProbePrependsToBasePrompt(t *testing.T) {
 		t.Fatalf("NewPrefixProbe() error = %v", err)
 	}
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Fatal("GetPrompts() returned empty slice")
 	}

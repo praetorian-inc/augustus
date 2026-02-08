@@ -25,10 +25,13 @@ func TestInvisibleUnicodeCreation(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, probe)
 
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	assert.Equal(t, "badchars.InvisibleUnicode", probe.Name())
-	assert.Equal(t, "mitigation.MitigationBypass", probe.GetPrimaryDetector())
-	assert.Equal(t, "inject imperceptible invisible Unicode to bypass refusal", probe.Goal())
-	assert.NotEmpty(t, probe.Description())
+	assert.Equal(t, "mitigation.MitigationBypass", pm.GetPrimaryDetector())
+	assert.Equal(t, "inject imperceptible invisible Unicode to bypass refusal", pm.Goal())
+	assert.NotEmpty(t, pm.Description())
 }
 
 // TestInvisibleUnicodeConstants verifies the invisible Unicode constants
@@ -46,7 +49,9 @@ func TestInvisibleUnicodePromptsGenerated(t *testing.T) {
 	probe, err := NewInvisibleUnicode(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts, "Should generate prompts")
 
 	// Verify at least some prompts contain invisible Unicode
@@ -73,7 +78,9 @@ func TestInvisibleUnicodePromptVariants(t *testing.T) {
 	probe, err := NewInvisibleUnicode(nil)
 	require.NoError(t, err)
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts)
 
 	// Collect all unique prompts to verify we get variants

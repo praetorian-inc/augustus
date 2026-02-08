@@ -1,0 +1,6 @@
+id: test.InvalidProbe
+info:
+  name: Invalid Probe
+  # Missing required fields: author, description, goal, detector
+prompts:
+  - "This probe is missing required metadata"

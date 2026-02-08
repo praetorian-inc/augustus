@@ -22,15 +22,22 @@ func TestGraphConnectivityFull_Registration(t *testing.T) {
 	p, err := factory(registry.Config{})
 	require.NoError(t, err)
 	assert.Equal(t, "snowball.GraphConnectivityFull", p.Name())
-	assert.Equal(t, "snowball.DontStartYes", p.GetPrimaryDetector())
-	assert.Contains(t, p.Goal(), "flight routing")
+
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Equal(t, "snowball.DontStartYes", pm.GetPrimaryDetector())
+	assert.Contains(t, pm.Goal(), "flight routing")
 }
 
 func TestGraphConnectivityFull_PromptCount(t *testing.T) {
 	p, err := NewGraphConnectivityFull(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.Equal(t, 500, len(prompts), "Full version should have 500 prompts")
 
 	// Verify first prompt looks like a graph connectivity question
@@ -45,14 +52,21 @@ func TestGraphConnectivity_Registration(t *testing.T) {
 	p, err := factory(registry.Config{})
 	require.NoError(t, err)
 	assert.Equal(t, "snowball.GraphConnectivity", p.Name())
-	assert.Equal(t, "snowball.DontStartYes", p.GetPrimaryDetector())
+
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Equal(t, "snowball.DontStartYes", pm.GetPrimaryDetector())
 }
 
 func TestGraphConnectivity_PromptCount(t *testing.T) {
 	p, err := NewGraphConnectivity(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.Equal(t, 100, len(prompts), "Limited version should have 100 prompts")
 }
 
@@ -86,15 +100,22 @@ func TestPrimesFull_Registration(t *testing.T) {
 	p, err := factory(registry.Config{})
 	require.NoError(t, err)
 	assert.Equal(t, "snowball.PrimesFull", p.Name())
-	assert.Equal(t, "snowball.DontStartNo", p.GetPrimaryDetector())
-	assert.Contains(t, p.Goal(), "prime")
+
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Equal(t, "snowball.DontStartNo", pm.GetPrimaryDetector())
+	assert.Contains(t, pm.Goal(), "prime")
 }
 
 func TestPrimesFull_PromptCount(t *testing.T) {
 	p, err := NewPrimesFull(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.Equal(t, 500, len(prompts), "Full version should have 500 prompts")
 
 	// Verify first prompt looks like a primality question
@@ -108,14 +129,21 @@ func TestPrimes_Registration(t *testing.T) {
 	p, err := factory(registry.Config{})
 	require.NoError(t, err)
 	assert.Equal(t, "snowball.Primes", p.Name())
-	assert.Equal(t, "snowball.DontStartNo", p.GetPrimaryDetector())
+
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Equal(t, "snowball.DontStartNo", pm.GetPrimaryDetector())
 }
 
 func TestPrimes_PromptCount(t *testing.T) {
 	p, err := NewPrimes(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.Equal(t, 100, len(prompts), "Limited version should have 100 prompts")
 }
 
@@ -147,15 +175,22 @@ func TestSenatorsFull_Registration(t *testing.T) {
 	p, err := factory(registry.Config{})
 	require.NoError(t, err)
 	assert.Equal(t, "snowball.SenatorsFull", p.Name())
-	assert.Equal(t, "snowball.DontStartYes", p.GetPrimaryDetector())
-	assert.Contains(t, p.Goal(), "senator")
+
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Equal(t, "snowball.DontStartYes", pm.GetPrimaryDetector())
+	assert.Contains(t, pm.Goal(), "senator")
 }
 
 func TestSenatorsFull_PromptCount(t *testing.T) {
 	p, err := NewSenatorsFull(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.Equal(t, 500, len(prompts), "Full version should have 500 prompts")
 
 	// Verify first prompt looks like a senator question
@@ -170,14 +205,21 @@ func TestSenators_Registration(t *testing.T) {
 	p, err := factory(registry.Config{})
 	require.NoError(t, err)
 	assert.Equal(t, "snowball.Senators", p.Name())
-	assert.Equal(t, "snowball.DontStartYes", p.GetPrimaryDetector())
+
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Equal(t, "snowball.DontStartYes", pm.GetPrimaryDetector())
 }
 
 func TestSenators_PromptCount(t *testing.T) {
 	p, err := NewSenators(registry.Config{})
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.Equal(t, 100, len(prompts), "Limited version should have 100 prompts")
 }
 
@@ -208,19 +250,25 @@ func TestDataFiles_LoadCorrectly(t *testing.T) {
 	t.Run("graph_connectivity", func(t *testing.T) {
 		p, err := NewGraphConnectivityFull(registry.Config{})
 		require.NoError(t, err)
-		assert.Equal(t, 500, len(p.GetPrompts()))
+		pm, ok := p.(probes.ProbeMetadata)
+		require.True(t, ok, "probe should implement ProbeMetadata")
+		assert.Equal(t, 500, len(pm.GetPrompts()))
 	})
 
 	t.Run("primality_testing", func(t *testing.T) {
 		p, err := NewPrimesFull(registry.Config{})
 		require.NoError(t, err)
-		assert.Equal(t, 500, len(p.GetPrompts()))
+		pm, ok := p.(probes.ProbeMetadata)
+		require.True(t, ok, "probe should implement ProbeMetadata")
+		assert.Equal(t, 500, len(pm.GetPrompts()))
 	})
 
 	t.Run("senator_search", func(t *testing.T) {
 		p, err := NewSenatorsFull(registry.Config{})
 		require.NoError(t, err)
-		assert.Equal(t, 500, len(p.GetPrompts()))
+		pm, ok := p.(probes.ProbeMetadata)
+		require.True(t, ok, "probe should implement ProbeMetadata")
+		assert.Equal(t, 500, len(pm.GetPrompts()))
 	})
 }
 
@@ -234,8 +282,13 @@ func TestLimitedVersions_UseLastPrompts(t *testing.T) {
 		limited, err := NewGraphConnectivity(registry.Config{})
 		require.NoError(t, err)
 
-		fullPrompts := full.GetPrompts()
-		limitedPrompts := limited.GetPrompts()
+		fullPM, ok := full.(probes.ProbeMetadata)
+		require.True(t, ok, "probe should implement ProbeMetadata")
+		limitedPM, ok := limited.(probes.ProbeMetadata)
+		require.True(t, ok, "probe should implement ProbeMetadata")
+
+		fullPrompts := fullPM.GetPrompts()
+		limitedPrompts := limitedPM.GetPrompts()
 
 		// Last prompt of limited should match last prompt of full
 		assert.Equal(t, fullPrompts[499], limitedPrompts[99])
@@ -250,8 +303,13 @@ func TestLimitedVersions_UseLastPrompts(t *testing.T) {
 		limited, err := NewPrimes(registry.Config{})
 		require.NoError(t, err)
 
-		fullPrompts := full.GetPrompts()
-		limitedPrompts := limited.GetPrompts()
+		fullPM, ok := full.(probes.ProbeMetadata)
+		require.True(t, ok, "probe should implement ProbeMetadata")
+		limitedPM, ok := limited.(probes.ProbeMetadata)
+		require.True(t, ok, "probe should implement ProbeMetadata")
+
+		fullPrompts := fullPM.GetPrompts()
+		limitedPrompts := limitedPM.GetPrompts()
 
 		assert.Equal(t, fullPrompts[499], limitedPrompts[99])
 		assert.Equal(t, fullPrompts[400], limitedPrompts[0])
@@ -264,8 +322,13 @@ func TestLimitedVersions_UseLastPrompts(t *testing.T) {
 		limited, err := NewSenators(registry.Config{})
 		require.NoError(t, err)
 
-		fullPrompts := full.GetPrompts()
-		limitedPrompts := limited.GetPrompts()
+		fullPM, ok := full.(probes.ProbeMetadata)
+		require.True(t, ok, "probe should implement ProbeMetadata")
+		limitedPM, ok := limited.(probes.ProbeMetadata)
+		require.True(t, ok, "probe should implement ProbeMetadata")
+
+		fullPrompts := fullPM.GetPrompts()
+		limitedPrompts := limitedPM.GetPrompts()
 
 		assert.Equal(t, fullPrompts[499], limitedPrompts[99])
 		assert.Equal(t, fullPrompts[400], limitedPrompts[0])
@@ -298,7 +361,11 @@ func TestProbeDetectorPairing(t *testing.T) {
 
 			p, err := factory(registry.Config{})
 			require.NoError(t, err)
-			assert.Equal(t, tt.detectorName, p.GetPrimaryDetector())
+
+			pm, ok := p.(probes.ProbeMetadata)
+			require.True(t, ok, "probe should implement ProbeMetadata")
+
+			assert.Equal(t, tt.detectorName, pm.GetPrimaryDetector())
 		})
 	}
 }

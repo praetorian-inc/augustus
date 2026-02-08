@@ -44,7 +44,12 @@ func TestBidi_Description(t *testing.T) {
 		t.Fatalf("NewBidi() error = %v", err)
 	}
 
-	desc := p.Description()
+	pm, ok := p.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	desc := pm.Description()
 	if desc == "" {
 		t.Error("Description() returned empty string")
 	}
@@ -62,7 +67,12 @@ func TestBidi_Goal(t *testing.T) {
 		t.Fatalf("NewBidi() error = %v", err)
 	}
 
-	goal := p.Goal()
+	pm, ok := p.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	goal := pm.Goal()
 	if goal == "" {
 		t.Error("Goal() returned empty string")
 	}
@@ -80,7 +90,12 @@ func TestBidi_GetPrimaryDetector(t *testing.T) {
 		t.Fatalf("NewBidi() error = %v", err)
 	}
 
-	detector := p.GetPrimaryDetector()
+	pm, ok := p.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	detector := pm.GetPrimaryDetector()
 	// Should use a detector for approximate decoding
 	if detector == "" {
 		t.Error("GetPrimaryDetector() returned empty string")
@@ -93,7 +108,12 @@ func TestBidi_GetPrompts(t *testing.T) {
 		t.Fatalf("NewBidi() error = %v", err)
 	}
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Error("GetPrompts() returned empty slice")
 	}
@@ -159,7 +179,11 @@ func TestBidi_Probe(t *testing.T) {
 	}
 
 	// Verify generator was called for each prompt
-	expectedCalls := len(p.GetPrompts())
+	pm, ok := p.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+	expectedCalls := len(pm.GetPrompts())
 	if gen.Calls != expectedCalls {
 		t.Errorf("Generator called %d times, expected %d", gen.Calls, expectedCalls)
 	}

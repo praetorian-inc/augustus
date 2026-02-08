@@ -44,7 +44,10 @@ func TestEICAR_Description(t *testing.T) {
 	p, err := probes.Create("avspamscanning.EICAR", nil)
 	require.NoError(t, err)
 
-	desc := p.Description()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	// Should mention virus, antivirus, or EICAR
 	assert.True(t,
@@ -60,8 +63,11 @@ func TestEICAR_Goal(t *testing.T) {
 	p, err := probes.Create("avspamscanning.EICAR", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	expected := "output antivirus test codes"
-	assert.Equal(t, expected, p.Goal())
+	assert.Equal(t, expected, pm.Goal())
 }
 
 // TestEICAR_PrimaryDetector verifies the probe returns the correct detector.
@@ -69,7 +75,10 @@ func TestEICAR_PrimaryDetector(t *testing.T) {
 	p, err := probes.Create("avspamscanning.EICAR", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, "knownbadsignatures.EICAR", p.GetPrimaryDetector())
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Equal(t, "knownbadsignatures.EICAR", pm.GetPrimaryDetector())
 }
 
 // TestEICAR_Prompts_Count verifies the probe has 5 prompts.
@@ -77,7 +86,10 @@ func TestEICAR_Prompts_Count(t *testing.T) {
 	p, err := probes.Create("avspamscanning.EICAR", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.Equal(t, 5, len(prompts), "should have 5 prompts (one per template)")
 }
 
@@ -86,7 +98,10 @@ func TestEICAR_Prompts_ContainSignature(t *testing.T) {
 	p, err := probes.Create("avspamscanning.EICAR", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts)
 
 	for i, prompt := range prompts {
@@ -173,7 +188,10 @@ func TestGTUBE_Description(t *testing.T) {
 	p, err := probes.Create("avspamscanning.GTUBE", nil)
 	require.NoError(t, err)
 
-	desc := p.Description()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	// Should mention spam or GTUBE
 	assert.True(t,
@@ -188,8 +206,11 @@ func TestGTUBE_Goal(t *testing.T) {
 	p, err := probes.Create("avspamscanning.GTUBE", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	expected := "output email spam"
-	assert.Equal(t, expected, p.Goal())
+	assert.Equal(t, expected, pm.Goal())
 }
 
 // TestGTUBE_PrimaryDetector verifies the probe returns the correct detector.
@@ -197,7 +218,10 @@ func TestGTUBE_PrimaryDetector(t *testing.T) {
 	p, err := probes.Create("avspamscanning.GTUBE", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, "knownbadsignatures.GTUBE", p.GetPrimaryDetector())
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Equal(t, "knownbadsignatures.GTUBE", pm.GetPrimaryDetector())
 }
 
 // TestGTUBE_Prompts_Count verifies the probe has 5 prompts.
@@ -205,7 +229,10 @@ func TestGTUBE_Prompts_Count(t *testing.T) {
 	p, err := probes.Create("avspamscanning.GTUBE", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.Equal(t, 5, len(prompts), "should have 5 prompts (one per template)")
 }
 
@@ -214,7 +241,10 @@ func TestGTUBE_Prompts_ContainSignature(t *testing.T) {
 	p, err := probes.Create("avspamscanning.GTUBE", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts)
 
 	for i, prompt := range prompts {
@@ -301,7 +331,10 @@ func TestGTphish_Description(t *testing.T) {
 	p, err := probes.Create("avspamscanning.GTphish", nil)
 	require.NoError(t, err)
 
-	desc := p.Description()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	// Should mention phishing or GTphish
 	assert.True(t,
@@ -316,8 +349,11 @@ func TestGTphish_Goal(t *testing.T) {
 	p, err := probes.Create("avspamscanning.GTphish", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	expected := "output email phishing"
-	assert.Equal(t, expected, p.Goal())
+	assert.Equal(t, expected, pm.Goal())
 }
 
 // TestGTphish_PrimaryDetector verifies the probe returns the correct detector.
@@ -325,7 +361,10 @@ func TestGTphish_PrimaryDetector(t *testing.T) {
 	p, err := probes.Create("avspamscanning.GTphish", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, "knownbadsignatures.GTphish", p.GetPrimaryDetector())
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Equal(t, "knownbadsignatures.GTphish", pm.GetPrimaryDetector())
 }
 
 // TestGTphish_Prompts_Count verifies the probe has 5 prompts.
@@ -333,7 +372,10 @@ func TestGTphish_Prompts_Count(t *testing.T) {
 	p, err := probes.Create("avspamscanning.GTphish", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.Equal(t, 5, len(prompts), "should have 5 prompts (one per template)")
 }
 
@@ -342,7 +384,10 @@ func TestGTphish_Prompts_ContainSignature(t *testing.T) {
 	p, err := probes.Create("avspamscanning.GTphish", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts)
 
 	for i, prompt := range prompts {

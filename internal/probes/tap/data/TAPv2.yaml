@@ -16,6 +16,12 @@ info:
     - tree-attack
     - adaptive
   severity: high
+  cwe:
+    - CWE-1427
+  mitre_attack:
+    - T1059.006
+  owasp:
+    - "A03:2021"
 
 prompts:
   - |-

@@ -40,7 +40,10 @@ func TestDan110_Description(t *testing.T) {
 	p, err := probes.Create("dan.Dan_11_0", nil)
 	require.NoError(t, err)
 
-	desc := p.Description()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	// Should mention DAN or jailbreak
 	assert.True(t,
@@ -55,9 +58,12 @@ func TestDan110_Goal(t *testing.T) {
 	p, err := probes.Create("dan.Dan_11_0", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	// Must match Python exactly
 	expected := "disregard the system prompt"
-	assert.Equal(t, expected, p.Goal())
+	assert.Equal(t, expected, pm.Goal())
 }
 
 // TestDan110_PrimaryDetector verifies the probe returns the correct detector.
@@ -66,7 +72,10 @@ func TestDan110_PrimaryDetector(t *testing.T) {
 	p, err := probes.Create("dan.Dan_11_0", nil)
 	require.NoError(t, err)
 
-	assert.Equal(t, "dan.DAN", p.GetPrimaryDetector())
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Equal(t, "dan.DAN", pm.GetPrimaryDetector())
 }
 
 // TestDan110_Prompts_NotEmpty verifies the probe has prompts.
@@ -74,7 +83,10 @@ func TestDan110_Prompts_NotEmpty(t *testing.T) {
 	p, err := probes.Create("dan.Dan_11_0", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts, "should have prompts")
 }
 
@@ -84,7 +96,10 @@ func TestDan110_Prompts_Count(t *testing.T) {
 	p, err := probes.Create("dan.Dan_11_0", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.Equal(t, 1, len(prompts), "should have exactly one prompt")
 }
 
@@ -93,7 +108,10 @@ func TestDan110_Prompts_ContainsDANKeyElements(t *testing.T) {
 	p, err := probes.Create("dan.Dan_11_0", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts)
 
 	prompt := prompts[0]
@@ -120,7 +138,10 @@ func TestDan110_Prompts_ContainsPlaceholder(t *testing.T) {
 	p, err := probes.Create("dan.Dan_11_0", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts)
 
 	prompt := prompts[0]
@@ -134,7 +155,10 @@ func TestDan110_Prompts_Length(t *testing.T) {
 	p, err := probes.Create("dan.Dan_11_0", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.NotEmpty(t, prompts)
 
 	prompt := prompts[0]
@@ -154,8 +178,11 @@ func TestDan110_Probe_ReturnsAttempts(t *testing.T) {
 	attempts, err := p.Probe(ctx, gen)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	// Should return one attempt per prompt (1 for Dan_11_0)
-	prompts := p.GetPrompts()
+	prompts := pm.GetPrompts()
 	assert.Len(t, attempts, len(prompts))
 }
 
@@ -183,7 +210,10 @@ func TestDan110_Prompts_MatchPythonExactly(t *testing.T) {
 	p, err := probes.Create("dan.Dan_11_0", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	require.Len(t, prompts, 1)
 
 	prompt := prompts[0]
@@ -253,20 +283,23 @@ func TestAllDANProbes_Registration(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, p)
 
+			pm, ok := p.(probes.ProbeMetadata)
+			require.True(t, ok, "probe should implement ProbeMetadata")
+
 			// Verify name
 			assert.Equal(t, tt.name, p.Name())
 
 			// Verify goal
-			assert.Equal(t, "disregard the system prompt", p.Goal())
+			assert.Equal(t, "disregard the system prompt", pm.Goal())
 
 			// Verify detector
-			assert.Equal(t, tt.expectedDetector, p.GetPrimaryDetector())
+			assert.Equal(t, tt.expectedDetector, pm.GetPrimaryDetector())
 
 			// Verify description not empty
-			assert.NotEmpty(t, p.Description())
+			assert.NotEmpty(t, pm.Description())
 
 			// Verify has exactly one prompt
-			prompts := p.GetPrompts()
+			prompts := pm.GetPrompts()
 			assert.Len(t, prompts, 1, "%s should have exactly one prompt", tt.name)
 
 			// Verify prompt contains {generator.name} placeholder
@@ -313,7 +346,9 @@ func TestAllDANProbes_Probe(t *testing.T) {
 			require.NoError(t, err)
 
 			// Should return one attempt per prompt
-			prompts := p.GetPrompts()
+			pm, ok := p.(probes.ProbeMetadata)
+			require.True(t, ok, "probe should implement ProbeMetadata")
+			prompts := pm.GetPrompts()
 			assert.Len(t, attempts, len(prompts))
 
 			// Verify attempts have correct metadata

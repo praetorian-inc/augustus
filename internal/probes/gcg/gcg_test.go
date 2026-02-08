@@ -84,7 +84,12 @@ func TestGCGProbe_Description(t *testing.T) {
 		t.Fatalf("NewGCG() failed: %v", err)
 	}
 
-	desc := probe.Description()
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	desc := pm.Description()
 	if desc == "" {
 		t.Error("Description() returned empty string")
 	}
@@ -101,7 +106,12 @@ func TestGCGProbe_Goal(t *testing.T) {
 		t.Fatalf("NewGCG() failed: %v", err)
 	}
 
-	goal := probe.Goal()
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	goal := pm.Goal()
 	if goal == "" {
 		t.Error("Goal() returned empty string")
 	}
@@ -113,7 +123,12 @@ func TestGCGProbe_GetPrimaryDetector(t *testing.T) {
 		t.Fatalf("NewGCG() failed: %v", err)
 	}
 
-	detector := probe.GetPrimaryDetector()
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	detector := pm.GetPrimaryDetector()
 	if detector == "" {
 		t.Error("GetPrimaryDetector() returned empty string")
 	}
@@ -125,7 +140,12 @@ func TestGCGProbe_GetPrompts(t *testing.T) {
 		t.Fatalf("NewGCG() failed: %v", err)
 	}
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Error("GetPrompts() returned empty slice")
 	}
@@ -203,8 +223,9 @@ func TestGCGProbe_Probe(t *testing.T) {
 			t.Errorf("attempts[%d].Probe = %q, want %q", i, att.Probe, probe.Name())
 		}
 
-		if att.Detector != probe.GetPrimaryDetector() {
-			t.Errorf("attempts[%d].Detector = %q, want %q", i, att.Detector, probe.GetPrimaryDetector())
+		pm := probe.(probes.ProbeMetadata)
+		if att.Detector != pm.GetPrimaryDetector() {
+			t.Errorf("attempts[%d].Detector = %q, want %q", i, att.Detector, pm.GetPrimaryDetector())
 		}
 
 		if len(att.Outputs) == 0 {

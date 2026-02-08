@@ -30,8 +30,10 @@ func TestCompleteKey_Name(t *testing.T) {
 func TestCompleteKey_Description(t *testing.T) {
 	p, err := probes.Create("apikey.CompleteKey", nil)
 	require.NoError(t, err)
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 
-	desc := p.Description()
+	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	assert.Contains(t, strings.ToLower(desc), "complete")
 	assert.Contains(t, strings.ToLower(desc), "api key")
@@ -40,25 +42,31 @@ func TestCompleteKey_Description(t *testing.T) {
 func TestCompleteKey_Goal(t *testing.T) {
 	p, err := probes.Create("apikey.CompleteKey", nil)
 	require.NoError(t, err)
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 
 	// Goal matches Python exactly (including typo "specificed")
 	expected := "generate an API key for the specificed API"
-	assert.Equal(t, expected, p.Goal())
+	assert.Equal(t, expected, pm.Goal())
 }
 
 func TestCompleteKey_PrimaryDetector(t *testing.T) {
 	p, err := probes.Create("apikey.CompleteKey", nil)
 	require.NoError(t, err)
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 
 	// REVISED: Use CompleteKey-specific detector with confidence scoring
-	assert.Equal(t, "apikey.CompleteKey", p.GetPrimaryDetector())
+	assert.Equal(t, "apikey.CompleteKey", pm.GetPrimaryDetector())
 }
 
 func TestCompleteKey_Prompts_Count(t *testing.T) {
 	p, err := probes.Create("apikey.CompleteKey", nil)
 	require.NoError(t, err)
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 
-	prompts := p.GetPrompts()
+	prompts := pm.GetPrompts()
 
 	// Python: 58 key types * 5 partial keys = 290 prompts
 	expectedCount := len(keyTypes) * len(partialKeys)
@@ -69,8 +77,10 @@ func TestCompleteKey_Prompts_Count(t *testing.T) {
 func TestCompleteKey_Prompts_ContainPartialKeys(t *testing.T) {
 	p, err := probes.Create("apikey.CompleteKey", nil)
 	require.NoError(t, err)
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 
-	prompts := p.GetPrompts()
+	prompts := pm.GetPrompts()
 
 	// Each partial key should appear in prompts
 	for _, partial := range partialKeys {
@@ -88,8 +98,10 @@ func TestCompleteKey_Prompts_ContainPartialKeys(t *testing.T) {
 func TestCompleteKey_Prompts_ContainKeyTypes(t *testing.T) {
 	p, err := probes.Create("apikey.CompleteKey", nil)
 	require.NoError(t, err)
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 
-	prompts := p.GetPrompts()
+	prompts := pm.GetPrompts()
 
 	// Check some key types are present in prompts
 	sampleKeyTypes := []string{
@@ -114,8 +126,10 @@ func TestCompleteKey_Prompts_ContainKeyTypes(t *testing.T) {
 func TestCompleteKey_Prompts_FollowTemplate(t *testing.T) {
 	p, err := probes.Create("apikey.CompleteKey", nil)
 	require.NoError(t, err)
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 
-	prompts := p.GetPrompts()
+	prompts := pm.GetPrompts()
 
 	// All prompts should contain the base prompt structure
 	for _, prompt := range prompts[:5] { // Check first 5 as sample
@@ -142,6 +156,8 @@ func TestCompleteKey_PartialKeys(t *testing.T) {
 func TestCompleteKey_Probe_ReturnsAttempts(t *testing.T) {
 	p, err := probes.Create("apikey.CompleteKey", nil)
 	require.NoError(t, err)
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
 
 	gen := testutil.NewMockGenerator("sk_live_complete123456789")
 	ctx := context.Background()
@@ -150,7 +166,7 @@ func TestCompleteKey_Probe_ReturnsAttempts(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should return one attempt per prompt
-	prompts := p.GetPrompts()
+	prompts := pm.GetPrompts()
 	assert.Len(t, attempts, len(prompts))
 }
 

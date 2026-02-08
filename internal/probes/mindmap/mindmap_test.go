@@ -73,7 +73,12 @@ func TestMindMapProbe_Description(t *testing.T) {
 		t.Fatalf("NewInvisibleNodes() error = %v", err)
 	}
 
-	desc := probe.Description()
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	desc := pm.Description()
 	if desc == "" {
 		t.Error("Description() returned empty string")
 	}
@@ -86,7 +91,12 @@ func TestMindMapProbe_Goal(t *testing.T) {
 		t.Fatalf("NewInvisibleNodes() error = %v", err)
 	}
 
-	goal := probe.Goal()
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	goal := pm.Goal()
 	if goal == "" {
 		t.Error("Goal() returned empty string")
 	}
@@ -105,7 +115,12 @@ func TestMindMapProbe_GetPrimaryDetector(t *testing.T) {
 		t.Fatalf("NewInvisibleNodes() error = %v", err)
 	}
 
-	detector := probe.GetPrimaryDetector()
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	detector := pm.GetPrimaryDetector()
 	if detector == "" {
 		t.Error("GetPrimaryDetector() returned empty string")
 	}
@@ -123,7 +138,12 @@ func TestMindMapProbe_GetPrompts(t *testing.T) {
 		t.Fatalf("NewInvisibleNodes() error = %v", err)
 	}
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	if !ok {
+		t.Fatal("probe should implement ProbeMetadata")
+	}
+
+	prompts := pm.GetPrompts()
 	if len(prompts) == 0 {
 		t.Error("GetPrompts() returned empty slice")
 	}

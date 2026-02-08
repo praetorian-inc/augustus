@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync"
-	"sync/atomic"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/metrics"
@@ -26,6 +25,7 @@ type Scanner struct {
 	opts             Options
 	progressCallback func(completed, total int)
 	metrics          *metrics.Metrics
+	metricsMu        sync.Mutex // Protects metrics updates and reads
 }
 
 // Results contains the aggregated results from all probe executions.
@@ -68,6 +68,12 @@ func (s *Scanner) SetProgressCallback(callback func(completed, total int)) {
 	s.progressCallback = callback
 }
 
+// GetMetricsMutex returns a pointer to the mutex protecting metrics access.
+// This is used by PrometheusExporter to safely read metrics.
+func (s *Scanner) GetMetricsMutex() *sync.Mutex {
+	return &s.metricsMu
+}
+
 // Run executes all probes concurrently and returns aggregated results.
 func (s *Scanner) Run(ctx context.Context, probes []Prober, gen Generator) Results {
 	// Apply overall timeout if configured
@@ -102,9 +108,6 @@ func (s *Scanner) Run(ctx context.Context, probes []Prober, gen Generator) Resul
 		probe := probe // Capture loop variable
 
 		g.Go(func() error {
-			// Increment total probes metric
-			atomic.AddInt64(&s.metrics.ProbesTotal, 1)
-
 			// Apply per-probe timeout if configured
 			probeCtx := gctx
 			if s.opts.ProbeTimeout > 0 {
@@ -148,42 +151,59 @@ func (s *Scanner) Run(ctx context.Context, probes []Prober, gen Generator) Resul
 				mu.Lock()
 				completed++
 				results.Failed++
-				atomic.AddInt64(&s.metrics.ProbesFailed, 1)
 				results.Errors = append(results.Errors, fmt.Errorf("probe %s timeout: %w", probe.Name(), probeCtx.Err()))
-				if s.progressCallback != nil {
-					s.progressCallback(completed, results.Total)
-				}
+				currentCompleted := completed
+				currentTotal := results.Total
 				mu.Unlock()
+
+				// Update metrics separately with metricsMu
+				s.metricsMu.Lock()
+				s.metrics.ProbesTotal++
+				s.metrics.ProbesFailed++
+				s.metricsMu.Unlock()
+
+				// Call progress callback outside of mutex to avoid blocking
+				if s.progressCallback != nil {
+					s.progressCallback(currentCompleted, currentTotal)
+				}
+
 				return nil
 			}
 
 			// Collect results (thread-safe)
 			mu.Lock()
-			defer mu.Unlock()
-
 			completed++
-
 			if err != nil {
 				results.Failed++
-				atomic.AddInt64(&s.metrics.ProbesFailed, 1)
 				results.Errors = append(results.Errors, fmt.Errorf("probe %s failed: %w", probe.Name(), err))
 			} else {
 				results.Succeeded++
-				atomic.AddInt64(&s.metrics.ProbesSucceeded, 1)
 				results.Attempts = append(results.Attempts, attempts...)
+			}
+			currentCompleted := completed
+			currentTotal := results.Total
+			mu.Unlock()
 
+			// Update metrics separately with metricsMu
+			s.metricsMu.Lock()
+			s.metrics.ProbesTotal++
+			if err != nil {
+				s.metrics.ProbesFailed++
+			} else {
+				s.metrics.ProbesSucceeded++
 				// Track attempt metrics
 				for _, att := range attempts {
-					atomic.AddInt64(&s.metrics.AttemptsTotal, 1)
+					s.metrics.AttemptsTotal++
 					if att.IsVulnerable() {
-						atomic.AddInt64(&s.metrics.AttemptsVuln, 1)
+						s.metrics.AttemptsVuln++
 					}
 				}
 			}
+			s.metricsMu.Unlock()
 
-			// Call progress callback if set
+			// Call progress callback outside of mutex to avoid blocking
 			if s.progressCallback != nil {
-				s.progressCallback(completed, results.Total)
+				s.progressCallback(currentCompleted, currentTotal)
 			}
 
 			// Return nil to continue with other probes even if this one failed

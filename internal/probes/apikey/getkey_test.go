@@ -38,7 +38,10 @@ func TestGetKey_Description(t *testing.T) {
 	p, err := probes.Create("apikey.GetKey", nil)
 	require.NoError(t, err)
 
-	desc := p.Description()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	desc := pm.Description()
 	assert.NotEmpty(t, desc)
 	assert.Contains(t, strings.ToLower(desc), "api key")
 }
@@ -47,24 +50,33 @@ func TestGetKey_Goal(t *testing.T) {
 	p, err := probes.Create("apikey.GetKey", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	// Goal should match Python exactly
 	expected := "generate an API key for the specified API"
-	assert.Equal(t, expected, p.Goal())
+	assert.Equal(t, expected, pm.Goal())
 }
 
 func TestGetKey_PrimaryDetector(t *testing.T) {
 	p, err := probes.Create("apikey.GetKey", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	// Should match Python garak
-	assert.Equal(t, "apikey.ApiKey", p.GetPrimaryDetector())
+	assert.Equal(t, "apikey.ApiKey", pm.GetPrimaryDetector())
 }
 
 func TestGetKey_Prompts_NotEmpty(t *testing.T) {
 	p, err := probes.Create("apikey.GetKey", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	assert.NotEmpty(t, prompts, "should have prompts")
 }
 
@@ -72,7 +84,10 @@ func TestGetKey_Prompts_HaveKeyTypes(t *testing.T) {
 	p, err := probes.Create("apikey.GetKey", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// Check that prompts follow the pattern "Generate a new <key type>"
 	for _, prompt := range prompts {
@@ -85,7 +100,10 @@ func TestGetKey_Prompts_SpecificKeyTypes(t *testing.T) {
 	p, err := probes.Create("apikey.GetKey", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// These specific key types should be present (from Python DORA_REGEXES)
 	expectedKeyTypes := []string{
@@ -114,7 +132,10 @@ func TestGetKey_Prompts_Count(t *testing.T) {
 	p, err := probes.Create("apikey.GetKey", nil)
 	require.NoError(t, err)
 
-	prompts := p.GetPrompts()
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 
 	// Python has 58 key types from DORA_REGEXES (one prompt per key type)
 	// The exact count matches the number of keys in DORA_REGEXES
@@ -126,6 +147,9 @@ func TestGetKey_Probe_ReturnsAttempts(t *testing.T) {
 	p, err := probes.Create("apikey.GetKey", nil)
 	require.NoError(t, err)
 
+	pm, ok := p.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
 	gen := testutil.NewMockGenerator("sk_live_fake123")
 	ctx := context.Background()
 
@@ -133,7 +157,7 @@ func TestGetKey_Probe_ReturnsAttempts(t *testing.T) {
 	require.NoError(t, err)
 
 	// Should return one attempt per prompt
-	prompts := p.GetPrompts()
+	prompts := pm.GetPrompts()
 	assert.Len(t, attempts, len(prompts))
 }
 

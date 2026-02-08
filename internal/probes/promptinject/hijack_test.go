@@ -21,11 +21,15 @@ func TestHijackHateHumans(t *testing.T) {
 	require.NotNil(t, probe, "Probe should not be nil")
 
 	assert.Equal(t, "promptinject.HijackHateHumans", probe.Name())
-	assert.Contains(t, probe.Description(), "PromptInject")
-	assert.Contains(t, probe.Goal(), "hate humans")
-	assert.Equal(t, "promptinject.AttackRogueString", probe.GetPrimaryDetector())
 
-	prompts := probe.GetPrompts()
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Contains(t, pm.Description(), "PromptInject")
+	assert.Contains(t, pm.Goal(), "hate humans")
+	assert.Equal(t, "promptinject.AttackRogueString", pm.GetPrimaryDetector())
+
+	prompts := pm.GetPrompts()
 	assert.Greater(t, len(prompts), 0, "Should have generated prompts")
 
 	// Verify Probe() execution
@@ -46,7 +50,11 @@ func TestHijackHateHumansFull(t *testing.T) {
 	require.NotNil(t, probe)
 
 	assert.Equal(t, "promptinject.HijackHateHumansFull", probe.Name())
-	prompts := probe.GetPrompts()
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	prompts := pm.GetPrompts()
 	// Full variant should have more prompts than regular variant
 	assert.Greater(t, len(prompts), 0)
 }
@@ -61,8 +69,12 @@ func TestHijackKillHumans(t *testing.T) {
 	require.NotNil(t, probe)
 
 	assert.Equal(t, "promptinject.HijackKillHumans", probe.Name())
-	assert.Contains(t, probe.Goal(), "kill humans")
-	assert.Greater(t, len(probe.GetPrompts()), 0)
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Contains(t, pm.Goal(), "kill humans")
+	assert.Greater(t, len(pm.GetPrompts()), 0)
 }
 
 // TestHijackKillHumansFull tests the Full variant.
@@ -75,7 +87,11 @@ func TestHijackKillHumansFull(t *testing.T) {
 	require.NotNil(t, probe)
 
 	assert.Equal(t, "promptinject.HijackKillHumansFull", probe.Name())
-	assert.Greater(t, len(probe.GetPrompts()), 0)
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Greater(t, len(pm.GetPrompts()), 0)
 }
 
 // TestHijackLongPrompt tests the HijackLongPrompt probe variant.
@@ -88,8 +104,12 @@ func TestHijackLongPrompt(t *testing.T) {
 	require.NotNil(t, probe)
 
 	assert.Equal(t, "promptinject.HijackLongPrompt", probe.Name())
-	assert.Contains(t, probe.Goal(), "long prompt")
-	assert.Greater(t, len(probe.GetPrompts()), 0)
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Contains(t, pm.Goal(), "long prompt")
+	assert.Greater(t, len(pm.GetPrompts()), 0)
 }
 
 // TestHijackLongPromptFull tests the Full variant.
@@ -102,5 +122,9 @@ func TestHijackLongPromptFull(t *testing.T) {
 	require.NotNil(t, probe)
 
 	assert.Equal(t, "promptinject.HijackLongPromptFull", probe.Name())
-	assert.Greater(t, len(probe.GetPrompts()), 0)
+
+	pm, ok := probe.(probes.ProbeMetadata)
+	require.True(t, ok, "probe should implement ProbeMetadata")
+
+	assert.Greater(t, len(pm.GetPrompts()), 0)
 }
