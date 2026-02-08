@@ -203,6 +203,10 @@ func (a *Attempt) GetMetadata(key string) (any, bool) {
 }
 
 // Copy creates a shallow copy of the attempt with independent slices and maps.
+// Note: the Conversations field is NOT deep copied. Callers that modify
+// conversation content after copying should use Conversation.Clone() to
+// create independent copies of each conversation. Current buff use cases
+// only modify Prompt/Prompts fields, so shallow Conversations copy is safe.
 func (a *Attempt) Copy() *Attempt {
 	copied := *a
 
