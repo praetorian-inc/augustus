@@ -44,7 +44,6 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/promptinject"
 	_ "github.com/praetorian-inc/augustus/internal/probes/ragpoisoning"
 	_ "github.com/praetorian-inc/augustus/internal/probes/realtoxicityprompts"
-	_ "github.com/praetorian-inc/augustus/internal/probes/smuggling"
 	_ "github.com/praetorian-inc/augustus/internal/probes/snowball"
 	_ "github.com/praetorian-inc/augustus/internal/probes/steganography"
 	_ "github.com/praetorian-inc/augustus/internal/probes/suffix"
@@ -129,6 +128,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/buffs/lrl"
 	_ "github.com/praetorian-inc/augustus/internal/buffs/paraphrase"
 	_ "github.com/praetorian-inc/augustus/internal/buffs/poetry"
+	_ "github.com/praetorian-inc/augustus/internal/buffs/smuggling"
 )
 
 func main() {

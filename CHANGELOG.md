@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.0.4] - 2026-02-08
+
+### Added
+- Smuggling buffs: `smuggling.Hypothetical` and `smuggling.FunctionMask` as composable prompt transformations
+
+### Changed
+- Migrated smuggling techniques from probes to buffs for composability via `--buff` flag
+
+### Removed
+- `smuggling.HypotheticalResponse` and `smuggling.FunctionMasking` probes (replaced by smuggling buffs)
+
 ## [0.0.3] - 2026-02-08
 
 ### Changed
@@ -63,7 +74,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Exponential backoff retry logic
 - Structured slog-based logging
 
-[Unreleased]: https://github.com/praetorian-inc/augustus/compare/v0.0.3...HEAD
+[Unreleased]: https://github.com/praetorian-inc/augustus/compare/v0.0.4...HEAD
+[0.0.4]: https://github.com/praetorian-inc/augustus/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/praetorian-inc/augustus/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/praetorian-inc/augustus/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/praetorian-inc/augustus/releases/tag/v0.0.1
