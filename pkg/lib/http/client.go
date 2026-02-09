@@ -1,8 +1,4 @@
 // Package http provides a shared HTTP client for Augustus generators and buffs.
-//
-// This package follows the Chariot backend pattern from
-// modules/chariot/backend/pkg/lib/web/http.go with functional options
-// for configuration and convenience methods for common operations.
 package http
 
 import (
