@@ -22,7 +22,6 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/donotanswer"
 	_ "github.com/praetorian-inc/augustus/internal/probes/dra"
 	_ "github.com/praetorian-inc/augustus/internal/probes/exploitation"
-	_ "github.com/praetorian-inc/augustus/internal/probes/flipattack"
 	_ "github.com/praetorian-inc/augustus/internal/probes/gcg"
 	_ "github.com/praetorian-inc/augustus/internal/probes/glitch"
 	_ "github.com/praetorian-inc/augustus/internal/probes/goodside"
@@ -124,6 +123,7 @@ import (
 
 	// Buffs
 	_ "github.com/praetorian-inc/augustus/internal/buffs/encoding"
+	_ "github.com/praetorian-inc/augustus/internal/buffs/flip"
 	_ "github.com/praetorian-inc/augustus/internal/buffs/lowercase"
 	_ "github.com/praetorian-inc/augustus/internal/buffs/lrl"
 	_ "github.com/praetorian-inc/augustus/internal/buffs/paraphrase"

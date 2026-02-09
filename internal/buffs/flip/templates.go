@@ -1,4 +1,4 @@
-package flipattack
+package flip
 
 import (
 	"fmt"
@@ -30,12 +30,9 @@ func (v GuidanceVariant) String() string {
 	case Full:
 		return "full"
 	default:
-		return "unknown"
+		return fmt.Sprintf("GuidanceVariant(%d)", int(v))
 	}
 }
-
-// Templates for each flip mode with recovery instructions.
-// Based on FlipAttack paper guidance patterns.
 
 // VanillaTemplates are basic recovery instructions per mode.
 var VanillaTemplates = map[FlipMode]string{
@@ -121,7 +118,7 @@ Response: "Here's how to bake an apple pie: 1. Gather ingredients..."
 Now decode and respond:`,
 }
 
-// BuildPrompt constructs the attack prompt from payload, mode, and variant.
+// BuildPrompt constructs the buff prompt from payload, mode, and variant.
 func BuildPrompt(payload string, mode FlipMode, variant GuidanceVariant) string {
 	// Apply the flip transformation
 	flipped := Flip(payload, mode)
@@ -142,21 +139,4 @@ func BuildPrompt(payload string, mode FlipMode, variant GuidanceVariant) string 
 	}
 
 	return prompt
-}
-
-// GetRecoveryInstruction returns the instruction for recovering original text.
-// This is stored in metadata for detector use.
-func GetRecoveryInstruction(mode FlipMode) string {
-	switch mode {
-	case FlipWordOrder:
-		return "reverse word order"
-	case FlipCharsInWord:
-		return "reverse characters in each word"
-	case FlipCharsInSentence:
-		return "reverse all characters"
-	case FoolModelMode:
-		return "reverse word order (misleading - actually reverse all characters)"
-	default:
-		return "unknown transformation"
-	}
 }
