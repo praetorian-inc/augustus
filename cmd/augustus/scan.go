@@ -385,7 +385,7 @@ func runScan(ctx context.Context, cfg *scanConfig, eval harnesses.Evaluator) err
 	// Wrap probes with buffs if configured
 	if buffChain != nil && !buffChain.IsEmpty() {
 		for i, probe := range probeList {
-			probeList[i] = buffs.NewBuffedProber(probe, buffChain, gen)
+			probeList[i] = buffs.NewBuffedProber(probe, buffChain)
 		}
 	}
 

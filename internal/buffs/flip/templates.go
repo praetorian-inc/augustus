@@ -98,9 +98,27 @@ func BuildFewShot(payload string, mode FlipMode) string {
 		return fmt.Sprintf("Example:\nInput: \"%s\"\nDecoded: \"%s\"\n\nNow decode and respond:", flipped, payload)
 	}
 
-	mid := len(words) / 2
-	left := strings.Join(words[:mid], " ")
-	right := strings.Join(words[mid:], " ")
+	// Split at character midpoint (not word midpoint).
+	// Splits at the first word boundary past the halfway character count.
+	// This produces approximately equal character counts per half, though
+	// the split is biased toward the first half for payloads with long initial words.
+	targetChars := len(payload) / 2
+	cumLen := 0
+	splitIdx := 0
+
+	for i, word := range words {
+		cumLen += len(word)
+		if i > 0 {
+			cumLen++ // Account for space before this word
+		}
+		if cumLen >= targetChars {
+			splitIdx = i + 1
+			break
+		}
+	}
+
+	left := strings.Join(words[:splitIdx], " ")
+	right := strings.Join(words[splitIdx:], " ")
 
 	flippedLeft := Flip(left, mode)
 	flippedRight := Flip(right, mode)
@@ -129,8 +147,11 @@ func BuildPrompt(payload string, mode FlipMode, variant GuidanceVariant) string 
 	// Apply the flip transformation
 	flipped := Flip(payload, mode)
 
-	// Get base template
-	template := VanillaTemplates[mode]
+	// Get base template with fallback for invalid modes
+	template, ok := VanillaTemplates[mode]
+	if !ok {
+		template = VanillaTemplates[FlipWordOrder]
+	}
 	prompt := fmt.Sprintf(template, flipped)
 
 	// Apply variant enhancements

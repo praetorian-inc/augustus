@@ -116,9 +116,14 @@ func (f *FlipBuff) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt] {
 		}
 
 		// Set metadata for tracking
-		transformed.Metadata["flip_mode"] = f.mode.String()
-		transformed.Metadata["variant"] = f.variant.String()
-		transformed.Metadata["triggers"] = []string{a.Prompt}
+		transformed.Metadata[attempt.MetadataKeyFlipMode] = f.mode.String()
+		transformed.Metadata[attempt.MetadataKeyVariant] = f.variant.String()
+		// Only set triggers if not already set by the probe. Triggers should
+		// contain the ORIGINAL harmful payload for detection. In multi-buff
+		// chains, a.Prompt may already be transformed by a prior buff.
+		if _, exists := transformed.Metadata[attempt.MetadataKeyTriggers]; !exists {
+			transformed.Metadata[attempt.MetadataKeyTriggers] = []string{a.Prompt}
+		}
 
 		yield(transformed)
 	}
