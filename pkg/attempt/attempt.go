@@ -229,6 +229,11 @@ func (a *Attempt) Copy() *Attempt {
 		}
 	}
 	if a.Metadata != nil {
+		// Shallow copy of metadata map. Values that are reference types (slices, maps)
+		// share underlying data with the original. This is safe for the current usage
+		// where buffs create fresh slices for transformed metadata (e.g., triggers).
+		// System prompt metadata (string) survives transformation via this copy.
+		// If Transform ever filters or resets metadata, system prompt propagation will break.
 		copied.Metadata = make(map[string]any, len(a.Metadata))
 		for k, v := range a.Metadata {
 			copied.Metadata[k] = v

@@ -99,7 +99,7 @@ func (m *mockErrorPostBuff) Untransform(ctx context.Context, a *attempt.Attempt)
 // Test 1: Nil/empty chain returns inner prober directly
 func TestBuffedProber_NilChain(t *testing.T) {
 	inner := &mockProber{name: "test", prompts: []string{"hello"}}
-	result := buffs.NewBuffedProber(inner, nil, nil)
+	result := buffs.NewBuffedProber(inner, nil)
 
 	// Should return inner directly (zero overhead)
 	assert.Equal(t, inner, result)
@@ -108,7 +108,7 @@ func TestBuffedProber_NilChain(t *testing.T) {
 func TestBuffedProber_EmptyChain(t *testing.T) {
 	inner := &mockProber{name: "test", prompts: []string{"hello"}}
 	chain := buffs.NewBuffChain() // empty
-	result := buffs.NewBuffedProber(inner, chain, nil)
+	result := buffs.NewBuffedProber(inner, chain)
 
 	// Should return inner directly
 	assert.Equal(t, inner, result)
@@ -124,7 +124,7 @@ func TestBuffedProber_SimpleBuff(t *testing.T) {
 	chain := buffs.NewBuffChain(buff)
 	gen := &mockGenerator{responses: []string{"new response"}}
 
-	prober := buffs.NewBuffedProber(inner, chain, gen)
+	prober := buffs.NewBuffedProber(inner, chain)
 	attempts, err := prober.Probe(context.Background(), gen)
 
 	require.NoError(t, err)
@@ -145,7 +145,7 @@ func TestBuffedProber_OneToMany(t *testing.T) {
 	chain := buffs.NewBuffChain(buff)
 	gen := &mockGenerator{responses: []string{"resp-A", "resp-B", "resp-C"}}
 
-	prober := buffs.NewBuffedProber(inner, chain, gen)
+	prober := buffs.NewBuffedProber(inner, chain)
 	attempts, err := prober.Probe(context.Background(), gen)
 
 	require.NoError(t, err)
@@ -169,7 +169,7 @@ func TestBuffedProber_PostBuffHook(t *testing.T) {
 	chain := buffs.NewBuffChain(postBuff)
 	gen := &mockGenerator{responses: []string{"original"}}
 
-	prober := buffs.NewBuffedProber(inner, chain, gen)
+	prober := buffs.NewBuffedProber(inner, chain)
 	attempts, err := prober.Probe(context.Background(), gen)
 
 	require.NoError(t, err)
@@ -193,7 +193,7 @@ func TestBuffedProber_GenerationError(t *testing.T) {
 		errors:    []error{nil, errors.New("generation failed")},
 	}
 
-	prober := buffs.NewBuffedProber(inner, chain, gen)
+	prober := buffs.NewBuffedProber(inner, chain)
 	attempts, err := prober.Probe(context.Background(), gen)
 
 	// Should NOT fail completely - partial results returned
@@ -220,7 +220,7 @@ func TestBuffedProber_PostBuffError(t *testing.T) {
 	chain := buffs.NewBuffChain(postBuff)
 	gen := &mockGenerator{responses: []string{"response"}}
 
-	prober := buffs.NewBuffedProber(inner, chain, gen)
+	prober := buffs.NewBuffedProber(inner, chain)
 	_, err := prober.Probe(context.Background(), gen)
 
 	// PostBuff error is fatal - probe fails
@@ -237,7 +237,7 @@ func TestBuffedProber_DelegatedMethods(t *testing.T) {
 	buff := &mockBuff{name: "buff", prefix: "B:"}
 	chain := buffs.NewBuffChain(buff)
 
-	prober := buffs.NewBuffedProber(inner, chain, nil)
+	prober := buffs.NewBuffedProber(inner, chain)
 
 	// Core Prober methods
 	assert.Equal(t, "inner-probe", prober.Name())
@@ -268,7 +268,7 @@ func TestBuffedProber_NoProbeMetadata(t *testing.T) {
 	buff := &mockBuff{name: "buff", prefix: "B:"}
 	chain := buffs.NewBuffChain(buff)
 
-	prober := buffs.NewBuffedProber(inner, chain, nil)
+	prober := buffs.NewBuffedProber(inner, chain)
 
 	// Name should still work
 	assert.Equal(t, "minimal", prober.Name())

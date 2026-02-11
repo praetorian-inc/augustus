@@ -1,16 +1,7 @@
-// Package flipattack implements FlipAttack jailbreak probes.
-//
-// FlipAttack exploits LLMs' left-to-right autoregressive processing by
-// reversing harmful text to bypass safety filters. Based on arXiv:2410.02832.
-//
-// Four modes:
-// - FWO: Flip Word Order - reverses word sequence
-// - FCW: Flip Chars in Word - reverses chars within each word
-// - FCS: Flip Chars in Sentence - reverses entire string
-// - FMM: Fool Model Mode - FCS with misleading recovery instruction
-package flipattack
+package flip
 
 import (
+	"fmt"
 	"strings"
 )
 
@@ -47,7 +38,7 @@ func (m FlipMode) String() string {
 	case FoolModelMode:
 		return "FMM"
 	default:
-		return "unknown"
+		return fmt.Sprintf("FlipMode(%d)", int(m))
 	}
 }
 

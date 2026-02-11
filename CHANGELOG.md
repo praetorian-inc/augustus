@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.0.6] - 2026-02-09
+
+### Added
+- `flipattack.FullAttack` adversarial probe with paper-faithful framing (arXiv:2410.02832)
+- Dynamic few-shot generation in `Full` guidance variant (splits actual payload for demonstrations)
+
+### Changed
+- Few-shot examples now derive from input payload instead of static "apple pie" demonstrations
+
+## [0.0.5] - 2026-02-08
+
+### Added
+- FlipAttack buffs: `flip.WordOrder`, `flip.CharsInWord`, `flip.CharsInSentence`, `flip.FoolModel` with configurable guidance variants (vanilla, cot, cot_langgpt, full)
+
+### Changed
+- Migrated 16 FlipAttack probes to 4 configurable buffs for composability via `--buff` flag
+
+### Removed
+- `flipattack.*` probes (16 variants replaced by 4 configurable flip buffs)
+
 ## [0.0.4] - 2026-02-08
 
 ### Added
@@ -74,7 +94,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Exponential backoff retry logic
 - Structured slog-based logging
 
-[Unreleased]: https://github.com/praetorian-inc/augustus/compare/v0.0.4...HEAD
+[Unreleased]: https://github.com/praetorian-inc/augustus/compare/v0.0.6...HEAD
+[0.0.6]: https://github.com/praetorian-inc/augustus/compare/v0.0.5...v0.0.6
+[0.0.5]: https://github.com/praetorian-inc/augustus/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/praetorian-inc/augustus/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/praetorian-inc/augustus/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/praetorian-inc/augustus/compare/v0.0.1...v0.0.2

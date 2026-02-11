@@ -13,24 +13,24 @@ import (
 // BuffedProber also implements ProbeMetadata methods by delegating to the inner prober.
 // If the inner prober doesn't implement ProbeMetadata, the methods return empty/default values.
 var _ types.Prober = (*BuffedProber)(nil)
+var _ types.ProbeMetadata = (*BuffedProber)(nil)
 
 // BuffedProber wraps a Prober and applies buff transformations.
 type BuffedProber struct {
 	inner types.Prober
 	chain *BuffChain
-	gen   types.Generator
 }
 
 // NewBuffedProber wraps a prober with buff transformations.
 // If the chain is nil or empty, it returns the inner prober directly (zero overhead).
-func NewBuffedProber(inner types.Prober, chain *BuffChain, gen types.Generator) types.Prober {
+// The generator is passed to Probe() at call time, not at construction.
+func NewBuffedProber(inner types.Prober, chain *BuffChain) types.Prober {
 	if chain == nil || chain.IsEmpty() {
 		return inner
 	}
 	return &BuffedProber{
 		inner: inner,
 		chain: chain,
-		gen:   gen,
 	}
 }
 
@@ -45,6 +45,8 @@ func (bp *BuffedProber) Probe(ctx context.Context, gen types.Generator) ([]*atte
 	// Apply buff chain to transform prompts
 	var allAttempts []*attempt.Attempt
 	for _, orig := range originalAttempts {
+		// Apply buff chain per-attempt (not batched) to enable per-attempt prompt
+		// comparison (ta.Prompt != orig.Prompt) for selective re-generation.
 		transformed, err := bp.chain.Apply(ctx, []*attempt.Attempt{orig})
 		if err != nil {
 			return nil, fmt.Errorf("buff chain failed for probe %s: %w", bp.inner.Name(), err)
@@ -54,7 +56,23 @@ func (bp *BuffedProber) Probe(ctx context.Context, gen types.Generator) ([]*atte
 			// If prompt changed, re-generate
 			if ta.Prompt != orig.Prompt {
 				conv := attempt.NewConversation()
+
+				// Propagate system prompt from probe metadata so buff
+				// transformations only affect the user message (Prompt),
+				// not the adversarial/system framing.
+				if sp, ok := ta.Metadata[attempt.MetadataKeySystemPrompt]; ok {
+					if s, ok := sp.(string); ok && s != "" {
+						conv.WithSystem(s)
+					}
+				}
+
 				conv.AddPrompt(ta.Prompt)
+
+				select {
+				case <-ctx.Done():
+					return allAttempts, ctx.Err()
+				default:
+				}
 
 				messages, genErr := gen.Generate(ctx, conv, 1)
 				if genErr != nil {
@@ -69,6 +87,7 @@ func (bp *BuffedProber) Probe(ctx context.Context, gen types.Generator) ([]*atte
 				for i, msg := range messages {
 					ta.Outputs[i] = msg.Content
 				}
+				ta.Complete()
 
 				// Apply post-buff hooks
 				if bp.chain.HasPostBuffHooks() {
@@ -77,6 +96,35 @@ func (bp *BuffedProber) Probe(ctx context.Context, gen types.Generator) ([]*atte
 						return nil, fmt.Errorf("post-buff failed for probe %s: %w", bp.inner.Name(), err)
 					}
 				}
+			} else if len(ta.Outputs) == 0 {
+				// Probe returned output-less attempt and buff did not change prompt.
+				// Generate with the original prompt to avoid silently dropping the attempt.
+				select {
+				case <-ctx.Done():
+					return allAttempts, ctx.Err()
+				default:
+				}
+
+				conv := attempt.NewConversation()
+				if sp, ok := ta.Metadata[attempt.MetadataKeySystemPrompt]; ok {
+					if s, ok := sp.(string); ok && s != "" {
+						conv.WithSystem(s)
+					}
+				}
+				conv.AddPrompt(ta.Prompt)
+
+				messages, genErr := gen.Generate(ctx, conv, 1)
+				if genErr != nil {
+					ta.SetError(genErr)
+					allAttempts = append(allAttempts, ta)
+					continue
+				}
+
+				ta.Outputs = make([]string, len(messages))
+				for i, msg := range messages {
+					ta.Outputs[i] = msg.Content
+				}
+				ta.Complete()
 			}
 
 			allAttempts = append(allAttempts, ta)

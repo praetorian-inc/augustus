@@ -58,7 +58,7 @@ func TestBuffIntegration_FullPipelineBase64(t *testing.T) {
 	gen := &mockGenerator{responses: []string{"response"}}
 
 	// Create buffed prober
-	prober := buffs.NewBuffedProber(inner, chain, gen)
+	prober := buffs.NewBuffedProber(inner, chain)
 
 	// Execute
 	attempts, err := prober.Probe(context.Background(), gen)
@@ -178,7 +178,7 @@ func TestBuffIntegration_EmptyChainZeroOverhead(t *testing.T) {
 	inner := &mockProber{name: "inner", prompts: []string{"hello"}}
 	chain := buffs.NewBuffChain() // Empty chain
 
-	result := buffs.NewBuffedProber(inner, chain, nil)
+	result := buffs.NewBuffedProber(inner, chain)
 
 	// Should return inner directly (same pointer)
 	assert.Same(t, inner, result)

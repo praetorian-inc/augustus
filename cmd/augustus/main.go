@@ -124,6 +124,7 @@ import (
 
 	// Buffs
 	_ "github.com/praetorian-inc/augustus/internal/buffs/encoding"
+	_ "github.com/praetorian-inc/augustus/internal/buffs/flip"
 	_ "github.com/praetorian-inc/augustus/internal/buffs/lowercase"
 	_ "github.com/praetorian-inc/augustus/internal/buffs/lrl"
 	_ "github.com/praetorian-inc/augustus/internal/buffs/paraphrase"
