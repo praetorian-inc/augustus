@@ -66,8 +66,17 @@ func NewMetaPromptBuff(cfg registry.Config) (buffs.Buff, error) {
 	// Transform generator is optional - if not provided, use template-based
 	var gen generators.Generator
 	if genName, ok := cfg["transform_generator"].(string); ok && genName != "" {
+		// Extract only generator-specific config to avoid leaking buff keys
+		// (format, strategy, etc.) into the LLM generator.
+		genCfg := make(registry.Config)
+		if gc, ok := cfg["transform_generator_config"].(map[string]any); ok {
+			for k, v := range gc {
+				genCfg[k] = v
+			}
+		}
+
 		var err error
-		gen, err = generators.Create(genName, cfg)
+		gen, err = generators.Create(genName, genCfg)
 		if err != nil {
 			return nil, fmt.Errorf("create transform generator %s: %w", genName, err)
 		}
