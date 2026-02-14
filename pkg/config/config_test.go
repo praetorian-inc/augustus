@@ -681,6 +681,29 @@ func TestResolveProbeConfig(t *testing.T) {
 				"attacker_generator_type": "openai.OpenAI",
 			},
 		},
+		{
+			name: "per-probe override preserves non-overridden globals",
+			config: Config{
+				Probes: ProbeConfig{
+					AttackerGeneratorType: "openai.OpenAI",
+					AttackerConfig:        map[string]any{"model": "gpt-4"},
+					JudgeGeneratorType:    "anthropic.Anthropic",
+					JudgeConfig:           map[string]any{"model": "claude-sonnet"},
+					Settings: map[string]map[string]any{
+						"tap.IterativeTAP": {
+							"attacker_generator_type": "local.Ollama",
+						},
+					},
+				},
+			},
+			probeName: "tap.IterativeTAP",
+			wantKeys: map[string]any{
+				"attacker_generator_type": "local.Ollama",                       // overridden
+				"attacker_config":         map[string]any{"model": "gpt-4"},     // preserved
+				"judge_generator_type":    "anthropic.Anthropic",                // preserved
+				"judge_config":            map[string]any{"model": "claude-sonnet"}, // preserved
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -822,6 +845,12 @@ buffs:
       transform_generator: anthropic.Anthropic
       transform_generator_config:
         api_key: ${AUGUSTUS_ANTHROPIC_KEY}
+
+detectors:
+  settings:
+    poetry.HarmJudge:
+      judge_generator_config:
+        api_key: ${AUGUSTUS_ANTHROPIC_KEY}
 `
 
 	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
@@ -841,4 +870,11 @@ buffs:
 	genCfg, ok := klingonCfg["transform_generator_config"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "sk-ant-test-123", genCfg["api_key"])
+
+	// Verify env var was interpolated in nested detector settings
+	harmCfg := cfg.Detectors.Settings["poetry.HarmJudge"]
+	require.NotNil(t, harmCfg)
+	judgeCfg, ok := harmCfg["judge_generator_config"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "sk-ant-test-123", judgeCfg["api_key"])
 }

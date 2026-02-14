@@ -191,4 +191,26 @@ func TestNewHarmJudge_ConfigIsolation(t *testing.T) {
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "nonexistent.Generator")
+
+	// Extra detector-specific keys should not leak to generator
+	_, err = NewHarmJudge(registry.Config{
+		"judge_generator":  "nonexistent.Generator",
+		"threshold":        0.8,                 // detector-specific
+		"severity_weights": []float64{1.0, 0.5}, // detector-specific
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "nonexistent.Generator")
+}
+
+func TestNewHarmJudge_JudgeGeneratorConfig(t *testing.T) {
+	_, err := NewHarmJudge(registry.Config{
+		"judge_generator": "nonexistent.Generator",
+		"judge_generator_config": map[string]any{
+			"temperature": 0.0,
+			"api_key":     "test-key",
+		},
+	})
+	require.Error(t, err)
+	// Should fail on generator creation, not config parsing
+	assert.Contains(t, err.Error(), "nonexistent.Generator")
 }
