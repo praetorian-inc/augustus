@@ -292,19 +292,18 @@ probes:
     enabled: true
 
   # Attacker generator for multi-turn probes (PAIR, TAP, TreeSearch)
-  # Uncomment and configure if you want multi-turn attack probes:
-  # attacker_generator_type: "openai.OpenAI"
-  # attacker_config:
-  #   model: "gpt-4o"
-  #   temperature: 1.0
-  #   api_key: "${OPENAI_API_KEY}"
+  attacker_generator_type: "anthropic.Anthropic"
+  attacker_config:
+    model: "claude-opus-4-6"
+    temperature: 1.0
+    api_key: "${ANTHROPIC_API_KEY}"
 
   # Judge generator for evaluation probes
-  # judge_generator_type: "openai.OpenAI"
-  # judge_config:
-  #   model: "gpt-4o"
-  #   temperature: 0.0
-  #   api_key: "${OPENAI_API_KEY}"
+  judge_generator_type: "anthropic.Anthropic"
+  judge_config:
+    model: "claude-opus-4-6"
+    temperature: 0.0
+    api_key: "${ANTHROPIC_API_KEY}"
 
   # Per-probe settings (override globals for specific probes)
   settings:
@@ -359,11 +358,11 @@ detectors:
   settings:
     # HarmJudge detector (uses the target generator for judging by default)
     poetry.HarmJudge:
-      judge_generator_type: "openai.OpenAI"
+      judge_generator_type: "anthropic.Anthropic"
       judge_config:
-        model: "gpt-4o"
+        model: "claude-opus-4-6"
         temperature: 0.0
-        api_key: "${OPENAI_API_KEY}"
+        api_key: "${ANTHROPIC_API_KEY}"
 
     # Perspective API detector (requires Google API key)
     # perspective.Perspective:
@@ -466,19 +465,19 @@ buffs:
     poetry.MetaPrompt:
       format: "haiku"
       strategy: "all"
-      transform_generator: "openai.OpenAI"
+      transform_generator: "anthropic.Anthropic"
       transform_generator_config:
-        model: "gpt-4o-mini"
+        model: "claude-opus-4-6"
         temperature: 0.9
-        api_key: "${OPENAI_API_KEY}"
+        api_key: "${ANTHROPIC_API_KEY}"
 
     # Klingon buff configuration
     conlang.Klingon:
-      transform_generator: "openai.OpenAI"
+      transform_generator: "anthropic.Anthropic"
       transform_generator_config:
-        model: "gpt-4o-mini"
+        model: "claude-opus-4-6"
         temperature: 0.7
-        api_key: "${OPENAI_API_KEY}"
+        api_key: "${ANTHROPIC_API_KEY}"
 
     # Flip buff variants (all use WithCoT by default)
     flip.WordOrder:
@@ -647,14 +646,14 @@ profiles:
         poetry.MetaPrompt:
           format: "sonnet"
           strategy: "allegorical"
-          transform_generator: "openai.OpenAI"
+          transform_generator: "anthropic.Anthropic"
           transform_generator_config:
-            model: "gpt-4o-mini"
+            model: "claude-opus-4-6"
             temperature: 0.9
-            api_key: "${OPENAI_API_KEY}"
+            api_key: "${ANTHROPIC_API_KEY}"
         conlang.Klingon:
-          transform_generator: "openai.OpenAI"
+          transform_generator: "anthropic.Anthropic"
           transform_generator_config:
-            model: "gpt-4o-mini"
+            model: "claude-opus-4-6"
             temperature: 0.7
-            api_key: "${OPENAI_API_KEY}"
+            api_key: "${ANTHROPIC_API_KEY}"
