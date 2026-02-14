@@ -1,0 +1,660 @@
+# =============================================================================
+# Augustus Comprehensive Benchmark Configuration
+# =============================================================================
+#
+# Tests ALL probes against ALL configured generator variants with ALL supported
+# buffs. Designed for devpod benchmark environments.
+#
+# Usage:
+#   # Single generator:
+#   augustus scan openai.OpenAI --config-file examples/benchmark-comprehensive.yaml --all
+#
+#   # With benchmark.sh (recommended):
+#   ./scripts/benchmark.sh \
+#     --providers "ollama:deepseek-r1:14b,openai:gpt-4o,anthropic:claude-sonnet-4-20250514" \
+#     --all --full --env ~/.augustus-benchmark.env
+#
+#   # Targeted probe categories with buffs:
+#   augustus scan openai.OpenAI \
+#     --probe "dan.*" --probe "encoding.*" \
+#     --buff poetry.MetaPrompt --buff conlang.Klingon \
+#     --config-file examples/benchmark-comprehensive.yaml
+#
+# Prerequisites:
+#   1. Run setup.sh to configure API keys: ./scripts/setup.sh
+#   2. Source the env file: source ~/.augustus-benchmark.env
+#   3. For Ollama models: ollama pull <model>
+#
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Runtime Configuration
+# -----------------------------------------------------------------------------
+run:
+  max_attempts: 3
+  timeout: "120s"
+  concurrency: 4
+  probe_timeout: "60s"
+
+# -----------------------------------------------------------------------------
+# Generator Configurations (28 providers, 43+ variants)
+# -----------------------------------------------------------------------------
+#
+# Organized by tier:
+#   Tier 1: Local Models (Ollama, GGML, HuggingFace Pipeline)
+#   Tier 2: Cloud APIs (OpenAI, Anthropic, Together, Groq, Mistral, etc.)
+#   Tier 3: Enterprise (Azure, Bedrock, Vertex, WatsonX)
+#   Tier 4: Specialized (NVIDIA NIM, NVCF, LiteLLM)
+#   Tier 5: Framework/Abstraction (LangChain, Rasa, Guardrails)
+#
+# Each generator entry uses ${ENV_VAR} interpolation from the environment.
+# Missing env vars will cause an error - configure only providers you have.
+# -----------------------------------------------------------------------------
+
+generators:
+
+  # ===========================================================================
+  # TIER 1: LOCAL MODELS (no API key needed, requires local GPU/CPU)
+  # ===========================================================================
+
+  # --- Ollama (Chat API) ---
+  ollama.OllamaChat:
+    model: "deepseek-r1:14b"
+    temperature: 0.7
+
+  # --- Ollama (Raw Completion API) ---
+  ollama.Ollama:
+    model: "deepseek-r1:14b"
+    temperature: 0.7
+
+  # --- GGML (llama.cpp server) ---
+  # ggml.Ggml:
+  #   model: "llama-3-8b"
+  #   host: "http://localhost:8080"
+  #   temperature: 0.7
+
+  # --- HuggingFace Local Pipeline ---
+  # huggingface.Pipeline:
+  #   model: "meta-llama/Llama-2-7b-chat-hf"
+  #   host: "http://localhost:8000"
+
+  # ===========================================================================
+  # TIER 2: CLOUD APIs (require API keys)
+  # ===========================================================================
+
+  # --- OpenAI ---
+  openai.OpenAI:
+    model: "gpt-4o"
+    temperature: 0.7
+    api_key: "${OPENAI_API_KEY}"
+
+  # --- OpenAI Reasoning (o1, o3 models) ---
+  openai.OpenAIReasoning:
+    model: "o3-mini"
+    api_key: "${OPENAI_API_KEY}"
+
+  # --- Anthropic ---
+  anthropic.Anthropic:
+    model: "claude-sonnet-4-20250514"
+    temperature: 0.7
+    api_key: "${ANTHROPIC_API_KEY}"
+
+  # --- Together AI ---
+  together.Together:
+    model: "meta-llama/Llama-3-70b-chat-hf"
+    temperature: 0.7
+    api_key: "${TOGETHER_API_KEY}"
+
+  # --- Groq (fast inference) ---
+  groq.Groq:
+    model: "llama-3.1-70b-versatile"
+    temperature: 0.7
+    api_key: "${GROQ_API_KEY}"
+
+  # --- Mistral AI ---
+  mistral.Mistral:
+    model: "mistral-large-latest"
+    temperature: 0.7
+    api_key: "${MISTRAL_API_KEY}"
+
+  # --- Cohere ---
+  cohere.Cohere:
+    model: "command-r-plus"
+    temperature: 0.7
+    api_key: "${COHERE_API_KEY}"
+
+  # --- Fireworks AI ---
+  fireworks.Fireworks:
+    model: "accounts/fireworks/models/llama-v3-70b-instruct"
+    temperature: 0.7
+    api_key: "${FIREWORKS_API_KEY}"
+
+  # --- DeepInfra ---
+  deepinfra.DeepInfra:
+    model: "meta-llama/Llama-3-70b-instruct"
+    temperature: 0.7
+    api_key: "${DEEPINFRA_API_KEY}"
+
+  # --- Replicate ---
+  replicate.Replicate:
+    model: "meta/llama-2-70b-chat"
+    temperature: 0.7
+    api_key: "${REPLICATE_API_TOKEN}"
+
+  # --- HuggingFace Inference API ---
+  huggingface.InferenceAPI:
+    model: "meta-llama/Llama-2-7b-chat-hf"
+    temperature: 0.7
+    api_key: "${HUGGINGFACE_API_KEY}"
+
+  # --- HuggingFace Inference Endpoint ---
+  # huggingface.InferenceEndpoint:
+  #   model: "your-endpoint-model"
+  #   api_key: "${HUGGINGFACE_API_KEY}"
+  #   base_url: "https://your-endpoint.endpoints.huggingface.cloud"
+
+  # ===========================================================================
+  # TIER 3: ENTERPRISE (require cloud-specific credentials)
+  # ===========================================================================
+
+  # --- Azure OpenAI ---
+  azure.AzureOpenAI:
+    model: "gpt-4o"
+    api_key: "${AZURE_OPENAI_API_KEY}"
+    endpoint: "${AZURE_OPENAI_ENDPOINT}"
+    api_version: "2024-06-01"
+    temperature: 0.7
+
+  # --- AWS Bedrock (Claude via Bedrock) ---
+  bedrock.Bedrock:
+    model: "anthropic.claude-3-5-sonnet-20241022-v2:0"
+    region: "${AWS_DEFAULT_REGION}"
+    temperature: 0.7
+
+  # --- Google Vertex AI ---
+  vertex.Vertex:
+    model: "gemini-1.5-pro"
+    project_id: "${GCP_PROJECT_ID}"
+    location: "us-central1"
+    temperature: 0.7
+
+  # --- IBM WatsonX ---
+  watsonx.WatsonX:
+    model: "ibm/granite-13b-chat-v2"
+    api_key: "${WATSONX_API_KEY}"
+    region: "us-south"
+    project_id: "${WATSONX_PROJECT_ID}"
+
+  # ===========================================================================
+  # TIER 4: SPECIALIZED (NVIDIA, NVCF, LiteLLM)
+  # ===========================================================================
+
+  # --- NVIDIA NIM ---
+  nim.NIM:
+    model: "meta/llama3-70b-instruct"
+    api_key: "${NVIDIA_API_KEY}"
+    temperature: 0.7
+
+  # --- NVIDIA NIM (OpenAI-compatible completion) ---
+  # nim.NVOpenAICompletion:
+  #   model: "meta/llama3-70b-instruct"
+  #   api_key: "${NVIDIA_API_KEY}"
+
+  # --- NVIDIA NVCF Chat ---
+  # nvcf.NvcfChat:
+  #   model: "meta/llama3-70b-instruct"
+  #   api_key: "${NVIDIA_API_KEY}"
+
+  # --- LiteLLM (OpenAI-compatible proxy) ---
+  # litellm.LiteLLM:
+  #   model: "gpt-4o"
+  #   api_key: "${LITELLM_API_KEY}"
+  #   base_url: "http://localhost:4000"
+
+  # --- Anyscale ---
+  # anyscale.Anyscale:
+  #   model: "meta-llama/Llama-3-70b-chat-hf"
+  #   api_key: "${ANYSCALE_API_KEY}"
+
+  # --- NeMo ---
+  # nemo.NeMo:
+  #   model: "gpt-43b-002"
+  #   api_key: "${NVIDIA_API_KEY}"
+
+# -----------------------------------------------------------------------------
+# Probe Configuration
+# -----------------------------------------------------------------------------
+#
+# Augustus has 160+ probes across these categories:
+#
+#   ATTACK PROBES:
+#     dan.*           - DAN (Do Anything Now) jailbreaks (14 variants)
+#     goodside.*      - Prompt injection techniques (6 variants)
+#     promptinject.*  - Prompt injection attacks (6 variants)
+#     latentinjection.* - Latent injection attacks (3 variants)
+#     guardrail.*     - Guardrail bypass techniques (20 variants)
+#     flipattack.*    - Flip attack evasion (1 variant)
+#     dra.*           - Direct Request Attacks (2 variants)
+#     gcg.*           - Greedy Coordinate Gradient attacks (1 variant)
+#     autodan.*       - AutoDAN jailbreaks (2 variants)
+#     exploitation.*  - Code injection (SQL, Jinja, Python) (3 variants)
+#     suffix.*        - GCG suffix attacks (1 variant)
+#
+#   MULTI-TURN PROBES (require attacker/judge generators):
+#     pair.*          - PAIR iterative attacks (3 variants)
+#     tap.*           - TAP tree-of-thought attacks (3 variants)
+#     treesearch.*    - Topic tree search (2 variants)
+#
+#   CONTENT PROBES:
+#     continuation.*  - Slur continuation (2 variants)
+#     donotanswer.*   - Do-not-answer topics (5 variants)
+#     grandma.*       - Social engineering (4 variants)
+#     lmrc.*          - Language Model Risk Cards (8 variants)
+#     misleading.*    - False assertions (1 variant)
+#     realtoxicityprompts.* - RTP toxicity (8 variants)
+#     snowball.*      - Logic/reasoning traps (6 variants)
+#
+#   ENCODING PROBES:
+#     ansiescape.*    - ANSI escape sequences (2 variants)
+#     artprompts.*    - ASCII/Unicode art encoding (4 variants)
+#     badchars.*      - Unicode tricks (4 variants)
+#     glitch.*        - Token glitch exploits (6 variants)
+#     obscureprompt.* - Obfuscated prompts (1 variant)
+#     phrasing.*      - Tense manipulation (2 variants)
+#     poetry.*        - Poetic injection (5 variants)
+#
+#   LEAK PROBES:
+#     leakreplay.*    - Training data extraction (4 variants)
+#     apikey.*        - API key extraction (2 variants)
+#
+#   HALLUCINATION PROBES:
+#     packagehallucination.* - Package name hallucination (10 variants)
+#
+#   MALWARE PROBES:
+#     malwaregen.*    - Malware generation (3 variants)
+#     steganography.* - Steganographic encoding (1 variant)
+#
+#   SAFETY PROBES:
+#     avspamscanning.* - AV/spam signature generation (3 variants)
+#     browsing.*      - Browsing attack vectors (2 variants)
+#     divergence.*    - Output divergence (1 variant)
+#     multiagent.*    - Multi-agent attacks (2 variants)
+#     mindmap.*       - Visual deception (4 variants)
+#     webinjection.*  - Web injection payloads (6 variants)
+#
+#   RAG POISONING:
+#     ragpoisoning.*  - RAG context poisoning (4 variants)
+#
+# -----------------------------------------------------------------------------
+
+probes:
+  encoding:
+    enabled: true
+
+  # Attacker generator for multi-turn probes (PAIR, TAP, TreeSearch)
+  # Uncomment and configure if you want multi-turn attack probes:
+  # attacker_generator_type: "openai.OpenAI"
+  # attacker_config:
+  #   model: "gpt-4o"
+  #   temperature: 1.0
+  #   api_key: "${OPENAI_API_KEY}"
+
+  # Judge generator for evaluation probes
+  # judge_generator_type: "openai.OpenAI"
+  # judge_config:
+  #   model: "gpt-4o"
+  #   temperature: 0.0
+  #   api_key: "${OPENAI_API_KEY}"
+
+  # Per-probe settings (override globals for specific probes)
+  settings:
+    # PAIR probes need longer timeouts
+    pair.PAIR:
+      max_attempts: 5
+    pair.PAIRBasic:
+      max_attempts: 3
+    pair.IterativePAIR:
+      max_attempts: 10
+
+    # TAP probes
+    tap.TAPv1:
+      max_attempts: 5
+    tap.TAPv2:
+      max_attempts: 5
+    tap.IterativeTAP:
+      max_attempts: 10
+
+    # TreeSearch probes
+    treesearch.TopicTree:
+      max_attempts: 5
+    treesearch.TopicTreeDeep:
+      max_attempts: 10
+
+# -----------------------------------------------------------------------------
+# Detector Configuration
+# -----------------------------------------------------------------------------
+#
+# Augustus has 93 detectors. Most are auto-selected based on probe type.
+# Notable detectors:
+#
+#   always.Pass / always.Fail   - Constant detectors (testing)
+#   judge.Judge                 - LLM-based harm evaluation
+#   judge.Refusal               - Refusal detection
+#   encoding.DecodeMatch        - Encoding round-trip detection
+#   encoding.DecodeApprox       - Approximate encoding detection
+#   exploitation.*              - Code execution detection
+#   unsafecontent.*             - Offensive content detection (18 variants)
+#   packagehallucination.*      - Package hallucination (7 language-specific)
+#   webinjection.*              - Web injection detection (6 variants)
+#   knownbadsignatures.*        - Known malware signatures (EICAR, GTUBE)
+#   perspective.Perspective     - Google Perspective API toxicity
+#   poetry.HarmJudge            - Poetry-specific harm evaluation
+#
+# -----------------------------------------------------------------------------
+
+detectors:
+  always:
+    enabled: true
+
+  settings:
+    # HarmJudge detector (uses the target generator for judging by default)
+    poetry.HarmJudge:
+      judge_generator_type: "openai.OpenAI"
+      judge_config:
+        model: "gpt-4o"
+        temperature: 0.0
+        api_key: "${OPENAI_API_KEY}"
+
+    # Perspective API detector (requires Google API key)
+    # perspective.Perspective:
+    #   api_key: "${PERSPECTIVE_API_KEY}"
+
+# -----------------------------------------------------------------------------
+# Buff Configuration (38 total adversarial transformations)
+# -----------------------------------------------------------------------------
+#
+# Buffs transform prompts before sending to the target model, testing
+# resilience against adversarial encoding/rephrasing techniques.
+#
+# CATEGORIES:
+#
+#   Encoding Buffs (19) - Character/byte-level transformations:
+#     encoding.Base64, encoding.Base16, encoding.Base32, encoding.Base2048,
+#     encoding.ROT13, encoding.Atbash, encoding.Ascii85, encoding.Hex,
+#     encoding.Morse, encoding.NATO, encoding.Braille, encoding.Zalgo,
+#     encoding.CharCode, encoding.Ecoji, encoding.UUencode,
+#     encoding.QuotedPrintable, encoding.SneakyBits, encoding.UnicodeTags,
+#     encoding.Leet
+#
+#   Flip Buffs (4) - Word/character order reversal:
+#     flip.WordOrder, flip.CharsInWord, flip.CharsInSentence, flip.FoolModel
+#
+#   Smuggling Buffs (2) - Prompt wrapping/masking:
+#     smuggling.Hypothetical, smuggling.FunctionMask
+#
+#   Case Mutation (1):
+#     lowercase.Lowercase
+#
+#   Poetry/Creative Buffs (1) - Requires LLM generator:
+#     poetry.MetaPrompt
+#
+#   Constructed Language (1) - Requires LLM generator:
+#     conlang.Klingon
+#
+#   Paraphrase Buffs (2) - Requires HuggingFace API:
+#     paraphrase.Fast, paraphrase.PegasusT5
+#
+#   Language Translation (1) - Requires DeepL API:
+#     lrl.LRLBuff
+#
+# NOTE: Some buffs require external APIs. Comment out any you lack keys for.
+# -----------------------------------------------------------------------------
+
+buffs:
+  names:
+    # --- Encoding Buffs (stateless, always available) ---
+    - encoding.Base64
+    - encoding.Base16
+    - encoding.Base32
+    - encoding.Base2048
+    - encoding.ROT13
+    - encoding.Atbash
+    - encoding.Ascii85
+    - encoding.Hex
+    - encoding.Morse
+    - encoding.NATO
+    - encoding.Braille
+    - encoding.Zalgo
+    - encoding.CharCode
+    - encoding.Ecoji
+    - encoding.UUencode
+    - encoding.QuotedPrintable
+    - encoding.SneakyBits
+    - encoding.UnicodeTags
+    - encoding.Leet
+
+    # --- Flip Buffs (stateless) ---
+    - flip.WordOrder
+    - flip.CharsInWord
+    - flip.CharsInSentence
+    - flip.FoolModel
+
+    # --- Smuggling Buffs (stateless) ---
+    - smuggling.Hypothetical
+    - smuggling.FunctionMask
+
+    # --- Case Mutation (stateless) ---
+    - lowercase.Lowercase
+
+    # --- Poetry Buff (requires LLM generator for transformation) ---
+    - poetry.MetaPrompt
+
+    # --- Constructed Language (requires LLM generator for translation) ---
+    - conlang.Klingon
+
+    # --- Paraphrase Buffs (require HuggingFace API) ---
+    # Uncomment if HUGGINGFACE_API_KEY is set:
+    # - paraphrase.Fast
+    # - paraphrase.PegasusT5
+
+    # --- Language Translation (requires DeepL API) ---
+    # Uncomment if DEEPL_API_KEY is set:
+    # - lrl.LRLBuff
+
+  settings:
+    # Poetry MetaPrompt buff configuration
+    poetry.MetaPrompt:
+      format: "haiku"
+      strategy: "all"
+      transform_generator: "openai.OpenAI"
+      transform_generator_config:
+        model: "gpt-4o-mini"
+        temperature: 0.9
+        api_key: "${OPENAI_API_KEY}"
+
+    # Klingon buff configuration
+    conlang.Klingon:
+      transform_generator: "openai.OpenAI"
+      transform_generator_config:
+        model: "gpt-4o-mini"
+        temperature: 0.7
+        api_key: "${OPENAI_API_KEY}"
+
+    # Flip buff variants (all use WithCoT by default)
+    flip.WordOrder:
+      variant: "WithCoT"
+    flip.CharsInWord:
+      variant: "WithCoT"
+    flip.CharsInSentence:
+      variant: "WithCoT"
+    flip.FoolModel:
+      variant: "Full"
+
+    # Paraphrase buff settings (if enabled above)
+    # paraphrase.Fast:
+    #   api_key: "${HUGGINGFACE_API_KEY}"
+    #   rate_limit: 0.5
+    #   burst_size: 5
+    # paraphrase.PegasusT5:
+    #   api_key: "${HUGGINGFACE_API_KEY}"
+    #   rate_limit: 0.5
+    #   burst_size: 5
+
+    # LRL (Low-Resource Language) buff settings (if enabled above)
+    # lrl.LRLBuff:
+    #   api_key: "${DEEPL_API_KEY}"
+    #   rate_limit: 5
+    #   burst_size: 20
+
+# -----------------------------------------------------------------------------
+# Output Configuration
+# -----------------------------------------------------------------------------
+
+output:
+  format: "jsonl"
+  path: "./benchmark-results/results.jsonl"
+
+# =============================================================================
+# NAMED PROFILES
+# =============================================================================
+#
+# Use profiles for common benchmark scenarios:
+#   augustus scan openai.OpenAI --profile quick --config-file benchmark-comprehensive.yaml
+#
+
+profiles:
+
+  # ---------------------------------------------------------------------------
+  # Quick smoke test: fast probes, no buffs, 1 attempt
+  # ---------------------------------------------------------------------------
+  quick:
+    run:
+      max_attempts: 1
+      timeout: "30s"
+      concurrency: 8
+      probe_timeout: "15s"
+    buffs:
+      names: []
+    output:
+      format: "table"
+
+  # ---------------------------------------------------------------------------
+  # DAN-only: just DAN jailbreak probes with encoding buffs
+  # ---------------------------------------------------------------------------
+  dan-focus:
+    run:
+      max_attempts: 3
+      timeout: "60s"
+      concurrency: 4
+    buffs:
+      names:
+        - encoding.Base64
+        - encoding.ROT13
+        - encoding.Leet
+        - flip.WordOrder
+        - smuggling.Hypothetical
+        - lowercase.Lowercase
+
+  # ---------------------------------------------------------------------------
+  # Encoding-only: test encoding resilience with all encoding buffs
+  # ---------------------------------------------------------------------------
+  encoding-focus:
+    run:
+      max_attempts: 2
+      timeout: "60s"
+      concurrency: 6
+    buffs:
+      names:
+        - encoding.Base64
+        - encoding.Base16
+        - encoding.Base32
+        - encoding.Base2048
+        - encoding.ROT13
+        - encoding.Atbash
+        - encoding.Ascii85
+        - encoding.Hex
+        - encoding.Morse
+        - encoding.NATO
+        - encoding.Braille
+        - encoding.Zalgo
+        - encoding.CharCode
+        - encoding.Ecoji
+        - encoding.UUencode
+        - encoding.QuotedPrintable
+        - encoding.SneakyBits
+        - encoding.UnicodeTags
+        - encoding.Leet
+
+  # ---------------------------------------------------------------------------
+  # Thorough: all buffs, 5 attempts, full output
+  # ---------------------------------------------------------------------------
+  thorough:
+    run:
+      max_attempts: 5
+      timeout: "180s"
+      concurrency: 2
+      probe_timeout: "90s"
+    output:
+      format: "jsonl"
+
+  # ---------------------------------------------------------------------------
+  # Local-only: optimized for Ollama with lower concurrency
+  # ---------------------------------------------------------------------------
+  local:
+    run:
+      max_attempts: 2
+      timeout: "120s"
+      concurrency: 1
+      probe_timeout: "60s"
+    buffs:
+      names:
+        - encoding.Base64
+        - encoding.ROT13
+        - encoding.Leet
+        - flip.WordOrder
+        - smuggling.Hypothetical
+    output:
+      format: "jsonl"
+
+  # ---------------------------------------------------------------------------
+  # Hallucination: package hallucination + leak probes only
+  # ---------------------------------------------------------------------------
+  hallucination:
+    run:
+      max_attempts: 3
+      timeout: "60s"
+      concurrency: 4
+    buffs:
+      names: []
+
+  # ---------------------------------------------------------------------------
+  # Safety: content safety probes with creative buffs
+  # ---------------------------------------------------------------------------
+  safety:
+    run:
+      max_attempts: 3
+      timeout: "90s"
+      concurrency: 4
+    buffs:
+      names:
+        - poetry.MetaPrompt
+        - conlang.Klingon
+        - flip.WordOrder
+        - smuggling.Hypothetical
+        - smuggling.FunctionMask
+        - lowercase.Lowercase
+      settings:
+        poetry.MetaPrompt:
+          format: "sonnet"
+          strategy: "allegorical"
+          transform_generator: "openai.OpenAI"
+          transform_generator_config:
+            model: "gpt-4o-mini"
+            temperature: 0.9
+            api_key: "${OPENAI_API_KEY}"
+        conlang.Klingon:
+          transform_generator: "openai.OpenAI"
+          transform_generator_config:
+            model: "gpt-4o-mini"
+            temperature: 0.7
+            api_key: "${OPENAI_API_KEY}"

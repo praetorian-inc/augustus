@@ -129,6 +129,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/buffs/lrl"
 	_ "github.com/praetorian-inc/augustus/internal/buffs/paraphrase"
 	_ "github.com/praetorian-inc/augustus/internal/buffs/poetry"
+	_ "github.com/praetorian-inc/augustus/internal/buffs/conlang"
 	_ "github.com/praetorian-inc/augustus/internal/buffs/smuggling"
 )
 
