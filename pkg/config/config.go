@@ -45,7 +45,12 @@ type GeneratorConfig struct {
 
 // ProbeConfig contains probe-specific configuration
 type ProbeConfig struct {
-	Encoding EncodingProbeConfig `yaml:"encoding"`
+	Encoding              EncodingProbeConfig        `yaml:"encoding"`
+	AttackerGeneratorType string                     `yaml:"attacker_generator_type,omitempty" koanf:"attacker_generator_type"`
+	AttackerConfig        map[string]any             `yaml:"attacker_config,omitempty" koanf:"attacker_config"`
+	JudgeGeneratorType    string                     `yaml:"judge_generator_type,omitempty" koanf:"judge_generator_type"`
+	JudgeConfig           map[string]any             `yaml:"judge_config,omitempty" koanf:"judge_config"`
+	Settings              map[string]map[string]any  `yaml:"settings,omitempty" koanf:"settings"`
 }
 
 // EncodingProbeConfig contains encoding probe configuration
@@ -55,7 +60,8 @@ type EncodingProbeConfig struct {
 
 // DetectorConfig contains detector-specific configuration
 type DetectorConfig struct {
-	Always AlwaysDetectorConfig `yaml:"always"`
+	Always   AlwaysDetectorConfig       `yaml:"always"`
+	Settings map[string]map[string]any  `yaml:"settings,omitempty" koanf:"settings"`
 }
 
 // BuffConfig contains buff-specific configuration
