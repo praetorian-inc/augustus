@@ -744,3 +744,101 @@ func TestResolveDetectorConfig(t *testing.T) {
 		})
 	}
 }
+
+// TestResolveBuffConfig tests buff config resolution
+func TestResolveBuffConfig(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   Config
+		buffName string
+		wantKeys map[string]any
+	}{
+		{
+			name: "per-buff settings resolve",
+			config: Config{
+				Buffs: BuffConfig{
+					Settings: map[string]map[string]any{
+						"conlang.Klingon": {
+							"transform_generator": "anthropic.Anthropic",
+						},
+					},
+				},
+			},
+			buffName: "conlang.Klingon",
+			wantKeys: map[string]any{
+				"transform_generator": "anthropic.Anthropic",
+			},
+		},
+		{
+			name: "unknown buff returns empty map",
+			config: Config{
+				Buffs: BuffConfig{
+					Settings: map[string]map[string]any{
+						"conlang.Klingon": {"key": "value"},
+					},
+				},
+			},
+			buffName: "unknown.Buff",
+			wantKeys: map[string]any{},
+		},
+		{
+			name: "nil settings returns empty map",
+			config: Config{
+				Buffs: BuffConfig{},
+			},
+			buffName: "any.Buff",
+			wantKeys: map[string]any{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.ResolveBuffConfig(tt.buffName)
+			assert.Equal(t, tt.wantKeys, result)
+		})
+	}
+}
+
+// TestNestedEnvVarInterpolation tests that env vars in nested config maps are resolved
+func TestNestedEnvVarInterpolation(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	os.Setenv("AUGUSTUS_ANTHROPIC_KEY", "sk-ant-test-123")
+	defer os.Unsetenv("AUGUSTUS_ANTHROPIC_KEY")
+
+	yamlContent := `
+probes:
+  attacker_generator_type: anthropic.Anthropic
+  attacker_config:
+    api_key: ${AUGUSTUS_ANTHROPIC_KEY}
+    model: claude-sonnet-4-20250514
+
+buffs:
+  names:
+    - conlang.Klingon
+  settings:
+    conlang.Klingon:
+      transform_generator: anthropic.Anthropic
+      transform_generator_config:
+        api_key: ${AUGUSTUS_ANTHROPIC_KEY}
+`
+
+	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	require.NoError(t, err)
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	// Verify env var was interpolated in nested probe config
+	assert.Equal(t, "sk-ant-test-123", cfg.Probes.AttackerConfig["api_key"])
+	assert.Equal(t, "claude-sonnet-4-20250514", cfg.Probes.AttackerConfig["model"])
+
+	// Verify env var was interpolated in nested buff settings
+	klingonCfg := cfg.Buffs.Settings["conlang.Klingon"]
+	require.NotNil(t, klingonCfg)
+	genCfg, ok := klingonCfg["transform_generator_config"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "sk-ant-test-123", genCfg["api_key"])
+}

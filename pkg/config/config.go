@@ -81,6 +81,70 @@ type OutputConfig struct {
 	Path   string `yaml:"path" koanf:"path"`
 }
 
+// ResolveProbeConfig builds a registry config for a specific probe by merging
+// global attacker/judge defaults with per-probe settings from the Settings map.
+// Resolution order: per-probe settings override global attacker/judge config.
+func (c *Config) ResolveProbeConfig(probeName string) map[string]any {
+	cfg := make(map[string]any)
+
+	// Layer 1: Global attacker/judge config from probes section
+	if c.Probes.AttackerGeneratorType != "" {
+		cfg["attacker_generator_type"] = c.Probes.AttackerGeneratorType
+	}
+	if c.Probes.AttackerConfig != nil {
+		cfg["attacker_config"] = c.Probes.AttackerConfig
+	}
+	if c.Probes.JudgeGeneratorType != "" {
+		cfg["judge_generator_type"] = c.Probes.JudgeGeneratorType
+	}
+	if c.Probes.JudgeConfig != nil {
+		cfg["judge_config"] = c.Probes.JudgeConfig
+	}
+
+	// Layer 2: Per-probe settings override globals
+	if c.Probes.Settings != nil {
+		if settings, ok := c.Probes.Settings[probeName]; ok {
+			for k, v := range settings {
+				cfg[k] = v
+			}
+		}
+	}
+
+	return cfg
+}
+
+// ResolveDetectorConfig builds a registry config for a specific detector
+// from per-detector settings in the Settings map.
+func (c *Config) ResolveDetectorConfig(detectorName string) map[string]any {
+	cfg := make(map[string]any)
+
+	if c.Detectors.Settings != nil {
+		if settings, ok := c.Detectors.Settings[detectorName]; ok {
+			for k, v := range settings {
+				cfg[k] = v
+			}
+		}
+	}
+
+	return cfg
+}
+
+// ResolveBuffConfig builds a registry config for a specific buff
+// from per-buff settings in the Settings map.
+func (c *Config) ResolveBuffConfig(buffName string) map[string]any {
+	cfg := make(map[string]any)
+
+	if c.Buffs.Settings != nil {
+		if settings, ok := c.Buffs.Settings[buffName]; ok {
+			for k, v := range settings {
+				cfg[k] = v
+			}
+		}
+	}
+
+	return cfg
+}
+
 // Validate validates the configuration and returns helpful error messages
 func (c *Config) Validate() error {
 	// Validate run config

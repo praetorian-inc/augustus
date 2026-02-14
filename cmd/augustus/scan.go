@@ -356,12 +356,8 @@ func runScan(ctx context.Context, cfg *scanConfig, eval harnesses.Evaluator) err
 		for _, buffName := range buffNames {
 			// Get per-buff settings from YAML config if available
 			buffCfg := registry.Config{}
-			if yamlCfg != nil && yamlCfg.Buffs.Settings != nil {
-				if settings, ok := yamlCfg.Buffs.Settings[buffName]; ok {
-					for k, v := range settings {
-						buffCfg[k] = v
-					}
-				}
+			if yamlCfg != nil {
+				buffCfg = yamlCfg.ResolveBuffConfig(buffName)
 			}
 
 			buff, err := buffs.Create(buffName, buffCfg)
