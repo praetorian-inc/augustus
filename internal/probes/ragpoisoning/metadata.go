@@ -108,6 +108,7 @@ func (m *MetadataInjectionProbe) Probe(ctx context.Context, gen probes.Generator
 	att := attempt.New(m.TriggerQuestion)
 	att.Probe = m.Name()
 	att.Detector = m.GetPrimaryDetector()
+	att.Metadata[attempt.MetadataKeyTriggers] = []string{m.PoisonedAnswer}
 
 	// Build conversation with document context
 	conv := attempt.NewConversation()

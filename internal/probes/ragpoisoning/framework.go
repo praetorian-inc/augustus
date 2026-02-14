@@ -120,6 +120,7 @@ func (r *RAGPoisoning) Probe(ctx context.Context, gen probes.Generator) ([]*atte
 	att := attempt.New(r.TriggerQuestion)
 	att.Probe = r.Name()
 	att.Detector = r.GetPrimaryDetector()
+	att.Metadata[attempt.MetadataKeyTriggers] = []string{r.PoisonedAnswer}
 
 	// Build conversation with RAG context
 	conv := attempt.NewConversation()
