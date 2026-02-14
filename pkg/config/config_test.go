@@ -614,3 +614,133 @@ func TestBuffsMerge(t *testing.T) {
 	assert.NotNil(t, base.Buffs.Settings["lrl.LRLBuff"])
 	assert.Equal(t, 5.0, base.Buffs.Settings["lrl.LRLBuff"]["rate_limit"])
 }
+
+// TestResolveProbeConfig tests the two-layer probe config resolution
+func TestResolveProbeConfig(t *testing.T) {
+	tests := []struct {
+		name      string
+		config    Config
+		probeName string
+		wantKeys  map[string]any
+	}{
+		{
+			name: "global attacker/judge config propagates",
+			config: Config{
+				Probes: ProbeConfig{
+					AttackerGeneratorType: "anthropic.Anthropic",
+					AttackerConfig:        map[string]any{"model": "claude-sonnet-4-20250514"},
+					JudgeGeneratorType:    "anthropic.Anthropic",
+					JudgeConfig:           map[string]any{"model": "claude-sonnet-4-20250514"},
+				},
+			},
+			probeName: "pair.IterativePAIR",
+			wantKeys: map[string]any{
+				"attacker_generator_type": "anthropic.Anthropic",
+				"attacker_config":         map[string]any{"model": "claude-sonnet-4-20250514"},
+				"judge_generator_type":    "anthropic.Anthropic",
+				"judge_config":            map[string]any{"model": "claude-sonnet-4-20250514"},
+			},
+		},
+		{
+			name: "per-probe settings override globals",
+			config: Config{
+				Probes: ProbeConfig{
+					AttackerGeneratorType: "openai.OpenAI",
+					Settings: map[string]map[string]any{
+						"tap.IterativeTAP": {
+							"attacker_generator_type": "anthropic.Anthropic",
+						},
+					},
+				},
+			},
+			probeName: "tap.IterativeTAP",
+			wantKeys: map[string]any{
+				"attacker_generator_type": "anthropic.Anthropic", // per-probe wins
+			},
+		},
+		{
+			name: "empty config returns empty map",
+			config: Config{
+				Probes: ProbeConfig{},
+			},
+			probeName: "any.Probe",
+			wantKeys:  map[string]any{},
+		},
+		{
+			name: "unknown probe name returns only globals",
+			config: Config{
+				Probes: ProbeConfig{
+					AttackerGeneratorType: "openai.OpenAI",
+					Settings: map[string]map[string]any{
+						"pair.IterativePAIR": {"extra": "value"},
+					},
+				},
+			},
+			probeName: "unknown.Probe",
+			wantKeys: map[string]any{
+				"attacker_generator_type": "openai.OpenAI",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.ResolveProbeConfig(tt.probeName)
+			assert.Equal(t, tt.wantKeys, result)
+		})
+	}
+}
+
+// TestResolveDetectorConfig tests detector config resolution
+func TestResolveDetectorConfig(t *testing.T) {
+	tests := []struct {
+		name         string
+		config       Config
+		detectorName string
+		wantKeys     map[string]any
+	}{
+		{
+			name: "per-detector settings resolve",
+			config: Config{
+				Detectors: DetectorConfig{
+					Settings: map[string]map[string]any{
+						"poetry.HarmJudge": {
+							"judge_generator": "anthropic.Anthropic",
+						},
+					},
+				},
+			},
+			detectorName: "poetry.HarmJudge",
+			wantKeys: map[string]any{
+				"judge_generator": "anthropic.Anthropic",
+			},
+		},
+		{
+			name: "unknown detector returns empty map",
+			config: Config{
+				Detectors: DetectorConfig{
+					Settings: map[string]map[string]any{
+						"poetry.HarmJudge": {"key": "value"},
+					},
+				},
+			},
+			detectorName: "unknown.Detector",
+			wantKeys:     map[string]any{},
+		},
+		{
+			name: "nil settings returns empty map",
+			config: Config{
+				Detectors: DetectorConfig{},
+			},
+			detectorName: "any.Detector",
+			wantKeys:     map[string]any{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.ResolveDetectorConfig(tt.detectorName)
+			assert.Equal(t, tt.wantKeys, result)
+		})
+	}
+}
