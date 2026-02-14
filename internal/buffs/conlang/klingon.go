@@ -45,7 +45,16 @@ func NewKlingonBuff(cfg registry.Config) (buffs.Buff, error) {
 		return nil, fmt.Errorf("conlang.Klingon: %w", err)
 	}
 
-	gen, err := generators.Create(genName, cfg)
+	// Extract only generator-specific config to avoid leaking buff keys
+	// (rate_limit, burst_size, etc.) into the LLM generator.
+	genCfg := make(registry.Config)
+	if gc, ok := cfg["transform_generator_config"].(map[string]any); ok {
+		for k, v := range gc {
+			genCfg[k] = v
+		}
+	}
+
+	gen, err := generators.Create(genName, genCfg)
 	if err != nil {
 		return nil, fmt.Errorf("conlang.Klingon: create transform generator %s: %w", genName, err)
 	}

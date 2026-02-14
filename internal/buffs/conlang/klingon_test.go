@@ -426,3 +426,21 @@ func TestKlingonBuffUntransformEmptyGeneratorResponse(t *testing.T) {
 	assert.Contains(t, err.Error(), "conlang.Klingon untransform",
 		"error should indicate it happened during untransform")
 }
+
+// TestNewKlingonBuff_ConfigIsolation verifies that buff-specific config keys
+// (rate_limit, burst_size) are NOT passed to the generator.
+func TestNewKlingonBuff_ConfigIsolation(t *testing.T) {
+	// Missing transform_generator should error
+	_, err := NewKlingonBuff(registry.Config{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "transform_generator")
+
+	// With transform_generator but invalid generator name should error at generator creation
+	_, err = NewKlingonBuff(registry.Config{
+		"transform_generator": "nonexistent.Generator",
+		"rate_limit":          5.0,     // buff-specific, should NOT go to generator
+		"burst_size":          10.0,    // buff-specific, should NOT go to generator
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "nonexistent.Generator")
+}
