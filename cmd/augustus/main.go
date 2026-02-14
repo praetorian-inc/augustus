@@ -89,6 +89,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/detectors/ansiescape"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/any"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/apikey"
+	_ "github.com/praetorian-inc/augustus/internal/detectors/artprompts"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/base"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/continuation"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/dan"
