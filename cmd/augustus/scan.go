@@ -302,7 +302,11 @@ func runScan(ctx context.Context, cfg *scanConfig, eval harnesses.Evaluator) err
 	// Create probes
 	probeList := make([]probes.Prober, 0, len(probeNames))
 	for _, probeName := range probeNames {
-		probe, err := probes.Create(probeName, registry.Config{})
+		var probeCfg registry.Config
+		if yamlCfg != nil {
+			probeCfg = yamlCfg.ResolveProbeConfig(probeName)
+		}
+		probe, err := probes.Create(probeName, probeCfg)
 		if err != nil {
 			return fmt.Errorf("failed to create probe %s: %w", probeName, err)
 		}
@@ -314,7 +318,11 @@ func runScan(ctx context.Context, cfg *scanConfig, eval harnesses.Evaluator) err
 	if len(cfg.detectorNames) > 0 {
 		detectorList = make([]detectors.Detector, 0, len(cfg.detectorNames))
 		for _, detectorName := range cfg.detectorNames {
-			detector, err := detectors.Create(detectorName, registry.Config{})
+			var detCfg registry.Config
+			if yamlCfg != nil {
+				detCfg = yamlCfg.ResolveDetectorConfig(detectorName)
+			}
+			detector, err := detectors.Create(detectorName, detCfg)
 			if err != nil {
 				return fmt.Errorf("failed to create detector %s: %w", detectorName, err)
 			}
@@ -331,7 +339,11 @@ func runScan(ctx context.Context, cfg *scanConfig, eval harnesses.Evaluator) err
 		}
 
 		for detectorName := range uniqueDetectors {
-			detector, err := detectors.Create(detectorName, registry.Config{})
+			var detCfg registry.Config
+			if yamlCfg != nil {
+				detCfg = yamlCfg.ResolveDetectorConfig(detectorName)
+			}
+			detector, err := detectors.Create(detectorName, detCfg)
 			if err != nil {
 				return fmt.Errorf("failed to create detector %s: %w", detectorName, err)
 			}
