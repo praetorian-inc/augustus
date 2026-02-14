@@ -34,6 +34,15 @@ func mockBedrockClaudeResponse(content string) map[string]any {
 	}
 }
 
+// setFakeAWSCredentials sets dummy AWS credentials for tests that use mock servers.
+// This prevents the AWS SDK from trying EC2 IMDS which times out without AWS infrastructure.
+func setFakeAWSCredentials(t *testing.T) {
+	t.Helper()
+	t.Setenv("AWS_ACCESS_KEY_ID", "AKIAIOSFODNN7EXAMPLE")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY")
+	t.Setenv("AWS_REGION", "us-east-1")
+}
+
 func TestBedrockGenerator_RequiresModel(t *testing.T) {
 	// Should error without model ID
 	_, err := NewBedrock(registry.Config{
@@ -53,6 +62,8 @@ func TestBedrockGenerator_RequiresRegion(t *testing.T) {
 }
 
 func TestBedrockGenerator_SupportsClaudeModels(t *testing.T) {
+	setFakeAWSCredentials(t)
+
 	claudeModels := []string{
 		"anthropic.claude-3-opus-20240229-v1:0",
 		"anthropic.claude-3-sonnet-20240229-v1:0",
@@ -75,6 +86,8 @@ func TestBedrockGenerator_SupportsClaudeModels(t *testing.T) {
 }
 
 func TestBedrockGenerator_Generate(t *testing.T) {
+	setFakeAWSCredentials(t)
+
 	// Create a mock HTTP server that simulates Bedrock API
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify it's a POST to /model/{modelId}/invoke
@@ -108,6 +121,8 @@ func TestBedrockGenerator_Generate(t *testing.T) {
 }
 
 func TestBedrockGenerator_GenerateMultiple(t *testing.T) {
+	setFakeAWSCredentials(t)
+
 	callCount := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		callCount++
@@ -134,6 +149,8 @@ func TestBedrockGenerator_GenerateMultiple(t *testing.T) {
 }
 
 func TestBedrockGenerator_HandlesRateLimits(t *testing.T) {
+	setFakeAWSCredentials(t)
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusTooManyRequests)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -158,6 +175,8 @@ func TestBedrockGenerator_HandlesRateLimits(t *testing.T) {
 }
 
 func TestBedrockGenerator_HandlesAuthErrors(t *testing.T) {
+	setFakeAWSCredentials(t)
+
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -182,6 +201,8 @@ func TestBedrockGenerator_HandlesAuthErrors(t *testing.T) {
 }
 
 func TestBedrockGenerator_Name(t *testing.T) {
+	setFakeAWSCredentials(t)
+
 	g, err := NewBedrock(registry.Config{
 		"model":  "anthropic.claude-3-sonnet-20240229-v1:0",
 		"region": "us-east-1",
@@ -194,6 +215,8 @@ func TestBedrockGenerator_Name(t *testing.T) {
 }
 
 func TestBedrockGenerator_Description(t *testing.T) {
+	setFakeAWSCredentials(t)
+
 	g, err := NewBedrock(registry.Config{
 		"model":  "anthropic.claude-3-sonnet-20240229-v1:0",
 		"region": "us-east-1",
@@ -206,6 +229,8 @@ func TestBedrockGenerator_Description(t *testing.T) {
 }
 
 func TestBedrockGenerator_ClearHistory(t *testing.T) {
+	setFakeAWSCredentials(t)
+
 	g, err := NewBedrock(registry.Config{
 		"model":  "anthropic.claude-3-sonnet-20240229-v1:0",
 		"region": "us-east-1",
