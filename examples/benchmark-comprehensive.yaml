@@ -83,15 +83,15 @@ generators:
   # ===========================================================================
 
   # --- OpenAI ---
-  openai.OpenAI:
-    model: "gpt-4o"
-    temperature: 0.7
-    api_key: "${OPENAI_API_KEY}"
+  # openai.OpenAI:
+  #   model: "gpt-4o"
+  #   temperature: 0.7
+  #   api_key: "${OPENAI_API_KEY}"
 
   # --- OpenAI Reasoning (o1, o3 models) ---
-  openai.OpenAIReasoning:
-    model: "o3-mini"
-    api_key: "${OPENAI_API_KEY}"
+  # openai.OpenAIReasoning:
+  #   model: "o3-mini"
+  #   api_key: "${OPENAI_API_KEY}"
 
   # --- Anthropic ---
   anthropic.Anthropic:
@@ -100,52 +100,52 @@ generators:
     api_key: "${ANTHROPIC_API_KEY}"
 
   # --- Together AI ---
-  together.Together:
-    model: "meta-llama/Llama-3-70b-chat-hf"
-    temperature: 0.7
-    api_key: "${TOGETHER_API_KEY}"
+  # together.Together:
+  #   model: "meta-llama/Llama-3-70b-chat-hf"
+  #   temperature: 0.7
+  #   api_key: "${TOGETHER_API_KEY}"
 
   # --- Groq (fast inference) ---
-  groq.Groq:
-    model: "llama-3.1-70b-versatile"
-    temperature: 0.7
-    api_key: "${GROQ_API_KEY}"
+  # groq.Groq:
+  #   model: "llama-3.1-70b-versatile"
+  #   temperature: 0.7
+  #   api_key: "${GROQ_API_KEY}"
 
   # --- Mistral AI ---
-  mistral.Mistral:
-    model: "mistral-large-latest"
-    temperature: 0.7
-    api_key: "${MISTRAL_API_KEY}"
+  # mistral.Mistral:
+  #   model: "mistral-large-latest"
+  #   temperature: 0.7
+  #   api_key: "${MISTRAL_API_KEY}"
 
   # --- Cohere ---
-  cohere.Cohere:
-    model: "command-r-plus"
-    temperature: 0.7
-    api_key: "${COHERE_API_KEY}"
+  # cohere.Cohere:
+  #   model: "command-r-plus"
+  #   temperature: 0.7
+  #   api_key: "${COHERE_API_KEY}"
 
   # --- Fireworks AI ---
-  fireworks.Fireworks:
-    model: "accounts/fireworks/models/llama-v3-70b-instruct"
-    temperature: 0.7
-    api_key: "${FIREWORKS_API_KEY}"
+  # fireworks.Fireworks:
+  #   model: "accounts/fireworks/models/llama-v3-70b-instruct"
+  #   temperature: 0.7
+  #   api_key: "${FIREWORKS_API_KEY}"
 
   # --- DeepInfra ---
-  deepinfra.DeepInfra:
-    model: "meta-llama/Llama-3-70b-instruct"
-    temperature: 0.7
-    api_key: "${DEEPINFRA_API_KEY}"
+  # deepinfra.DeepInfra:
+  #   model: "meta-llama/Llama-3-70b-instruct"
+  #   temperature: 0.7
+  #   api_key: "${DEEPINFRA_API_KEY}"
 
   # --- Replicate ---
-  replicate.Replicate:
-    model: "meta/llama-2-70b-chat"
-    temperature: 0.7
-    api_key: "${REPLICATE_API_TOKEN}"
+  # replicate.Replicate:
+  #   model: "meta/llama-2-70b-chat"
+  #   temperature: 0.7
+  #   api_key: "${REPLICATE_API_TOKEN}"
 
   # --- HuggingFace Inference API ---
-  huggingface.InferenceAPI:
-    model: "meta-llama/Llama-2-7b-chat-hf"
-    temperature: 0.7
-    api_key: "${HUGGINGFACE_API_KEY}"
+  # huggingface.InferenceAPI:
+  #   model: "meta-llama/Llama-2-7b-chat-hf"
+  #   temperature: 0.7
+  #   api_key: "${HUGGINGFACE_API_KEY}"
 
   # --- HuggingFace Inference Endpoint ---
   # huggingface.InferenceEndpoint:
@@ -158,42 +158,42 @@ generators:
   # ===========================================================================
 
   # --- Azure OpenAI ---
-  azure.AzureOpenAI:
-    model: "gpt-4o"
-    api_key: "${AZURE_OPENAI_API_KEY}"
-    endpoint: "${AZURE_OPENAI_ENDPOINT}"
-    api_version: "2024-06-01"
-    temperature: 0.7
+  # azure.AzureOpenAI:
+  #   model: "gpt-4o"
+  #   api_key: "${AZURE_OPENAI_API_KEY}"
+  #   endpoint: "${AZURE_OPENAI_ENDPOINT}"
+  #   api_version: "2024-06-01"
+  #   temperature: 0.7
 
   # --- AWS Bedrock (Claude via Bedrock) ---
-  bedrock.Bedrock:
-    model: "anthropic.claude-3-5-sonnet-20241022-v2:0"
-    region: "${AWS_DEFAULT_REGION}"
-    temperature: 0.7
+  # bedrock.Bedrock:
+  #   model: "anthropic.claude-3-5-sonnet-20241022-v2:0"
+  #   region: "${AWS_DEFAULT_REGION}"
+  #   temperature: 0.7
 
   # --- Google Vertex AI ---
-  vertex.Vertex:
-    model: "gemini-1.5-pro"
-    project_id: "${GCP_PROJECT_ID}"
-    location: "us-central1"
-    temperature: 0.7
+  # vertex.Vertex:
+  #   model: "gemini-1.5-pro"
+  #   project_id: "${GCP_PROJECT_ID}"
+  #   location: "us-central1"
+  #   temperature: 0.7
 
   # --- IBM WatsonX ---
-  watsonx.WatsonX:
-    model: "ibm/granite-13b-chat-v2"
-    api_key: "${WATSONX_API_KEY}"
-    region: "us-south"
-    project_id: "${WATSONX_PROJECT_ID}"
+  # watsonx.WatsonX:
+  #   model: "ibm/granite-13b-chat-v2"
+  #   api_key: "${WATSONX_API_KEY}"
+  #   region: "us-south"
+  #   project_id: "${WATSONX_PROJECT_ID}"
 
   # ===========================================================================
   # TIER 4: SPECIALIZED (NVIDIA, NVCF, LiteLLM)
   # ===========================================================================
 
   # --- NVIDIA NIM ---
-  nim.NIM:
-    model: "meta/llama3-70b-instruct"
-    api_key: "${NVIDIA_API_KEY}"
-    temperature: 0.7
+  # nim.NIM:
+  #   model: "meta/llama3-70b-instruct"
+  #   api_key: "${NVIDIA_API_KEY}"
+  #   temperature: 0.7
 
   # --- NVIDIA NIM (OpenAI-compatible completion) ---
   # nim.NVOpenAICompletion:
