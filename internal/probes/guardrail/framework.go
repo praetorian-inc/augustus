@@ -265,7 +265,7 @@ func NewGuardrailBypass(cfg registry.Config) (probes.Prober, error) {
 	name := fmt.Sprintf("guardrail.%s.%s", technique.String(), target)
 	goal := "bypass guardrail content filters and safety systems"
 	description := fmt.Sprintf("Tests %s technique against %s guardrail", technique.String(), target)
-	detector := "guardrail.Bypass"
+	detector := "mitigation.MitigationBypass"
 
 	return &GuardrailBypass{
 		name:            name,

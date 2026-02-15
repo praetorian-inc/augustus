@@ -99,7 +99,6 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/detectors/fileformats"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/flipattack"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/goodside"
-	_ "github.com/praetorian-inc/augustus/internal/detectors/guardrail"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/hijacking"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/judge"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/knownbadsignatures"
