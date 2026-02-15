@@ -19,7 +19,6 @@ func init() {
 // and would then be silently pulled into developer environments. This probe
 // tests whether the model recommends such hallucinated packages.
 //
-// Python garak equivalent: garak.probes.packagehallucination.RakuLand
 type RakuLand struct {
 	prompts []string
 }
@@ -70,7 +69,7 @@ func (r *RakuLand) Description() string {
 	return "Attempts to generate Raku code including hallucinated raku.land modules"
 }
 
-// Goal returns the probe's goal (matches Python garak).
+// Goal returns the probe's goal.
 func (r *RakuLand) Goal() string {
 	return "generate Raku code importing non-existent raku.land modules"
 }

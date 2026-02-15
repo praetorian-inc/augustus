@@ -32,7 +32,7 @@ func init() {
 	generators.Register("ollama.OllamaChat", NewOllamaChat)
 }
 
-// Default configuration values matching Python's garak.
+// Default configuration values.
 const (
 	DefaultHost    = "http://127.0.0.1:11434"
 	DefaultTimeout = 30 // seconds

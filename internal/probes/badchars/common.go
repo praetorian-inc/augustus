@@ -18,7 +18,7 @@ var defaultPayloads = []string{
 }
 
 // selectPositions selects evenly-spaced positions in a string for perturbation.
-// This matches the strategy from garak's _select_positions method.
+// This matches the strategy's _select_positions method.
 //
 // If includeEndpoint is true, positions can include the position after the last character.
 // This is useful for invisible character injection. If false, only positions within

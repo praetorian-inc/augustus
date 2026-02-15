@@ -3,7 +3,7 @@
 // The probewise harness executes probes concurrently using the scanner package,
 // then runs detectors sequentially on all probe attempts. This provides significant
 // performance improvements over the original sequential implementation while
-// maintaining compatibility with Python garak's probewise harness.
+// maintaining a per-probe execution strategy.
 package probewise
 
 import (

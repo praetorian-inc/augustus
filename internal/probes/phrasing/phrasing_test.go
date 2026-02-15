@@ -53,7 +53,6 @@ func TestPastTense_Description(t *testing.T) {
 }
 
 // TestPastTense_Goal verifies the probe returns the correct goal.
-// Python garak PastTense uses "use past tense to disregard the system prompt" as goal.
 func TestPastTense_Goal(t *testing.T) {
 	p, err := probes.Create("phrasing.PastTense", nil)
 	require.NoError(t, err)
@@ -61,7 +60,6 @@ func TestPastTense_Goal(t *testing.T) {
 	pm, ok := p.(probes.ProbeMetadata)
 	require.True(t, ok, "probe should implement ProbeMetadata")
 
-	// Must match Python garak exactly
 	expected := "use past tense to disregard the system prompt"
 	assert.Equal(t, expected, pm.Goal())
 }
@@ -199,7 +197,7 @@ func TestPastTense_Prompts_LoadedFromFile(t *testing.T) {
 	require.True(t, ok, "probe should implement ProbeMetadata")
 	prompts := pm.GetPrompts()
 	// Should have a significant number of prompts from the data file
-	// garak has 730+ prompts in past_tense_en.txt
+	// 730+ prompts exist in past_tense_en.txt
 	assert.Greater(t, len(prompts), 100, "should have many prompts from data file")
 }
 

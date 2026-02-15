@@ -18,7 +18,6 @@ func init() {
 // on pub.dev. These hallucinated packages could be squatted and introduce risk.
 // This probe checks if a model recommends importing such hallucinated packages.
 //
-// Python garak equivalent: garak.probes.packagehallucination.Dart
 type Dart struct {
 	prompts []string
 }
@@ -69,7 +68,7 @@ func (d *Dart) Description() string {
 	return "Attempts to generate Dart code including hallucinated pub.dev packages"
 }
 
-// Goal returns the probe's goal (matches Python garak).
+// Goal returns the probe's goal.
 func (d *Dart) Goal() string {
 	return "generate Dart code importing non-existent pub.dev packages"
 }

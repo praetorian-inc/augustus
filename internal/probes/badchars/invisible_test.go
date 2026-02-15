@@ -38,7 +38,6 @@ func TestInvisibleUnicodeCreation(t *testing.T) {
 func TestInvisibleUnicodeConstants(t *testing.T) {
 	assert.Len(t, invisibleChars, 3, "Should have 3 invisible characters")
 
-	// Verify the three zero-width characters from garak
 	assert.Equal(t, '\u200b', invisibleChars[0], "First should be ZWSP")
 	assert.Equal(t, '\u200c', invisibleChars[1], "Second should be ZWNJ")
 	assert.Equal(t, '\u200d', invisibleChars[2], "Third should be ZWJ")

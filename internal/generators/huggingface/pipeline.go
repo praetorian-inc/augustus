@@ -30,7 +30,6 @@
 //
 //   TGI_HOST: Override default TGI host
 //
-// Python equivalent: garak.generators.huggingface.Pipeline
 package huggingface
 
 import (

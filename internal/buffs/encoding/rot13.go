@@ -22,7 +22,6 @@ func init() {
 // positions) and wraps it with an instruction prefix. ROT13 only applies to
 // letters in the English alphabet.
 //
-// Matches Python garak's buffs.encoding.ROT13 behavior.
 type ROT13 struct{}
 
 // NewROT13 creates a new ROT13 buff.

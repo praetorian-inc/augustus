@@ -18,7 +18,6 @@ func init() {
 }
 
 // ASCII printable characters (0x20 to 0x7E inclusive).
-// Matches Python garak ASCII_PRINTABLE (badchars.py line 22).
 var asciiPrintable []rune
 
 func init() {
@@ -31,7 +30,7 @@ func init() {
 
 const (
 	defaultDeletionBudget       = 1  // How many deletion pairs to inject per variant
-	defaultDeletionMaxPositions = 24 // Maximum positions to consider for injection (matches garak default)
+	defaultDeletionMaxPositions = 24 // Maximum positions to consider for injection
 	defaultMaxASCIIVariants     = 95 // Maximum ASCII chars to use (all printable by default)
 )
 
@@ -44,7 +43,6 @@ type deletionVariant struct {
 
 // Deletions injects ASCII character followed by backspace to create invisible perturbations.
 //
-// Python garak equivalent: garak.probes.badchars.BadCharacters (deletion category)
 type Deletions struct {
 	name            string
 	goal            string
@@ -120,7 +118,7 @@ func (p *Deletions) Description() string {
 	return p.description
 }
 
-// Goal returns the probe's goal (matches Python garak).
+// Goal returns the probe's goal.
 func (p *Deletions) Goal() string {
 	return p.goal
 }
@@ -136,7 +134,6 @@ func (p *Deletions) GetPrompts() []string {
 }
 
 // selectASCII selects a subset of ASCII printable characters.
-// Matches Python garak _select_ascii (badchars.py lines 378-384).
 func selectASCII(limit int) []rune {
 	if limit <= 0 || limit >= len(asciiPrintable) {
 		// Return all ASCII printable characters
@@ -201,7 +198,6 @@ func generateAllDeletionVariants(payloads []string, budget, maxPositions, maxASC
 }
 
 // generateDeletionVariants generates variants of a payload with deletion/backspace pairs injected.
-// Matches Python garak _generate_deletion_variants (badchars.py lines 299-317).
 func generateDeletionVariants(payload string, budget, maxPositions, maxASCII int) []deletionVariant {
 	if payload == "" {
 		return nil

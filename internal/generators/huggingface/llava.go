@@ -3,7 +3,6 @@
 // This package implements the Generator interface for HuggingFace's hosted
 // inference endpoints, including LLaVA vision-language models.
 //
-// Python equivalent: garak.generators.huggingface.LLaVA
 package huggingface
 
 import (

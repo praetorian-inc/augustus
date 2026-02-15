@@ -109,7 +109,7 @@ type ProbeInfo struct {
 	// Description explains what the probe does
 	Description string `yaml:"description"`
 
-	// Goal matches Python garak's probe goal
+	// Goal matches the probe goal
 	Goal string `yaml:"goal"`
 
 	// Detector is the recommended detector for this probe

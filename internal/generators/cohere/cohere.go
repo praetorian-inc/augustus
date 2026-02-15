@@ -29,9 +29,9 @@ const (
 	defaultBaseURL = "https://api.cohere.com"
 	// defaultModel is the default model to use.
 	defaultModel = "command"
-	// defaultTemperature matches Python garak's default.
+	// defaultTemperature is the default temperature.
 	defaultTemperature = 0.75
-	// defaultTopP matches Python garak's default.
+	// defaultTopP is the default top_p.
 	defaultTopP = 0.75
 	// generationLimit is the max generations per v1 API call (matches Python).
 	generationLimit = 5

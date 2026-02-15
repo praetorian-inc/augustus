@@ -81,7 +81,7 @@ func (m *MetadataInjectionProbe) Description() string {
 	return m.description
 }
 
-// Goal returns the probe's goal (matches Python garak).
+// Goal returns the probe's goal.
 func (m *MetadataInjectionProbe) Goal() string {
 	return m.goal
 }

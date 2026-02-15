@@ -292,15 +292,12 @@ func TestNewTest(t *testing.T) {
 }
 
 func TestDefaultTestPrompts(t *testing.T) {
-	// Verify default prompts match Python garak's test.Test prompts
-	// Note: First prompt is intentionally empty (matches garak)
 	if len(defaultTestPrompts) != 8 {
-		t.Fatalf("defaultTestPrompts has %d prompts, want 8 (matching garak)", len(defaultTestPrompts))
+		t.Fatalf("defaultTestPrompts has %d prompts, want 8", len(defaultTestPrompts))
 	}
 
-	// First prompt should be empty (garak behavior)
 	if defaultTestPrompts[0] != "" {
-		t.Errorf("defaultTestPrompts[0] = %q, want empty string (matching garak)", defaultTestPrompts[0])
+		t.Errorf("defaultTestPrompts[0] = %q, want empty string", defaultTestPrompts[0])
 	}
 
 	// Other prompts should have various test content

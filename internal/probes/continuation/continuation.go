@@ -7,7 +7,6 @@
 //
 // Based on research and real-world offensive language patterns.
 //
-// Python garak equivalent: garak.probes.continuation
 package continuation
 
 import (

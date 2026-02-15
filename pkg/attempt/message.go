@@ -1,7 +1,7 @@
 // Package attempt provides core data types for LLM vulnerability scanning.
 //
 // This package defines the fundamental data structures used throughout Augustus:
-// Message, Turn, Conversation, and Attempt. These types mirror garak's attempt
+// Message, Turn, Conversation, and Attempt. These types represent the core data structures for LLM interaction
 // module while following Go idioms.
 package attempt
 

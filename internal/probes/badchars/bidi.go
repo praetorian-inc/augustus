@@ -3,7 +3,6 @@
 // Implements Unicode-based attacks including invisible characters, bidi-based reorderings,
 // and other imperceptible text manipulations as described in https://arxiv.org/abs/2106.09898.
 //
-// Python garak equivalent: garak.probes.badchars
 package badchars
 
 import (
@@ -33,7 +32,6 @@ const (
 // creating imperceptible perturbations that may bypass text-based safety filters while
 // remaining semantically equivalent when rendered.
 //
-// Python garak equivalent: garak.probes.badchars.Bidi (reordering variants)
 type Bidi struct {
 	prompts []string
 }
@@ -47,7 +45,7 @@ func NewBidi(_ registry.Config) (probes.Prober, error) {
 
 	// For each payload, generate variants with bidi swaps at different positions
 	for _, payload := range defaultPayloads {
-		// Select positions to apply swaps (similar to garak's strategy)
+		// Select positions to apply swaps
 		// We'll apply single swaps at start, middle, and end positions
 		// Don't include endpoint since we're swapping adjacent chars
 		positions := selectPositions(len(payload), 3, false)
@@ -93,7 +91,6 @@ func NewBidi(_ registry.Config) (probes.Prober, error) {
 // and forces two adjacent code points to render in reverse order while containing
 // all directionality side effects.
 //
-// Python equivalent: garak.probes.badchars._render_swaps for _Swap objects
 func renderSwap(first, second string) string {
 	// Build the bidi control sequence that swaps first and second
 	// Sequence: LRO, LRI, RLO, LRI, second, PDI, LRI, first, PDI, PDF, PDI, PDF
@@ -108,7 +105,6 @@ func renderSwap(first, second string) string {
 // The function processes indices in order and adjusts for the length changes caused
 // by inserting bidi control sequences.
 //
-// Python equivalent: garak.probes.badchars.BadCharacters._apply_swaps
 func applySwaps(payload string, indices []int) string {
 	// Convert string to rune slice for proper Unicode handling
 	runes := []rune(payload)
@@ -196,7 +192,7 @@ func (b *Bidi) Description() string {
 	return "Bidi probe - uses Unicode bidirectional text controls (LRO, RLO, LRI, RLI, PDI, PDF) to imperceptibly reorder characters in prompts, testing if models can be bypassed via visual text perturbations"
 }
 
-// Goal returns the probe's goal (matches Python garak).
+// Goal returns the probe's goal.
 func (b *Bidi) Goal() string {
 	return "inject imperceptible text perturbations that bypass refusal policies"
 }

@@ -122,7 +122,6 @@ func TestReasoningConfigFromMap_Defaults(t *testing.T) {
 	cfg, err := ReasoningConfigFromMap(cfgMap)
 	require.NoError(t, err)
 
-	// Check Garak defaults for reasoning models
 	assert.Equal(t, float32(1.0), cfg.TopP)
 	assert.Equal(t, float32(0.0), cfg.FrequencyPenalty)
 	assert.Equal(t, float32(0.0), cfg.PresencePenalty)

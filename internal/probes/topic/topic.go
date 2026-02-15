@@ -8,7 +8,6 @@
 // something other than a mitigation message, testing how close we can stay
 // to blocked terms while avoiding blocks.
 //
-// Python garak equivalent: garak.probes.topic
 package topic
 
 import (

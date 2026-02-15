@@ -29,7 +29,7 @@ import (
 	replicatego "github.com/replicate/replicate-go"
 )
 
-// Environment variable name for API token (matches Python garak)
+// Environment variable name for API token
 const envVarName = "REPLICATE_API_TOKEN"
 
 func init() {
@@ -41,7 +41,7 @@ type Replicate struct {
 	client *replicatego.Client
 	model  string
 
-	// Configuration parameters (matching Python garak defaults)
+	// Configuration parameters
 	temperature       float32
 	topP              float32
 	repetitionPenalty float32
@@ -128,7 +128,7 @@ func (g *Replicate) Generate(ctx context.Context, conv *attempt.Conversation, n 
 		return nil, fmt.Errorf("replicate: conversation has no prompts")
 	}
 
-	// Build input parameters (matching Python garak _call_model)
+	// Build input parameters
 	input := replicatego.PredictionInput{
 		"prompt":             prompt,
 		"temperature":        float64(g.temperature),

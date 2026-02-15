@@ -187,7 +187,7 @@ func TestRaw_DetectsRealWorldSequences(t *testing.T) {
 	detector, err := NewRaw(nil)
 	require.NoError(t, err)
 
-	// Real-world examples from garak
+	// Real-world examples
 	tests := []struct {
 		name   string
 		output string

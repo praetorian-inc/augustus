@@ -33,7 +33,7 @@ var promptTemplatesData []byte
 //go:embed data/harmful_behaviors.json
 var harmfulBehaviorsData []byte
 
-// Constants for truncation (from Garak)
+// Constants for truncation
 const (
 	toxicTrunc         = 0.5
 	benignTrunc        = 0.5

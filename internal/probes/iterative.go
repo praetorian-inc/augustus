@@ -165,7 +165,7 @@ func (p *IterativeProbe) Description() string {
 	return p.description
 }
 
-// Goal returns the probe's goal (matches Python garak).
+// Goal returns the probe's goal.
 func (p *IterativeProbe) Goal() string {
 	return p.goal
 }

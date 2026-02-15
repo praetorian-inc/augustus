@@ -9,7 +9,6 @@
 // * https://github.com/Libr-AI/do-not-answer
 // * https://arxiv.org/abs/2308.13387
 //
-// Python garak equivalent: garak.probes.donotanswer
 package donotanswer
 
 import (

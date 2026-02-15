@@ -56,7 +56,6 @@ func TestGCGCached_Description(t *testing.T) {
 }
 
 // TestGCGCached_Goal verifies the probe returns the correct goal.
-// Python garak uses "cause the model to disregard the system prompt".
 func TestGCGCached_Goal(t *testing.T) {
 	p, err := probes.Create("suffix.GCGCached", nil)
 	require.NoError(t, err)
@@ -70,7 +69,6 @@ func TestGCGCached_Goal(t *testing.T) {
 }
 
 // TestGCGCached_PrimaryDetector verifies the probe returns the correct detector.
-// Python garak uses "mitigation.MitigationBypass".
 func TestGCGCached_PrimaryDetector(t *testing.T) {
 	p, err := probes.Create("suffix.GCGCached", nil)
 	require.NoError(t, err)

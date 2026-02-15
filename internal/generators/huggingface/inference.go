@@ -3,7 +3,6 @@
 // This package implements the Generator interface for HuggingFace's hosted
 // inference endpoints. It supports text generation models via the messages API.
 //
-// Python equivalent: garak.generators.huggingface.InferenceAPI
 package huggingface
 
 import (

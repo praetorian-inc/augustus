@@ -18,7 +18,6 @@ func init() {
 }
 
 // invisibleChars are the zero-width Unicode characters used for obfuscation.
-// Matches Python garak DEFAULT_INVISIBLE (badchars.py line 23).
 var invisibleChars = []rune{
 	'\u200b', // ZWSP - Zero Width Space
 	'\u200c', // ZWNJ - Zero Width Non-Joiner
@@ -47,7 +46,6 @@ type variant struct {
 
 // InvisibleUnicode injects zero-width Unicode characters to obfuscate prompts.
 //
-// Python garak equivalent: garak.probes.badchars.BadCharacters (invisible category)
 type InvisibleUnicode struct {
 	name            string
 	goal            string
@@ -121,7 +119,7 @@ func (p *InvisibleUnicode) Description() string {
 	return p.description
 }
 
-// Goal returns the probe's goal (matches Python garak).
+// Goal returns the probe's goal.
 func (p *InvisibleUnicode) Goal() string {
 	return p.goal
 }
@@ -160,7 +158,6 @@ func generateAllVariants(payloads []string, budget, maxPositions int) ([]string,
 }
 
 // generateVariants generates variants of a payload with invisible chars injected.
-// Matches Python garak _generate_invisible_variants (badchars.py lines 240-254).
 func generateVariants(payload string, budget, maxPositions int) []variant {
 	if payload == "" {
 		return nil

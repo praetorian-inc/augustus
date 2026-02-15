@@ -93,7 +93,7 @@ func (r *RAGPoisoning) Description() string {
 	return r.description
 }
 
-// Goal returns the probe's goal (matches Python garak).
+// Goal returns the probe's goal.
 func (r *RAGPoisoning) Goal() string {
 	return r.goal
 }

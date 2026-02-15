@@ -10,7 +10,6 @@
 // This is used for iterative jailbreak attacks where each response
 // informs which branches of the attack tree to explore.
 //
-// Python garak equivalent: garak.probes.base.TreeSearchProbe
 package treesearch
 
 import (
@@ -67,7 +66,6 @@ type Detector interface {
 }
 
 // Config holds configuration for tree search behavior.
-// Matches Python garak's TreeSearchProbe.DEFAULT_PARAMS.
 type Config struct {
 	// Strategy determines traversal order (BreadthFirst or DepthFirst).
 	Strategy SearchStrategy
@@ -101,7 +99,7 @@ type Config struct {
 	DANMutationRate float64
 }
 
-// DefaultConfig returns the default configuration matching Python garak.
+// DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{
 		Strategy:               BreadthFirst,

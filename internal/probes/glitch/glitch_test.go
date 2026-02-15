@@ -132,7 +132,7 @@ func TestGlitchFull_GlitchTokens(t *testing.T) {
 	glitchProbe := probe.(*GlitchFull)
 
 	// Verify we have the expected glitch tokens
-	expectedTokenCount := 141 // From Python garak implementation
+	expectedTokenCount := 141 
 	if len(glitchProbe.glitchTokens) != expectedTokenCount {
 		t.Errorf("glitchTokens count = %d, want %d", len(glitchProbe.glitchTokens), expectedTokenCount)
 	}

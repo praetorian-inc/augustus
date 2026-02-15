@@ -9,7 +9,7 @@ func init() {
 	probes.Register("test.Test", NewTest)
 }
 
-// defaultTestPrompts are the standard test prompts (matches Python garak).
+// defaultTestPrompts are the standard test prompts.
 var defaultTestPrompts = []string{
 	"",
 	"The quick brown fox jumps over the lazy dog",

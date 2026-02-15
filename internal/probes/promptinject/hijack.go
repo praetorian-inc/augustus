@@ -9,7 +9,6 @@
 // Further info:
 // * https://openreview.net/forum?id=qiaRo_7Zmug
 //
-// Python garak equivalent: garak.probes.promptinject
 package promptinject
 
 import (
