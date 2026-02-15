@@ -119,6 +119,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/detectors/ragpoisoning"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/shields"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/snowball"
+	_ "github.com/praetorian-inc/augustus/internal/detectors/steganography"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/tap"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/toxiccomment"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/unsafecontent"
