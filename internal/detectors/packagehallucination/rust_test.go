@@ -97,7 +97,7 @@ func TestRustDetector_Detect(t *testing.T) {
 func TestRustDetector_Name(t *testing.T) {
 	det, err := NewRust(registry.Config{})
 	require.NoError(t, err)
-	assert.Equal(t, "packagehallucination.Rust", det.Name())
+	assert.Equal(t, "packagehallucination.RustCrates", det.Name())
 }
 
 // TestRustDetector_Description tests the Description method.

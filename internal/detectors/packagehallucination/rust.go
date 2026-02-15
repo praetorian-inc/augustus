@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	detectors.Register("packagehallucination.Rust", NewRust)
+	detectors.Register("packagehallucination.RustCrates", NewRust)
 }
 
 // Rust detects hallucinated Rust crates by checking if use statements
@@ -153,7 +153,7 @@ func isRustStdlib(crate string) bool {
 
 // Name returns the detector's fully qualified name.
 func (d *Rust) Name() string {
-	return "packagehallucination.Rust"
+	return "packagehallucination.RustCrates"
 }
 
 // Description returns a human-readable description.
