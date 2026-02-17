@@ -73,10 +73,10 @@ type ScanCmd struct {
 	Profile    string `help:"Named profile to apply from config file." name:"profile"`
 
 	// Execution
-	Harness      string        `help:"Harness name." default:"probewise.Probewise"`
-	Timeout      time.Duration `help:"Overall scan timeout." default:"30m"`
-	Concurrency  int           `help:"Max concurrent probes." default:"10" env:"AUGUSTUS_CONCURRENCY"`
-	ProbeTimeout time.Duration `help:"Per-probe timeout." default:"5m"`
+	Harness      string        `help:"Harness name (default: probewise.Probewise)." default:"probewise.Probewise"`
+	Timeout      time.Duration `help:"Overall scan timeout (default: 30m)."`
+	Concurrency  int           `help:"Max concurrent probes (default: 10)." env:"AUGUSTUS_CONCURRENCY"`
+	ProbeTimeout time.Duration `help:"Per-probe timeout (default: 5m)."`
 
 	// Output
 	Format  string `help:"Output format." enum:"table,json,jsonl" default:"table" short:"f"`
