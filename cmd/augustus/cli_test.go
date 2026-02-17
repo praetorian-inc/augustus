@@ -584,3 +584,16 @@ func TestScanCmd_ProfileFlag(t *testing.T) {
 	}
 	assert.Equal(t, "quick", cmd.Profile)
 }
+
+// TestScanCmd_Validate_ProfileRequiresConfigFile tests Profile validation
+func TestScanCmd_Validate_ProfileRequiresConfigFile(t *testing.T) {
+	cmd := ScanCmd{
+		Generator: "openai.OpenAI",
+		Probe:     []string{"dan.Dan"},
+		Profile:   "quick",
+		// No ConfigFile
+	}
+	err := cmd.Validate()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "--profile requires --config-file")
+}
