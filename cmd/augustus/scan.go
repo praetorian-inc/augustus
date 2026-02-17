@@ -80,6 +80,35 @@ func (s *ScanCmd) loadScanConfig() *scanConfig {
 	}
 }
 
+// buildCLIOverrides creates CLIOverrides from ScanCmd fields.
+// Zero-value fields mean "not set" (since Kong defaults were removed in Task 10).
+func (s *ScanCmd) buildCLIOverrides() config.CLIOverrides {
+	cli := config.CLIOverrides{
+		GeneratorName: s.Generator,
+		ConfigJSON:    s.Config,
+		HTMLFile:      s.HTML,
+		ProfileName:   s.Profile,
+	}
+
+	if s.Concurrency > 0 {
+		cli.Concurrency = &s.Concurrency
+	}
+	if s.Timeout > 0 {
+		cli.Timeout = &s.Timeout
+	}
+	if s.ProbeTimeout > 0 {
+		cli.ProbeTimeout = &s.ProbeTimeout
+	}
+	if s.Format != "" {
+		cli.OutputFormat = s.Format
+	}
+	if s.Output != "" {
+		cli.OutputFile = s.Output
+	}
+
+	return cli
+}
+
 // expandGlobPatterns handles glob pattern expansion for probes and detectors
 func (s *ScanCmd) expandGlobPatterns(cfg *scanConfig) error {
 	// Handle glob patterns for probes
