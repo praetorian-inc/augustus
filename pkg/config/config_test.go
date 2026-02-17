@@ -966,3 +966,22 @@ func TestGeneratorConfig_ToRegistryConfig_ExtraOverridesTypedFields(t *testing.T
 	assert.Equal(t, 0.9, result["temperature"])
 	assert.Equal(t, "value", result["custom"])
 }
+
+// TestConfig_Validate_InvalidTimeout tests that Validate() rejects invalid timeout format
+func TestConfig_Validate_InvalidTimeout(t *testing.T) {
+	cfg := &Config{
+		Run: RunConfig{Timeout: "not-a-duration"},
+	}
+	err := cfg.Validate()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "run.timeout")
+}
+
+// TestConfig_Validate_ValidTimeout tests that Validate() accepts valid timeout format
+func TestConfig_Validate_ValidTimeout(t *testing.T) {
+	cfg := &Config{
+		Run: RunConfig{Timeout: "30s"},
+	}
+	err := cfg.Validate()
+	assert.NoError(t, err)
+}

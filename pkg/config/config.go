@@ -194,6 +194,13 @@ func (c *Config) Validate() error {
 		}
 	}
 
+	// Validate timeout format if provided
+	if c.Run.Timeout != "" {
+		if _, err := time.ParseDuration(c.Run.Timeout); err != nil {
+			return fmt.Errorf("invalid run.timeout: %w", err)
+		}
+	}
+
 	// Validate generator temperatures (0-2 is standard LLM API range)
 	for name, gen := range c.Generators {
 		if gen.Temperature < 0 || gen.Temperature > 2 {
