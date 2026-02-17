@@ -272,14 +272,12 @@ generators:
 #
 #   MALWARE PROBES:
 #     malwaregen.*    - Malware generation (3 variants)
-#     steganography.* - Steganographic encoding (1 variant)
 #
 #   SAFETY PROBES:
 #     avspamscanning.* - AV/spam signature generation (3 variants)
 #     browsing.*      - Browsing attack vectors (2 variants)
 #     divergence.*    - Output divergence (1 variant)
 #     multiagent.*    - Multi-agent attacks (2 variants)
-#     mindmap.*       - Visual deception (4 variants)
 #     webinjection.*  - Web injection payloads (6 variants)
 #
 #   RAG POISONING:

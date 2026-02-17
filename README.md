@@ -64,14 +64,14 @@ Unlike research-oriented tools, Augustus is built for production security testin
 
 - **Jailbreak attacks**: DAN, DAN 11.0, AIM, AntiGPT, Grandma, ArtPrompts
 - **Prompt injection**: Encoding (Base64, ROT13, Morse), Tag smuggling, FlipAttack, Prefix/Suffix injection
-- **Adversarial examples**: GCG, PAIR, AutoDAN, TAP (Tree of Attack Prompts), TreeSearch, MindMap, DRA
+- **Adversarial examples**: GCG, PAIR, AutoDAN, TAP (Tree of Attack Prompts), TreeSearch, DRA
 - **Data extraction**: API key leakage, Package hallucination, PII extraction, LeakReplay
 - **Context manipulation**: RAG poisoning, Context overflow, Multimodal attacks, Continuation, Divergence
 - **Format exploits**: Markdown injection, YAML/JSON parsing attacks, ANSI escape, Web injection (XSS)
 - **Evasion techniques**: Obfuscation, Character substitution, Translation-based attacks, Phrasing, ObscurePrompt
 - **Safety benchmarks**: DoNotAnswer, RealToxicityPrompts, Snowball, LMRC
 - **Agent attacks**: Multi-agent manipulation, Browsing exploits
-- **Security testing**: Guardrail bypass, AV/spam scanning, Exploitation (SQLi, code exec), Steganography, BadChars
+- **Security testing**: Guardrail bypass, AV/spam scanning, Exploitation (SQLi, code exec), BadChars
 
 > **Warning**: The `lmrc` probe uses profane and offensive language as part of its jailbreak testing. Use only in authorized testing environments.
 
