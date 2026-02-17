@@ -1,25 +1,42 @@
 # Augustus Configuration Example
 #
-# This file demonstrates the YAML configuration format for Augustus.
-# Use with (example):
-#   augustus scan openai.OpenAI --probe encoding.InjectBase64 --config-file examples/config.yaml
+# Use with:
+#   augustus scan openai.OpenAI --probe dan.Dan --config-file examples/config.yaml
+#   augustus scan openai.OpenAI --all --config-file examples/config.yaml --profile quick
 
 # Runtime configuration
 run:
   max_attempts: 3
   timeout: "30s"
+  concurrency: 10
+  probe_timeout: "5m"
 
-# Generator configurations
+# Generator configurations (ALL fields passed through to providers)
 generators:
   openai.OpenAI:
     model: "gpt-4"
     temperature: 0.7
-    api_key: "${OPENAI_API_KEY}"  # Environment variable interpolation
+    api_key: "${OPENAI_API_KEY}"
+    max_tokens: 4096        # NEW: provider-specific fields now work in YAML
+    top_p: 0.9
 
   anthropic.Anthropic:
     model: "claude-3-opus-20240229"
     temperature: 0.5
     api_key: "${ANTHROPIC_API_KEY}"
+
+  rest.Rest:                # NEW: REST config fully works in YAML
+    uri: "https://api.example.com/v1/chat/completions"
+    method: "POST"
+    headers:
+      Authorization: "Bearer ${API_KEY}"
+    req_template_json_object:
+      model: "custom-model"
+      messages:
+        - role: "user"
+          content: "$INPUT"
+    response_json: true
+    response_json_field: "$.choices[0].message.content"
 
   ollama.OllamaChat:
     model: "llama3.2:3b"
@@ -40,12 +57,13 @@ output:
   format: "jsonl"
   path: "./results.jsonl"
 
-# Named profiles for different scenarios
+# Named profiles (use with --profile flag)
 profiles:
   quick:
     run:
       max_attempts: 1
       timeout: "10s"
+      concurrency: 5
     generators:
       openai.OpenAI:
         model: "gpt-3.5-turbo"
@@ -57,6 +75,7 @@ profiles:
     run:
       max_attempts: 5
       timeout: "60s"
+      concurrency: 20
     generators:
       openai.OpenAI:
         model: "gpt-4"
