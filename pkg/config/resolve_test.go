@@ -113,3 +113,65 @@ func TestResolve_CLINilDoesNotOverrideYAML(t *testing.T) {
 	assert.Equal(t, 1*time.Hour, resolved.ScannerOpts.Timeout)
 	assert.Equal(t, 10*time.Minute, resolved.ScannerOpts.ProbeTimeout)
 }
+
+func TestResolve_TemperatureZeroIsValid(t *testing.T) {
+	yamlCfg := &Config{
+		Generators: map[string]GeneratorConfig{
+			"openai.OpenAI": {Model: "gpt-4", Temperature: 0.0},
+		},
+	}
+	cli := CLIOverrides{GeneratorName: "openai.OpenAI"}
+
+	resolved, err := Resolve(yamlCfg, cli)
+	require.NoError(t, err)
+
+	temp, exists := resolved.GeneratorConfig["temperature"]
+	assert.True(t, exists, "temperature=0.0 must be present")
+	assert.Equal(t, 0.0, temp)
+}
+
+func TestResolve_NoYAMLWithCLIJSON(t *testing.T) {
+	cli := CLIOverrides{
+		GeneratorName: "openai.OpenAI",
+		ConfigJSON:    `{"model":"gpt-4","api_key":"sk-test"}`,
+	}
+
+	resolved, err := Resolve(nil, cli)
+	require.NoError(t, err)
+
+	assert.Equal(t, "gpt-4", resolved.GeneratorConfig["model"])
+	assert.Equal(t, "sk-test", resolved.GeneratorConfig["api_key"])
+}
+
+func TestResolve_InvalidYAMLTimeout(t *testing.T) {
+	yamlCfg := &Config{Run: RunConfig{Timeout: "not-a-duration"}}
+	cli := CLIOverrides{GeneratorName: "openai.OpenAI"}
+
+	_, err := Resolve(yamlCfg, cli)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid run.timeout")
+}
+
+func TestResolve_InvalidCLIJSON(t *testing.T) {
+	cli := CLIOverrides{
+		GeneratorName: "openai.OpenAI",
+		ConfigJSON:    `{invalid`,
+	}
+
+	_, err := Resolve(nil, cli)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid config JSON")
+}
+
+func TestResolve_GeneratorNotInYAML(t *testing.T) {
+	yamlCfg := &Config{
+		Generators: map[string]GeneratorConfig{
+			"anthropic.Claude": {Model: "claude-3"},
+		},
+	}
+	cli := CLIOverrides{GeneratorName: "openai.OpenAI"}
+
+	resolved, err := Resolve(yamlCfg, cli)
+	require.NoError(t, err)
+	assert.Empty(t, resolved.GeneratorConfig)
+}
