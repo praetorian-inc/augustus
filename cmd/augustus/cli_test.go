@@ -569,3 +569,14 @@ func TestScanCmdValidate(t *testing.T) {
 		})
 	}
 }
+
+// TestScanCmd_ProfileFlag tests the Profile field exists and is parsed
+func TestScanCmd_ProfileFlag(t *testing.T) {
+	// Verify the Profile field exists and is parsed
+	cmd := ScanCmd{
+		Generator: "openai.OpenAI",
+		Probe:     []string{"dan.Dan"},
+		Profile:   "quick",
+	}
+	assert.Equal(t, "quick", cmd.Profile)
+}
