@@ -20,7 +20,6 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/praetorian-inc/augustus/pkg/results"
-	"github.com/praetorian-inc/augustus/pkg/scanner"
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
@@ -52,11 +51,33 @@ func (s *ScanCmd) execute() error {
 		return err
 	}
 
-	eval := s.createEvaluator(cfg)
+	// Load YAML config if provided
+	var yamlCfg *config.Config
+	if cfg.configFile != "" {
+		var err error
+		yamlCfg, err = config.LoadConfig(cfg.configFile)
+		if err != nil {
+			return fmt.Errorf("failed to load config file: %w", err)
+		}
+	}
+
+	// Resolve all configuration via unified precedence
+	cli := s.buildCLIOverrides()
+	resolved, err := config.Resolve(yamlCfg, cli)
+	if err != nil {
+		return fmt.Errorf("failed to resolve configuration: %w", err)
+	}
+
+	eval := s.createEvaluator(&scanConfig{
+		outputFormat: resolved.OutputFormat,
+		outputFile:   resolved.OutputFile,
+		htmlFile:     resolved.HTMLFile,
+		verbose:      s.Verbose,
+	})
 	ctx, cancel := s.setupContext()
 	defer cancel()
 
-	return runScan(ctx, cfg, eval)
+	return runScanResolved(ctx, cfg, yamlCfg, resolved, eval)
 }
 
 // loadScanConfig converts Kong struct to legacy scanConfig
@@ -185,143 +206,55 @@ func (s *ScanCmd) setupContext() (context.Context, context.CancelFunc) {
 	}
 }
 
-// runScan executes the scan with the given configuration.
+// runScan is a test helper that wraps runScanResolved with config resolution.
+// This maintains backward compatibility for existing tests.
 func runScan(ctx context.Context, cfg *scanConfig, eval harnesses.Evaluator) error {
-	// Parse generator config
-	var genConfig registry.Config
-	var scannerOpts *scanner.Options
+	// Load YAML config if provided
 	var yamlCfg *config.Config
-
-	// Load from YAML file if provided
 	if cfg.configFile != "" {
 		var err error
 		yamlCfg, err = config.LoadConfig(cfg.configFile)
 		if err != nil {
 			return fmt.Errorf("failed to load config file: %w", err)
 		}
-
-		// Extract generator config for the specified generator
-		generatorCfg, exists := yamlCfg.Generators[cfg.generatorName]
-		if !exists {
-			return fmt.Errorf("generator %q not found in config file", cfg.generatorName)
-		}
-
-		// Convert GeneratorConfig to registry.Config (map[string]any)
-		genConfig = registry.Config{
-			"model":       generatorCfg.Model,
-			"temperature": generatorCfg.Temperature,
-			"api_key":     generatorCfg.APIKey,
-			"rate_limit":  generatorCfg.RateLimit,
-		}
-	} else if cfg.configJSON != "" {
-		// Fall back to JSON config
-		if err := json.Unmarshal([]byte(cfg.configJSON), &genConfig); err != nil {
-			return fmt.Errorf("invalid config JSON: %w", err)
-		}
-	} else {
-		genConfig = registry.Config{}
 	}
 
-	// Wire up remaining config sections
-	if yamlCfg != nil {
-		scannerOpts = &scanner.Options{
-			Concurrency:  10,              // default
-			ProbeTimeout: 5 * time.Minute, // default
-			RetryCount:   0,
-			RetryBackoff: 1 * time.Second,
-		}
-
-		// Wire Run config
-		if yamlCfg.Run.Timeout != "" {
-			timeout, err := time.ParseDuration(yamlCfg.Run.Timeout)
-			if err != nil {
-				return fmt.Errorf("invalid run.timeout: %w", err)
-			}
-			scannerOpts.Timeout = timeout
-		} else {
-			scannerOpts.Timeout = 30 * time.Minute
-		}
-
-		// Wire Run.Concurrency from YAML
-		if yamlCfg.Run.Concurrency > 0 {
-			scannerOpts.Concurrency = yamlCfg.Run.Concurrency
-		}
-
-		// Wire Run.ProbeTimeout from YAML
-		if yamlCfg.Run.ProbeTimeout != "" {
-			probeTimeout, err := time.ParseDuration(yamlCfg.Run.ProbeTimeout)
-			if err != nil {
-				return fmt.Errorf("invalid run.probe_timeout: %w", err)
-			}
-			scannerOpts.ProbeTimeout = probeTimeout
-		}
-
-		if yamlCfg.Run.MaxAttempts > 0 {
-			scannerOpts.RetryCount = yamlCfg.Run.MaxAttempts
-		}
-
-		// Wire Output config (as defaults, CLI flags override)
-		if cfg.outputFormat == "" && yamlCfg.Output.Format != "" {
-			cfg.outputFormat = yamlCfg.Output.Format
-		}
-		if cfg.outputFile == "" && yamlCfg.Output.Path != "" {
-			cfg.outputFile = yamlCfg.Output.Path
-		}
+	// Build CLI overrides from scanConfig
+	cli := config.CLIOverrides{
+		GeneratorName: cfg.generatorName,
+		ConfigJSON:    cfg.configJSON,
+		OutputFormat:  cfg.outputFormat,
+		OutputFile:    cfg.outputFile,
+		HTMLFile:      cfg.htmlFile,
 	}
-
-	// CLI flags override YAML config
 	if cfg.concurrency > 0 {
-		if scannerOpts == nil {
-			scannerOpts = &scanner.Options{
-				Concurrency:  cfg.concurrency,
-				ProbeTimeout: cfg.probeTimeout,
-				Timeout:      cfg.timeout,
-				RetryCount:   0,
-				RetryBackoff: 1 * time.Second,
-			}
-		} else {
-			scannerOpts.Concurrency = cfg.concurrency
-		}
+		cli.Concurrency = &cfg.concurrency
 	}
-
+	if cfg.timeout > 0 {
+		cli.Timeout = &cfg.timeout
+	}
 	if cfg.probeTimeout > 0 {
-		if scannerOpts == nil {
-			scannerOpts = &scanner.Options{
-				Concurrency:  10,
-				ProbeTimeout: cfg.probeTimeout,
-				Timeout:      cfg.timeout,
-				RetryCount:   0,
-				RetryBackoff: 1 * time.Second,
-			}
-		} else {
-			scannerOpts.ProbeTimeout = cfg.probeTimeout
-		}
+		cli.ProbeTimeout = &cfg.probeTimeout
 	}
 
-	// Ensure scannerOpts exists even if no config provided
-	// Start with defaults, then override with CLI flags if set
-	if scannerOpts == nil {
-		defaults := scanner.DefaultOptions()
-		scannerOpts = &defaults
-		// Override with CLI flags only if explicitly set (non-zero)
-		if cfg.concurrency > 0 {
-			scannerOpts.Concurrency = cfg.concurrency
-		}
-		if cfg.probeTimeout > 0 {
-			scannerOpts.ProbeTimeout = cfg.probeTimeout
-		}
-		if cfg.timeout > 0 {
-			scannerOpts.Timeout = cfg.timeout
-		}
+	// Resolve configuration
+	resolved, err := config.Resolve(yamlCfg, cli)
+	if err != nil {
+		return fmt.Errorf("failed to resolve configuration: %w", err)
 	}
 
+	return runScanResolved(ctx, cfg, yamlCfg, resolved, eval)
+}
+
+// runScanResolved executes the scan with resolved configuration.
+func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Config, resolved *config.ResolvedConfig, eval harnesses.Evaluator) error {
 	// Create generator
-	gen, err := generators.Create(cfg.generatorName, genConfig)
+	gen, err := generators.Create(cfg.generatorName, resolved.GeneratorConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create generator %s: %w", cfg.generatorName, err)
 	}
 
-	// Get probe names (either from --all or specific flags)
+	// Get probe names
 	probeNames := cfg.probeNames
 	if cfg.allProbes {
 		probeNames = probes.List()
@@ -342,7 +275,7 @@ func runScan(ctx context.Context, cfg *scanConfig, eval harnesses.Evaluator) err
 		probeList = append(probeList, probe)
 	}
 
-	// Create detectors (use probe's primary detector if none specified)
+	// Create detectors
 	var detectorList []detectors.Detector
 	if len(cfg.detectorNames) > 0 {
 		detectorList = make([]detectors.Detector, 0, len(cfg.detectorNames))
@@ -358,15 +291,12 @@ func runScan(ctx context.Context, cfg *scanConfig, eval harnesses.Evaluator) err
 			detectorList = append(detectorList, detector)
 		}
 	} else {
-		// Collect unique primary detectors from ALL probes
 		uniqueDetectors := make(map[string]struct{})
 		for _, probe := range probeList {
-			// Use type assertion to check if probe implements ProbeMetadata
 			if pm, ok := probe.(types.ProbeMetadata); ok {
 				uniqueDetectors[pm.GetPrimaryDetector()] = struct{}{}
 			}
 		}
-
 		for detectorName := range uniqueDetectors {
 			var detCfg registry.Config
 			if yamlCfg != nil {
@@ -378,68 +308,48 @@ func runScan(ctx context.Context, cfg *scanConfig, eval harnesses.Evaluator) err
 			}
 			detectorList = append(detectorList, detector)
 		}
-
 		if len(detectorList) == 0 {
 			return errors.New("no detectors available")
 		}
 	}
 
-	// Create buffs (if configured)
-	var buffChain *buffs.BuffChain
-	// Get buff names from CLI or YAML config
+	// Create and apply buffs
 	buffNames := cfg.buffNames
 	if len(buffNames) == 0 && yamlCfg != nil && len(yamlCfg.Buffs.Names) > 0 {
 		buffNames = yamlCfg.Buffs.Names
 	}
-
 	if len(buffNames) > 0 {
 		buffList := make([]buffs.Buff, 0, len(buffNames))
 		for _, buffName := range buffNames {
-			// Get per-buff settings from YAML config if available
 			buffCfg := registry.Config{}
 			if yamlCfg != nil {
 				buffCfg = yamlCfg.ResolveBuffConfig(buffName)
 			}
-
 			buff, err := buffs.Create(buffName, buffCfg)
 			if err != nil {
 				return fmt.Errorf("failed to create buff %s: %w", buffName, err)
 			}
 			buffList = append(buffList, buff)
 		}
-		buffChain = buffs.NewBuffChain(buffList...)
-
-		fmt.Printf("Using %d buff(s): ", len(buffList))
-		for i, b := range buffList {
-			if i > 0 {
-				fmt.Print(", ")
+		buffChain := buffs.NewBuffChain(buffList...)
+		if !buffChain.IsEmpty() {
+			for i, probe := range probeList {
+				probeList[i] = buffs.NewBuffedProber(probe, buffChain)
 			}
-			fmt.Print(b.Name())
-		}
-		fmt.Println()
-	}
-
-	// Wrap probes with buffs if configured
-	if buffChain != nil && !buffChain.IsEmpty() {
-		for i, probe := range probeList {
-			probeList[i] = buffs.NewBuffedProber(probe, buffChain)
 		}
 	}
 
-	// Create harness
-	harnessConfig := registry.Config{}
-	if scannerOpts != nil {
-		harnessConfig["scanner_opts"] = scannerOpts
-		// Pass concurrency and timeout directly for harnesses that don't use scanner_opts
-		harnessConfig["concurrency"] = scannerOpts.Concurrency
-		harnessConfig["timeout"] = scannerOpts.Timeout
+	// Create harness with resolved scanner options
+	harnessConfig := registry.Config{
+		"scanner_opts": &resolved.ScannerOpts,
+		"concurrency":  resolved.ScannerOpts.Concurrency,
+		"timeout":      resolved.ScannerOpts.Timeout,
 	}
 	harness, err := harnesses.Create(cfg.harnessName, harnessConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create harness %s: %w", cfg.harnessName, err)
 	}
 
-	// Run the scan
 	return harness.Run(ctx, gen, probeList, detectorList, eval)
 }
 
