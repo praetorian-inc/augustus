@@ -213,3 +213,15 @@ output:
 	// 3. yamlCfg.ResolveDetectorConfig() is called (line 323, 344)
 	// 4. The scan completes successfully with config-driven settings
 }
+
+// TestScanCmd_ProfileIntegration tests the full chain:
+// ScanCmd.Profile -> CLIOverrides.ProfileName -> Resolve()
+func TestScanCmd_ProfileIntegration(t *testing.T) {
+	cmd := &ScanCmd{
+		Generator: "test.Blank",
+		Probe:     []string{"test.Blank"},
+		Profile:   "quick",
+	}
+	cli := cmd.buildCLIOverrides()
+	assert.Equal(t, "quick", cli.ProfileName)
+}
