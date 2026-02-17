@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // TestBasicYAMLLoading tests loading a single YAML configuration file
@@ -877,4 +878,28 @@ detectors:
 	judgeCfg, ok := harmCfg["judge_generator_config"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "sk-ant-test-123", judgeCfg["api_key"])
+}
+
+func TestGeneratorConfig_ExtraFieldsCaptured(t *testing.T) {
+	yamlData := []byte(`
+generators:
+  openai.OpenAI:
+    model: gpt-4
+    temperature: 0.7
+    api_key: sk-test
+    max_tokens: 4096
+    base_url: https://custom.api.com
+    top_p: 0.9
+`)
+	var cfg Config
+	err := yaml.Unmarshal(yamlData, &cfg)
+	require.NoError(t, err)
+
+	gen := cfg.Generators["openai.OpenAI"]
+	assert.Equal(t, "gpt-4", gen.Model)
+	assert.Equal(t, 0.7, gen.Temperature)
+	assert.Equal(t, "sk-test", gen.APIKey)
+	assert.Equal(t, 4096, gen.Extra["max_tokens"])
+	assert.Equal(t, "https://custom.api.com", gen.Extra["base_url"])
+	assert.Equal(t, 0.9, gen.Extra["top_p"])
 }
