@@ -57,3 +57,59 @@ func TestResolve_YAMLOverridesDefaults(t *testing.T) {
 	assert.Equal(t, "jsonl", resolved.OutputFormat)
 	assert.Equal(t, "/tmp/results.jsonl", resolved.OutputFile)
 }
+
+func TestResolve_CLIOverridesYAML(t *testing.T) {
+	yamlCfg := &Config{
+		Run: RunConfig{
+			Concurrency:  20,
+			Timeout:      "1h",
+			ProbeTimeout: "10m",
+		},
+	}
+
+	// CLI provides explicit overrides via pointer fields
+	concurrency := 50
+	timeout := 30 * time.Minute
+	probeTimeout := 5 * time.Minute
+
+	cli := CLIOverrides{
+		GeneratorName: "openai.OpenAI",
+		Concurrency:   &concurrency,
+		Timeout:       &timeout,
+		ProbeTimeout:  &probeTimeout,
+	}
+
+	resolved, err := Resolve(yamlCfg, cli)
+	require.NoError(t, err)
+
+	// CLI pointer values override YAML
+	assert.Equal(t, 50, resolved.ScannerOpts.Concurrency)
+	assert.Equal(t, 30*time.Minute, resolved.ScannerOpts.Timeout)
+	assert.Equal(t, 5*time.Minute, resolved.ScannerOpts.ProbeTimeout)
+}
+
+func TestResolve_CLINilDoesNotOverrideYAML(t *testing.T) {
+	yamlCfg := &Config{
+		Run: RunConfig{
+			Concurrency:  20,
+			Timeout:      "1h",
+			ProbeTimeout: "10m",
+		},
+	}
+
+	// CLI provides no overrides (nil pointers)
+	cli := CLIOverrides{
+		GeneratorName: "openai.OpenAI",
+		Concurrency:   nil,
+		Timeout:       nil,
+		ProbeTimeout:  nil,
+	}
+
+	resolved, err := Resolve(yamlCfg, cli)
+	require.NoError(t, err)
+
+	// YAML values preserved when CLI pointers are nil
+	assert.Equal(t, 20, resolved.ScannerOpts.Concurrency)
+	assert.Equal(t, 1*time.Hour, resolved.ScannerOpts.Timeout)
+	assert.Equal(t, 10*time.Minute, resolved.ScannerOpts.ProbeTimeout)
+}
