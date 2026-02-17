@@ -32,9 +32,9 @@
 # -----------------------------------------------------------------------------
 run:
   max_attempts: 3
-  timeout: "120s"
+  timeout: "60m"
   concurrency: 4
-  probe_timeout: "60s"
+  probe_timeout: "2m"
 
 # -----------------------------------------------------------------------------
 # Generator Configurations (28 providers, 43+ variants)
