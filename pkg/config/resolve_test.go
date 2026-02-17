@@ -175,3 +175,39 @@ func TestResolve_GeneratorNotInYAML(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, resolved.GeneratorConfig)
 }
+
+func TestResolve_ProfileApplied(t *testing.T) {
+	yamlCfg := &Config{
+		Run: RunConfig{
+			Concurrency: 10,
+		},
+		Generators: map[string]GeneratorConfig{
+			"openai.OpenAI": {
+				Model: "gpt-4",
+			},
+		},
+		Profiles: map[string]Profile{
+			"quick": {
+				Run: RunConfig{
+					Concurrency: 2,
+				},
+				Generators: map[string]GeneratorConfig{
+					"openai.OpenAI": {
+						Model: "gpt-3.5-turbo",
+					},
+				},
+			},
+		},
+	}
+	cli := CLIOverrides{
+		GeneratorName: "openai.OpenAI",
+		ProfileName:   "quick",
+	}
+
+	resolved, err := Resolve(yamlCfg, cli)
+	require.NoError(t, err)
+
+	// Profile values should override base config
+	assert.Equal(t, 2, resolved.ScannerOpts.Concurrency, "profile should override concurrency")
+	assert.Equal(t, "gpt-3.5-turbo", resolved.GeneratorConfig["model"], "profile should override model")
+}
