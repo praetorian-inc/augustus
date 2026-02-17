@@ -5,8 +5,10 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/config"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/probes"
@@ -224,4 +226,56 @@ func TestScanCmd_ProfileIntegration(t *testing.T) {
 	}
 	cli := cmd.buildCLIOverrides()
 	assert.Equal(t, "quick", cli.ProfileName)
+}
+
+// TestScanCmd_SetupContextUsesResolvedTimeout tests that setupContext uses
+// the resolved timeout from config, not the raw CLI field.
+func TestScanCmd_SetupContextUsesResolvedTimeout(t *testing.T) {
+	// Create YAML config with explicit timeout
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "timeout-config.yaml")
+	yamlContent := `
+run:
+  timeout: "100ms"
+`
+	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	require.NoError(t, err)
+
+	// ScanCmd with NO timeout flag (Timeout = 0) - the bug condition
+	cmd := &ScanCmd{
+		Generator:  "test.Repeat",
+		Probe:      []string{"test.Test"},
+		Harness:    "probewise.Probewise",
+		ConfigFile: configPath,
+		Timeout:    0, // NOT SET via CLI
+	}
+
+	// Load config and resolve to get the actual timeout value
+	yamlCfg, err := config.LoadConfig(configPath)
+	require.NoError(t, err)
+
+	cli := cmd.buildCLIOverrides()
+	resolved, err := config.Resolve(yamlCfg, cli)
+	require.NoError(t, err)
+
+	// Call setupContextWithTimeout with resolved timeout
+	ctx, cancel := cmd.setupContextWithTimeout(resolved.ScannerOpts.Timeout)
+	defer cancel()
+
+	// The bug: this context has already expired because setupContext uses s.Timeout (0)
+	// Expected: context should have 100ms deadline from YAML config
+
+	// Check if context deadline exists
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		t.Fatal("context should have a deadline")
+	}
+
+	// With the bug: deadline is already in the past (0 duration)
+	// After fix: deadline should be ~100ms in the future
+	timeUntilDeadline := deadline.Sub(time.Now())
+
+	// This assertion will FAIL with the bug (timeUntilDeadline will be negative or ~0)
+	// After fix, it should be positive (close to 100ms)
+	assert.Greater(t, timeUntilDeadline, time.Duration(0), "context deadline should be in the future, not expired")
 }

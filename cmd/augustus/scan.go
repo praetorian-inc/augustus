@@ -74,7 +74,7 @@ func (s *ScanCmd) execute() error {
 		htmlFile:     resolved.HTMLFile,
 		verbose:      s.Verbose,
 	})
-	ctx, cancel := s.setupContext()
+	ctx, cancel := s.setupContextWithTimeout(resolved.ScannerOpts.Timeout)
 	defer cancel()
 
 	return runScanResolved(ctx, cfg, yamlCfg, resolved, eval)
@@ -195,11 +195,11 @@ func (s *ScanCmd) createEvaluator(cfg *scanConfig) harnesses.Evaluator {
 	return eval
 }
 
-// setupContext creates context with timeout and signal handling.
+// setupContextWithTimeout creates context with timeout and signal handling.
 // The returned cancel func MUST be called to avoid leaking timers/resources.
-func (s *ScanCmd) setupContext() (context.Context, context.CancelFunc) {
+func (s *ScanCmd) setupContextWithTimeout(timeout time.Duration) (context.Context, context.CancelFunc) {
 	baseCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	ctx, cancel := context.WithTimeout(baseCtx, s.Timeout)
+	ctx, cancel := context.WithTimeout(baseCtx, timeout)
 	return ctx, func() {
 		stop()
 		cancel()
