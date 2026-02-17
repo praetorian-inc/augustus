@@ -285,6 +285,30 @@ generators:
 #
 # -----------------------------------------------------------------------------
 
+# -----------------------------------------------------------------------------
+# Judge Configuration (Global)
+# -----------------------------------------------------------------------------
+#
+# Defines the default LLM judge used by both probes (PAIR, TAP) and detectors
+# (judge.Judge, judge.Refusal). This eliminates config duplication - configure
+# the judge once here, and all components inherit it automatically.
+#
+# Per-probe or per-detector overrides are still available in their respective
+# settings sections.
+#
+# -----------------------------------------------------------------------------
+
+judge:
+  generator_type: "anthropic.Anthropic"
+  model: "claude-opus-4-6"
+  config:
+    temperature: 0.0
+    api_key: "${ANTHROPIC_API_KEY}"
+
+# -----------------------------------------------------------------------------
+# Probes Configuration
+# -----------------------------------------------------------------------------
+
 probes:
   encoding:
     enabled: true
@@ -294,13 +318,6 @@ probes:
   attacker_config:
     model: "claude-opus-4-6"
     temperature: 1.0
-    api_key: "${ANTHROPIC_API_KEY}"
-
-  # Judge generator for evaluation probes
-  judge_generator_type: "anthropic.Anthropic"
-  judge_config:
-    model: "claude-opus-4-6"
-    temperature: 0.0
     api_key: "${ANTHROPIC_API_KEY}"
 
   # Per-probe settings (override globals for specific probes)

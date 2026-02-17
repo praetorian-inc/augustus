@@ -705,6 +705,39 @@ func TestResolveProbeConfig(t *testing.T) {
 				"judge_config":            map[string]any{"model": "claude-sonnet"}, // preserved
 			},
 		},
+		{
+			name: "global judge config flows to probe config",
+			config: Config{
+				Judge: JudgeGlobalConfig{
+					GeneratorType: "anthropic.Anthropic",
+					Model:         "claude-3-haiku",
+					Config:        map[string]any{"api_key": "test-key"},
+				},
+			},
+			probeName: "pair.IterativePAIR",
+			wantKeys: map[string]any{
+				"judge_generator_type": "anthropic.Anthropic",
+				"judge_config":         map[string]any{"model": "claude-3-haiku", "api_key": "test-key"},
+			},
+		},
+		{
+			name: "probe-level judge overrides global judge",
+			config: Config{
+				Judge: JudgeGlobalConfig{
+					GeneratorType: "openai.OpenAI",
+					Model:         "gpt-4o-mini",
+				},
+				Probes: ProbeConfig{
+					JudgeGeneratorType: "anthropic.Anthropic",
+					JudgeConfig:        map[string]any{"model": "claude-sonnet"},
+				},
+			},
+			probeName: "pair.IterativePAIR",
+			wantKeys: map[string]any{
+				"judge_generator_type": "anthropic.Anthropic",
+				"judge_config":         map[string]any{"model": "claude-sonnet"},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -758,6 +791,42 @@ func TestResolveDetectorConfig(t *testing.T) {
 			},
 			detectorName: "any.Detector",
 			wantKeys:     map[string]any{},
+		},
+		{
+			name: "global judge config flows to detector config",
+			config: Config{
+				Judge: JudgeGlobalConfig{
+					GeneratorType: "anthropic.Anthropic",
+					Model:         "claude-3-haiku",
+					Config:        map[string]any{"api_key": "test-key"},
+				},
+			},
+			detectorName: "judge.Judge",
+			wantKeys: map[string]any{
+				"judge_generator_type":   "anthropic.Anthropic",
+				"judge_generator_config": map[string]any{"model": "claude-3-haiku", "api_key": "test-key"},
+			},
+		},
+		{
+			name: "per-detector settings override global judge",
+			config: Config{
+				Judge: JudgeGlobalConfig{
+					GeneratorType: "openai.OpenAI",
+					Model:         "gpt-4o-mini",
+				},
+				Detectors: DetectorConfig{
+					Settings: map[string]map[string]any{
+						"judge.Judge": {
+							"judge_generator_type": "anthropic.Anthropic",
+						},
+					},
+				},
+			},
+			detectorName: "judge.Judge",
+			wantKeys: map[string]any{
+				"judge_generator_type":   "anthropic.Anthropic",
+				"judge_generator_config": map[string]any{"model": "gpt-4o-mini"},
+			},
 		},
 	}
 

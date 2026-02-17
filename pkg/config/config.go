@@ -10,6 +10,7 @@ import (
 type Config struct {
 	Run        RunConfig                  `yaml:"run" koanf:"run"`
 	Generators map[string]GeneratorConfig `yaml:"generators" koanf:"generators"`
+	Judge      JudgeGlobalConfig          `yaml:"judge,omitempty" koanf:"judge"`
 	Probes     ProbeConfig                `yaml:"probes" koanf:"probes"`
 	Detectors  DetectorConfig             `yaml:"detectors" koanf:"detectors"`
 	Buffs      BuffConfig                 `yaml:"buffs,omitempty" koanf:"buffs"`
@@ -17,10 +18,20 @@ type Config struct {
 	Profiles   map[string]Profile         `yaml:"profiles,omitempty" koanf:"profiles"`
 }
 
+// JudgeGlobalConfig defines the default LLM judge used across probes and detectors.
+// This eliminates config duplication: probes (PAIR, TAP) and detectors (judge.Judge,
+// judge.Refusal) both inherit from this section, with per-component overrides available.
+type JudgeGlobalConfig struct {
+	GeneratorType string         `yaml:"generator_type,omitempty" koanf:"generator_type"`
+	Model         string         `yaml:"model,omitempty" koanf:"model"`
+	Config        map[string]any `yaml:"config,omitempty" koanf:"config"`
+}
+
 // Profile represents a named configuration profile
 type Profile struct {
 	Run        RunConfig                  `yaml:"run"`
 	Generators map[string]GeneratorConfig `yaml:"generators,omitempty"`
+	Judge      JudgeGlobalConfig          `yaml:"judge,omitempty"`
 	Probes     ProbeConfig                `yaml:"probes,omitempty"`
 	Detectors  DetectorConfig             `yaml:"detectors,omitempty"`
 	Buffs      BuffConfig                 `yaml:"buffs,omitempty"`
@@ -111,13 +122,35 @@ type OutputConfig struct {
 	Path   string `yaml:"path" koanf:"path"`
 }
 
+// injectJudgeConfig injects global judge config into a registry config map.
+// typeKey and configKey are parameterized because probes use "judge_config"
+// while detectors use "judge_generator_config" for the generator's config map.
+func (c *Config) injectJudgeConfig(cfg map[string]any, typeKey, configKey string) {
+	if c.Judge.GeneratorType != "" {
+		cfg[typeKey] = c.Judge.GeneratorType
+	}
+	if c.Judge.Model != "" || len(c.Judge.Config) > 0 {
+		genCfg := make(map[string]any)
+		if c.Judge.Model != "" {
+			genCfg["model"] = c.Judge.Model
+		}
+		for k, v := range c.Judge.Config {
+			genCfg[k] = v
+		}
+		cfg[configKey] = genCfg
+	}
+}
+
 // ResolveProbeConfig builds a registry config for a specific probe by merging
-// global attacker/judge defaults with per-probe settings from the Settings map.
-// Resolution order: per-probe settings override global attacker/judge config.
+// global judge defaults, probe-level attacker/judge defaults, and per-probe settings.
+// Resolution order: global judge → probe-level globals → per-probe settings.
 func (c *Config) ResolveProbeConfig(probeName string) map[string]any {
 	cfg := make(map[string]any)
 
-	// Layer 1: Global attacker/judge config from probes section
+	// Layer 0: Global judge config (lowest priority fallback)
+	c.injectJudgeConfig(cfg, "judge_generator_type", "judge_config")
+
+	// Layer 1: Global attacker/judge config from probes section (overrides global judge)
 	if c.Probes.AttackerGeneratorType != "" {
 		cfg["attacker_generator_type"] = c.Probes.AttackerGeneratorType
 	}
@@ -143,11 +176,16 @@ func (c *Config) ResolveProbeConfig(probeName string) map[string]any {
 	return cfg
 }
 
-// ResolveDetectorConfig builds a registry config for a specific detector
-// from per-detector settings in the Settings map.
+// ResolveDetectorConfig builds a registry config for a specific detector by merging
+// global judge defaults with per-detector settings from the Settings map.
+// Resolution order: global judge → per-detector settings.
 func (c *Config) ResolveDetectorConfig(detectorName string) map[string]any {
 	cfg := make(map[string]any)
 
+	// Layer 0: Global judge config (inherited by all detectors; non-judge detectors ignore these keys)
+	c.injectJudgeConfig(cfg, "judge_generator_type", "judge_generator_config")
+
+	// Layer 1: Per-detector settings override globals
 	if c.Detectors.Settings != nil {
 		if settings, ok := c.Detectors.Settings[detectorName]; ok {
 			for k, v := range settings {
@@ -257,6 +295,22 @@ func (c *Config) Merge(other *Config) {
 		c.Generators[name] = existing
 	}
 
+	// Merge judge config
+	if other.Judge.GeneratorType != "" {
+		c.Judge.GeneratorType = other.Judge.GeneratorType
+	}
+	if other.Judge.Model != "" {
+		c.Judge.Model = other.Judge.Model
+	}
+	if len(other.Judge.Config) > 0 {
+		if c.Judge.Config == nil {
+			c.Judge.Config = make(map[string]any)
+		}
+		for k, v := range other.Judge.Config {
+			c.Judge.Config[k] = v
+		}
+	}
+
 	// Merge probes
 	if other.Probes.Encoding.Enabled {
 		c.Probes.Encoding.Enabled = other.Probes.Encoding.Enabled
@@ -300,6 +354,7 @@ func (c *Config) ApplyProfile(profileName string) error {
 	profileConfig := &Config{
 		Run:        profile.Run,
 		Generators: profile.Generators,
+		Judge:      profile.Judge,
 		Probes:     profile.Probes,
 		Detectors:  profile.Detectors,
 		Buffs:      profile.Buffs,

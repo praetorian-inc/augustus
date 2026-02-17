@@ -31,8 +31,8 @@ type Config struct {
 // DefaultConfig returns a config with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
-		JudgeGeneratorType:   "openai.OpenAI",
-		JudgeModel:           "gpt-4o-mini",
+		JudgeGeneratorType:   "", // Must be configured via YAML judge section or detector settings
+		JudgeModel:           "", // Must be configured via YAML judge section or detector settings
 		JudgeGeneratorConfig: make(registry.Config),
 		ConfidenceCutoff:     7,
 		CacheEnabled:         true,

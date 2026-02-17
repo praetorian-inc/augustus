@@ -12,8 +12,8 @@ import (
 func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
-	assert.Equal(t, "openai.OpenAI", cfg.JudgeGeneratorType)
-	assert.Equal(t, "gpt-4o-mini", cfg.JudgeModel)
+	assert.Equal(t, "", cfg.JudgeGeneratorType)
+	assert.Equal(t, "", cfg.JudgeModel)
 	assert.Equal(t, 7, cfg.ConfidenceCutoff)
 	assert.True(t, cfg.CacheEnabled)
 	assert.Empty(t, cfg.DetectorGoal)
@@ -39,11 +39,18 @@ func TestConfigFromMap(t *testing.T) {
 }
 
 func TestConfigFromMapDefaults(t *testing.T) {
-	// Empty config should use defaults
+	// Empty config should use defaults (empty generator type, not OpenAI)
 	cfg, err := ConfigFromMap(registry.Config{})
 	require.NoError(t, err)
 
 	assert.Equal(t, DefaultConfig(), cfg)
+}
+
+func TestConfigFromMapRequiresGeneratorType(t *testing.T) {
+	// Empty config no longer defaults to openai.OpenAI
+	cfg, err := ConfigFromMap(registry.Config{})
+	require.NoError(t, err)
+	assert.Equal(t, "", cfg.JudgeGeneratorType, "empty config should not default to openai")
 }
 
 func TestConfigFromMapWithGeneratorConfig(t *testing.T) {

@@ -140,6 +140,13 @@ func interpolateConfigEnvVars(cfg *Config) error {
 		cfg.Generators[name] = gen
 	}
 
+	// Interpolate judge config
+	if cfg.Judge.Config != nil {
+		if err := interpolateMapEnvVars(cfg.Judge.Config, getenv); err != nil {
+			return err
+		}
+	}
+
 	// Interpolate output config
 	if cfg.Output.Path != "" {
 		path, err := interpolateEnvVars(cfg.Output.Path, getenv)
