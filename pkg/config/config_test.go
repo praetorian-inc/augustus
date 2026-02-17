@@ -903,3 +903,66 @@ generators:
 	assert.Equal(t, "https://custom.api.com", gen.Extra["base_url"])
 	assert.Equal(t, 0.9, gen.Extra["top_p"])
 }
+
+// TestGeneratorConfig_ToRegistryConfig tests converting GeneratorConfig to registry config map
+func TestGeneratorConfig_ToRegistryConfig(t *testing.T) {
+	gen := GeneratorConfig{
+		Model:       "gpt-4",
+		Temperature: 0.7,
+		APIKey:      "sk-test",
+		RateLimit:   10.5,
+		Extra: map[string]any{
+			"max_tokens": 4096,
+			"base_url":   "https://custom.api.com",
+			"top_p":      0.9,
+		},
+	}
+
+	result := gen.ToRegistryConfig()
+
+	// Typed fields should be in the map
+	assert.Equal(t, "gpt-4", result["model"])
+	assert.Equal(t, 0.7, result["temperature"])
+	assert.Equal(t, "sk-test", result["api_key"])
+	assert.Equal(t, 10.5, result["rate_limit"])
+
+	// Extra fields should also be in the map
+	assert.Equal(t, 4096, result["max_tokens"])
+	assert.Equal(t, "https://custom.api.com", result["base_url"])
+	assert.Equal(t, 0.9, result["top_p"])
+}
+
+// TestGeneratorConfig_ToRegistryConfig_TemperatureZero tests that temperature:0 is preserved
+func TestGeneratorConfig_ToRegistryConfig_TemperatureZero(t *testing.T) {
+	gen := GeneratorConfig{
+		Model:       "gpt-4",
+		Temperature: 0.0, // Explicitly zero
+		APIKey:      "sk-test",
+	}
+
+	result := gen.ToRegistryConfig()
+
+	// Zero temperature must be preserved (not omitted)
+	assert.Equal(t, 0.0, result["temperature"])
+	assert.Contains(t, result, "temperature")
+}
+
+// TestGeneratorConfig_ToRegistryConfig_ExtraOverridesTypedFields tests that Extra fields override typed fields
+func TestGeneratorConfig_ToRegistryConfig_ExtraOverridesTypedFields(t *testing.T) {
+	gen := GeneratorConfig{
+		Model:       "gpt-4",
+		Temperature: 0.7,
+		Extra: map[string]any{
+			"model":       "gpt-3.5-turbo", // Override model
+			"temperature": 0.9,             // Override temperature
+			"custom":      "value",         // Extra field
+		},
+	}
+
+	result := gen.ToRegistryConfig()
+
+	// Extra fields should override typed fields
+	assert.Equal(t, "gpt-3.5-turbo", result["model"])
+	assert.Equal(t, 0.9, result["temperature"])
+	assert.Equal(t, "value", result["custom"])
+}

@@ -44,6 +44,29 @@ type GeneratorConfig struct {
 	Extra       map[string]any `yaml:",inline" koanf:",remain"`
 }
 
+// ToRegistryConfig converts GeneratorConfig to a registry config map,
+// including both typed fields and Extra fields. Extra fields override typed fields if present.
+func (g GeneratorConfig) ToRegistryConfig() map[string]any {
+	cfg := make(map[string]any)
+
+	// Layer 1: Add typed fields
+	cfg["model"] = g.Model
+	cfg["temperature"] = g.Temperature
+	if g.APIKey != "" {
+		cfg["api_key"] = g.APIKey
+	}
+	if g.RateLimit != 0 {
+		cfg["rate_limit"] = g.RateLimit
+	}
+
+	// Layer 2: Add Extra fields (overrides typed fields if present)
+	for k, v := range g.Extra {
+		cfg[k] = v
+	}
+
+	return cfg
+}
+
 // ProbeConfig contains probe-specific configuration
 type ProbeConfig struct {
 	Encoding              EncodingProbeConfig        `yaml:"encoding"`
