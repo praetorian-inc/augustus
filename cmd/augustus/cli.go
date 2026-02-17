@@ -110,6 +110,11 @@ func (s *ScanCmd) Validate() error {
 		return fmt.Errorf("cannot use both --config-file and --config")
 	}
 
+	// Profile requires config file
+	if s.Profile != "" && s.ConfigFile == "" {
+		return fmt.Errorf("--profile requires --config-file")
+	}
+
 	return nil
 }
 
