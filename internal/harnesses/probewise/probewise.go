@@ -96,7 +96,11 @@ func (p *Probewise) Run(
 		errMsg := ""
 		if probeErr != nil {
 			status = "✗"
-			errMsg = fmt.Sprintf(" (%s)", probeErr)
+			msg := probeErr.Error()
+			if len(msg) > 80 {
+				msg = msg[:77] + "..."
+			}
+			errMsg = fmt.Sprintf(" (%s)", msg)
 		}
 		fmt.Fprintf(os.Stderr, "[%d/%d] %s %s%s (%s)\n",
 			completed, total, probeName, status, errMsg, elapsed.Round(time.Millisecond))
@@ -112,7 +116,11 @@ func (p *Probewise) Run(
 	// Detection and evaluation are fast operations that should always complete.
 	evalCtx := ctx
 	if ctx.Err() != nil {
-		evalCtx = context.Background()
+		// Safety timeout for detection/evaluation phase.
+		// This is generous because judge-based detectors call LLMs.
+		var evalCancel context.CancelFunc
+		evalCtx, evalCancel = context.WithTimeout(context.Background(), 5*time.Minute)
+		defer evalCancel()
 	}
 
 	// If scanner failed with zero attempts, nothing to process
@@ -147,8 +155,11 @@ func (p *Probewise) Run(
 
 			scores, err := detector.Detect(evalCtx, a)
 			if err != nil {
-				return fmt.Errorf("detector %s failed on probe %s: %w",
-					detector.Name(), a.Probe, err)
+				slog.Warn("detector failed, skipping",
+					"detector", detector.Name(),
+					"probe", a.Probe,
+					"error", err)
+				continue
 			}
 
 			// Store detector results
