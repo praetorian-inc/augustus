@@ -276,3 +276,25 @@ run:
 	assert.Equal(t, 100*time.Millisecond, resolved.ScannerOpts.Timeout,
 		"resolved timeout should come from YAML config")
 }
+
+// TestCreateProbes_Basic tests that createProbes creates probes from names.
+func TestCreateProbes_Basic(t *testing.T) {
+	probeList, err := createProbes([]string{"test.Test"}, nil)
+	require.NoError(t, err)
+	assert.Len(t, probeList, 1)
+	assert.Equal(t, "test.Test", probeList[0].Name())
+}
+
+// TestCreateProbes_InvalidName tests that createProbes returns error for invalid probe name.
+func TestCreateProbes_InvalidName(t *testing.T) {
+	_, err := createProbes([]string{"nonexistent.Probe"}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create probe")
+}
+
+// TestCreateProbes_Empty tests that createProbes handles empty probe list.
+func TestCreateProbes_Empty(t *testing.T) {
+	probeList, err := createProbes([]string{}, nil)
+	require.NoError(t, err)
+	assert.Len(t, probeList, 0)
+}

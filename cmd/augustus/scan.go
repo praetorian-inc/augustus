@@ -243,6 +243,23 @@ func runScan(ctx context.Context, cfg *scanConfig, eval harnesses.Evaluator) err
 	return runScanResolved(ctx, cfg, yamlCfg, resolved, eval)
 }
 
+// createProbes creates probe instances from probe names.
+func createProbes(probeNames []string, yamlCfg *config.Config) ([]probes.Prober, error) {
+	probeList := make([]probes.Prober, 0, len(probeNames))
+	for _, probeName := range probeNames {
+		var probeCfg registry.Config
+		if yamlCfg != nil {
+			probeCfg = yamlCfg.ResolveProbeConfig(probeName)
+		}
+		probe, err := probes.Create(probeName, probeCfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create probe %s: %w", probeName, err)
+		}
+		probeList = append(probeList, probe)
+	}
+	return probeList, nil
+}
+
 // runScanResolved executes the scan with resolved configuration.
 func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Config, resolved *config.ResolvedConfig, eval harnesses.Evaluator) error {
 	// Create generator
@@ -259,17 +276,9 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	}
 
 	// Create probes
-	probeList := make([]probes.Prober, 0, len(probeNames))
-	for _, probeName := range probeNames {
-		var probeCfg registry.Config
-		if yamlCfg != nil {
-			probeCfg = yamlCfg.ResolveProbeConfig(probeName)
-		}
-		probe, err := probes.Create(probeName, probeCfg)
-		if err != nil {
-			return fmt.Errorf("failed to create probe %s: %w", probeName, err)
-		}
-		probeList = append(probeList, probe)
+	probeList, err := createProbes(probeNames, yamlCfg)
+	if err != nil {
+		return err
 	}
 
 	// Create detectors
