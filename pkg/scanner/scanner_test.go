@@ -326,7 +326,7 @@ func TestOptions_DefaultValues(t *testing.T) {
 
 	assert.Greater(t, opts.Concurrency, 0, "should have default concurrency")
 	assert.Equal(t, time.Duration(0), opts.Timeout, "default timeout should be 0 (no global timeout; per-probe timeouts control execution)")
-	assert.Greater(t, opts.ProbeTimeout, time.Duration(0), "should have default per-probe timeout")
+	assert.Equal(t, time.Duration(0), opts.ProbeTimeout, "default probe timeout should be 0 (no timeout; set explicitly when needed)")
 }
 
 func TestScanner_New(t *testing.T) {

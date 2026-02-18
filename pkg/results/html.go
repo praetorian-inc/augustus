@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -26,6 +27,11 @@ import (
 func WriteHTML(outputPath string, attempts []*attempt.Attempt) error {
 	// Compute summary statistics
 	summary := ComputeSummary(attempts)
+
+	// Create parent directories if they don't exist
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		return fmt.Errorf("failed to create parent directories: %w", err)
+	}
 
 	// Create output file
 	file, err := os.Create(outputPath)

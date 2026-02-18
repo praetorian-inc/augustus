@@ -229,3 +229,28 @@ func TestWriteHTML_InlineCSS(t *testing.T) {
 		t.Error("Should not have external CSS links (must be self-contained)")
 	}
 }
+
+func TestWriteHTML_CreatesParentDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "nested", "dir", "report.html")
+
+	attempts := []*attempt.Attempt{
+		{
+			Probe:     "test.Test",
+			Detector:  "always.Pass",
+			Prompt:    "test",
+			Outputs:   []string{"ok"},
+			Scores:    []float64{0.0},
+			Timestamp: time.Now(),
+		},
+	}
+
+	err := WriteHTML(outputPath, attempts)
+	if err != nil {
+		t.Fatalf("WriteHTML failed with nested directory: %v", err)
+	}
+
+	if _, err := os.Stat(outputPath); os.IsNotExist(err) {
+		t.Fatalf("Output file not created at nested path: %s", outputPath)
+	}
+}

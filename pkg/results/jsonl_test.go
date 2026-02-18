@@ -186,3 +186,34 @@ func TestWriteJSONL_PassedField(t *testing.T) {
 		t.Errorf("Expected second attempt to fail (score=0.9), got passed=%v", result2.Passed)
 	}
 }
+
+func TestWriteJSONL_CreatesParentDirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	// Nested path where parent doesn't exist yet
+	outputPath := filepath.Join(tmpDir, "nested", "dir", "results.jsonl")
+
+	now := time.Now()
+	attempts := []*attempt.Attempt{
+		{
+			ID:        "test-1",
+			Probe:     "test.Test",
+			Generator: "test.Repeat",
+			Detector:  "always.Pass",
+			Prompt:    "Hello",
+			Outputs:   []string{"World"},
+			Scores:    []float64{0.1},
+			Timestamp: now,
+			Status:    attempt.StatusComplete,
+		},
+	}
+
+	err := WriteJSONL(outputPath, attempts)
+	if err != nil {
+		t.Fatalf("WriteJSONL failed with nested directory: %v", err)
+	}
+
+	// Verify file was created
+	if _, err := os.Stat(outputPath); os.IsNotExist(err) {
+		t.Fatalf("Output file not created at nested path: %s", outputPath)
+	}
+}
