@@ -315,8 +315,10 @@ func TestProbewise_Run_DetectorError(t *testing.T) {
 
 	h := New()
 	err := h.Run(ctx, gen, []probes.Prober{probe}, []detectors.Detector{detector}, eval)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "detection failed")
+	// Detector errors should be logged and skipped, not abort execution
+	require.NoError(t, err)
+	// Evaluator should still be called with the probe results
+	assert.True(t, eval.called, "evaluator should be called even when detector fails")
 }
 
 func TestProbewise_Run_EvaluatorError(t *testing.T) {
