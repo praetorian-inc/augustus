@@ -14,7 +14,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/harnesses"
@@ -143,58 +142,9 @@ func (p *Probewise) Run(
 			a.Generator = gen.Name()
 		}
 
-		// Run each detector and track highest score (Option 4 fix)
-		maxScore := 0.0
-		primaryDetector := ""
-		var primaryScores []float64
-		firstDetector := ""
-		var firstScores []float64
-
-		for _, detector := range detectorList {
-			slog.Debug("running detector", "detector", detector.Name(), "probe", a.Probe)
-
-			scores, err := detector.Detect(evalCtx, a)
-			if err != nil {
-				slog.Warn("detector failed, skipping",
-					"detector", detector.Name(),
-					"probe", a.Probe,
-					"error", err)
-				continue
-			}
-
-			// Store detector results
-			a.SetDetectorResults(detector.Name(), scores)
-
-			// Remember first detector as fallback
-			if firstDetector == "" {
-				firstDetector = detector.Name()
-				firstScores = scores
-			}
-
-			// Track detector with highest score
-			for _, score := range scores {
-				if score > maxScore {
-					maxScore = score
-					primaryDetector = detector.Name()
-					primaryScores = scores
-				}
-			}
-		}
-
-		// Set primary detector to one with highest score
-		// If no detector had scores, use first detector
-		// This ensures console and JSONL outputs are consistent
-		if primaryDetector != "" {
-			a.Detector = primaryDetector
-			a.Scores = primaryScores
-		} else if firstDetector != "" {
-			a.Detector = firstDetector
-			a.Scores = firstScores
-		}
-
-		// Mark attempt as complete only if not in error state
-		if a.Status != attempt.StatusError {
-			a.Complete()
+		// Run detectors using shared logic (SkipOnError for partial results)
+		if err := harnesses.ApplyDetectors(evalCtx, a, detectorList, harnesses.SkipOnError); err != nil {
+			return err
 		}
 	}
 
