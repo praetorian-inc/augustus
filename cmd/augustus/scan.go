@@ -305,6 +305,38 @@ func createDetectors(detectorNames []string, probeList []probes.Prober, yamlCfg 
 	return detectorList, nil
 }
 
+// createAndApplyBuffs creates buff instances and applies them to probes.
+func createAndApplyBuffs(probeList []probes.Prober, buffNames []string, yamlCfg *config.Config) ([]probes.Prober, error) {
+	if len(buffNames) == 0 {
+		return probeList, nil
+	}
+
+	buffList := make([]buffs.Buff, 0, len(buffNames))
+	for _, buffName := range buffNames {
+		buffCfg := registry.Config{}
+		if yamlCfg != nil {
+			buffCfg = yamlCfg.ResolveBuffConfig(buffName)
+		}
+		buff, err := buffs.Create(buffName, buffCfg)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create buff %s: %w", buffName, err)
+		}
+		buffList = append(buffList, buff)
+	}
+
+	buffChain := buffs.NewBuffChain(buffList...)
+	if buffChain.IsEmpty() {
+		return probeList, nil
+	}
+
+	wrappedProbes := make([]probes.Prober, len(probeList))
+	for i, probe := range probeList {
+		wrappedProbes[i] = buffs.NewBuffedProber(probe, buffChain)
+	}
+
+	return wrappedProbes, nil
+}
+
 // runScanResolved executes the scan with resolved configuration.
 func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Config, resolved *config.ResolvedConfig, eval harnesses.Evaluator) error {
 	// Create generator
@@ -337,25 +369,9 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	if len(buffNames) == 0 && yamlCfg != nil && len(yamlCfg.Buffs.Names) > 0 {
 		buffNames = yamlCfg.Buffs.Names
 	}
-	if len(buffNames) > 0 {
-		buffList := make([]buffs.Buff, 0, len(buffNames))
-		for _, buffName := range buffNames {
-			buffCfg := registry.Config{}
-			if yamlCfg != nil {
-				buffCfg = yamlCfg.ResolveBuffConfig(buffName)
-			}
-			buff, err := buffs.Create(buffName, buffCfg)
-			if err != nil {
-				return fmt.Errorf("failed to create buff %s: %w", buffName, err)
-			}
-			buffList = append(buffList, buff)
-		}
-		buffChain := buffs.NewBuffChain(buffList...)
-		if !buffChain.IsEmpty() {
-			for i, probe := range probeList {
-				probeList[i] = buffs.NewBuffedProber(probe, buffChain)
-			}
-		}
+	probeList, err = createAndApplyBuffs(probeList, buffNames, yamlCfg)
+	if err != nil {
+		return err
 	}
 
 	// Create harness with resolved scanner options

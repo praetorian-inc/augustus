@@ -322,3 +322,26 @@ func TestCreateDetectors_NoneAvailable(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no detectors available")
 }
+
+// TestCreateAndApplyBuffs_Empty tests that createAndApplyBuffs returns original probes when no buffs.
+func TestCreateAndApplyBuffs_Empty(t *testing.T) {
+	probeList, err := createProbes([]string{"test.Test"}, nil)
+	require.NoError(t, err)
+
+	resultProbes, err := createAndApplyBuffs(probeList, []string{}, nil)
+	require.NoError(t, err)
+	assert.Len(t, resultProbes, 1)
+	assert.Equal(t, probeList[0], resultProbes[0], "should return original probes unchanged")
+}
+
+// TestCreateAndApplyBuffs_WithBuffs tests that createAndApplyBuffs wraps probes with buff chain.
+func TestCreateAndApplyBuffs_WithBuffs(t *testing.T) {
+	probeList, err := createProbes([]string{"test.Test"}, nil)
+	require.NoError(t, err)
+
+	resultProbes, err := createAndApplyBuffs(probeList, []string{"encoding.Base64"}, nil)
+	require.NoError(t, err)
+	assert.Len(t, resultProbes, 1)
+	// After applying buffs, probes should be wrapped (different instance)
+	assert.NotEqual(t, probeList[0], resultProbes[0], "probes should be wrapped with buffs")
+}
