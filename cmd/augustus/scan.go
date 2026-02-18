@@ -260,6 +260,51 @@ func createProbes(probeNames []string, yamlCfg *config.Config) ([]probes.Prober,
 	return probeList, nil
 }
 
+// createDetectors creates detector instances from explicit names or auto-discovers from probes.
+func createDetectors(detectorNames []string, probeList []probes.Prober, yamlCfg *config.Config) ([]detectors.Detector, error) {
+	var detectorList []detectors.Detector
+
+	if len(detectorNames) > 0 {
+		// Explicit detector names provided
+		detectorList = make([]detectors.Detector, 0, len(detectorNames))
+		for _, detectorName := range detectorNames {
+			var detCfg registry.Config
+			if yamlCfg != nil {
+				detCfg = yamlCfg.ResolveDetectorConfig(detectorName)
+			}
+			detector, err := detectors.Create(detectorName, detCfg)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create detector %s: %w", detectorName, err)
+			}
+			detectorList = append(detectorList, detector)
+		}
+	} else {
+		// Auto-discover detectors from probe metadata
+		uniqueDetectors := make(map[string]struct{})
+		for _, probe := range probeList {
+			if pm, ok := probe.(types.ProbeMetadata); ok {
+				uniqueDetectors[pm.GetPrimaryDetector()] = struct{}{}
+			}
+		}
+		for detectorName := range uniqueDetectors {
+			var detCfg registry.Config
+			if yamlCfg != nil {
+				detCfg = yamlCfg.ResolveDetectorConfig(detectorName)
+			}
+			detector, err := detectors.Create(detectorName, detCfg)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create detector %s: %w", detectorName, err)
+			}
+			detectorList = append(detectorList, detector)
+		}
+		if len(detectorList) == 0 {
+			return nil, errors.New("no detectors available")
+		}
+	}
+
+	return detectorList, nil
+}
+
 // runScanResolved executes the scan with resolved configuration.
 func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Config, resolved *config.ResolvedConfig, eval harnesses.Evaluator) error {
 	// Create generator
@@ -282,41 +327,9 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	}
 
 	// Create detectors
-	var detectorList []detectors.Detector
-	if len(cfg.detectorNames) > 0 {
-		detectorList = make([]detectors.Detector, 0, len(cfg.detectorNames))
-		for _, detectorName := range cfg.detectorNames {
-			var detCfg registry.Config
-			if yamlCfg != nil {
-				detCfg = yamlCfg.ResolveDetectorConfig(detectorName)
-			}
-			detector, err := detectors.Create(detectorName, detCfg)
-			if err != nil {
-				return fmt.Errorf("failed to create detector %s: %w", detectorName, err)
-			}
-			detectorList = append(detectorList, detector)
-		}
-	} else {
-		uniqueDetectors := make(map[string]struct{})
-		for _, probe := range probeList {
-			if pm, ok := probe.(types.ProbeMetadata); ok {
-				uniqueDetectors[pm.GetPrimaryDetector()] = struct{}{}
-			}
-		}
-		for detectorName := range uniqueDetectors {
-			var detCfg registry.Config
-			if yamlCfg != nil {
-				detCfg = yamlCfg.ResolveDetectorConfig(detectorName)
-			}
-			detector, err := detectors.Create(detectorName, detCfg)
-			if err != nil {
-				return fmt.Errorf("failed to create detector %s: %w", detectorName, err)
-			}
-			detectorList = append(detectorList, detector)
-		}
-		if len(detectorList) == 0 {
-			return errors.New("no detectors available")
-		}
+	detectorList, err := createDetectors(cfg.detectorNames, probeList, yamlCfg)
+	if err != nil {
+		return err
 	}
 
 	// Create and apply buffs

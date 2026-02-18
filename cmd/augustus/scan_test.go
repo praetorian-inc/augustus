@@ -298,3 +298,27 @@ func TestCreateProbes_Empty(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, probeList, 0)
 }
+
+// TestCreateDetectors_ExplicitList tests that createDetectors creates detectors from explicit names.
+func TestCreateDetectors_ExplicitList(t *testing.T) {
+	detectorList, err := createDetectors([]string{"always.Pass"}, nil, nil)
+	require.NoError(t, err)
+	assert.Len(t, detectorList, 1)
+}
+
+// TestCreateDetectors_DerivedFromProbes tests that createDetectors auto-discovers from probe metadata.
+func TestCreateDetectors_DerivedFromProbes(t *testing.T) {
+	probeList, err := createProbes([]string{"test.Test"}, nil)
+	require.NoError(t, err)
+
+	detectorList, err := createDetectors(nil, probeList, nil)
+	require.NoError(t, err)
+	assert.NotEmpty(t, detectorList, "should auto-discover detectors from probes")
+}
+
+// TestCreateDetectors_NoneAvailable tests that createDetectors returns error when no detectors available.
+func TestCreateDetectors_NoneAvailable(t *testing.T) {
+	_, err := createDetectors(nil, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no detectors available")
+}
