@@ -7,6 +7,7 @@ package badchars
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
@@ -28,11 +29,6 @@ func init() {
 	}
 }
 
-const (
-	defaultDeletionBudget       = 1  // How many deletion pairs to inject per variant
-	defaultDeletionMaxPositions = 24 // Maximum positions to consider for injection
-	defaultMaxASCIIVariants     = 95 // Maximum ASCII chars to use (all printable by default)
-)
 
 // deletionVariant represents a generated prompt variant with deletion/backspace pairs.
 type deletionVariant struct {
@@ -53,12 +49,19 @@ type Deletions struct {
 }
 
 // NewDeletions creates a new Deletions probe.
-func NewDeletions(_ registry.Config) (probes.Prober, error) {
+func NewDeletions(cfg registry.Config) (probes.Prober, error) {
+	dcfg, err := DeletionsConfigFromMap(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("bad config: %w", err)
+	}
+
+	asciiChars := selectDeletionASCII(dcfg.MaxASCIIVariants)
+
 	prompts, metadata := generateAllDeletionVariants(
 		defaultPayloads,
-		defaultDeletionBudget,
-		defaultDeletionMaxPositions,
-		defaultMaxASCIIVariants,
+		dcfg.Budget,
+		dcfg.MaxPositions,
+		asciiChars,
 	)
 
 	return &Deletions{
@@ -175,12 +178,12 @@ func selectASCII(limit int) []rune {
 }
 
 // generateAllDeletionVariants generates all prompt variants for all payloads.
-func generateAllDeletionVariants(payloads []string, budget, maxPositions, maxASCII int) ([]string, []map[string]any) {
+func generateAllDeletionVariants(payloads []string, budget, maxPositions int, asciiChars []rune) ([]string, []map[string]any) {
 	var prompts []string
 	var metadata []map[string]any
 
 	for payloadIdx, payload := range payloads {
-		variants := generateDeletionVariants(payload, budget, maxPositions, maxASCII)
+		variants := generateDeletionVariants(payload, budget, maxPositions, asciiChars)
 
 		for _, v := range variants {
 			prompts = append(prompts, v.text)
@@ -198,7 +201,7 @@ func generateAllDeletionVariants(payloads []string, budget, maxPositions, maxASC
 }
 
 // generateDeletionVariants generates variants of a payload with deletion/backspace pairs injected.
-func generateDeletionVariants(payload string, budget, maxPositions, maxASCII int) []deletionVariant {
+func generateDeletionVariants(payload string, budget, maxPositions int, asciiChars []rune) []deletionVariant {
 	if payload == "" {
 		return nil
 	}
@@ -209,8 +212,8 @@ func generateDeletionVariants(payload string, budget, maxPositions, maxASCII int
 		return nil
 	}
 
-	// Select ASCII characters to use
-	asciiCandidates := selectASCII(maxASCII)
+	// Use provided ASCII characters
+	asciiCandidates := asciiChars
 	if len(asciiCandidates) == 0 {
 		return nil
 	}

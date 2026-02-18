@@ -150,9 +150,9 @@ func TestGenerateDeletionVariants(t *testing.T) {
 	payload := "test"
 	budget := 1
 	maxPositions := 3
-	maxASCII := 5
+	asciiChars := selectASCII(5)
 
-	variants := generateDeletionVariants(payload, budget, maxPositions, maxASCII)
+	variants := generateDeletionVariants(payload, budget, maxPositions, asciiChars)
 	assert.NotEmpty(t, variants, "Should generate variants")
 
 	// Check that variants contain backspace
@@ -175,9 +175,9 @@ func TestDeletionVariantStructure(t *testing.T) {
 	payload := "hello"
 	budget := 1
 	maxPositions := 2
-	maxASCII := 3
+	asciiChars := selectASCII(3)
 
-	variants := generateDeletionVariants(payload, budget, maxPositions, maxASCII)
+	variants := generateDeletionVariants(payload, budget, maxPositions, asciiChars)
 	require.NotEmpty(t, variants, "Should generate variants")
 
 	// Each variant should have metadata

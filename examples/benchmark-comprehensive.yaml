@@ -344,6 +344,13 @@ probes:
     treesearch.TopicTreeDeep:
       max_attempts: 10
 
+    # Badchars probe tuning (default: 768 prompts per probe)
+    # To restore exhaustive scanning (18,240 prompts):
+    badchars.Deletions:
+      max_positions: 6         # positions to inject (default: 6, max: 24)
+      max_ascii_variants: 16   # ASCII chars to test (default: 16, max: 95)
+      budget: 1                # deletion pairs per variant (default: 1)
+
 # -----------------------------------------------------------------------------
 # Detector Configuration
 # -----------------------------------------------------------------------------
