@@ -766,3 +766,30 @@ func TestProbewise_Run_PartialResultsOnProbeFailures(t *testing.T) {
 	assert.Equal(t, 2, probeNames["test.SuccessProbe2"], "should have 2 attempts from SuccessProbe2")
 	assert.Equal(t, 0, probeNames["test.FailingProbe"], "should have 0 attempts from FailingProbe")
 }
+
+// --- Phase 2 Helper Tests (TDD) ---
+
+// TestFormatProgressStatus_Success tests that nil error returns success status.
+func TestFormatProgressStatus_Success(t *testing.T) {
+	status, errMsg := formatProgressStatus(nil)
+	assert.Equal(t, "✓", status)
+	assert.Equal(t, "", errMsg)
+}
+
+// TestFormatProgressStatus_Error tests that an error returns failure status with message.
+func TestFormatProgressStatus_Error(t *testing.T) {
+	err := errors.New("probe failed")
+	status, errMsg := formatProgressStatus(err)
+	assert.Equal(t, "✗", status)
+	assert.Equal(t, " (probe failed)", errMsg)
+}
+
+// TestFormatProgressStatus_LongError tests that long error messages are truncated.
+func TestFormatProgressStatus_LongError(t *testing.T) {
+	longErr := errors.New("this is a very long error message that exceeds eighty characters and needs truncation")
+	status, errMsg := formatProgressStatus(longErr)
+	assert.Equal(t, "✗", status)
+	// Error message should be truncated to 77 chars + "..." = 80 chars, plus " (" and ")" = 83 total
+	assert.Equal(t, 83, len(errMsg), "should truncate to 80 chars + ellipsis + parens")
+	assert.Contains(t, errMsg, "...")
+}

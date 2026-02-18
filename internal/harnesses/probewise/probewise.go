@@ -55,6 +55,19 @@ func (p *Probewise) Description() string {
 	return "Executes probes one at a time, running detectors on each probe's attempts"
 }
 
+// formatProgressStatus formats the progress status symbol and error message.
+// Returns "✓" with empty error message on success, or "✗" with formatted error on failure.
+func formatProgressStatus(probeErr error) (status, errMsg string) {
+	if probeErr == nil {
+		return "✓", ""
+	}
+	msg := probeErr.Error()
+	if len(msg) > 80 {
+		msg = msg[:77] + "..."
+	}
+	return "✗", fmt.Sprintf(" (%s)", msg)
+}
+
 // Run executes the probe-by-probe scan workflow.
 //
 // It validates inputs, then for each probe:
@@ -91,16 +104,7 @@ func (p *Probewise) Run(
 
 	// Wire up progress logging to stderr
 	s.SetProgressCallback(func(probeName string, completed, total int, elapsed time.Duration, probeErr error) {
-		status := "✓"
-		errMsg := ""
-		if probeErr != nil {
-			status = "✗"
-			msg := probeErr.Error()
-			if len(msg) > 80 {
-				msg = msg[:77] + "..."
-			}
-			errMsg = fmt.Sprintf(" (%s)", msg)
-		}
+		status, errMsg := formatProgressStatus(probeErr)
 		fmt.Fprintf(os.Stderr, "[%d/%d] %s %s%s (%s)\n",
 			completed, total, probeName, status, errMsg, elapsed.Round(time.Millisecond))
 	})
