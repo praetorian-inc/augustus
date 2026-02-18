@@ -68,16 +68,32 @@ func (s *ScanCmd) execute() error {
 		return fmt.Errorf("failed to resolve configuration: %w", err)
 	}
 
+	// Create streaming JSONL writer if output path specified.
+	// When streaming is active, JSONL is written incrementally per-attempt,
+	// so the collectingEvaluator only handles HTML output.
+	var streamWriter *results.StreamWriter
+	var onAttemptProcessed func(*attempt.Attempt)
+	collectJSONLPath := resolved.OutputFile
+	if resolved.OutputFile != "" {
+		streamWriter, err = results.NewStreamWriter(resolved.OutputFile)
+		if err != nil {
+			return fmt.Errorf("failed to create stream writer: %w", err)
+		}
+		defer streamWriter.Close()
+		onAttemptProcessed = streamWriter.Append
+		collectJSONLPath = "" // Streaming handles JSONL; don't double-write
+	}
+
 	eval := s.createEvaluator(&scanConfig{
 		outputFormat: resolved.OutputFormat,
-		outputFile:   resolved.OutputFile,
+		outputFile:   collectJSONLPath,
 		htmlFile:     resolved.HTMLFile,
 		verbose:      s.Verbose,
 	})
 	ctx, cancel := s.setupContext()
 	defer cancel()
 
-	return runScanResolved(ctx, cfg, yamlCfg, resolved, eval)
+	return runScanResolved(ctx, cfg, yamlCfg, resolved, eval, onAttemptProcessed)
 }
 
 // loadScanConfig converts Kong struct to legacy scanConfig
@@ -240,7 +256,7 @@ func runScan(ctx context.Context, cfg *scanConfig, eval harnesses.Evaluator) err
 		return fmt.Errorf("failed to resolve configuration: %w", err)
 	}
 
-	return runScanResolved(ctx, cfg, yamlCfg, resolved, eval)
+	return runScanResolved(ctx, cfg, yamlCfg, resolved, eval, nil)
 }
 
 // createProbes creates probe instances from probe names.
@@ -338,7 +354,7 @@ func createAndApplyBuffs(probeList []probes.Prober, buffNames []string, yamlCfg 
 }
 
 // runScanResolved executes the scan with resolved configuration.
-func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Config, resolved *config.ResolvedConfig, eval harnesses.Evaluator) error {
+func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Config, resolved *config.ResolvedConfig, eval harnesses.Evaluator, onAttemptProcessed func(*attempt.Attempt)) error {
 	// Create generator
 	gen, err := generators.Create(cfg.generatorName, resolved.GeneratorConfig)
 	if err != nil {
@@ -379,6 +395,9 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 		"scanner_opts": &resolved.ScannerOpts,
 		"concurrency":  resolved.ScannerOpts.Concurrency,
 		"timeout":      resolved.ScannerOpts.Timeout,
+	}
+	if onAttemptProcessed != nil {
+		harnessConfig["on_attempt_processed"] = onAttemptProcessed
 	}
 	harness, err := harnesses.Create(cfg.harnessName, harnessConfig)
 	if err != nil {

@@ -38,7 +38,8 @@ var (
 // 4. Marks the attempt as complete
 // 5. Calls the evaluator with all attempts
 type Probewise struct{
-	opts *scanner.Options
+	opts               *scanner.Options
+	onAttemptProcessed func(*attempt.Attempt)
 }
 
 // New creates a new probewise harness.
@@ -160,7 +161,7 @@ func (p *Probewise) Run(
 	// Continue processing successful attempts even if some probes failed.
 	// We'll report probe errors at the end, after processing partial results.
 
-	// Apply detectors to all attempts (sequential, but fast)
+	// Apply detectors to all attempts and stream results
 	for _, a := range results.Attempts {
 		// Check context cancellation between attempts
 		if err := evalCtx.Err(); err != nil {
@@ -175,6 +176,11 @@ func (p *Probewise) Run(
 		// Run detectors using shared logic (SkipOnError for partial results)
 		if err := harnesses.ApplyDetectors(evalCtx, a, detectorList, harnesses.SkipOnError); err != nil {
 			return err
+		}
+
+		// Stream result immediately after detection
+		if p.onAttemptProcessed != nil {
+			p.onAttemptProcessed(a)
 		}
 	}
 
@@ -198,6 +204,10 @@ func init() {
 		// Extract scanner options if provided
 		if scannerOpts, ok := cfg["scanner_opts"].(*scanner.Options); ok {
 			p.opts = scannerOpts
+		}
+		// Extract streaming callback if provided
+		if cb, ok := cfg["on_attempt_processed"].(func(*attempt.Attempt)); ok {
+			p.onAttemptProcessed = cb
 		}
 		return p, nil
 	})
