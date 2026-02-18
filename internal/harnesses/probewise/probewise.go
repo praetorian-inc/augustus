@@ -14,6 +14,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/harnesses"
@@ -75,6 +76,28 @@ func createFreshEvalContext(scanCtx context.Context) (context.Context, context.C
 		return scanCtx, func() {}
 	}
 	return context.WithTimeout(context.Background(), 5*time.Minute)
+}
+
+// reportScanErrors checks for probe failures and scan-level errors and returns appropriate error.
+// Returns nil if no errors occurred.
+func reportScanErrors(results *scanner.Results, scanErr error, allAttempts []*attempt.Attempt) error {
+	// Check for probe failures first
+	if len(results.Errors) > 0 {
+		// Log each probe error
+		for _, err := range results.Errors {
+			slog.Error("probe failed", "error", err)
+		}
+		// Return error indicating how many probes failed
+		return fmt.Errorf("%d of %d probes failed", results.Failed, results.Total)
+	}
+
+	// Check for scan-level errors (e.g., timeout)
+	if scanErr != nil {
+		return fmt.Errorf("scan interrupted after processing %d/%d probes (%d attempts): %w",
+			results.Succeeded, results.Total, len(allAttempts), scanErr)
+	}
+
+	return nil
 }
 
 // Run executes the probe-by-probe scan workflow.
@@ -164,24 +187,8 @@ func (p *Probewise) Run(
 		}
 	}
 
-	// Report probe failures after processing partial results
-	if len(results.Errors) > 0 {
-		// Log each probe error
-		for _, err := range results.Errors {
-			slog.Error("probe failed", "error", err)
-		}
-
-		// Return error indicating how many probes failed
-		return fmt.Errorf("%d of %d probes failed", results.Failed, results.Total)
-	}
-
-	// Report scan-level errors (e.g., timeout) after processing partial results
-	if scanErr != nil {
-		return fmt.Errorf("scan interrupted after processing %d/%d probes (%d attempts): %w",
-			results.Succeeded, results.Total, len(allAttempts), scanErr)
-	}
-
-	return nil
+	// Report any scan errors (probe failures or scan-level errors)
+	return reportScanErrors(&results, scanErr, allAttempts)
 }
 
 // init registers the probewise harness with the global registry.

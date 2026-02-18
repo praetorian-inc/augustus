@@ -14,6 +14,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/results"
+	"github.com/praetorian-inc/augustus/pkg/scanner"
 )
 
 // --- Mock Implementations ---
@@ -821,4 +822,67 @@ func TestCreateFreshEvalContext_ScanContextExpired(t *testing.T) {
 	expectedDeadline := time.Now().Add(5 * time.Minute)
 	timeDiff := expectedDeadline.Sub(deadline)
 	assert.Less(t, timeDiff, 2*time.Second, "deadline should be approximately 5 minutes from now")
+}
+
+// TestReportScanErrors_NoErrors tests that when there are no errors, nil is returned.
+func TestReportScanErrors_NoErrors(t *testing.T) {
+	// Successful results with no errors
+	results := &scanner.Results{
+		Total:     3,
+		Succeeded: 3,
+		Failed:    0,
+		Errors:    nil,
+	}
+	allAttempts := []*attempt.Attempt{
+		{Probe: "test.Probe1"},
+		{Probe: "test.Probe2"},
+		{Probe: "test.Probe3"},
+	}
+
+	err := reportScanErrors(results, nil, allAttempts)
+	assert.NoError(t, err, "should return nil when no errors")
+}
+
+// TestReportScanErrors_ProbeFailures tests that probe failures are reported with count.
+func TestReportScanErrors_ProbeFailures(t *testing.T) {
+	// Results with probe failures
+	results := &scanner.Results{
+		Total:     3,
+		Succeeded: 1,
+		Failed:    2,
+		Errors: []error{
+			errors.New("probe1 failed"),
+			errors.New("probe2 failed"),
+		},
+	}
+	allAttempts := []*attempt.Attempt{
+		{Probe: "test.SuccessProbe"},
+	}
+
+	err := reportScanErrors(results, nil, allAttempts)
+	require.Error(t, err, "should return error when probes failed")
+	assert.Contains(t, err.Error(), "2 of 3 probes failed")
+}
+
+// TestReportScanErrors_ScanTimeout tests that scan timeout errors are reported with context.
+func TestReportScanErrors_ScanTimeout(t *testing.T) {
+	// Results with scan timeout
+	results := &scanner.Results{
+		Total:     3,
+		Succeeded: 2,
+		Failed:    0,
+		Errors:    nil,
+	}
+	scanErr := context.DeadlineExceeded
+	allAttempts := []*attempt.Attempt{
+		{Probe: "test.Probe1"},
+		{Probe: "test.Probe2"},
+	}
+
+	err := reportScanErrors(results, scanErr, allAttempts)
+	require.Error(t, err, "should return error when scan timed out")
+	assert.Contains(t, err.Error(), "scan interrupted")
+	assert.Contains(t, err.Error(), "2/3 probes")
+	assert.Contains(t, err.Error(), "2 attempts")
+	assert.Contains(t, err.Error(), "context deadline exceeded")
 }
