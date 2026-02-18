@@ -34,7 +34,9 @@ run:
   max_attempts: 3
   timeout: "60m"
   concurrency: 4
-  probe_timeout: "2m"
+  # probe_timeout not set — inherits from CLI or default (0 = no timeout).
+  # CPU-based models (Ollama) can take 10+ minutes per probe; cloud APIs return in seconds.
+  # Set explicitly via --probe-timeout flag when needed.
 
 # -----------------------------------------------------------------------------
 # Generator Configurations (28 providers, 43+ variants)
