@@ -228,9 +228,23 @@ func TestScanCmd_ProfileIntegration(t *testing.T) {
 	assert.Equal(t, "quick", cli.ProfileName)
 }
 
-// TestScanCmd_SetupContextUsesResolvedTimeout tests that setupContext uses
-// the resolved timeout from config, not the raw CLI field.
-func TestScanCmd_SetupContextUsesResolvedTimeout(t *testing.T) {
+// TestScanCmd_SetupContextNoDeadline tests that setupContext does NOT apply
+// a timeout to the context. Scan timeouts are handled by the scanner package
+// so that partial results can still be processed after scanning completes.
+func TestScanCmd_SetupContextNoDeadline(t *testing.T) {
+	cmd := &ScanCmd{}
+
+	ctx, cancel := cmd.setupContext()
+	defer cancel()
+
+	// setupContext should NOT set a deadline - only signal handling
+	_, hasDeadline := ctx.Deadline()
+	assert.False(t, hasDeadline, "setupContext should not set a deadline; scanner handles timeouts")
+}
+
+// TestScanCmd_ResolvedTimeoutPassedToScanner tests that YAML config timeout
+// is correctly resolved and would be passed to scanner options.
+func TestScanCmd_ResolvedTimeoutPassedToScanner(t *testing.T) {
 	// Create YAML config with explicit timeout
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "timeout-config.yaml")
@@ -241,16 +255,16 @@ run:
 	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
 	require.NoError(t, err)
 
-	// ScanCmd with NO timeout flag (Timeout = 0) - the bug condition
+	// ScanCmd with NO timeout flag (Timeout = 0)
 	cmd := &ScanCmd{
 		Generator:  "test.Repeat",
 		Probe:      []string{"test.Test"},
 		Harness:    "probewise.Probewise",
 		ConfigFile: configPath,
-		Timeout:    0, // NOT SET via CLI
+		Timeout:    0,
 	}
 
-	// Load config and resolve to get the actual timeout value
+	// Load config and resolve
 	yamlCfg, err := config.LoadConfig(configPath)
 	require.NoError(t, err)
 
@@ -258,24 +272,7 @@ run:
 	resolved, err := config.Resolve(yamlCfg, cli)
 	require.NoError(t, err)
 
-	// Call setupContextWithTimeout with resolved timeout
-	ctx, cancel := cmd.setupContextWithTimeout(resolved.ScannerOpts.Timeout)
-	defer cancel()
-
-	// The bug: this context has already expired because setupContext uses s.Timeout (0)
-	// Expected: context should have 100ms deadline from YAML config
-
-	// Check if context deadline exists
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		t.Fatal("context should have a deadline")
-	}
-
-	// With the bug: deadline is already in the past (0 duration)
-	// After fix: deadline should be ~100ms in the future
-	timeUntilDeadline := deadline.Sub(time.Now())
-
-	// This assertion will FAIL with the bug (timeUntilDeadline will be negative or ~0)
-	// After fix, it should be positive (close to 100ms)
-	assert.Greater(t, timeUntilDeadline, time.Duration(0), "context deadline should be in the future, not expired")
+	// Verify resolved timeout matches YAML config (100ms)
+	assert.Equal(t, 100*time.Millisecond, resolved.ScannerOpts.Timeout,
+		"resolved timeout should come from YAML config")
 }

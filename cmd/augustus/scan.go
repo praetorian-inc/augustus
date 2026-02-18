@@ -74,7 +74,7 @@ func (s *ScanCmd) execute() error {
 		htmlFile:     resolved.HTMLFile,
 		verbose:      s.Verbose,
 	})
-	ctx, cancel := s.setupContextWithTimeout(resolved.ScannerOpts.Timeout)
+	ctx, cancel := s.setupContext()
 	defer cancel()
 
 	return runScanResolved(ctx, cfg, yamlCfg, resolved, eval)
@@ -195,15 +195,12 @@ func (s *ScanCmd) createEvaluator(cfg *scanConfig) harnesses.Evaluator {
 	return eval
 }
 
-// setupContextWithTimeout creates context with timeout and signal handling.
-// The returned cancel func MUST be called to avoid leaking timers/resources.
-func (s *ScanCmd) setupContextWithTimeout(timeout time.Duration) (context.Context, context.CancelFunc) {
-	baseCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	ctx, cancel := context.WithTimeout(baseCtx, timeout)
-	return ctx, func() {
-		stop()
-		cancel()
-	}
+// setupContext creates a context with signal handling for graceful shutdown.
+// Scan timeout is handled by the scanner package, not the context, so that
+// partial results can still be processed after the scanning phase completes.
+func (s *ScanCmd) setupContext() (context.Context, context.CancelFunc) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	return ctx, stop
 }
 
 // runScan is a test helper that wraps runScanResolved with config resolution.

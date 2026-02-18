@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
@@ -87,11 +89,35 @@ func (p *Probewise) Run(
 		opts = *p.opts
 	}
 	s := scanner.New(opts)
+
+	// Wire up progress logging to stderr
+	s.SetProgressCallback(func(probeName string, completed, total int, elapsed time.Duration, probeErr error) {
+		status := "✓"
+		errMsg := ""
+		if probeErr != nil {
+			status = "✗"
+			errMsg = fmt.Sprintf(" (%s)", probeErr)
+		}
+		fmt.Fprintf(os.Stderr, "[%d/%d] %s %s%s (%s)\n",
+			completed, total, probeName, status, errMsg, elapsed.Round(time.Millisecond))
+	})
+
 	results := s.Run(ctx, probeList, gen)
 
-	// Check for scanner-level errors (context cancellation, etc.)
-	if results.Error != nil {
-		return results.Error
+	// Capture scanner-level errors but don't return yet - process partial results first.
+	// When scan times out, completed probes have their attempts in results.Attempts.
+	scanErr := results.Error
+
+	// If scan context expired, create a fresh context for detection and evaluation.
+	// Detection and evaluation are fast operations that should always complete.
+	evalCtx := ctx
+	if ctx.Err() != nil {
+		evalCtx = context.Background()
+	}
+
+	// If scanner failed with zero attempts, nothing to process
+	if scanErr != nil && len(results.Attempts) == 0 {
+		return fmt.Errorf("scan failed with no results: %w", scanErr)
 	}
 
 	// Continue processing successful attempts even if some probes failed.
@@ -100,7 +126,7 @@ func (p *Probewise) Run(
 	// Apply detectors to all attempts (sequential, but fast)
 	for _, a := range results.Attempts {
 		// Check context cancellation between attempts
-		if err := ctx.Err(); err != nil {
+		if err := evalCtx.Err(); err != nil {
 			return err
 		}
 
@@ -119,7 +145,7 @@ func (p *Probewise) Run(
 		for _, detector := range detectorList {
 			slog.Debug("running detector", "detector", detector.Name(), "probe", a.Probe)
 
-			scores, err := detector.Detect(ctx, a)
+			scores, err := detector.Detect(evalCtx, a)
 			if err != nil {
 				return fmt.Errorf("detector %s failed on probe %s: %w",
 					detector.Name(), a.Probe, err)
@@ -165,7 +191,7 @@ func (p *Probewise) Run(
 
 	// Call evaluator if provided (even with partial results)
 	if eval != nil && len(allAttempts) > 0 {
-		if err := eval.Evaluate(ctx, allAttempts); err != nil {
+		if err := eval.Evaluate(evalCtx, allAttempts); err != nil {
 			return fmt.Errorf("evaluation failed: %w", err)
 		}
 	}
@@ -179,6 +205,12 @@ func (p *Probewise) Run(
 
 		// Return error indicating how many probes failed
 		return fmt.Errorf("%d of %d probes failed", results.Failed, results.Total)
+	}
+
+	// Report scan-level errors (e.g., timeout) after processing partial results
+	if scanErr != nil {
+		return fmt.Errorf("scan interrupted after processing %d/%d probes (%d attempts): %w",
+			results.Succeeded, results.Total, len(allAttempts), scanErr)
 	}
 
 	return nil
