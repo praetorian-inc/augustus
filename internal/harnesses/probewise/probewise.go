@@ -68,6 +68,15 @@ func formatProgressStatus(probeErr error) (status, errMsg string) {
 	return "✗", fmt.Sprintf(" (%s)", msg)
 }
 
+// createFreshEvalContext creates a fresh evaluation context if the scan context has expired.
+// If scanCtx is still valid, returns it unchanged. Otherwise, creates a new context with 5-minute timeout.
+func createFreshEvalContext(scanCtx context.Context) (context.Context, context.CancelFunc) {
+	if scanCtx.Err() == nil {
+		return scanCtx, func() {}
+	}
+	return context.WithTimeout(context.Background(), 5*time.Minute)
+}
+
 // Run executes the probe-by-probe scan workflow.
 //
 // It validates inputs, then for each probe:
@@ -117,14 +126,8 @@ func (p *Probewise) Run(
 
 	// If scan context expired, create a fresh context for detection and evaluation.
 	// Detection and evaluation are fast operations that should always complete.
-	evalCtx := ctx
-	if ctx.Err() != nil {
-		// Safety timeout for detection/evaluation phase.
-		// This is generous because judge-based detectors call LLMs.
-		var evalCancel context.CancelFunc
-		evalCtx, evalCancel = context.WithTimeout(context.Background(), 5*time.Minute)
-		defer evalCancel()
-	}
+	evalCtx, evalCancel := createFreshEvalContext(ctx)
+	defer evalCancel()
 
 	// If scanner failed with zero attempts, nothing to process
 	if scanErr != nil && len(results.Attempts) == 0 {

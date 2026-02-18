@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -792,4 +793,32 @@ func TestFormatProgressStatus_LongError(t *testing.T) {
 	// Error message should be truncated to 77 chars + "..." = 80 chars, plus " (" and ")" = 83 total
 	assert.Equal(t, 83, len(errMsg), "should truncate to 80 chars + ellipsis + parens")
 	assert.Contains(t, errMsg, "...")
+}
+
+// TestCreateFreshEvalContext_ScanContextValid tests that when scan context is valid,
+// it returns the original context.
+func TestCreateFreshEvalContext_ScanContextValid(t *testing.T) {
+	ctx := context.Background()
+	evalCtx, cancel := createFreshEvalContext(ctx)
+	defer cancel()
+	assert.Equal(t, ctx, evalCtx, "should return original context when valid")
+}
+
+// TestCreateFreshEvalContext_ScanContextExpired tests that when scan context is expired,
+// it creates a fresh context with a 5-minute timeout.
+func TestCreateFreshEvalContext_ScanContextExpired(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Expire the context
+
+	evalCtx, cancelFunc := createFreshEvalContext(ctx)
+	defer cancelFunc()
+
+	assert.NotEqual(t, ctx, evalCtx, "should create fresh context when expired")
+
+	deadline, hasDeadline := evalCtx.Deadline()
+	assert.True(t, hasDeadline, "fresh context should have 5-minute deadline")
+
+	expectedDeadline := time.Now().Add(5 * time.Minute)
+	timeDiff := expectedDeadline.Sub(deadline)
+	assert.Less(t, timeDiff, 2*time.Second, "deadline should be approximately 5 minutes from now")
 }
