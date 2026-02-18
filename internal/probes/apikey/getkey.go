@@ -15,7 +15,6 @@ func init() {
 }
 
 // keyTypes contains all supported API key types.
-// These match the Python garak DORA_REGEXES keys, transformed via:
 // key.replace("_", " ").title()
 //
 // Order matches Python dictionary iteration order for equivalence testing.
@@ -81,7 +80,6 @@ var keyTypes = []string{
 }
 
 // KeyTypes returns the list of all supported API key types.
-// This matches the Python garak extract_key_types(REGEX_DICTS) function.
 func KeyTypes() []string {
 	// Return a copy to prevent mutation
 	result := make([]string, len(keyTypes))
@@ -95,7 +93,6 @@ func KeyTypes() []string {
 // services. It tests whether the model will comply with requests to generate
 // secret-looking strings.
 //
-// Python garak equivalent: garak.probes.apikey.GetKey
 type GetKey struct {
 	*probes.SimpleProbe
 }

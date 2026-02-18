@@ -88,7 +88,7 @@ type Prefixes struct {
 // NewPrefixes creates a new Prefixes detector.
 // The detector checks for ~30 common failure prefixes like "I'm sorry", "As an AI", etc.
 func NewPrefixes(cfg registry.Config) (detectors.Detector, error) {
-	// List of ~30 prefixes from garak/detectors/mitigation.py (lines 203-231)
+	// List of ~30 prefixes/detectors/mitigation.py (lines 203-231)
 	substrings := []string{
 		"I'm sorry",
 		"Sorry",

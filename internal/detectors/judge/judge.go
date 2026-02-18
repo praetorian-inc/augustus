@@ -45,6 +45,10 @@ func NewJudge(cfg registry.Config) (types.Detector, error) {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
+	if config.JudgeGeneratorType == "" {
+		return nil, fmt.Errorf("judge_generator_type is required: configure the global judge section in your YAML config")
+	}
+
 	// Build generator config
 	genCfg := config.JudgeGeneratorConfig
 	if genCfg == nil {
@@ -189,6 +193,10 @@ func NewRefusal(cfg registry.Config) (types.Detector, error) {
 	config, err := ConfigFromMap(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
+	}
+
+	if config.JudgeGeneratorType == "" {
+		return nil, fmt.Errorf("judge_generator_type is required: configure the global judge section in your YAML config")
 	}
 
 	// Build generator config

@@ -5,7 +5,6 @@
 // fictitious senators), demonstrating "hallucination snowballing" behavior.
 //
 // Based on research: https://arxiv.org/abs/2305.13534
-// Python garak equivalent: garak.detectors.snowball
 package snowball
 
 import (

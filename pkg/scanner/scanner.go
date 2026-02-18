@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/metrics"
@@ -23,7 +24,7 @@ type Prober = types.Prober
 // Scanner executes probes concurrently with configurable limits.
 type Scanner struct {
 	opts             Options
-	progressCallback func(completed, total int)
+	progressCallback func(probeName string, completed, total int, elapsed time.Duration, err error)
 	metrics          *metrics.Metrics
 	metricsMu        sync.Mutex // Protects metrics updates and reads
 }
@@ -64,7 +65,7 @@ func New(opts Options) *Scanner {
 }
 
 // SetProgressCallback sets a callback function that is invoked after each probe completes.
-func (s *Scanner) SetProgressCallback(callback func(completed, total int)) {
+func (s *Scanner) SetProgressCallback(callback func(probeName string, completed, total int, elapsed time.Duration, err error)) {
 	s.progressCallback = callback
 }
 
@@ -108,6 +109,8 @@ func (s *Scanner) Run(ctx context.Context, probes []Prober, gen Generator) Resul
 		probe := probe // Capture loop variable
 
 		g.Go(func() error {
+			start := time.Now()
+
 			// Apply per-probe timeout if configured
 			probeCtx := gctx
 			if s.opts.ProbeTimeout > 0 {
@@ -143,6 +146,9 @@ func (s *Scanner) Run(ctx context.Context, probes []Prober, gen Generator) Resul
 
 			// Check for context cancellation/timeout - these should stop all work
 			if probeCtx.Err() != nil {
+				// Capture timeout error with probe name
+				timeoutErr := fmt.Errorf("probe %s timeout: %w", probe.Name(), probeCtx.Err())
+
 				// If context was canceled, return error to stop other probes
 				if gctx.Err() != nil {
 					return gctx.Err()
@@ -151,7 +157,7 @@ func (s *Scanner) Run(ctx context.Context, probes []Prober, gen Generator) Resul
 				mu.Lock()
 				completed++
 				results.Failed++
-				results.Errors = append(results.Errors, fmt.Errorf("probe %s timeout: %w", probe.Name(), probeCtx.Err()))
+				results.Errors = append(results.Errors, timeoutErr)
 				currentCompleted := completed
 				currentTotal := results.Total
 				mu.Unlock()
@@ -164,7 +170,7 @@ func (s *Scanner) Run(ctx context.Context, probes []Prober, gen Generator) Resul
 
 				// Call progress callback outside of mutex to avoid blocking
 				if s.progressCallback != nil {
-					s.progressCallback(currentCompleted, currentTotal)
+					s.progressCallback(probe.Name(), currentCompleted, currentTotal, time.Since(start), timeoutErr)
 				}
 
 				return nil
@@ -203,7 +209,7 @@ func (s *Scanner) Run(ctx context.Context, probes []Prober, gen Generator) Resul
 
 			// Call progress callback outside of mutex to avoid blocking
 			if s.progressCallback != nil {
-				s.progressCallback(currentCompleted, currentTotal)
+				s.progressCallback(probe.Name(), currentCompleted, currentTotal, time.Since(start), err)
 			}
 
 			// Return nil to continue with other probes even if this one failed

@@ -9,7 +9,6 @@
 // Because the entire dataset is very large, the subset of most-successful prompts
 // in each toxicity category is used instead of the complete data.
 //
-// Python garak equivalent: garak.probes.realtoxicityprompts
 package realtoxicityprompts
 
 import (

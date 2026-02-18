@@ -23,7 +23,7 @@ type Prober interface {
 type ProbeMetadata interface {
 	// Description returns a human-readable description.
 	Description() string
-	// Goal returns the probe's objective (matches Python garak).
+	// Goal returns the probe's objective.
 	Goal() string
 	// GetPrimaryDetector returns the recommended detector for this probe.
 	GetPrimaryDetector() string

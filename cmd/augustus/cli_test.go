@@ -383,8 +383,12 @@ func TestScanCmdDefaults(t *testing.T) {
 	assert.True(t, strings.HasPrefix(ctx.Command(), "scan"))
 
 	// Verify defaults
+	// After Task 10: Kong defaults removed, these are zero values now
+	// Actual defaults come from config.Resolve() at runtime
 	assert.Equal(t, "probewise.Probewise", cli.Scan.Harness)
-	assert.Equal(t, 30*time.Minute, cli.Scan.Timeout)
+	assert.Equal(t, time.Duration(0), cli.Scan.Timeout)      // Zero value, Resolve() provides actual default
+	assert.Equal(t, 0, cli.Scan.Concurrency)                 // Zero value, Resolve() provides actual default
+	assert.Equal(t, time.Duration(0), cli.Scan.ProbeTimeout) // Zero value, Resolve() provides actual default
 	assert.Equal(t, "table", cli.Scan.Format)
 }
 
@@ -568,4 +572,28 @@ func TestScanCmdValidate(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestScanCmd_ProfileFlag tests the Profile field exists and is parsed
+func TestScanCmd_ProfileFlag(t *testing.T) {
+	// Verify the Profile field exists and is parsed
+	cmd := ScanCmd{
+		Generator: "openai.OpenAI",
+		Probe:     []string{"dan.Dan"},
+		Profile:   "quick",
+	}
+	assert.Equal(t, "quick", cmd.Profile)
+}
+
+// TestScanCmd_Validate_ProfileRequiresConfigFile tests Profile validation
+func TestScanCmd_Validate_ProfileRequiresConfigFile(t *testing.T) {
+	cmd := ScanCmd{
+		Generator: "openai.OpenAI",
+		Probe:     []string{"dan.Dan"},
+		Profile:   "quick",
+		// No ConfigFile
+	}
+	err := cmd.Validate()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "--profile requires --config-file")
 }

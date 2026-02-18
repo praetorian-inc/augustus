@@ -39,7 +39,6 @@ func init() {
 // Fast is a CPU-friendly paraphrase buff based on Humarin's T5 paraphraser.
 // It generates 5 paraphrased variants using diversity beam search.
 //
-// Python equivalent: garak.buffs.paraphrase.Fast
 type Fast struct {
 	// Model is the HuggingFace model name.
 	Model string

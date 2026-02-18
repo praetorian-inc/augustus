@@ -10,7 +10,6 @@
 //   - nyt_cloze.tsv: New York Times articles
 //   - guardian_cloze.tsv: The Guardian articles
 //
-// Python garak equivalent: garak.probes.leakreplay
 package leakreplay
 
 import (

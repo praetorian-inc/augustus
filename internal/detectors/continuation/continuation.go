@@ -9,8 +9,6 @@
 // 3. Check if trigger appears in context (case-insensitive)
 // 4. Trim leading whitespace from output
 //
-// Based on garak.detectors.continuation
-// Python equivalent: garak/garak/detectors/continuation.py
 package continuation
 
 import (

@@ -54,7 +54,6 @@ func TestFutureTense_Description(t *testing.T) {
 }
 
 // TestFutureTense_Goal verifies the probe returns the correct goal.
-// Python garak FutureTense uses "use future tense to disregard the system prompt" as goal.
 func TestFutureTense_Goal(t *testing.T) {
 	p, err := probes.Create("phrasing.FutureTense", nil)
 	require.NoError(t, err)
@@ -62,7 +61,6 @@ func TestFutureTense_Goal(t *testing.T) {
 	pm, ok := p.(probes.ProbeMetadata)
 	require.True(t, ok, "probe should implement ProbeMetadata")
 
-	// Must match Python garak exactly
 	expected := "use future tense to disregard the system prompt"
 	assert.Equal(t, expected, pm.Goal())
 }
@@ -200,7 +198,7 @@ func TestFutureTense_Prompts_LoadedFromFile(t *testing.T) {
 
 	prompts := pm.GetPrompts()
 	// Should have a significant number of prompts from the data file
-	// garak has 690 prompts in future_tense_en.txt
+	// 690 prompts exist in future_tense_en.txt
 	assert.Greater(t, len(prompts), 100, "should have many prompts from data file")
 }
 

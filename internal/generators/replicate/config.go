@@ -12,7 +12,7 @@ type Config struct {
 	Model  string
 	APIKey string
 
-	// Optional with defaults (matching Python garak defaults)
+	// Optional with defaults
 	Temperature       float32
 	TopP              float32
 	RepetitionPenalty float32

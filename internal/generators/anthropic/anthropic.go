@@ -28,7 +28,7 @@ func init() {
 	generators.Register("anthropic.Anthropic", NewAnthropic)
 }
 
-// Default configuration values matching litellm/garak patterns.
+// Default configuration values matching litellm patterns.
 const (
 	defaultMaxTokens      = 150
 	defaultTemperature    = 0.7

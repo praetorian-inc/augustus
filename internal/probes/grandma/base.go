@@ -4,7 +4,6 @@
 // These probes attempt to get models to output harmful content by framing
 // requests as attempts to remember or honor a fictitious grandmother.
 //
-// Python garak equivalent: garak.probes.grandma
 //
 // References:
 // - https://www.independent.co.uk/tech/chatgpt-microsoft-windows-11-grandma-exploit-b2360213.html
@@ -41,7 +40,6 @@ func NewGrandmaProbe(templates, parameters []string, name, goal, detector, descr
 // generatePrompts generates all prompt combinations by replacing placeholders in templates.
 // For each template x parameter combination, replaces the first placeholder with the parameter.
 //
-// Matches Python garak grandma probe __init__ logic (lines 66-70, 109-113, 145-149).
 func generatePrompts(templates, parameters []string) []string {
 	var prompts []string
 

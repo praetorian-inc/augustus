@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 )
@@ -24,6 +25,11 @@ import (
 //
 // Returns an error if file creation or writing fails.
 func WriteJSONL(outputPath string, attempts []*attempt.Attempt) error {
+	// Create parent directories if they don't exist
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		return fmt.Errorf("failed to create parent directories: %w", err)
+	}
+
 	// Create output file
 	file, err := os.Create(outputPath)
 	if err != nil {

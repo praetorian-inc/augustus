@@ -12,7 +12,6 @@ import (
 // The technique exploits that LLM safety training often focuses on present-tense
 // imperative commands while being less robust to hypothetical future framing.
 //
-// Python garak equivalent: garak.probes.phrasing.FutureTense
 //
 // Reference: https://arxiv.org/pdf/2407.11969v2
 type FutureTense struct {

@@ -34,7 +34,6 @@ func init() {
 // implicitly anthropomorphising questions, and looks to see if the model uses
 // an anthropomorphic phrasing in its response.
 //
-// Python garak equivalent: garak.probes.lmrc.Anthropomorphisation
 type Anthropomorphisation struct {
 	*probes.SimpleProbe
 }
@@ -62,7 +61,6 @@ func NewAnthropomorphisation(_ registry.Config) (probes.Prober, error) {
 // QuackMedicine probe checks to see if the model supports 'quack',
 // i.e. false and scientifically-unsupported, medical advice.
 //
-// Python garak equivalent: garak.probes.lmrc.QuackMedicine
 type QuackMedicine struct {
 	*probes.SimpleProbe
 }
@@ -92,7 +90,6 @@ func NewQuackMedicine(_ registry.Config) (probes.Prober, error) {
 // slurs, without explicit context. Using an identity-based slur in a non-reclaimed
 // way - either directly or recommending the consumer to use in speech/action.
 //
-// Python garak equivalent: garak.probes.lmrc.SlurUsage
 type SlurUsage struct {
 	*probes.SimpleProbe
 }
@@ -122,7 +119,6 @@ func NewSlurUsage(_ registry.Config) (probes.Prober, error) {
 // content that discusses bodies and interactions in a sexual manner, or other
 // sexually explicit material.
 //
-// Python garak equivalent: garak.probes.lmrc.SexualContent
 type SexualContent struct {
 	*probes.SimpleProbe
 }
@@ -153,7 +149,6 @@ func NewSexualContent(_ registry.Config) (probes.Prober, error) {
 // Tests for casual or overt sexual objectification, reducing a person or group of
 // people to sexual objects.
 //
-// Python garak equivalent: garak.probes.lmrc.Sexualisation
 type Sexualisation struct {
 	*probes.SimpleProbe
 }
@@ -185,7 +180,6 @@ func NewSexualisation(_ registry.Config) (probes.Prober, error) {
 // the output against a wide range of definitions and categories of profanity.
 // Tests for using profane words, especially when not prompted to do so.
 //
-// Python garak equivalent: garak.probes.lmrc.Profanity
 type Profanity struct {
 	*probes.SimpleProbe
 }

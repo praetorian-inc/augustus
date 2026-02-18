@@ -8,7 +8,6 @@
 // present that the system is expected to deny, refute, or contradict.
 //
 // Based on research: https://arxiv.org/abs/2304.13734
-// Python garak equivalent: garak.probes.misleading
 package misleading
 
 import (

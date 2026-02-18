@@ -4,8 +4,6 @@
 // if outputs contain those triggers. StartsWith detector checks if
 // outputs begin with the trigger.
 //
-// Python garak equivalent: garak.detectors.base.TriggerListDetector
-// and garak.detectors.leakreplay.StartsWith
 package leakreplay
 
 import (

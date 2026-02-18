@@ -173,54 +173,9 @@ func (a *Agentwise) Run(
 				att.Generator = gen.Name()
 			}
 
-			// Run each detector and track highest score
-			maxScore := 0.0
-			primaryDetector := ""
-			var primaryScores []float64
-			firstDetector := ""
-			var firstScores []float64
-
-			for _, detector := range detectorList {
-				slog.Debug("running detector", "detector", detector.Name(), "probe", probe.Name())
-
-				scores, err := detector.Detect(ctx, att)
-				if err != nil {
-					return fmt.Errorf("detector %s failed on probe %s: %w",
-						detector.Name(), probe.Name(), err)
-				}
-
-				// Store detector results
-				att.SetDetectorResults(detector.Name(), scores)
-
-				// Remember first detector as fallback
-				if firstDetector == "" {
-					firstDetector = detector.Name()
-					firstScores = scores
-				}
-
-				// Track detector with highest score
-				for _, score := range scores {
-					if score > maxScore {
-						maxScore = score
-						primaryDetector = detector.Name()
-						primaryScores = scores
-					}
-				}
-			}
-
-			// Set primary detector to one with highest score
-			// If no detector had scores, use first detector
-			if primaryDetector != "" {
-				att.Detector = primaryDetector
-				att.Scores = primaryScores
-			} else if firstDetector != "" {
-				att.Detector = firstDetector
-				att.Scores = firstScores
-			}
-
-			// Mark attempt as complete only if not in error state
-			if att.Status != attempt.StatusError {
-				att.Complete()
+			// Run detectors using shared logic (FailOnError for strict propagation)
+			if err := harnesses.ApplyDetectors(ctx, att, detectorList, harnesses.FailOnError); err != nil {
+				return err
 			}
 		}
 

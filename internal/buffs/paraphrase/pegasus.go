@@ -39,7 +39,6 @@ func init() {
 // It generates 6 paraphrased variants to test if different phrasings
 // bypass safety measures.
 //
-// Python equivalent: garak.buffs.paraphrase.PegasusT5
 type PegasusT5 struct {
 	// Model is the HuggingFace model name.
 	Model string

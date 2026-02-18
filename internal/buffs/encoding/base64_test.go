@@ -89,7 +89,7 @@ func TestBase64_Transform_EncodesCorrectly(t *testing.T) {
 }
 
 func TestBase64_Transform_MatchesPythonOutput(t *testing.T) {
-	// Test that Go output matches Python garak output format exactly
+	// Test the output format
 	b := &Base64{}
 
 	// "test" in base64 is "dGVzdA=="

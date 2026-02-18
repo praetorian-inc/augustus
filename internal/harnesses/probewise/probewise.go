@@ -3,7 +3,7 @@
 // The probewise harness executes probes concurrently using the scanner package,
 // then runs detectors sequentially on all probe attempts. This provides significant
 // performance improvements over the original sequential implementation while
-// maintaining compatibility with Python garak's probewise harness.
+// maintaining a per-probe execution strategy.
 package probewise
 
 import (
@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
@@ -36,7 +38,8 @@ var (
 // 4. Marks the attempt as complete
 // 5. Calls the evaluator with all attempts
 type Probewise struct{
-	opts *scanner.Options
+	opts               *scanner.Options
+	onAttemptProcessed func(*attempt.Attempt)
 }
 
 // New creates a new probewise harness.
@@ -52,6 +55,50 @@ func (p *Probewise) Name() string {
 // Description returns a human-readable description.
 func (p *Probewise) Description() string {
 	return "Executes probes one at a time, running detectors on each probe's attempts"
+}
+
+// formatProgressStatus formats the progress status symbol and error message.
+// Returns "✓" with empty error message on success, or "✗" with formatted error on failure.
+func formatProgressStatus(probeErr error) (status, errMsg string) {
+	if probeErr == nil {
+		return "✓", ""
+	}
+	msg := probeErr.Error()
+	if len(msg) > 80 {
+		msg = msg[:77] + "..."
+	}
+	return "✗", fmt.Sprintf(" (%s)", msg)
+}
+
+// createFreshEvalContext creates a fresh evaluation context if the scan context has expired.
+// If scanCtx is still valid, returns it unchanged. Otherwise, creates a new context with 5-minute timeout.
+func createFreshEvalContext(scanCtx context.Context) (context.Context, context.CancelFunc) {
+	if scanCtx.Err() == nil {
+		return scanCtx, func() {}
+	}
+	return context.WithTimeout(context.Background(), 5*time.Minute)
+}
+
+// reportScanErrors checks for probe failures and scan-level errors and returns appropriate error.
+// Returns nil if no errors occurred.
+func reportScanErrors(results *scanner.Results, scanErr error, allAttempts []*attempt.Attempt) error {
+	// Check for probe failures first
+	if len(results.Errors) > 0 {
+		// Log each probe error
+		for _, err := range results.Errors {
+			slog.Error("probe failed", "error", err)
+		}
+		// Return error indicating how many probes failed
+		return fmt.Errorf("%d of %d probes failed", results.Failed, results.Total)
+	}
+
+	// Check for scan-level errors (e.g., timeout)
+	if scanErr != nil {
+		return fmt.Errorf("scan interrupted after processing %d/%d probes (%d attempts): %w",
+			results.Succeeded, results.Total, len(allAttempts), scanErr)
+	}
+
+	return nil
 }
 
 // Run executes the probe-by-probe scan workflow.
@@ -87,20 +134,37 @@ func (p *Probewise) Run(
 		opts = *p.opts
 	}
 	s := scanner.New(opts)
+
+	// Wire up progress logging to stderr
+	s.SetProgressCallback(func(probeName string, completed, total int, elapsed time.Duration, probeErr error) {
+		status, errMsg := formatProgressStatus(probeErr)
+		fmt.Fprintf(os.Stderr, "[%d/%d] %s %s%s (%s)\n",
+			completed, total, probeName, status, errMsg, elapsed.Round(time.Millisecond))
+	})
+
 	results := s.Run(ctx, probeList, gen)
 
-	// Check for scanner-level errors (context cancellation, etc.)
-	if results.Error != nil {
-		return results.Error
+	// Capture scanner-level errors but don't return yet - process partial results first.
+	// When scan times out, completed probes have their attempts in results.Attempts.
+	scanErr := results.Error
+
+	// If scan context expired, create a fresh context for detection and evaluation.
+	// Detection and evaluation are fast operations that should always complete.
+	evalCtx, evalCancel := createFreshEvalContext(ctx)
+	defer evalCancel()
+
+	// If scanner failed with zero attempts, nothing to process
+	if scanErr != nil && len(results.Attempts) == 0 {
+		return fmt.Errorf("scan failed with no results: %w", scanErr)
 	}
 
 	// Continue processing successful attempts even if some probes failed.
 	// We'll report probe errors at the end, after processing partial results.
 
-	// Apply detectors to all attempts (sequential, but fast)
+	// Apply detectors to all attempts and stream results
 	for _, a := range results.Attempts {
 		// Check context cancellation between attempts
-		if err := ctx.Err(); err != nil {
+		if err := evalCtx.Err(); err != nil {
 			return err
 		}
 
@@ -109,55 +173,14 @@ func (p *Probewise) Run(
 			a.Generator = gen.Name()
 		}
 
-		// Run each detector and track highest score (Option 4 fix)
-		maxScore := 0.0
-		primaryDetector := ""
-		var primaryScores []float64
-		firstDetector := ""
-		var firstScores []float64
-
-		for _, detector := range detectorList {
-			slog.Debug("running detector", "detector", detector.Name(), "probe", a.Probe)
-
-			scores, err := detector.Detect(ctx, a)
-			if err != nil {
-				return fmt.Errorf("detector %s failed on probe %s: %w",
-					detector.Name(), a.Probe, err)
-			}
-
-			// Store detector results
-			a.SetDetectorResults(detector.Name(), scores)
-
-			// Remember first detector as fallback
-			if firstDetector == "" {
-				firstDetector = detector.Name()
-				firstScores = scores
-			}
-
-			// Track detector with highest score
-			for _, score := range scores {
-				if score > maxScore {
-					maxScore = score
-					primaryDetector = detector.Name()
-					primaryScores = scores
-				}
-			}
+		// Run detectors using shared logic (SkipOnError for partial results)
+		if err := harnesses.ApplyDetectors(evalCtx, a, detectorList, harnesses.SkipOnError); err != nil {
+			return err
 		}
 
-		// Set primary detector to one with highest score
-		// If no detector had scores, use first detector
-		// This ensures console and JSONL outputs are consistent
-		if primaryDetector != "" {
-			a.Detector = primaryDetector
-			a.Scores = primaryScores
-		} else if firstDetector != "" {
-			a.Detector = firstDetector
-			a.Scores = firstScores
-		}
-
-		// Mark attempt as complete only if not in error state
-		if a.Status != attempt.StatusError {
-			a.Complete()
+		// Stream result immediately after detection
+		if p.onAttemptProcessed != nil {
+			p.onAttemptProcessed(a)
 		}
 	}
 
@@ -165,23 +188,13 @@ func (p *Probewise) Run(
 
 	// Call evaluator if provided (even with partial results)
 	if eval != nil && len(allAttempts) > 0 {
-		if err := eval.Evaluate(ctx, allAttempts); err != nil {
+		if err := eval.Evaluate(evalCtx, allAttempts); err != nil {
 			return fmt.Errorf("evaluation failed: %w", err)
 		}
 	}
 
-	// Report probe failures after processing partial results
-	if len(results.Errors) > 0 {
-		// Log each probe error
-		for _, err := range results.Errors {
-			slog.Error("probe failed", "error", err)
-		}
-
-		// Return error indicating how many probes failed
-		return fmt.Errorf("%d of %d probes failed", results.Failed, results.Total)
-	}
-
-	return nil
+	// Report any scan errors (probe failures or scan-level errors)
+	return reportScanErrors(&results, scanErr, allAttempts)
 }
 
 // init registers the probewise harness with the global registry.
@@ -191,6 +204,10 @@ func init() {
 		// Extract scanner options if provided
 		if scannerOpts, ok := cfg["scanner_opts"].(*scanner.Options); ok {
 			p.opts = scannerOpts
+		}
+		// Extract streaming callback if provided
+		if cb, ok := cfg["on_attempt_processed"].(func(*attempt.Attempt)); ok {
+			p.onAttemptProcessed = cb
 		}
 		return p, nil
 	})

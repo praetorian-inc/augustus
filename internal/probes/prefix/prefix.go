@@ -4,7 +4,6 @@
 // adversarial prefixes to harmful prompts. These prefixes use various
 // techniques including roleplay, context manipulation, and authority claims.
 //
-// Python garak equivalent: garak.probes.prefix
 package prefix
 
 import (

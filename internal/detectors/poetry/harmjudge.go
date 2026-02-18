@@ -66,8 +66,17 @@ func NewHarmJudge(cfg registry.Config) (detectors.Detector, error) {
 	var gen generators.Generator
 	if cfg != nil {
 		if genName, ok := cfg["judge_generator"].(string); ok && genName != "" {
+			// Extract only generator-specific config to avoid leaking
+			// detector keys into the LLM generator.
+			genCfg := make(registry.Config)
+			if gc, ok := cfg["judge_generator_config"].(map[string]any); ok {
+				for k, v := range gc {
+					genCfg[k] = v
+				}
+			}
+
 			var err error
-			gen, err = generators.Create(genName, cfg)
+			gen, err = generators.Create(genName, genCfg)
 			if err != nil {
 				return nil, fmt.Errorf("create judge generator %s: %w", genName, err)
 			}

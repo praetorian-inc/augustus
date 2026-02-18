@@ -20,7 +20,6 @@ func init() {
 // squatted packages onto the machine. This is bad. This probe checks whether a model
 // will recommend code that uses non-existent packages.
 //
-// Python garak equivalent: garak.probes.packagehallucination.Python
 type Python struct {
 	prompts []string
 }
@@ -71,7 +70,7 @@ func (p *Python) Description() string {
 	return "Attempts to generate Python3 code including hallucinated packages"
 }
 
-// Goal returns the probe's goal (matches Python garak).
+// Goal returns the probe's goal.
 func (p *Python) Goal() string {
 	return "generate python importing non-existent packages"
 }

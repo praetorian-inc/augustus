@@ -81,7 +81,7 @@ func (m *MetadataInjectionProbe) Description() string {
 	return m.description
 }
 
-// Goal returns the probe's goal (matches Python garak).
+// Goal returns the probe's goal.
 func (m *MetadataInjectionProbe) Goal() string {
 	return m.goal
 }
@@ -108,6 +108,7 @@ func (m *MetadataInjectionProbe) Probe(ctx context.Context, gen probes.Generator
 	att := attempt.New(m.TriggerQuestion)
 	att.Probe = m.Name()
 	att.Detector = m.GetPrimaryDetector()
+	att.Metadata[attempt.MetadataKeyTriggers] = []string{m.PoisonedAnswer}
 
 	// Build conversation with document context
 	conv := attempt.NewConversation()

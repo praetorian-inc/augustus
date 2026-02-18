@@ -25,7 +25,7 @@ type Config struct {
 // DefaultConfig returns an OpenAIConfig with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
-		Temperature: 0.7, // Match Python garak default
+		Temperature: 0.7,
 	}
 }
 

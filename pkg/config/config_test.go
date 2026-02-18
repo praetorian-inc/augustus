@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // TestBasicYAMLLoading tests loading a single YAML configuration file
@@ -613,4 +614,443 @@ func TestBuffsMerge(t *testing.T) {
 	assert.Equal(t, []string{"lrl.LRLBuff"}, base.Buffs.Names)
 	assert.NotNil(t, base.Buffs.Settings["lrl.LRLBuff"])
 	assert.Equal(t, 5.0, base.Buffs.Settings["lrl.LRLBuff"]["rate_limit"])
+}
+
+// TestResolveProbeConfig tests the two-layer probe config resolution
+func TestResolveProbeConfig(t *testing.T) {
+	tests := []struct {
+		name      string
+		config    Config
+		probeName string
+		wantKeys  map[string]any
+	}{
+		{
+			name: "global attacker/judge config propagates",
+			config: Config{
+				Probes: ProbeConfig{
+					AttackerGeneratorType: "anthropic.Anthropic",
+					AttackerConfig:        map[string]any{"model": "claude-sonnet-4-20250514"},
+					JudgeGeneratorType:    "anthropic.Anthropic",
+					JudgeConfig:           map[string]any{"model": "claude-sonnet-4-20250514"},
+				},
+			},
+			probeName: "pair.IterativePAIR",
+			wantKeys: map[string]any{
+				"attacker_generator_type": "anthropic.Anthropic",
+				"attacker_config":         map[string]any{"model": "claude-sonnet-4-20250514"},
+				"judge_generator_type":    "anthropic.Anthropic",
+				"judge_config":            map[string]any{"model": "claude-sonnet-4-20250514"},
+			},
+		},
+		{
+			name: "per-probe settings override globals",
+			config: Config{
+				Probes: ProbeConfig{
+					AttackerGeneratorType: "openai.OpenAI",
+					Settings: map[string]map[string]any{
+						"tap.IterativeTAP": {
+							"attacker_generator_type": "anthropic.Anthropic",
+						},
+					},
+				},
+			},
+			probeName: "tap.IterativeTAP",
+			wantKeys: map[string]any{
+				"attacker_generator_type": "anthropic.Anthropic", // per-probe wins
+			},
+		},
+		{
+			name: "empty config returns empty map",
+			config: Config{
+				Probes: ProbeConfig{},
+			},
+			probeName: "any.Probe",
+			wantKeys:  map[string]any{},
+		},
+		{
+			name: "unknown probe name returns only globals",
+			config: Config{
+				Probes: ProbeConfig{
+					AttackerGeneratorType: "openai.OpenAI",
+					Settings: map[string]map[string]any{
+						"pair.IterativePAIR": {"extra": "value"},
+					},
+				},
+			},
+			probeName: "unknown.Probe",
+			wantKeys: map[string]any{
+				"attacker_generator_type": "openai.OpenAI",
+			},
+		},
+		{
+			name: "per-probe override preserves non-overridden globals",
+			config: Config{
+				Probes: ProbeConfig{
+					AttackerGeneratorType: "openai.OpenAI",
+					AttackerConfig:        map[string]any{"model": "gpt-4"},
+					JudgeGeneratorType:    "anthropic.Anthropic",
+					JudgeConfig:           map[string]any{"model": "claude-sonnet"},
+					Settings: map[string]map[string]any{
+						"tap.IterativeTAP": {
+							"attacker_generator_type": "local.Ollama",
+						},
+					},
+				},
+			},
+			probeName: "tap.IterativeTAP",
+			wantKeys: map[string]any{
+				"attacker_generator_type": "local.Ollama",                       // overridden
+				"attacker_config":         map[string]any{"model": "gpt-4"},     // preserved
+				"judge_generator_type":    "anthropic.Anthropic",                // preserved
+				"judge_config":            map[string]any{"model": "claude-sonnet"}, // preserved
+			},
+		},
+		{
+			name: "global judge config flows to probe config",
+			config: Config{
+				Judge: JudgeGlobalConfig{
+					GeneratorType: "anthropic.Anthropic",
+					Model:         "claude-3-haiku",
+					Config:        map[string]any{"api_key": "test-key"},
+				},
+			},
+			probeName: "pair.IterativePAIR",
+			wantKeys: map[string]any{
+				"judge_generator_type": "anthropic.Anthropic",
+				"judge_config":         map[string]any{"model": "claude-3-haiku", "api_key": "test-key"},
+			},
+		},
+		{
+			name: "probe-level judge overrides global judge",
+			config: Config{
+				Judge: JudgeGlobalConfig{
+					GeneratorType: "openai.OpenAI",
+					Model:         "gpt-4o-mini",
+				},
+				Probes: ProbeConfig{
+					JudgeGeneratorType: "anthropic.Anthropic",
+					JudgeConfig:        map[string]any{"model": "claude-sonnet"},
+				},
+			},
+			probeName: "pair.IterativePAIR",
+			wantKeys: map[string]any{
+				"judge_generator_type": "anthropic.Anthropic",
+				"judge_config":         map[string]any{"model": "claude-sonnet"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.ResolveProbeConfig(tt.probeName)
+			assert.Equal(t, tt.wantKeys, result)
+		})
+	}
+}
+
+// TestResolveDetectorConfig tests detector config resolution
+func TestResolveDetectorConfig(t *testing.T) {
+	tests := []struct {
+		name         string
+		config       Config
+		detectorName string
+		wantKeys     map[string]any
+	}{
+		{
+			name: "per-detector settings resolve",
+			config: Config{
+				Detectors: DetectorConfig{
+					Settings: map[string]map[string]any{
+						"poetry.HarmJudge": {
+							"judge_generator": "anthropic.Anthropic",
+						},
+					},
+				},
+			},
+			detectorName: "poetry.HarmJudge",
+			wantKeys: map[string]any{
+				"judge_generator": "anthropic.Anthropic",
+			},
+		},
+		{
+			name: "unknown detector returns empty map",
+			config: Config{
+				Detectors: DetectorConfig{
+					Settings: map[string]map[string]any{
+						"poetry.HarmJudge": {"key": "value"},
+					},
+				},
+			},
+			detectorName: "unknown.Detector",
+			wantKeys:     map[string]any{},
+		},
+		{
+			name: "nil settings returns empty map",
+			config: Config{
+				Detectors: DetectorConfig{},
+			},
+			detectorName: "any.Detector",
+			wantKeys:     map[string]any{},
+		},
+		{
+			name: "global judge config flows to detector config",
+			config: Config{
+				Judge: JudgeGlobalConfig{
+					GeneratorType: "anthropic.Anthropic",
+					Model:         "claude-3-haiku",
+					Config:        map[string]any{"api_key": "test-key"},
+				},
+			},
+			detectorName: "judge.Judge",
+			wantKeys: map[string]any{
+				"judge_generator_type":   "anthropic.Anthropic",
+				"judge_generator_config": map[string]any{"model": "claude-3-haiku", "api_key": "test-key"},
+			},
+		},
+		{
+			name: "per-detector settings override global judge",
+			config: Config{
+				Judge: JudgeGlobalConfig{
+					GeneratorType: "openai.OpenAI",
+					Model:         "gpt-4o-mini",
+				},
+				Detectors: DetectorConfig{
+					Settings: map[string]map[string]any{
+						"judge.Judge": {
+							"judge_generator_type": "anthropic.Anthropic",
+						},
+					},
+				},
+			},
+			detectorName: "judge.Judge",
+			wantKeys: map[string]any{
+				"judge_generator_type":   "anthropic.Anthropic",
+				"judge_generator_config": map[string]any{"model": "gpt-4o-mini"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.ResolveDetectorConfig(tt.detectorName)
+			assert.Equal(t, tt.wantKeys, result)
+		})
+	}
+}
+
+// TestResolveBuffConfig tests buff config resolution
+func TestResolveBuffConfig(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   Config
+		buffName string
+		wantKeys map[string]any
+	}{
+		{
+			name: "per-buff settings resolve",
+			config: Config{
+				Buffs: BuffConfig{
+					Settings: map[string]map[string]any{
+						"conlang.Klingon": {
+							"transform_generator": "anthropic.Anthropic",
+						},
+					},
+				},
+			},
+			buffName: "conlang.Klingon",
+			wantKeys: map[string]any{
+				"transform_generator": "anthropic.Anthropic",
+			},
+		},
+		{
+			name: "unknown buff returns empty map",
+			config: Config{
+				Buffs: BuffConfig{
+					Settings: map[string]map[string]any{
+						"conlang.Klingon": {"key": "value"},
+					},
+				},
+			},
+			buffName: "unknown.Buff",
+			wantKeys: map[string]any{},
+		},
+		{
+			name: "nil settings returns empty map",
+			config: Config{
+				Buffs: BuffConfig{},
+			},
+			buffName: "any.Buff",
+			wantKeys: map[string]any{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.ResolveBuffConfig(tt.buffName)
+			assert.Equal(t, tt.wantKeys, result)
+		})
+	}
+}
+
+// TestNestedEnvVarInterpolation tests that env vars in nested config maps are resolved
+func TestNestedEnvVarInterpolation(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	os.Setenv("AUGUSTUS_ANTHROPIC_KEY", "sk-ant-test-123")
+	defer os.Unsetenv("AUGUSTUS_ANTHROPIC_KEY")
+
+	yamlContent := `
+probes:
+  attacker_generator_type: anthropic.Anthropic
+  attacker_config:
+    api_key: ${AUGUSTUS_ANTHROPIC_KEY}
+    model: claude-sonnet-4-20250514
+
+buffs:
+  names:
+    - conlang.Klingon
+  settings:
+    conlang.Klingon:
+      transform_generator: anthropic.Anthropic
+      transform_generator_config:
+        api_key: ${AUGUSTUS_ANTHROPIC_KEY}
+
+detectors:
+  settings:
+    poetry.HarmJudge:
+      judge_generator_config:
+        api_key: ${AUGUSTUS_ANTHROPIC_KEY}
+`
+
+	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	require.NoError(t, err)
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	// Verify env var was interpolated in nested probe config
+	assert.Equal(t, "sk-ant-test-123", cfg.Probes.AttackerConfig["api_key"])
+	assert.Equal(t, "claude-sonnet-4-20250514", cfg.Probes.AttackerConfig["model"])
+
+	// Verify env var was interpolated in nested buff settings
+	klingonCfg := cfg.Buffs.Settings["conlang.Klingon"]
+	require.NotNil(t, klingonCfg)
+	genCfg, ok := klingonCfg["transform_generator_config"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "sk-ant-test-123", genCfg["api_key"])
+
+	// Verify env var was interpolated in nested detector settings
+	harmCfg := cfg.Detectors.Settings["poetry.HarmJudge"]
+	require.NotNil(t, harmCfg)
+	judgeCfg, ok := harmCfg["judge_generator_config"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "sk-ant-test-123", judgeCfg["api_key"])
+}
+
+func TestGeneratorConfig_ExtraFieldsCaptured(t *testing.T) {
+	yamlData := []byte(`
+generators:
+  openai.OpenAI:
+    model: gpt-4
+    temperature: 0.7
+    api_key: sk-test
+    max_tokens: 4096
+    base_url: https://custom.api.com
+    top_p: 0.9
+`)
+	var cfg Config
+	err := yaml.Unmarshal(yamlData, &cfg)
+	require.NoError(t, err)
+
+	gen := cfg.Generators["openai.OpenAI"]
+	assert.Equal(t, "gpt-4", gen.Model)
+	assert.Equal(t, 0.7, gen.Temperature)
+	assert.Equal(t, "sk-test", gen.APIKey)
+	assert.Equal(t, 4096, gen.Extra["max_tokens"])
+	assert.Equal(t, "https://custom.api.com", gen.Extra["base_url"])
+	assert.Equal(t, 0.9, gen.Extra["top_p"])
+}
+
+// TestGeneratorConfig_ToRegistryConfig tests converting GeneratorConfig to registry config map
+func TestGeneratorConfig_ToRegistryConfig(t *testing.T) {
+	gen := GeneratorConfig{
+		Model:       "gpt-4",
+		Temperature: 0.7,
+		APIKey:      "sk-test",
+		RateLimit:   10.5,
+		Extra: map[string]any{
+			"max_tokens": 4096,
+			"base_url":   "https://custom.api.com",
+			"top_p":      0.9,
+		},
+	}
+
+	result := gen.ToRegistryConfig()
+
+	// Typed fields should be in the map
+	assert.Equal(t, "gpt-4", result["model"])
+	assert.Equal(t, 0.7, result["temperature"])
+	assert.Equal(t, "sk-test", result["api_key"])
+	assert.Equal(t, 10.5, result["rate_limit"])
+
+	// Extra fields should also be in the map
+	assert.Equal(t, 4096, result["max_tokens"])
+	assert.Equal(t, "https://custom.api.com", result["base_url"])
+	assert.Equal(t, 0.9, result["top_p"])
+}
+
+// TestGeneratorConfig_ToRegistryConfig_TemperatureZero tests that temperature:0 is preserved
+func TestGeneratorConfig_ToRegistryConfig_TemperatureZero(t *testing.T) {
+	gen := GeneratorConfig{
+		Model:       "gpt-4",
+		Temperature: 0.0, // Explicitly zero
+		APIKey:      "sk-test",
+	}
+
+	result := gen.ToRegistryConfig()
+
+	// Zero temperature must be preserved (not omitted)
+	assert.Equal(t, 0.0, result["temperature"])
+	assert.Contains(t, result, "temperature")
+}
+
+// TestGeneratorConfig_ToRegistryConfig_ExtraOverridesTypedFields tests that Extra fields override typed fields
+func TestGeneratorConfig_ToRegistryConfig_ExtraOverridesTypedFields(t *testing.T) {
+	gen := GeneratorConfig{
+		Model:       "gpt-4",
+		Temperature: 0.7,
+		Extra: map[string]any{
+			"model":       "gpt-3.5-turbo", // Override model
+			"temperature": 0.9,             // Override temperature
+			"custom":      "value",         // Extra field
+		},
+	}
+
+	result := gen.ToRegistryConfig()
+
+	// Extra fields should override typed fields
+	assert.Equal(t, "gpt-3.5-turbo", result["model"])
+	assert.Equal(t, 0.9, result["temperature"])
+	assert.Equal(t, "value", result["custom"])
+}
+
+// TestConfig_Validate_InvalidTimeout tests that Validate() rejects invalid timeout format
+func TestConfig_Validate_InvalidTimeout(t *testing.T) {
+	cfg := &Config{
+		Run: RunConfig{Timeout: "not-a-duration"},
+	}
+	err := cfg.Validate()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "run.timeout")
+}
+
+// TestConfig_Validate_ValidTimeout tests that Validate() accepts valid timeout format
+func TestConfig_Validate_ValidTimeout(t *testing.T) {
+	cfg := &Config{
+		Run: RunConfig{Timeout: "30s"},
+	}
+	err := cfg.Validate()
+	assert.NoError(t, err)
 }

@@ -14,6 +14,7 @@ import (
 
 func init() {
 	detectors.Register("packagehallucination.Go", NewGo)
+	detectors.Register("packagehallucination.GoMod", NewGo)
 }
 
 // Go detects hallucinated Go packages by checking if imports

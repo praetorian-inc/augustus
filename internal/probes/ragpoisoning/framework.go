@@ -93,7 +93,7 @@ func (r *RAGPoisoning) Description() string {
 	return r.description
 }
 
-// Goal returns the probe's goal (matches Python garak).
+// Goal returns the probe's goal.
 func (r *RAGPoisoning) Goal() string {
 	return r.goal
 }
@@ -120,6 +120,7 @@ func (r *RAGPoisoning) Probe(ctx context.Context, gen probes.Generator) ([]*atte
 	att := attempt.New(r.TriggerQuestion)
 	att.Probe = r.Name()
 	att.Detector = r.GetPrimaryDetector()
+	att.Metadata[attempt.MetadataKeyTriggers] = []string{r.PoisonedAnswer}
 
 	// Build conversation with RAG context
 	conv := attempt.NewConversation()

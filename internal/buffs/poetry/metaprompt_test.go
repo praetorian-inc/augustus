@@ -650,3 +650,52 @@ func TestMetaPromptBuff_BuffWithMultiFormat(t *testing.T) {
 	assert.True(t, formats["haiku"])
 	assert.True(t, formats["sonnet"])
 }
+
+func TestNewMetaPromptBuff_ConfigIsolation(t *testing.T) {
+	t.Run("no generator uses template fallback", func(t *testing.T) {
+		buff, err := NewMetaPromptBuff(registry.Config{})
+		require.NoError(t, err)
+		assert.NotNil(t, buff)
+	})
+
+	t.Run("buff-specific config without generator", func(t *testing.T) {
+		buff, err := NewMetaPromptBuff(registry.Config{
+			"format":   "sonnet",
+			"strategy": "allegorical",
+		})
+		require.NoError(t, err)
+		mb := buff.(*MetaPromptBuff)
+		assert.Equal(t, "sonnet", mb.format)
+		assert.Equal(t, "allegorical", mb.strategy)
+		assert.Nil(t, mb.transformGen)
+	})
+
+	t.Run("invalid generator errors correctly", func(t *testing.T) {
+		_, err := NewMetaPromptBuff(registry.Config{
+			"transform_generator": "nonexistent.Generator",
+			"format":              "haiku",
+			"strategy":            "narrative",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "nonexistent.Generator")
+	})
+
+	t.Run("generator config isolation via transform_generator_config", func(t *testing.T) {
+		// This test verifies the fix: only transform_generator_config
+		// should be passed to generators.Create(), not the full buff config.
+		// Since we can't easily intercept generators.Create() calls,
+		// we verify behavior: invalid generator fails with correct error,
+		// not with "unknown config key: format" or similar.
+		_, err := NewMetaPromptBuff(registry.Config{
+			"transform_generator": "invalid.Gen",
+			"format":              "haiku",
+			"strategy":            "narrative",
+			"transform_generator_config": map[string]any{
+				"temperature": 0.7,
+			},
+		})
+		require.Error(t, err)
+		// Should fail on generator creation, not config validation
+		assert.Contains(t, err.Error(), "create transform generator")
+	})
+}

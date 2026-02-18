@@ -13,7 +13,7 @@ type ReasoningConfig struct {
 	Model  string
 	APIKey string
 
-	// Optional with defaults (matching Garak DEFAULT_PARAMS)
+	// Optional with defaults
 	MaxCompletionTokens int // Used instead of max_tokens for reasoning models
 	TopP                 float32
 	FrequencyPenalty     float32
@@ -22,7 +22,7 @@ type ReasoningConfig struct {
 	BaseURL              string
 }
 
-// DefaultReasoningConfig returns a ReasoningConfig with Garak-matching defaults.
+// DefaultReasoningConfig returns a ReasoningConfig with defaults.
 func DefaultReasoningConfig() ReasoningConfig {
 	return ReasoningConfig{
 		MaxCompletionTokens: 1500,

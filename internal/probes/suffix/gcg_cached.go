@@ -4,7 +4,6 @@
 // These suffixes are specially crafted strings (often containing unusual unicode, punctuation,
 // and patterns) designed to bypass LLM safety mechanisms.
 //
-// Python garak equivalent: garak.probes.suffix
 package suffix
 
 import (
@@ -23,7 +22,6 @@ var gcgSuffixData string
 // An automatic jailbreaking probe using gradient descent. This implementation
 // uses a pre-computed cached set of GCG prompts from research.
 //
-// Python garak equivalent: garak.probes.suffix.GCGCached
 type GCGCached struct {
 	*probes.SimpleProbe
 }

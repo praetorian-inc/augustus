@@ -9,7 +9,6 @@
 // - https://arxiv.org/abs/2404.09894
 // - https://www.lesswrong.com/posts/kmWrwtGE9B9hpbgRT/a-search-for-more-chatgpt-gpt-3-5-gpt-4-unspeakable-glitch
 //
-// Python garak equivalent: garak.probes.glitch
 package glitch
 
 import (
@@ -34,12 +33,11 @@ func init() {
 
 // GlitchFull probes model for glitch tokens that provoke unusual behavior.
 //
-// This probe tests all 183 known glitch tokens from the garak framework.
+// This probe tests all 183 known glitch tokens.
 // Glitch tokens tend to be long entries in the tokenizer that only rarely occur
 // in general text. Models using the same tokenizer are unlikely to be able to repeat
 // them. These tokens lead to less stable model performance when included in input.
 //
-// Python garak equivalent: garak.probes.glitch.GlitchFull
 type GlitchFull struct {
 	*probes.SimpleProbe
 	glitchTokens []string
@@ -231,7 +229,6 @@ func NewGlitchFull(_ registry.Config) (probes.Prober, error) {
 // This probe uses a subset of 100 potential glitch tokens for faster testing.
 // It's a trimmed version of GlitchFull for scenarios where speed is important.
 //
-// Python garak equivalent: garak.probes.glitch.Glitch
 type Glitch struct {
 	*GlitchFull
 }

@@ -137,54 +137,10 @@ func (b *Batch) Run(
 					a.Generator = gen.Name()
 				}
 
-				// Run each detector
-				maxScore := 0.0
-				primaryDetector := ""
-				var primaryScores []float64
-				firstDetector := ""
-				var firstScores []float64
-
-				for _, detector := range detectorList {
-					slog.Debug("running detector", "detector", detector.Name(), "probe", p.Name())
-
-					scores, err := detector.Detect(ctx, a)
-					if err != nil {
-						errs <- fmt.Errorf("detector %s failed on probe %s: %w",
-							detector.Name(), p.Name(), err)
-						return
-					}
-
-					// Store detector results
-					a.SetDetectorResults(detector.Name(), scores)
-
-					// Remember first detector as fallback
-					if firstDetector == "" {
-						firstDetector = detector.Name()
-						firstScores = scores
-					}
-
-					// Track detector with highest score
-					for _, score := range scores {
-						if score > maxScore {
-							maxScore = score
-							primaryDetector = detector.Name()
-							primaryScores = scores
-						}
-					}
-				}
-
-				// Set primary detector to one with highest score
-				if primaryDetector != "" {
-					a.Detector = primaryDetector
-					a.Scores = primaryScores
-				} else if firstDetector != "" {
-					a.Detector = firstDetector
-					a.Scores = firstScores
-				}
-
-				// Mark attempt as complete only if not in error state
-				if a.Status != attempt.StatusError {
-					a.Complete()
+				// Run detectors using shared logic (FailOnError routes to errs channel)
+				if err := harnesses.ApplyDetectors(ctx, a, detectorList, harnesses.FailOnError); err != nil {
+					errs <- err
+					return
 				}
 			}
 

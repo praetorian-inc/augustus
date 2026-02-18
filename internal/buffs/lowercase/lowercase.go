@@ -1,6 +1,5 @@
 // Package lowercase provides a buff that converts prompts to lowercase.
 //
-// This is a port of garak/buffs/lowercase.py to Go.
 package lowercase
 
 import (

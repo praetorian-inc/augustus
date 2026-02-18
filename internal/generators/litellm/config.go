@@ -38,7 +38,7 @@ type Config struct {
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
-		Temperature: 0.7, // Match Garak default
+		Temperature: 0.7,
 	}
 }
 

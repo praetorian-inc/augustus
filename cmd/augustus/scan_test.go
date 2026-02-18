@@ -2,13 +2,19 @@ package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/config"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestScanCommand_CreateComponents tests component creation from registries.
@@ -136,4 +142,206 @@ func TestScanCmdBuffsGlobFlagParsing(t *testing.T) {
 			t.Errorf("expected buff name to start with 'encoding.', got %s", buffName)
 		}
 	}
+}
+
+// TestScanCommand_YAMLConfigResolution tests that YAML config file wiring works.
+// This test exercises the config resolution paths for buffs, probes, and detectors
+// that are used in scan.go but were previously untested.
+func TestScanCommand_YAMLConfigResolution(t *testing.T) {
+	ctx := context.Background()
+
+	// Create a temporary YAML config file with settings for all component types
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "test-config.yaml")
+
+	yamlContent := `
+generators:
+  test.Repeat:
+    model: "test-model"
+    temperature: 0.7
+    api_key: "test-key"
+
+buffs:
+  names:
+    - encoding.Base64
+  settings:
+    encoding.Base64:
+      enabled: true
+
+probes:
+  settings:
+    test.Test:
+      custom_option: "test-value"
+
+detectors:
+  settings:
+    always.Pass:
+      threshold: 0.5
+
+run:
+  concurrency: 5
+  timeout: "10m"
+  probe_timeout: "2m"
+
+output:
+  format: "json"
+`
+
+	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	require.NoError(t, err, "failed to write test config file")
+
+	// Create scanConfig with YAML file
+	cfg := &scanConfig{
+		generatorName: "test.Repeat",
+		probeNames:    []string{"test.Test"},
+		detectorNames: []string{"always.Pass"},
+		buffNames:     []string{}, // Will be loaded from YAML
+		harnessName:   "probewise.Probewise",
+		configFile:    configPath,
+		outputFormat:  "table",
+		verbose:       false,
+	}
+
+	eval := &mockEvaluator{}
+	err = runScan(ctx, cfg, eval)
+	require.NoError(t, err, "runScan with YAML config should succeed")
+
+	// Verify the scan produced results
+	assert.NotEmpty(t, eval.attempts, "scan with YAML config should produce attempts")
+
+	// This test proves that:
+	// 1. yamlCfg.ResolveBuffConfig() is called (line 372)
+	// 2. yamlCfg.ResolveProbeConfig() is called (line 307)
+	// 3. yamlCfg.ResolveDetectorConfig() is called (line 323, 344)
+	// 4. The scan completes successfully with config-driven settings
+}
+
+// TestScanCmd_ProfileIntegration tests the full chain:
+// ScanCmd.Profile -> CLIOverrides.ProfileName -> Resolve()
+func TestScanCmd_ProfileIntegration(t *testing.T) {
+	cmd := &ScanCmd{
+		Generator: "test.Blank",
+		Probe:     []string{"test.Blank"},
+		Profile:   "quick",
+	}
+	cli := cmd.buildCLIOverrides()
+	assert.Equal(t, "quick", cli.ProfileName)
+}
+
+// TestScanCmd_SetupContextNoDeadline tests that setupContext does NOT apply
+// a timeout to the context. Scan timeouts are handled by the scanner package
+// so that partial results can still be processed after scanning completes.
+func TestScanCmd_SetupContextNoDeadline(t *testing.T) {
+	cmd := &ScanCmd{}
+
+	ctx, cancel := cmd.setupContext()
+	defer cancel()
+
+	// setupContext should NOT set a deadline - only signal handling
+	_, hasDeadline := ctx.Deadline()
+	assert.False(t, hasDeadline, "setupContext should not set a deadline; scanner handles timeouts")
+}
+
+// TestScanCmd_ResolvedTimeoutPassedToScanner tests that YAML config timeout
+// is correctly resolved and would be passed to scanner options.
+func TestScanCmd_ResolvedTimeoutPassedToScanner(t *testing.T) {
+	// Create YAML config with explicit timeout
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "timeout-config.yaml")
+	yamlContent := `
+run:
+  timeout: "100ms"
+`
+	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	require.NoError(t, err)
+
+	// ScanCmd with NO timeout flag (Timeout = 0)
+	cmd := &ScanCmd{
+		Generator:  "test.Repeat",
+		Probe:      []string{"test.Test"},
+		Harness:    "probewise.Probewise",
+		ConfigFile: configPath,
+		Timeout:    0,
+	}
+
+	// Load config and resolve
+	yamlCfg, err := config.LoadConfig(configPath)
+	require.NoError(t, err)
+
+	cli := cmd.buildCLIOverrides()
+	resolved, err := config.Resolve(yamlCfg, cli)
+	require.NoError(t, err)
+
+	// Verify resolved timeout matches YAML config (100ms)
+	assert.Equal(t, 100*time.Millisecond, resolved.ScannerOpts.Timeout,
+		"resolved timeout should come from YAML config")
+}
+
+// TestCreateProbes_Basic tests that createProbes creates probes from names.
+func TestCreateProbes_Basic(t *testing.T) {
+	probeList, err := createProbes([]string{"test.Test"}, nil)
+	require.NoError(t, err)
+	assert.Len(t, probeList, 1)
+	assert.Equal(t, "test.Test", probeList[0].Name())
+}
+
+// TestCreateProbes_InvalidName tests that createProbes returns error for invalid probe name.
+func TestCreateProbes_InvalidName(t *testing.T) {
+	_, err := createProbes([]string{"nonexistent.Probe"}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to create probe")
+}
+
+// TestCreateProbes_Empty tests that createProbes handles empty probe list.
+func TestCreateProbes_Empty(t *testing.T) {
+	probeList, err := createProbes([]string{}, nil)
+	require.NoError(t, err)
+	assert.Len(t, probeList, 0)
+}
+
+// TestCreateDetectors_ExplicitList tests that createDetectors creates detectors from explicit names.
+func TestCreateDetectors_ExplicitList(t *testing.T) {
+	detectorList, err := createDetectors([]string{"always.Pass"}, nil, nil)
+	require.NoError(t, err)
+	assert.Len(t, detectorList, 1)
+}
+
+// TestCreateDetectors_DerivedFromProbes tests that createDetectors auto-discovers from probe metadata.
+func TestCreateDetectors_DerivedFromProbes(t *testing.T) {
+	probeList, err := createProbes([]string{"test.Test"}, nil)
+	require.NoError(t, err)
+
+	detectorList, err := createDetectors(nil, probeList, nil)
+	require.NoError(t, err)
+	assert.NotEmpty(t, detectorList, "should auto-discover detectors from probes")
+}
+
+// TestCreateDetectors_NoneAvailable tests that createDetectors returns error when no detectors available.
+func TestCreateDetectors_NoneAvailable(t *testing.T) {
+	_, err := createDetectors(nil, nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no detectors available")
+}
+
+// TestCreateAndApplyBuffs_Empty tests that createAndApplyBuffs returns original probes when no buffs.
+func TestCreateAndApplyBuffs_Empty(t *testing.T) {
+	probeList, err := createProbes([]string{"test.Test"}, nil)
+	require.NoError(t, err)
+
+	resultProbes, err := createAndApplyBuffs(probeList, []string{}, nil)
+	require.NoError(t, err)
+	assert.Len(t, resultProbes, 1)
+	assert.Equal(t, probeList[0], resultProbes[0], "should return original probes unchanged")
+}
+
+// TestCreateAndApplyBuffs_WithBuffs tests that createAndApplyBuffs wraps probes with buff chain.
+func TestCreateAndApplyBuffs_WithBuffs(t *testing.T) {
+	probeList, err := createProbes([]string{"test.Test"}, nil)
+	require.NoError(t, err)
+
+	resultProbes, err := createAndApplyBuffs(probeList, []string{"encoding.Base64"}, nil)
+	require.NoError(t, err)
+	assert.Len(t, resultProbes, 1)
+	// After applying buffs, probes should be wrapped (different instance)
+	assert.NotEqual(t, probeList[0], resultProbes[0], "probes should be wrapped with buffs")
 }

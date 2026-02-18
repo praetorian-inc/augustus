@@ -110,36 +110,34 @@ func isPassed(status attempt.Status, scores []float64) bool {
 	return true
 }
 
+// ToAttemptResult converts a single attempt to a simplified AttemptResult.
+func ToAttemptResult(a *attempt.Attempt) AttemptResult {
+	response := ""
+	if len(a.Outputs) > 0 {
+		response = a.Outputs[0]
+	}
+	scores := a.GetEffectiveScores()
+	passed := isPassed(a.Status, scores)
+
+	return AttemptResult{
+		Probe:     a.Probe,
+		Prompt:    a.Prompt,
+		Response:  response,
+		Detector:  a.Detector,
+		Scores:    scores,
+		Passed:    passed,
+		Status:    a.Status,
+		Error:     a.Error,
+		Timestamp: a.Timestamp,
+	}
+}
+
 // ToAttemptResults converts a slice of attempts to simplified AttemptResults.
 func ToAttemptResults(attempts []*attempt.Attempt) []AttemptResult {
 	results := make([]AttemptResult, 0, len(attempts))
-
 	for _, a := range attempts {
-		// Get response (first output if available)
-		response := ""
-		if len(a.Outputs) > 0 {
-			response = a.Outputs[0]
-		}
-
-		// Use centralized score resolution
-		scores := a.GetEffectiveScores()
-
-		// Use isPassed() helper - respects Status field
-		passed := isPassed(a.Status, scores)
-
-		results = append(results, AttemptResult{
-			Probe:     a.Probe,
-			Prompt:    a.Prompt,
-			Response:  response,
-			Detector:  a.Detector,
-			Scores:    scores,
-			Passed:    passed,
-			Status:    a.Status,
-			Error:     a.Error,
-			Timestamp: a.Timestamp,
-		})
+		results = append(results, ToAttemptResult(a))
 	}
-
 	return results
 }
 

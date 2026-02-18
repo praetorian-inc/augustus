@@ -65,7 +65,6 @@ func TestGetKey_PrimaryDetector(t *testing.T) {
 	pm, ok := p.(probes.ProbeMetadata)
 	require.True(t, ok, "probe should implement ProbeMetadata")
 
-	// Should match Python garak
 	assert.Equal(t, "apikey.ApiKey", pm.GetPrimaryDetector())
 }
 

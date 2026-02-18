@@ -38,7 +38,6 @@ type homoglyphVariant struct {
 
 // Homoglyphs substitutes characters with visually similar Unicode homoglyphs.
 //
-// Python garak equivalent: garak.probes.badchars.BadCharacters (homoglyph category)
 type Homoglyphs struct {
 	name            string
 	goal            string
@@ -118,7 +117,7 @@ func (p *Homoglyphs) Description() string {
 	return p.description
 }
 
-// Goal returns the probe's goal (matches Python garak).
+// Goal returns the probe's goal.
 func (p *Homoglyphs) Goal() string {
 	return p.goal
 }
@@ -245,7 +244,6 @@ func generateAllHomoglyphVariants(
 }
 
 // generateHomoglyphVariants generates variants of a payload with homoglyph substitutions.
-// Matches Python garak _generate_homoglyph_variants (badchars.py lines 256-280).
 func generateHomoglyphVariants(
 	payload string,
 	budget int,

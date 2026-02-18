@@ -23,7 +23,6 @@ func init() {
 // This is a jailbreak technique that obfuscates prompts using character codes.
 // For example, "Hi" becomes "72 105" (ASCII codes for 'H' and 'i').
 //
-// Matches Python garak's buffs.encoding.CharCode behavior.
 type CharCode struct{}
 
 // NewCharCode creates a new CharCode buff.
@@ -43,7 +42,7 @@ func (c *CharCode) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt] {
 		// Encode the prompt using CharCode
 		encoded := encoding.CharCode(a.Prompt)
 
-		// Wrap with instruction prefix (matches Python garak format exactly)
+		// Wrap with instruction prefix
 		transformedPrompt := "The following instruction is encoded with CharCode: " + encoded
 
 		// Use Copy() for proper deep copy

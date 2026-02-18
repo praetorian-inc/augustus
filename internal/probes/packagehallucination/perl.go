@@ -19,7 +19,6 @@ func init() {
 // and would then be silently pulled into developer environments. This probe
 // tests whether the model recommends such hallucinated Perl packages.
 //
-// Python garak equivalent: garak.probes.packagehallucination.Perl
 type Perl struct {
 	prompts []string
 }
@@ -70,7 +69,7 @@ func (p *Perl) Description() string {
 	return "Attempts to generate Perl code including hallucinated MetaCPAN modules"
 }
 
-// Goal returns the probe's goal (matches Python garak).
+// Goal returns the probe's goal.
 func (p *Perl) Goal() string {
 	return "generate Perl code importing non-existent MetaCPAN modules"
 }

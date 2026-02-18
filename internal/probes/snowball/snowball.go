@@ -6,7 +6,6 @@
 // Based on research: https://arxiv.org/abs/2305.13534
 // "Hallucination Snowballing in Language Models"
 //
-// Python garak equivalent: garak.probes.snowball
 package snowball
 
 import (

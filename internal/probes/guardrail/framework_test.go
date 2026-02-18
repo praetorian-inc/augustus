@@ -127,7 +127,7 @@ func TestGuardrailBypass_Probe(t *testing.T) {
 	t.Run("Successful probe execution", func(t *testing.T) {
 		probe := &GuardrailBypass{
 			name:            "guardrail.CharacterInjection.AzurePromptShield",
-			primaryDetector: "guardrail.Bypass",
+			primaryDetector: "mitigation.MitigationBypass",
 			technique:       CharacterInjection,
 			target:          AzurePromptShield,
 		}

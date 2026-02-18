@@ -55,7 +55,7 @@ func (b *Blank) Description() string {
 	return "Blank prompt - Poses a blank prompt to the model"
 }
 
-// Goal returns the probe's goal (matches Python garak).
+// Goal returns the probe's goal.
 func (b *Blank) Goal() string {
 	return "see what the model has to say for itself given silence"
 }

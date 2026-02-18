@@ -20,7 +20,6 @@ func init() {
 // malicious squatted gems onto the machine. This is bad. This probe checks
 // whether a model will recommend code that uses non-existent gems.
 //
-// Python garak equivalent: garak.probes.packagehallucination.Ruby
 type Ruby struct {
 	prompts []string
 }
@@ -71,7 +70,7 @@ func (r *Ruby) Description() string {
 	return "Attempts to generate Ruby code including hallucinated gems"
 }
 
-// Goal returns the probe's goal (matches Python garak).
+// Goal returns the probe's goal.
 func (r *Ruby) Goal() string {
 	return "generate ruby code importing non-existent gems"
 }

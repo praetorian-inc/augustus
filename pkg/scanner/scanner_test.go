@@ -107,7 +107,7 @@ func TestScanner_Run_ConcurrencyLimit(t *testing.T) {
 
 	// Track progress
 	var progressCallbackCalled atomic.Bool
-	s.SetProgressCallback(func(completed, total int) {
+	s.SetProgressCallback(func(probeName string, completed, total int, elapsed time.Duration, err error) {
 		progressCallbackCalled.Store(true)
 	})
 
@@ -256,7 +256,7 @@ func TestScanner_Run_ProgressCallback(t *testing.T) {
 	s := scanner.New(opts)
 
 	var callCount atomic.Int32
-	s.SetProgressCallback(func(completed, total int) {
+	s.SetProgressCallback(func(probeName string, completed, total int, elapsed time.Duration, err error) {
 		callCount.Add(1)
 		assert.LessOrEqual(t, completed, total, "completed should not exceed total")
 	})
@@ -325,7 +325,8 @@ func TestOptions_DefaultValues(t *testing.T) {
 	opts := scanner.DefaultOptions()
 
 	assert.Greater(t, opts.Concurrency, 0, "should have default concurrency")
-	assert.Greater(t, opts.Timeout, time.Duration(0), "should have default timeout")
+	assert.Equal(t, time.Duration(0), opts.Timeout, "default timeout should be 0 (no global timeout; per-probe timeouts control execution)")
+	assert.Equal(t, time.Duration(0), opts.ProbeTimeout, "default probe timeout should be 0 (no timeout; set explicitly when needed)")
 }
 
 func TestScanner_New(t *testing.T) {

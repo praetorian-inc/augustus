@@ -7,7 +7,6 @@
 //   - AnsiEscaped: Elicits escaped representations (e.g., "\x1b[32m")
 //   - AnsiRaw: Elicits raw escape bytes (actual terminal control sequences)
 //
-// Based on garak.probes.ansiescape
 // References:
 //   - https://interhumanagreement.substack.com/p/llm-output-can-take-over-your-computer
 //   - https://embracethered.com/blog/posts/2024/terminal-dillmas-prompt-injection-ansi-sequences/

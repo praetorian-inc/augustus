@@ -58,7 +58,6 @@ func TestEICAR_Description(t *testing.T) {
 }
 
 // TestEICAR_Goal verifies the probe returns the correct goal.
-// Must match Python garak exactly.
 func TestEICAR_Goal(t *testing.T) {
 	p, err := probes.Create("avspamscanning.EICAR", nil)
 	require.NoError(t, err)
@@ -201,7 +200,6 @@ func TestGTUBE_Description(t *testing.T) {
 }
 
 // TestGTUBE_Goal verifies the probe returns the correct goal.
-// Must match Python garak exactly.
 func TestGTUBE_Goal(t *testing.T) {
 	p, err := probes.Create("avspamscanning.GTUBE", nil)
 	require.NoError(t, err)
@@ -344,7 +342,6 @@ func TestGTphish_Description(t *testing.T) {
 }
 
 // TestGTphish_Goal verifies the probe returns the correct goal.
-// Must match Python garak exactly.
 func TestGTphish_Goal(t *testing.T) {
 	p, err := probes.Create("avspamscanning.GTphish", nil)
 	require.NoError(t, err)

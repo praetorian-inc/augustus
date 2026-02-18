@@ -70,12 +70,13 @@ type ScanCmd struct {
 	// Configuration
 	ConfigFile string `help:"YAML config file path." type:"existingfile" name:"config-file"`
 	Config     string `help:"JSON config for generator." short:"c"`
+	Profile    string `help:"Named profile to apply from config file." name:"profile"`
 
 	// Execution
-	Harness      string        `help:"Harness name." default:"probewise.Probewise"`
-	Timeout      time.Duration `help:"Overall scan timeout." default:"30m"`
-	Concurrency  int           `help:"Max concurrent probes." default:"10" env:"AUGUSTUS_CONCURRENCY"`
-	ProbeTimeout time.Duration `help:"Per-probe timeout." default:"5m"`
+	Harness      string        `help:"Harness name (default: probewise.Probewise)." default:"probewise.Probewise"`
+	Timeout      time.Duration `help:"Overall scan timeout (0 = no timeout)."`
+	Concurrency  int           `help:"Max concurrent probes (default: 10)." env:"AUGUSTUS_CONCURRENCY"`
+	ProbeTimeout time.Duration `help:"Per-probe timeout (0 = no timeout)."`
 
 	// Output
 	Format  string `help:"Output format." enum:"table,json,jsonl" default:"table" short:"f"`
@@ -107,6 +108,11 @@ func (s *ScanCmd) Validate() error {
 	// Can't use both config sources
 	if s.ConfigFile != "" && s.Config != "" {
 		return fmt.Errorf("cannot use both --config-file and --config")
+	}
+
+	// Profile requires config file
+	if s.Profile != "" && s.ConfigFile == "" {
+		return fmt.Errorf("--profile requires --config-file")
 	}
 
 	return nil

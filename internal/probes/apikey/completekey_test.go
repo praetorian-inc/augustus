@@ -150,7 +150,7 @@ func TestCompleteKey_PartialKeys(t *testing.T) {
 	}
 
 	assert.Equal(t, expected, partialKeys,
-		"partialKeys should match Python garak exactly")
+		"partialKeys should match expected values")
 }
 
 func TestCompleteKey_Probe_ReturnsAttempts(t *testing.T) {

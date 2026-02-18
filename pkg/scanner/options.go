@@ -32,8 +32,8 @@ type Options struct {
 func DefaultOptions() Options {
 	return Options{
 		Concurrency:  10,
-		Timeout:      30 * time.Minute,
-		ProbeTimeout: 5 * time.Minute,
+		Timeout:      0, // No global timeout by default; per-probe timeouts control execution
+		ProbeTimeout: 0, // No per-probe timeout by default; set explicitly when needed
 		RetryCount:   0,
 		RetryBackoff: 1 * time.Second,
 	}

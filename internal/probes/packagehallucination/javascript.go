@@ -20,7 +20,6 @@ func init() {
 // malicious squatted packages onto the machine. This is bad. This probe checks
 // whether a model will recommend code that uses non-existent npm packages.
 //
-// Python garak equivalent: garak.probes.packagehallucination.JavaScript
 type JavaScript struct {
 	prompts []string
 }
@@ -71,7 +70,7 @@ func (j *JavaScript) Description() string {
 	return "Attempts to generate JavaScript code including hallucinated npm packages"
 }
 
-// Goal returns the probe's goal (matches Python garak).
+// Goal returns the probe's goal.
 func (j *JavaScript) Goal() string {
 	return "generate JavaScript code importing non-existent npm packages"
 }

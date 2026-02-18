@@ -20,7 +20,6 @@ func init() {
 // malicious squatted packages onto the machine. This is bad. This probe checks
 // whether a model will recommend code that uses non-existent crates.io packages.
 //
-// Python garak equivalent: garak.probes.packagehallucination.Rust
 type Rust struct {
 	prompts []string
 }
@@ -71,7 +70,7 @@ func (r *Rust) Description() string {
 	return "Attempts to generate Rust code including hallucinated crates.io packages"
 }
 
-// Goal returns the probe's goal (matches Python garak).
+// Goal returns the probe's goal.
 func (r *Rust) Goal() string {
 	return "generate Rust code importing non-existent crates.io packages"
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,6 +14,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/results"
+	"github.com/praetorian-inc/augustus/pkg/scanner"
 )
 
 // --- Mock Implementations ---
@@ -315,8 +317,10 @@ func TestProbewise_Run_DetectorError(t *testing.T) {
 
 	h := New()
 	err := h.Run(ctx, gen, []probes.Prober{probe}, []detectors.Detector{detector}, eval)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "detection failed")
+	// Detector errors should be logged and skipped, not abort execution
+	require.NoError(t, err)
+	// Evaluator should still be called with the probe results
+	assert.True(t, eval.called, "evaluator should be called even when detector fails")
 }
 
 func TestProbewise_Run_EvaluatorError(t *testing.T) {
@@ -763,4 +767,122 @@ func TestProbewise_Run_PartialResultsOnProbeFailures(t *testing.T) {
 	assert.Equal(t, 1, probeNames["test.SuccessProbe1"], "should have 1 attempt from SuccessProbe1")
 	assert.Equal(t, 2, probeNames["test.SuccessProbe2"], "should have 2 attempts from SuccessProbe2")
 	assert.Equal(t, 0, probeNames["test.FailingProbe"], "should have 0 attempts from FailingProbe")
+}
+
+// --- Phase 2 Helper Tests (TDD) ---
+
+// TestFormatProgressStatus_Success tests that nil error returns success status.
+func TestFormatProgressStatus_Success(t *testing.T) {
+	status, errMsg := formatProgressStatus(nil)
+	assert.Equal(t, "✓", status)
+	assert.Equal(t, "", errMsg)
+}
+
+// TestFormatProgressStatus_Error tests that an error returns failure status with message.
+func TestFormatProgressStatus_Error(t *testing.T) {
+	err := errors.New("probe failed")
+	status, errMsg := formatProgressStatus(err)
+	assert.Equal(t, "✗", status)
+	assert.Equal(t, " (probe failed)", errMsg)
+}
+
+// TestFormatProgressStatus_LongError tests that long error messages are truncated.
+func TestFormatProgressStatus_LongError(t *testing.T) {
+	longErr := errors.New("this is a very long error message that exceeds eighty characters and needs truncation")
+	status, errMsg := formatProgressStatus(longErr)
+	assert.Equal(t, "✗", status)
+	// Error message should be truncated to 77 chars + "..." = 80 chars, plus " (" and ")" = 83 total
+	assert.Equal(t, 83, len(errMsg), "should truncate to 80 chars + ellipsis + parens")
+	assert.Contains(t, errMsg, "...")
+}
+
+// TestCreateFreshEvalContext_ScanContextValid tests that when scan context is valid,
+// it returns the original context.
+func TestCreateFreshEvalContext_ScanContextValid(t *testing.T) {
+	ctx := context.Background()
+	evalCtx, cancel := createFreshEvalContext(ctx)
+	defer cancel()
+	assert.Equal(t, ctx, evalCtx, "should return original context when valid")
+}
+
+// TestCreateFreshEvalContext_ScanContextExpired tests that when scan context is expired,
+// it creates a fresh context with a 5-minute timeout.
+func TestCreateFreshEvalContext_ScanContextExpired(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Expire the context
+
+	evalCtx, cancelFunc := createFreshEvalContext(ctx)
+	defer cancelFunc()
+
+	assert.NotEqual(t, ctx, evalCtx, "should create fresh context when expired")
+
+	deadline, hasDeadline := evalCtx.Deadline()
+	assert.True(t, hasDeadline, "fresh context should have 5-minute deadline")
+
+	expectedDeadline := time.Now().Add(5 * time.Minute)
+	timeDiff := expectedDeadline.Sub(deadline)
+	assert.Less(t, timeDiff, 2*time.Second, "deadline should be approximately 5 minutes from now")
+}
+
+// TestReportScanErrors_NoErrors tests that when there are no errors, nil is returned.
+func TestReportScanErrors_NoErrors(t *testing.T) {
+	// Successful results with no errors
+	results := &scanner.Results{
+		Total:     3,
+		Succeeded: 3,
+		Failed:    0,
+		Errors:    nil,
+	}
+	allAttempts := []*attempt.Attempt{
+		{Probe: "test.Probe1"},
+		{Probe: "test.Probe2"},
+		{Probe: "test.Probe3"},
+	}
+
+	err := reportScanErrors(results, nil, allAttempts)
+	assert.NoError(t, err, "should return nil when no errors")
+}
+
+// TestReportScanErrors_ProbeFailures tests that probe failures are reported with count.
+func TestReportScanErrors_ProbeFailures(t *testing.T) {
+	// Results with probe failures
+	results := &scanner.Results{
+		Total:     3,
+		Succeeded: 1,
+		Failed:    2,
+		Errors: []error{
+			errors.New("probe1 failed"),
+			errors.New("probe2 failed"),
+		},
+	}
+	allAttempts := []*attempt.Attempt{
+		{Probe: "test.SuccessProbe"},
+	}
+
+	err := reportScanErrors(results, nil, allAttempts)
+	require.Error(t, err, "should return error when probes failed")
+	assert.Contains(t, err.Error(), "2 of 3 probes failed")
+}
+
+// TestReportScanErrors_ScanTimeout tests that scan timeout errors are reported with context.
+func TestReportScanErrors_ScanTimeout(t *testing.T) {
+	// Results with scan timeout
+	results := &scanner.Results{
+		Total:     3,
+		Succeeded: 2,
+		Failed:    0,
+		Errors:    nil,
+	}
+	scanErr := context.DeadlineExceeded
+	allAttempts := []*attempt.Attempt{
+		{Probe: "test.Probe1"},
+		{Probe: "test.Probe2"},
+	}
+
+	err := reportScanErrors(results, scanErr, allAttempts)
+	require.Error(t, err, "should return error when scan timed out")
+	assert.Contains(t, err.Error(), "scan interrupted")
+	assert.Contains(t, err.Error(), "2/3 probes")
+	assert.Contains(t, err.Error(), "2 attempts")
+	assert.Contains(t, err.Error(), "context deadline exceeded")
 }

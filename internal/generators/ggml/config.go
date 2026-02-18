@@ -24,7 +24,7 @@ type Config struct {
 	ExtraFlags     []string
 }
 
-// DefaultConfig returns a Config with default values matching garak's defaults.
+// DefaultConfig returns a Config with default values.
 func DefaultConfig() Config {
 	return Config{
 		Temperature:   0.8,

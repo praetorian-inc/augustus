@@ -83,6 +83,25 @@ func loadSingleConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+// interpolateMapEnvVars recursively interpolates env vars in map[string]any values
+func interpolateMapEnvVars(m map[string]any, getenv func(string) (string, bool)) error {
+	for k, v := range m {
+		switch val := v.(type) {
+		case string:
+			interpolated, err := interpolateEnvVars(val, getenv)
+			if err != nil {
+				return err
+			}
+			m[k] = interpolated
+		case map[string]any:
+			if err := interpolateMapEnvVars(val, getenv); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 // interpolateConfigEnvVars interpolates environment variables in all string fields
 func interpolateConfigEnvVars(cfg *Config) error {
 	getenv := func(key string) (string, bool) {
@@ -121,6 +140,13 @@ func interpolateConfigEnvVars(cfg *Config) error {
 		cfg.Generators[name] = gen
 	}
 
+	// Interpolate judge config
+	if cfg.Judge.Config != nil {
+		if err := interpolateMapEnvVars(cfg.Judge.Config, getenv); err != nil {
+			return err
+		}
+	}
+
 	// Interpolate output config
 	if cfg.Output.Path != "" {
 		path, err := interpolateEnvVars(cfg.Output.Path, getenv)
@@ -135,6 +161,43 @@ func interpolateConfigEnvVars(cfg *Config) error {
 			return err
 		}
 		cfg.Output.Format = format
+	}
+
+	// Interpolate nested probe config maps
+	if cfg.Probes.AttackerConfig != nil {
+		if err := interpolateMapEnvVars(cfg.Probes.AttackerConfig, getenv); err != nil {
+			return err
+		}
+	}
+	if cfg.Probes.JudgeConfig != nil {
+		if err := interpolateMapEnvVars(cfg.Probes.JudgeConfig, getenv); err != nil {
+			return err
+		}
+	}
+	if cfg.Probes.Settings != nil {
+		for _, settings := range cfg.Probes.Settings {
+			if err := interpolateMapEnvVars(settings, getenv); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Interpolate nested detector settings
+	if cfg.Detectors.Settings != nil {
+		for _, settings := range cfg.Detectors.Settings {
+			if err := interpolateMapEnvVars(settings, getenv); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Interpolate nested buff settings
+	if cfg.Buffs.Settings != nil {
+		for _, settings := range cfg.Buffs.Settings {
+			if err := interpolateMapEnvVars(settings, getenv); err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
