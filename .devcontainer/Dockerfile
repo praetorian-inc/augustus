@@ -64,4 +64,4 @@ RUN mkdir -p /home/vscode/.npm-global && \
     npm config set prefix '/home/vscode/.npm-global'
 
 ENV PATH="/home/vscode/.npm-global/bin:$PATH"
-ENV OLLAMA_HOST="0.0.0.0:11434"
+ENV OLLAMA_HOST="http://0.0.0.0:11434"
