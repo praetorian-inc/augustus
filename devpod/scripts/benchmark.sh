@@ -369,12 +369,13 @@ build_config_args() {
     local args=""
 
     # YAML config file for scan settings (timeouts, judge, etc.)
+    # NOTE: --config-file and --config are mutually exclusive in the CLI
     if [[ -n "$CONFIG_FILE" ]]; then
         args="--config-file \"${CONFIG_FILE}\""
+    else
+        # Inline JSON config for generator-specific model selection
+        args="--config '{\"model\":\"${model}\"}'"
     fi
-
-    # Inline JSON config for generator-specific model selection
-    args="${args} --config '{\"model\":\"${model}\"}'"
 
     echo "$args"
 }
@@ -414,11 +415,13 @@ run_scan() {
     start_time="$(date +%s)"
 
     # Run the actual scan command; continue on failure
+    local scan_failed=false
     if eval "$cmd"; then
         log_info "Scan completed for: ${generator} (${model})"
     else
         log_warn "Scan FAILED for: ${generator} (${model}) - continuing with other providers"
         echo "{\"error\": true, \"provider\": \"${generator}\", \"model\": \"${model}\"}" > "$jsonl_file"
+        scan_failed=true
     fi
 
     end_time="$(date +%s)"
@@ -433,6 +436,11 @@ duration=${duration}
 generator=${generator}
 model=${model}
 TIMING_EOF
+    fi
+
+    # Return non-zero so the caller can track failed providers
+    if [[ "$scan_failed" == "true" ]]; then
+        return 1
     fi
 }
 
