@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -344,4 +345,80 @@ func TestCreateAndApplyBuffs_WithBuffs(t *testing.T) {
 	assert.Len(t, resultProbes, 1)
 	// After applying buffs, probes should be wrapped (different instance)
 	assert.NotEqual(t, probeList[0], resultProbes[0], "probes should be wrapped with buffs")
+}
+
+// TestBuildCLIOverrides_ModelAlone tests that --model flag creates ConfigJSON with just model.
+func TestBuildCLIOverrides_ModelAlone(t *testing.T) {
+	cmd := &ScanCmd{
+		Generator: "openai.OpenAI",
+		Probe:     []string{"test.Blank"},
+		Model:     "gpt-4",
+	}
+	cli := cmd.buildCLIOverrides()
+	assert.Equal(t, `{"model":"gpt-4"}`, cli.ConfigJSON)
+}
+
+// TestBuildCLIOverrides_ModelMergedWithConfig tests that --model merges with existing --config.
+func TestBuildCLIOverrides_ModelMergedWithConfig(t *testing.T) {
+	cmd := &ScanCmd{
+		Generator: "openai.OpenAI",
+		Probe:     []string{"test.Blank"},
+		Config:    `{"temperature":0.5}`,
+		Model:     "gpt-4",
+	}
+	cli := cmd.buildCLIOverrides()
+	var result map[string]any
+	err := json.Unmarshal([]byte(cli.ConfigJSON), &result)
+	require.NoError(t, err)
+	assert.Equal(t, "gpt-4", result["model"])
+	assert.Equal(t, 0.5, result["temperature"])
+}
+
+// TestBuildCLIOverrides_ModelOverridesConfigModel tests that --model takes precedence over --config model key.
+func TestBuildCLIOverrides_ModelOverridesConfigModel(t *testing.T) {
+	cmd := &ScanCmd{
+		Generator: "openai.OpenAI",
+		Probe:     []string{"test.Blank"},
+		Config:    `{"model":"gpt-3.5-turbo","temperature":0.7}`,
+		Model:     "gpt-4",
+	}
+	cli := cmd.buildCLIOverrides()
+	var result map[string]any
+	err := json.Unmarshal([]byte(cli.ConfigJSON), &result)
+	require.NoError(t, err)
+	assert.Equal(t, "gpt-4", result["model"], "--model flag should override --config model key")
+	assert.Equal(t, 0.7, result["temperature"], "other config keys should be preserved")
+}
+
+// TestBuildCLIOverrides_NoModelSet tests that ConfigJSON is unchanged when --model is not set.
+func TestBuildCLIOverrides_NoModelSet(t *testing.T) {
+	t.Run("no model no config", func(t *testing.T) {
+		cmd := &ScanCmd{
+			Generator: "openai.OpenAI",
+			Probe:     []string{"test.Blank"},
+		}
+		cli := cmd.buildCLIOverrides()
+		assert.Empty(t, cli.ConfigJSON, "ConfigJSON should remain empty when neither --model nor --config is set")
+	})
+	t.Run("no model with config", func(t *testing.T) {
+		cmd := &ScanCmd{
+			Generator: "openai.OpenAI",
+			Probe:     []string{"test.Blank"},
+			Config:    `{"temperature":0.5}`,
+		}
+		cli := cmd.buildCLIOverrides()
+		assert.Equal(t, `{"temperature":0.5}`, cli.ConfigJSON, "ConfigJSON should pass through unchanged when --model is not set")
+	})
+}
+
+// TestBuildCLIOverrides_ModelWithInvalidConfigJSON tests that invalid JSON is preserved unchanged.
+func TestBuildCLIOverrides_ModelWithInvalidConfigJSON(t *testing.T) {
+	cmd := &ScanCmd{
+		Generator: "openai.OpenAI",
+		Probe:     []string{"test.Blank"},
+		Config:    `{invalid-json`,
+		Model:     "gpt-4",
+	}
+	cli := cmd.buildCLIOverrides()
+	assert.Equal(t, `{invalid-json`, cli.ConfigJSON, "invalid JSON should be preserved unchanged when merge fails")
 }
