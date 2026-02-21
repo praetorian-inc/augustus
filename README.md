@@ -672,6 +672,33 @@ make build
 make install
 ```
 
+### Benchmark Environment (DevPod)
+
+A ready-to-go cloud development environment for benchmarking LLMs is available via [DevPod](https://devpod.sh/). It provisions a remote container with Augustus, Ollama, Go, and all dependencies pre-installed.
+
+```bash
+cd devpod
+
+# CPU-only instance (~$0.08/hr) - cloud APIs only
+make devpod-up-cpu
+
+# GPU instance with NVIDIA T4 (~$0.53/hr) - local models up to 14B
+make devpod-up-gpu
+
+# GPU Pro instance with NVIDIA L4 (~$0.80/hr) - local models up to 32B
+make devpod-up-gpu-pro
+```
+
+Inside the devpod:
+
+```bash
+devpod/scripts/setup.sh        # Configure LLM provider API keys
+devpod/scripts/pull-models.sh   # Pull local Ollama models (GPU only)
+devpod/scripts/benchmark.sh     # Run benchmarks with comparison reports
+```
+
+The environment also works as a standard [dev container](https://containers.dev/) — open the repo in VS Code or Cursor and select the CPU or GPU configuration from `.devcontainer/`.
+
 ## Security
 
 Augustus is designed for **authorized security testing only**.

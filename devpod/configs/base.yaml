@@ -1,0 +1,25 @@
+# Augustus Benchmark - Base Configuration
+#
+# This config provides sensible defaults for benchmark scans.
+# Override per-run settings via the benchmark.sh script flags,
+# or copy this file and customize for your needs.
+#
+# Usage:
+#   benchmark.sh --providers "openai:gpt-4o" --probes "dan.*"
+#   benchmark.sh --providers "openai:gpt-4o" --probes "dan.*" --config-file configs/custom.yaml
+
+run:
+  # No global timeout by default. Per-probe timeout controls execution time.
+  # Set timeout explicitly (e.g., "60m") for CI environments that need a hard cap.
+  # timeout: "60m"
+  concurrency: 10
+  probe_timeout: "2m"
+
+# Judge configuration - used by probes (PAIR, TAP) and detectors (judge.Judge)
+# that need an LLM to evaluate outputs. Requires an OpenAI API key.
+judge:
+  generator_type: "openai.OpenAI"
+  model: "gpt-4o-mini"
+
+output:
+  format: "jsonl"
