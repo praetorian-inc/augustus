@@ -98,8 +98,8 @@ make build
 ```bash
 export OPENAI_API_KEY="your-api-key"
 augustus scan openai.OpenAI \
-  --probe dan.Dan \
-  --detector dan.DanDetector \
+  --probe dan.Dan_11_0 \
+  --detector dan.DAN \
   --verbose
 ```
 
@@ -109,7 +109,7 @@ augustus scan openai.OpenAI \
 +------------------+----------+---------+-------+--------+
 |      PROBE       | DETECTOR | PASSED  | SCORE | STATUS |
 +------------------+----------+---------+-------+--------+
-| dan.Dan          | dan.DAN  | false   |  0.85 | VULN   |
+| dan.Dan_11_0     | dan.DAN  | false   |  0.85 | VULN   |
 | encoding.Base64  | encoding |  true   |  0.10 | SAFE   |
 | smuggling.Tag    | smuggling|  true   |  0.05 | SAFE   |
 +------------------+----------+---------+-------+--------+
@@ -166,8 +166,8 @@ All providers are available in the compiled binary. Configure via environment va
 ```bash
 # Test for DAN jailbreak
 augustus scan openai.OpenAI \
-  --probe dan.Dan \
-  --detector dan.DanDetector \
+  --probe dan.Dan_11_0 \
+  --detector dan.DAN \
   --config-file config.yaml \
   --verbose
 ```
@@ -219,13 +219,13 @@ augustus scan openai.OpenAI \
 
 ```bash
 # Table format (default) - human-readable
-augustus scan openai.OpenAI --probe dan.Dan --format table
+augustus scan openai.OpenAI --probe dan.Dan_11_0 --format table
 
 # JSON format - structured output
-augustus scan openai.OpenAI --probe dan.Dan --format json
+augustus scan openai.OpenAI --probe dan.Dan_11_0 --format json
 
 # JSONL format - one JSON object per line, ideal for piping
-augustus scan openai.OpenAI --probe dan.Dan --format jsonl
+augustus scan openai.OpenAI --probe dan.Dan_11_0 --format jsonl
 
 # HTML report - visual reports for stakeholders
 augustus scan openai.OpenAI --all --html report.html
@@ -236,8 +236,8 @@ augustus scan openai.OpenAI --all --html report.html
 ```bash
 # Test proprietary LLM endpoint (OpenAI-compatible API)
 augustus scan rest.Rest \
-  --probe dan.Dan \
-  --detector dan.DanDetector \
+  --probe dan.Dan_11_0 \
+  --detector dan.DAN \
   --config '{
     "uri": "https://api.example.com/v1/chat/completions",
     "method": "POST",
@@ -289,7 +289,7 @@ augustus scan openai.OpenAI --all --harness batch.Batch
 
 # Test local model with Ollama (no API key needed)
 augustus scan ollama.OllamaChat \
-  --probe dan.Dan \
+  --probe dan.Dan_11_0 \
   --config '{"model":"llama3.2:3b"}'
 ```
 
@@ -539,7 +539,7 @@ Yes! Use the Ollama integration for local model testing:
 ```bash
 # No API key needed
 augustus scan ollama.OllamaChat \
-  --probe dan.Dan \
+  --probe dan.Dan_11_0 \
   --config '{"model":"llama3.2:3b"}'
 ```
 
@@ -631,7 +631,7 @@ augustus scan openai.OpenAI \
 augustus list
 
 # Use exact names from the list
-augustus scan openai.OpenAI --probe dan.Dan  # Correct
+augustus scan openai.OpenAI --probe dan.Dan_11_0  # Correct
 ```
 
 ### Scan produces no results

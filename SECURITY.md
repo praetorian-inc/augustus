@@ -53,7 +53,7 @@ When using Augustus for security testing:
 ```bash
 # Good: Environment variables
 export OPENAI_API_KEY="sk-..."
-augustus scan openai.OpenAI --probe dan.Dan
+augustus scan openai.OpenAI --probe dan.Dan_11_0
 
 # Bad: Hardcoded in command or config
 augustus scan openai.OpenAI --config '{"api_key":"sk-..."}'  # Don't do this
