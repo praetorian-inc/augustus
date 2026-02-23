@@ -1,6 +1,7 @@
 package results
 
 import (
+	"encoding/json"
 	"fmt"
 	"html"
 	"os"
@@ -215,6 +216,70 @@ func WriteHTML(outputPath string, attempts []*attempt.Attempt) error {
             margin-bottom: 10px;
             font-size: 1.5em;
         }
+        .conversation-flow {
+            margin: 15px 0;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 6px;
+        }
+        .conversation-header {
+            font-weight: 600;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #dee2e6;
+        }
+        .turn {
+            margin-bottom: 15px;
+            padding: 12px;
+            border-radius: 6px;
+            border-left: 4px solid #dee2e6;
+        }
+        .turn-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+        .turn-score {
+            font-family: monospace;
+        }
+        .turn-success {
+            border-left-color: #dc3545;
+            background: #fff5f5;
+        }
+        .turn-low { border-left-color: #28a745; }
+        .turn-medium { border-left-color: #ffc107; }
+        .turn-high { border-left-color: #fd7e14; }
+        .turn-refused {
+            border-left-color: #6c757d;
+            background: #f0f0f0;
+            opacity: 0.7;
+        }
+        .turn-question, .turn-response {
+            margin: 5px 0;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 0.9em;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .turn-question {
+            background: #e3f2fd;
+        }
+        .turn-response {
+            background: #f5f5f5;
+        }
+        .score-bar {
+            height: 4px;
+            background: #e9ecef;
+            border-radius: 2px;
+            margin-top: 8px;
+        }
+        .score-bar-fill {
+            height: 100%;
+            border-radius: 2px;
+            transition: width 0.3s;
+        }
     </style>
 </head>
 <body>
@@ -298,6 +363,8 @@ func WriteHTML(outputPath string, attempts []*attempt.Attempt) error {
 					}
 				}
 
+				_, isMultiTurn := att.Metadata["attack_type"].(string)
+
 				sb.WriteString(`                <div class="attempt">
                     <div class="attempt-header">
                         <span class="status-badge ` + statusClass + `">` + statusText + `</span>
@@ -306,7 +373,11 @@ func WriteHTML(outputPath string, attempts []*attempt.Attempt) error {
                     <div class="attempt-detail">
                         <strong>Detector:</strong> ` + html.EscapeString(att.Detector) + `
                     </div>
-                    <div class="attempt-detail">
+`)
+				// Skip redundant prompt/response for multi-turn attacks —
+				// the conversation flow section below already shows all turns.
+				if !isMultiTurn {
+					sb.WriteString(`                    <div class="attempt-detail">
                         <strong>Prompt:</strong>
                         <div class="prompt">` + html.EscapeString(att.Prompt) + `</div>
                     </div>
@@ -314,9 +385,150 @@ func WriteHTML(outputPath string, attempts []*attempt.Attempt) error {
                         <strong>Response:</strong>
                         <div class="response">` + html.EscapeString(response) + `</div>
                     </div>
-                    <div class="attempt-detail">
+`)
+				}
+				sb.WriteString(`                    <div class="attempt-detail">
                         <strong>Timestamp:</strong> ` + att.Timestamp.Format(time.RFC3339) + `
                     </div>
+`)
+
+				// Multi-turn conversation flow
+				if attackType, ok := att.Metadata["attack_type"].(string); ok {
+					goal, _ := att.Metadata["goal"].(string)
+					totalTurns, _ := att.Metadata["total_turns"].(int)
+					succeeded, _ := att.Metadata["succeeded"].(bool)
+
+					resultText := "NOT ACHIEVED"
+					if succeeded {
+						resultText = "ACHIEVED"
+					}
+
+					sb.WriteString(`                    <div class="conversation-flow">
+                        <div class="conversation-header">` +
+						html.EscapeString(fmt.Sprintf("%s Attack - %d turns - %s", attackType, totalTurns, resultText)) +
+						`</div>`)
+
+					if goal != "" {
+						sb.WriteString(`
+                        <div style="margin-bottom: 10px; color: #495057;"><strong>Goal:</strong> ` + html.EscapeString(goal) + `</div>`)
+					}
+
+					// Render turn records - handle both []TurnRecord and []any (from JSON)
+					type turnData struct {
+						TurnNumber int
+						Question   string
+						Response   string
+						WasRefused bool
+						JudgeScore float64
+						Strategy   string
+					}
+					var turns []turnData
+
+					// Try direct type first (in-memory)
+					switch records := att.Metadata["turn_records"].(type) {
+					case []any:
+						for _, r := range records {
+							if rec, ok := r.(map[string]any); ok {
+								td := turnData{}
+								if v, ok := rec["turn_number"].(float64); ok {
+									td.TurnNumber = int(v)
+								}
+								if v, ok := rec["turn_number"].(int); ok {
+									td.TurnNumber = v
+								}
+								td.Question, _ = rec["question"].(string)
+								td.Response, _ = rec["response"].(string)
+								td.WasRefused, _ = rec["was_refused"].(bool)
+								if v, ok := rec["judge_score"].(float64); ok {
+									td.JudgeScore = v
+								}
+								td.Strategy, _ = rec["strategy"].(string)
+								turns = append(turns, td)
+							}
+						}
+					default:
+						// In-memory TurnRecord slice - marshal/unmarshal to get []any
+						if records != nil {
+							jsonBytes, err := json.Marshal(records)
+							if err == nil {
+								var rawTurns []map[string]any
+								if json.Unmarshal(jsonBytes, &rawTurns) == nil {
+									for _, rec := range rawTurns {
+										td := turnData{}
+										if v, ok := rec["turn_number"].(float64); ok {
+											td.TurnNumber = int(v)
+										}
+										td.Question, _ = rec["question"].(string)
+										td.Response, _ = rec["response"].(string)
+										td.WasRefused, _ = rec["was_refused"].(bool)
+										if v, ok := rec["judge_score"].(float64); ok {
+											td.JudgeScore = v
+										}
+										td.Strategy, _ = rec["strategy"].(string)
+										turns = append(turns, td)
+									}
+								}
+							}
+						}
+					}
+
+					for _, turn := range turns {
+						turnClass := "turn"
+						if turn.WasRefused {
+							turnClass += " turn-refused"
+						} else if turn.JudgeScore >= 0.8 {
+							turnClass += " turn-success"
+						} else if turn.JudgeScore >= 0.5 {
+							turnClass += " turn-high"
+						} else if turn.JudgeScore >= 0.3 {
+							turnClass += " turn-medium"
+						} else {
+							turnClass += " turn-low"
+						}
+
+						successTag := ""
+						if turn.JudgeScore >= 0.8 {
+							successTag = " [SUCCESS]"
+						}
+						refusedTag := ""
+						if turn.WasRefused {
+							refusedTag = " [REFUSED]"
+						}
+
+						// Score bar color
+						barColor := "#28a745" // green
+						if turn.JudgeScore >= 0.8 {
+							barColor = "#dc3545" // red
+						} else if turn.JudgeScore >= 0.5 {
+							barColor = "#fd7e14" // orange
+						} else if turn.JudgeScore >= 0.3 {
+							barColor = "#ffc107" // yellow
+						}
+
+						sb.WriteString(fmt.Sprintf(`
+                        <div class="%s">
+                            <div class="turn-header">
+                                <span>Turn %d%s%s</span>
+                                <span class="turn-score">Score: %.2f</span>
+                            </div>
+                            <div class="turn-question"><strong>Attacker:</strong> %s</div>
+                            <div class="turn-response"><strong>Target:</strong> %s</div>
+                            <div class="score-bar"><div class="score-bar-fill" style="width: %.0f%%; background: %s;"></div></div>
+                        </div>`,
+							turnClass,
+							turn.TurnNumber, successTag, refusedTag,
+							turn.JudgeScore,
+							html.EscapeString(turn.Question),
+							html.EscapeString(turn.Response),
+							turn.JudgeScore*100, barColor,
+						))
+					}
+
+					sb.WriteString(`
+                    </div>`)
+				}
+
+				sb.WriteString(`
                 </div>
 `)
 			}

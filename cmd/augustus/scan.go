@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -33,8 +34,8 @@ type scanConfig struct {
 	configFile    string // YAML config file path
 	configJSON    string
 	outputFormat  string
-	outputFile    string        // JSONL output file path
-	htmlFile      string        // HTML report file path
+	outputFile    string // JSONL output file path
+	htmlFile      string // HTML report file path
 	verbose       bool
 	allProbes     bool          // Run all registered probes
 	timeout       time.Duration // Overall scan timeout
@@ -458,7 +459,99 @@ func (t *tableEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 				passed++
 			}
 
-			if t.verbose {
+			// Check for multi-turn attack metadata
+			if attackType, ok := a.Metadata["attack_type"].(string); ok {
+				totalTurns := 0
+				if tt, ok := a.Metadata["total_turns"].(int); ok {
+					totalTurns = tt
+				}
+				goal := ""
+				if g, ok := a.Metadata["goal"].(string); ok {
+					goal = g
+				}
+
+				// Capitalize first letter of attack type
+				attackLabel := strings.ToUpper(attackType[:1]) + attackType[1:]
+
+				if t.verbose {
+					fmt.Printf("  %s Attack (%d turns) - %s (score: %.2f)\n", attackLabel, totalTurns, status, maxScore)
+					if goal != "" {
+						fmt.Printf("  Goal: %q\n\n", goal)
+					}
+
+					// Extract turn data — handle both in-memory []TurnRecord and JSON-deserialized []any
+					type turnInfo struct {
+						turnNum    int
+						question   string
+						response   string
+						score      float64
+						wasRefused bool
+					}
+					var turns []turnInfo
+
+					switch records := a.Metadata["turn_records"].(type) {
+					case []any:
+						for _, r := range records {
+							if rec, ok := r.(map[string]any); ok {
+								ti := turnInfo{}
+								if v, ok := rec["turn_number"].(float64); ok {
+									ti.turnNum = int(v)
+								}
+								if v, ok := rec["turn_number"].(int); ok {
+									ti.turnNum = v
+								}
+								ti.question, _ = rec["question"].(string)
+								ti.response, _ = rec["response"].(string)
+								if v, ok := rec["judge_score"].(float64); ok {
+									ti.score = v
+								}
+								ti.wasRefused, _ = rec["was_refused"].(bool)
+								turns = append(turns, ti)
+							}
+						}
+					default:
+						// In-memory type (e.g. []TurnRecord) — marshal/unmarshal to normalize
+						if records != nil {
+							jsonBytes, jsonErr := json.Marshal(records)
+							if jsonErr == nil {
+								var rawTurns []map[string]any
+								if json.Unmarshal(jsonBytes, &rawTurns) == nil {
+									for _, rec := range rawTurns {
+										ti := turnInfo{}
+										if v, ok := rec["turn_number"].(float64); ok {
+											ti.turnNum = int(v)
+										}
+										ti.question, _ = rec["question"].(string)
+										ti.response, _ = rec["response"].(string)
+										if v, ok := rec["judge_score"].(float64); ok {
+											ti.score = v
+										}
+										ti.wasRefused, _ = rec["was_refused"].(bool)
+										turns = append(turns, ti)
+									}
+								}
+							}
+						}
+					}
+
+					for _, ti := range turns {
+						successMarker := ""
+						if ti.score >= 0.8 {
+							successMarker = "  [SUCCESS]"
+						}
+						refusedMarker := ""
+						if ti.wasRefused {
+							refusedMarker = "  [REFUSED]"
+						}
+
+						fmt.Printf("  Turn %d%s%s          Score: %.2f\n", ti.turnNum, successMarker, refusedMarker, ti.score)
+						fmt.Printf("  Attacker: %s\n", truncate(ti.question, 80))
+						fmt.Printf("  Target:   %s\n\n", truncate(ti.response, 80))
+					}
+				} else {
+					fmt.Printf("  %s Attack (%d turns) - %s (score: %.2f)\n", attackLabel, totalTurns, status, maxScore)
+				}
+			} else if t.verbose {
 				fmt.Printf("  Attempt %d: %s (score: %.2f)\n", i+1, status, maxScore)
 				if len(a.Prompts) > 0 {
 					fmt.Printf("    Prompt: %s\n", truncate(a.Prompts[0], 60))

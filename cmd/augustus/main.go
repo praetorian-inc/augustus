@@ -17,6 +17,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/badchars"
 	_ "github.com/praetorian-inc/augustus/internal/probes/browsing"
 	_ "github.com/praetorian-inc/augustus/internal/probes/continuation"
+	_ "github.com/praetorian-inc/augustus/internal/probes/crescendo"
 	_ "github.com/praetorian-inc/augustus/internal/probes/dan"
 	_ "github.com/praetorian-inc/augustus/internal/probes/divergence"
 	_ "github.com/praetorian-inc/augustus/internal/probes/donotanswer"
@@ -129,13 +130,13 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/harnesses/probewise"
 
 	// Buffs
+	_ "github.com/praetorian-inc/augustus/internal/buffs/conlang"
 	_ "github.com/praetorian-inc/augustus/internal/buffs/encoding"
 	_ "github.com/praetorian-inc/augustus/internal/buffs/flip"
 	_ "github.com/praetorian-inc/augustus/internal/buffs/lowercase"
 	_ "github.com/praetorian-inc/augustus/internal/buffs/lrl"
 	_ "github.com/praetorian-inc/augustus/internal/buffs/paraphrase"
 	_ "github.com/praetorian-inc/augustus/internal/buffs/poetry"
-	_ "github.com/praetorian-inc/augustus/internal/buffs/conlang"
 	_ "github.com/praetorian-inc/augustus/internal/buffs/smuggling"
 )
 
