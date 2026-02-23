@@ -110,8 +110,8 @@ augustus scan openai.OpenAI \
 |      PROBE       | DETECTOR | PASSED  | SCORE | STATUS |
 +------------------+----------+---------+-------+--------+
 | dan.Dan_11_0     | dan.DAN  | false   |  0.85 | VULN   |
-| encoding.Base64  | encoding |  true   |  0.10 | SAFE   |
-| smuggling.Tag    | smuggling|  true   |  0.05 | SAFE   |
+| dan.STAN         | dan.STAN |  true   |  0.10 | SAFE   |
+| dan.AntiDAN      | dan.AntiDAN|  true  |  0.05 | SAFE   |
 +------------------+----------+---------+-------+--------+
 ```
 
@@ -148,7 +148,7 @@ Augustus includes 28 LLM provider categories with 43 generator variants:
 | NeMo Guardrails    | `guardrails.NeMoGuardrails` | NVIDIA NeMo Guardrails       |
 | IBM watsonx        | `watsonx.WatsonX`         | IBM watsonx.ai platform        |
 | LangChain          | `langchain.LangChain`     | LangChain LLM wrapper          |
-| LangChain Serve    | `langchainserve.LangChainServe` | LangChain Serve endpoints |
+| LangChain Serve    | `langchain_serve.LangChainServe` | LangChain Serve endpoints |
 | Rasa               | `rasa.RasaRest`           | Rasa conversational AI         |
 | GGML               | `ggml.Ggml`               | GGML local model inference     |
 | Function           | `function.Single`, `function.Multiple` | Custom function generators |
@@ -177,7 +177,7 @@ augustus scan openai.OpenAI \
 ```bash
 # Use glob patterns to run related probes
 augustus scan openai.OpenAI \
-  --probes-glob "encoding.*,smuggling.*,dan.*" \
+  --probes-glob "dan.*,goodside.*,grandma.*" \
   --detectors-glob "*" \
   --config-file config.yaml \
   --output batch-results.jsonl
@@ -205,7 +205,7 @@ augustus scan openai.OpenAI \
 # Apply poetry transformation
 augustus scan anthropic.Anthropic \
   --probes-glob "dan.*" \
-  --buff poetry.Poetry \
+  --buff poetry.MetaPrompt \
   --config '{"model":"claude-3-opus-20240229"}'
 
 # Chain multiple buffs
@@ -252,7 +252,7 @@ augustus scan rest.Rest \
 
 # Test with proxy interception (Burp Suite, mitmproxy)
 augustus scan rest.Rest \
-  --probes-glob "encoding.*" \
+  --probes-glob "goodside.*" \
   --config '{
     "uri": "https://internal-llm.corp/generate",
     "proxy": "http://127.0.0.1:8080",
@@ -473,7 +473,7 @@ Arguments:
 
 Probe Selection (choose one):
   --probe, -p                 Probe name (repeatable)
-  --probes-glob               Comma-separated glob patterns (e.g., "dan.*,encoding.*")
+  --probes-glob               Comma-separated glob patterns (e.g., "dan.*,goodside.*")
   --all                       Run all registered probes
 
 Detector Selection:

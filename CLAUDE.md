@@ -115,7 +115,7 @@ For YAML-based probes, create `.yaml` files in `data/` subdirectory and use `tem
 augustus scan openai.OpenAI --probe dan.Dan_11_0 --detector dan.DAN
 
 # Glob patterns for batch runs
-augustus scan anthropic.Anthropic --probes-glob "encoding.*,dan.*" --all-detectors
+augustus scan anthropic.Anthropic --probes-glob "dan.*,goodside.*"
 
 # Apply buff transformations
 augustus scan openai.OpenAI --all --buff encoding.Base64

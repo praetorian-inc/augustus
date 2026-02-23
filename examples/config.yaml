@@ -1,7 +1,7 @@
 # Augustus Configuration Example
 #
 # Use with:
-#   augustus scan openai.OpenAI --probe dan.Dan --config-file examples/config.yaml
+#   augustus scan openai.OpenAI --probe dan.Dan_11_0 --config-file examples/config.yaml
 #   augustus scan openai.OpenAI --all --config-file examples/config.yaml --profile quick
 
 # Runtime configuration
