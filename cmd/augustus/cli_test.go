@@ -597,3 +597,43 @@ func TestScanCmd_Validate_ProfileRequiresConfigFile(t *testing.T) {
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "--profile requires --config-file")
 }
+
+// TestScanCmdModelFlagParsing tests that --model flag is parsed correctly.
+func TestScanCmdModelFlagParsing(t *testing.T) {
+	tests := []struct {
+		name  string
+		args  []string
+		model string
+	}{
+		{
+			name:  "long flag --model",
+			args:  []string{"scan", "openai.OpenAI", "--probe", "test.Blank", "--model", "gpt-4"},
+			model: "gpt-4",
+		},
+		{
+			name:  "short flag -m",
+			args:  []string{"scan", "openai.OpenAI", "--probe", "test.Blank", "-m", "claude-3-opus"},
+			model: "claude-3-opus",
+		},
+		{
+			name:  "model not set",
+			args:  []string{"scan", "openai.OpenAI", "--probe", "test.Blank"},
+			model: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var cli struct {
+				Scan ScanCmd `cmd:""`
+			}
+			parser, err := kong.New(&cli,
+				kong.Name("augustus"),
+				kong.Exit(func(int) {}),
+			)
+			require.NoError(t, err)
+			_, err = parser.Parse(tt.args)
+			require.NoError(t, err)
+			assert.Equal(t, tt.model, cli.Scan.Model)
+		})
+	}
+}
