@@ -127,6 +127,21 @@ func (s *ScanCmd) buildCLIOverrides() config.CLIOverrides {
 		ProfileName:   s.Profile,
 	}
 
+	// Merge --model into ConfigJSON (takes precedence over --config model key)
+	if s.Model != "" {
+		if cli.ConfigJSON == "" {
+			cli.ConfigJSON = `{"model":"` + s.Model + `"}`
+		} else {
+			var cfgMap map[string]any
+			if err := json.Unmarshal([]byte(cli.ConfigJSON), &cfgMap); err == nil {
+				cfgMap["model"] = s.Model
+				if b, err := json.Marshal(cfgMap); err == nil {
+					cli.ConfigJSON = string(b)
+				}
+			}
+		}
+	}
+
 	if s.Concurrency > 0 {
 		cli.Concurrency = &s.Concurrency
 	}

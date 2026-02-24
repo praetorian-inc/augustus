@@ -70,6 +70,7 @@ type ScanCmd struct {
 	// Configuration
 	ConfigFile string `help:"YAML config file path." type:"existingfile" name:"config-file"`
 	Config     string `help:"JSON config for generator." short:"c"`
+	Model      string `help:"Model name for generator (shorthand for --config '{\"model\":\"...\"}')." short:"m"`
 	Profile    string `help:"Named profile to apply from config file." name:"profile"`
 
 	// Execution
