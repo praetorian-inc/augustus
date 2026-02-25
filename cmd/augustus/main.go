@@ -19,6 +19,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/continuation"
 	_ "github.com/praetorian-inc/augustus/internal/probes/crescendo"
 	_ "github.com/praetorian-inc/augustus/internal/probes/dan"
+	_ "github.com/praetorian-inc/augustus/internal/probes/goat"
 	_ "github.com/praetorian-inc/augustus/internal/probes/divergence"
 	_ "github.com/praetorian-inc/augustus/internal/probes/donotanswer"
 	_ "github.com/praetorian-inc/augustus/internal/probes/dra"

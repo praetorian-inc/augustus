@@ -65,6 +65,7 @@ Unlike research-oriented tools, Augustus is built for production security testin
 - **Jailbreak attacks**: DAN, DAN 11.0, AIM, AntiGPT, Grandma, ArtPrompts
 - **Prompt injection**: Encoding (Base64, ROT13, Morse), Tag smuggling, FlipAttack, Prefix/Suffix injection
 - **Adversarial examples**: GCG, PAIR, AutoDAN, TAP (Tree of Attack Prompts), TreeSearch, DRA
+- **Multi-turn attacks**: Crescendo (gradual escalation), GOAT (adaptive technique switching)
 - **Data extraction**: API key leakage, Package hallucination, PII extraction, LeakReplay
 - **Context manipulation**: RAG poisoning, Context overflow, Multimodal attacks, Continuation, Divergence
 - **Format exploits**: Markdown injection, YAML/JSON parsing attacks, ANSI escape, Web injection (XSS)
@@ -321,7 +322,90 @@ flowchart LR
 3. **Generator Call**: Send adversarial prompts to the target LLM via its provider integration
 4. **Detector Analysis**: Analyze responses using pattern matching, LLM-as-a-judge, or specialized detectors
 5. **Result Recording**: Score each attempt and produce output in the requested format
-6. **Attack Engine**: For iterative probes (PAIR, TAP), the attack engine manages multi-turn conversations with candidate pruning and judge-based scoring
+6. **Attack Engine**: For iterative probes (PAIR, TAP), the single-turn attack engine refines prompts across iterations with candidate pruning and judge-based scoring
+7. **Multi-Turn Engine**: For conversational probes (Crescendo, GOAT), the multi-turn engine maintains full conversation history with the target across turns, with refusal detection and dynamic adaptation
+
+### Multi-Turn Attack Strategies
+
+Multi-turn attacks maintain a persistent conversation with the target LLM, exploiting the fact that models may disclose information incrementally across turns that they would refuse in a single prompt. The multi-turn engine uses three LLMs: an **attacker** (generates questions), a **target** (the system under test), and a **judge** (scores progress and detects refusals).
+
+#### Crescendo
+
+Crescendo uses gradual escalation (foot-in-the-door technique) to slowly shift a conversation from benign topics toward a prohibited objective.
+
+- **Paper**: [Russinovich et al., 2024](https://arxiv.org/abs/2404.01833)
+- **Approach**: Starts with genuinely benign, educational questions and incrementally increases specificity over many turns
+- **Escalation pattern**: Historical context → technical mechanisms → specific details → direct requests framed as natural follow-ups
+- **Strength**: Effective against models that track conversation tone — the gradual shift avoids triggering safety filters
+
+```bash
+augustus scan rest.Rest \
+  --probe crescendo.Crescendo \
+  --config-file crescendo.yaml \
+  --html report.html -v
+```
+
+#### GOAT (Generative Offensive Agent Tester)
+
+GOAT uses an aggressive, adaptive approach with 7 adversarial techniques and Chain-of-Attack-Thought reasoning to dynamically switch strategies based on what works or fails.
+
+- **Paper**: [Pavlova et al., 2024](https://arxiv.org/abs/2410.01606)
+- **Approach**: Targets the objective from turn 1 using indirect framing, never mentions the goal directly to the target
+- **7 techniques** across 3 categories:
+  - *Output Manipulation*: Refusal Suppression, Response Priming
+  - *Safe Response Distractors*: Dual Response, Topic Splitting, Opposite Intent
+  - *Fictional Scenarios*: Persona Modification, Hypothetical
+- **Chain-of-Attack-Thought**: Each turn the attacker reasons through Observation → Thought → Strategy → Response before crafting its message
+- **Technique stacking**: Multiple techniques can be combined in a single turn for stronger effect
+- **Strength**: Achieves high success rates in fewer turns (typically 3-5) by aggressively switching between fundamentally different approaches
+
+```bash
+augustus scan rest.Rest \
+  --probe goat.Goat \
+  --config-file goat.yaml \
+  --html report.html -v
+```
+
+#### Multi-Turn Configuration
+
+Both strategies use the same configuration structure:
+
+```yaml
+generators:
+  rest.Rest:
+    uri: "https://your-llm-endpoint/chat"
+    method: POST
+    req_template: '{"input": "$INPUT"}'
+    response_json: true
+    response_json_field: "response"
+
+judge:
+  generator_type: openai.OpenAI
+  config:
+    model: gpt-4
+    api_key: "${OPENAI_API_KEY}"
+
+probes:
+  attacker_generator_type: openai.OpenAI
+  attacker_config:
+    model: gpt-4
+    api_key: "${OPENAI_API_KEY}"
+  settings:
+    goat.Goat:  # or crescendo.Crescendo
+      goal: "your test objective"
+      max_turns: 10
+      success_threshold: 0.8
+      use_secondary_judge: true
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `goal` | (required) | The objective the attacker tries to achieve |
+| `max_turns` | 10 | Maximum conversation turns before stopping |
+| `success_threshold` | 0.8 | Judge score (0.0-1.0) that triggers early exit |
+| `max_refusal_retries` | 3 | Rephrase attempts per turn when target refuses |
+| `attack_max_attempts` | 3 | Retries for attacker LLM JSON parsing failures |
+| `use_secondary_judge` | true | Enable secondary judge to catch false negatives |
 
 ## Architecture
 
@@ -354,6 +438,7 @@ internal/
   harnesses/          3 harness strategies (probewise, batch, agentwise)
   buffs/              7 buff transformations
   attackengine/       Iterative adversarial attack engine (PAIR/TAP backend)
+  multiturn/          Multi-turn conversational attack engine (Crescendo/GOAT backend)
   ahocorasick/        Internal Aho-Corasick keyword matching
 benchmarks/           Performance benchmarks
 tests/                Integration and equivalence tests
@@ -367,6 +452,7 @@ docs/                 Documentation
 - **Concurrent scanning** with bounded goroutine pools via `errgroup`
 - **Plugin-style registration** using Go `init()` functions for probes, generators, detectors, buffs, and harnesses
 - **Iterative attack engine** with multi-stream conversation management, candidate pruning, and judge-based scoring for PAIR/TAP
+- **Multi-turn attack engine** with persistent conversation history, refusal detection, strategy-agnostic design for Crescendo/GOAT
 - **YAML probe templates** (Nuclei-style) for declarative probe definitions alongside Go-based probes
 - **Aho-Corasick pre-filtering** for fast keyword matching in detectors
 
