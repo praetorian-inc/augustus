@@ -3,6 +3,8 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,7 +13,10 @@ import (
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
+	"github.com/praetorian-inc/augustus/pkg/hooks"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRestGenerator_Name(t *testing.T) {
@@ -1576,4 +1581,42 @@ func TestRestGenerator_SSEConfigurable_MissingTextField(t *testing.T) {
 	if responses[0].Content != expected {
 		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
 	}
+}
+
+func TestRestGeneratorHookVarSubstitution(t *testing.T) {
+	// Create a test server that echoes the request body back
+	var receivedBody string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		receivedBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"response": "ok"}`)
+	}))
+	defer ts.Close()
+
+	gen, err := generators.Create("rest.Rest", registry.Config{
+		"uri":                 ts.URL,
+		"req_template":        `{"conversationId":"$CONVERSATION_ID","parentMessageId":"$PARENT_MESSAGE_ID","message":"$INPUT"}`,
+		"response_json":       true,
+		"response_json_field": "response",
+	})
+	require.NoError(t, err)
+
+	// Create context with hook variables
+	ctx := hooks.WithVars(context.Background(), map[string]string{
+		"CONVERSATION_ID":   "conv-abc123",
+		"PARENT_MESSAGE_ID": "msg-def456",
+	})
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test input")
+
+	msgs, err := gen.Generate(ctx, conv, 1)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+
+	// Verify the hook variables were substituted in the request
+	assert.Contains(t, receivedBody, `"conversationId":"conv-abc123"`)
+	assert.Contains(t, receivedBody, `"parentMessageId":"msg-def456"`)
+	assert.Contains(t, receivedBody, `"message":"test input"`)
 }

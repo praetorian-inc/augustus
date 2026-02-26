@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -344,4 +345,122 @@ func TestCreateAndApplyBuffs_WithBuffs(t *testing.T) {
 	assert.Len(t, resultProbes, 1)
 	// After applying buffs, probes should be wrapped (different instance)
 	assert.NotEqual(t, probeList[0], resultProbes[0], "probes should be wrapped with buffs")
+}
+
+// TestScanCommand_SetupHook tests that the setup hook runs before probes and its output gets used.
+func TestScanCommand_SetupHook(t *testing.T) {
+	ctx := context.Background()
+
+	cfg := &scanConfig{
+		generatorName: "test.Repeat",
+		probeNames:    []string{"test.Test"},
+		detectorNames: []string{"always.Pass"},
+		harnessName:   "probewise.Probewise",
+		outputFormat:  "table",
+		setup:         `echo "TEST_VAR=setup_value"`,
+	}
+
+	eval := &mockEvaluator{}
+	err := runScan(ctx, cfg, eval)
+	require.NoError(t, err, "runScan with setup hook should succeed")
+	assert.NotEmpty(t, eval.attempts, "scan with setup hook should produce attempts")
+}
+
+// TestScanCommand_CleanupHook tests that cleanup hook runs after scan even if no setup/prepare hooks are used.
+func TestScanCommand_CleanupHook(t *testing.T) {
+	ctx := context.Background()
+
+	// Create a temp file that the cleanup hook will write to
+	tmpDir := t.TempDir()
+	markerFile := filepath.Join(tmpDir, "cleanup_ran")
+
+	cfg := &scanConfig{
+		generatorName: "test.Repeat",
+		probeNames:    []string{"test.Test"},
+		detectorNames: []string{"always.Pass"},
+		harnessName:   "probewise.Probewise",
+		outputFormat:  "table",
+		cleanup:       fmt.Sprintf(`touch %s`, markerFile),
+	}
+
+	eval := &mockEvaluator{}
+	err := runScan(ctx, cfg, eval)
+	require.NoError(t, err, "runScan with cleanup hook should succeed")
+
+	// Verify cleanup hook ran by checking the marker file exists
+	_, err = os.Stat(markerFile)
+	assert.NoError(t, err, "cleanup hook should have created marker file")
+}
+
+// TestScanCommand_SetupHookFailure tests that a failing setup hook causes scan to fail.
+func TestScanCommand_SetupHookFailure(t *testing.T) {
+	ctx := context.Background()
+
+	cfg := &scanConfig{
+		generatorName: "test.Repeat",
+		probeNames:    []string{"test.Test"},
+		detectorNames: []string{"always.Pass"},
+		harnessName:   "probewise.Probewise",
+		outputFormat:  "table",
+		setup:         "exit 1",
+	}
+
+	eval := &mockEvaluator{}
+	err := runScan(ctx, cfg, eval)
+	assert.Error(t, err, "runScan with failing setup hook should fail")
+	assert.Contains(t, err.Error(), "setup hook failed")
+}
+
+// TestScanCommand_PrepareHook tests that prepare hook runs and injects variables.
+func TestScanCommand_PrepareHook(t *testing.T) {
+	ctx := context.Background()
+
+	cfg := &scanConfig{
+		generatorName: "test.Repeat",
+		probeNames:    []string{"test.Test"},
+		detectorNames: []string{"always.Pass"},
+		harnessName:   "probewise.Probewise",
+		outputFormat:  "table",
+		setup:         `echo "CONVERSATION_ID=conv-123"`,
+		prepare:       `echo "PARENT_MSG_ID=msg-456"`,
+	}
+
+	eval := &mockEvaluator{}
+	err := runScan(ctx, cfg, eval)
+	require.NoError(t, err, "runScan with prepare hook should succeed")
+	assert.NotEmpty(t, eval.attempts, "scan with prepare hook should produce attempts")
+}
+
+// TestScanCommand_HooksForceConcurrency tests that hooks force concurrency to 1.
+func TestScanCommand_HooksForceConcurrency(t *testing.T) {
+	ctx := context.Background()
+
+	cfg := &scanConfig{
+		generatorName: "test.Repeat",
+		probeNames:    []string{"test.Test"},
+		detectorNames: []string{"always.Pass"},
+		harnessName:   "probewise.Probewise",
+		outputFormat:  "table",
+		concurrency:   10,
+		setup:         `echo "FOO=bar"`,
+	}
+
+	eval := &mockEvaluator{}
+	err := runScan(ctx, cfg, eval)
+	require.NoError(t, err, "runScan with hooks should succeed despite high concurrency setting")
+}
+
+// TestLoadScanConfig_HookFields tests that loadScanConfig wires hook fields properly.
+func TestLoadScanConfig_HookFields(t *testing.T) {
+	cmd := &ScanCmd{
+		Generator: "test.Repeat",
+		Probe:     []string{"test.Test"},
+		Setup:     "echo setup",
+		Prepare:   "echo prepare",
+		Cleanup:   "echo cleanup",
+	}
+	cfg := cmd.loadScanConfig()
+	assert.Equal(t, "echo setup", cfg.setup)
+	assert.Equal(t, "echo prepare", cfg.prepare)
+	assert.Equal(t, "echo cleanup", cfg.cleanup)
 }

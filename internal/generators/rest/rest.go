@@ -20,6 +20,7 @@ import (
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
+	"github.com/praetorian-inc/augustus/pkg/hooks"
 	"github.com/praetorian-inc/augustus/pkg/ratelimit"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"golang.org/x/net/http2"
@@ -78,6 +79,9 @@ type Rest struct {
 	sseMode        string // "delta" or "last"
 	sseFilterField string // JSONPath for event filtering (e.g., "$.content.type")
 	sseFilterValue string // Value to match for filter (e.g., "CHAT_TEXT")
+
+	// Raw response storage for lifecycle hooks
+	lastRawResp []byte
 }
 
 // NewRest creates a new REST generator from configuration.
@@ -281,13 +285,16 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 
 	prompt := conv.LastPrompt()
 
+	// Get hook variables from context for template substitution
+	hookVars := hooks.VarsFromContext(ctx)
+
 	// Populate request template
-	body := r.populateTemplate(r.reqTemplate, prompt)
+	body := r.populateTemplate(r.reqTemplate, prompt, hookVars)
 
 	// Populate headers
 	headers := make(map[string]string)
 	for k, v := range r.headers {
-		headers[k] = r.populateTemplate(v, prompt)
+		headers[k] = r.populateTemplate(v, prompt, hookVars)
 	}
 
 	// Create request
@@ -342,6 +349,9 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 		return attempt.Message{}, fmt.Errorf("rest: failed to read response: %w", err)
 	}
 
+	// Store raw response for lifecycle hooks
+	r.lastRawResp = respBody
+
 	// Check if response is SSE (Server-Sent Events)
 	contentType := resp.Header.Get("Content-Type")
 	if strings.Contains(contentType, "text/event-stream") {
@@ -360,7 +370,7 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 }
 
 // populateTemplate replaces $INPUT and $KEY placeholders in the template.
-func (r *Rest) populateTemplate(template, input string) string {
+func (r *Rest) populateTemplate(template, input string, hookVars map[string]string) string {
 	result := template
 
 	// Replace $KEY with API key
@@ -372,6 +382,14 @@ func (r *Rest) populateTemplate(template, input string) string {
 	if strings.Contains(result, "$INPUT") {
 		escaped := jsonEscape(input)
 		result = strings.ReplaceAll(result, "$INPUT", escaped)
+	}
+
+	// Replace hook variables ($VARNAME patterns from lifecycle hooks)
+	for k, v := range hookVars {
+		placeholder := "$" + k
+		if strings.Contains(result, placeholder) {
+			result = strings.ReplaceAll(result, placeholder, v)
+		}
 	}
 
 	return result
@@ -698,6 +716,12 @@ func (r *Rest) parseSSEConfigurable(body []byte) string {
 
 // ClearHistory is a no-op for REST generator (stateless).
 func (r *Rest) ClearHistory() {}
+
+// LastRawResponse returns the raw HTTP response body from the most recent API call.
+// This implements the hooks.RawResponseProvider interface.
+func (r *Rest) LastRawResponse() []byte {
+	return r.lastRawResp
+}
 
 // Name returns the generator's fully qualified name.
 func (r *Rest) Name() string {

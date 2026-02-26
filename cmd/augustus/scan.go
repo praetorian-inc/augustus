@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -17,6 +18,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/harnesses"
+	"github.com/praetorian-inc/augustus/pkg/hooks"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/praetorian-inc/augustus/pkg/results"
@@ -40,6 +42,9 @@ type scanConfig struct {
 	timeout       time.Duration // Overall scan timeout
 	concurrency   int           // Max concurrent probes
 	probeTimeout  time.Duration // Per-probe timeout
+	setup         string        // Shell command: once before all probes
+	prepare       string        // Shell command: before each probe
+	cleanup       string        // Shell command: after all probes
 }
 
 // Kong helper methods
@@ -114,6 +119,9 @@ func (s *ScanCmd) loadScanConfig() *scanConfig {
 		timeout:       s.Timeout,
 		concurrency:   s.Concurrency,
 		probeTimeout:  s.ProbeTimeout,
+		setup:         s.Setup,
+		prepare:       s.Prepare,
+		cleanup:       s.Cleanup,
 	}
 }
 
@@ -355,10 +363,47 @@ func createAndApplyBuffs(probeList []probes.Prober, buffNames []string, yamlCfg 
 
 // runScanResolved executes the scan with resolved configuration.
 func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Config, resolved *config.ResolvedConfig, eval harnesses.Evaluator, onAttemptProcessed func(*attempt.Attempt)) error {
+	// Lifecycle hooks: run setup hook before scan
+	var setupVars map[string]string
+	if cfg.setup != "" || cfg.prepare != "" || cfg.cleanup != "" {
+		// Force sequential execution when hooks are used (stateful scanning)
+		if resolved.ScannerOpts.Concurrency > 1 {
+			slog.Warn("forcing concurrency=1 because lifecycle hooks require sequential execution")
+			resolved.ScannerOpts.Concurrency = 1
+		}
+	}
+	if cfg.setup != "" {
+		slog.Info("running setup hook")
+		setupHook := &hooks.Hook{Command: cfg.setup}
+		result, err := setupHook.Run(ctx, map[string]string{
+			"AUGUSTUS_GENERATOR": cfg.generatorName,
+		})
+		if err != nil {
+			return fmt.Errorf("setup hook failed: %w", err)
+		}
+		setupVars = result.Variables
+		// Merge setup variables into generator config
+		for k, v := range setupVars {
+			resolved.GeneratorConfig[k] = v
+		}
+		if len(setupVars) > 0 {
+			slog.Info("setup hook injected variables", "count", len(setupVars))
+		}
+	}
+
 	// Create generator
 	gen, err := generators.Create(cfg.generatorName, resolved.GeneratorConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create generator %s: %w", cfg.generatorName, err)
+	}
+
+	// Wrap generator with lifecycle hooks if prepare is configured
+	if cfg.prepare != "" || len(setupVars) > 0 {
+		var prepareHook *hooks.Hook
+		if cfg.prepare != "" {
+			prepareHook = &hooks.Hook{Command: cfg.prepare}
+		}
+		gen = hooks.NewHookedGenerator(gen, prepareHook, setupVars)
 	}
 
 	// Get probe names
@@ -404,7 +449,22 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 		return fmt.Errorf("failed to create harness %s: %w", cfg.harnessName, err)
 	}
 
-	return harness.Run(ctx, gen, probeList, detectorList, eval)
+	// Run the scan
+	scanErr := harness.Run(ctx, gen, probeList, detectorList, eval)
+
+	// Lifecycle hooks: run cleanup hook after scan
+	if cfg.cleanup != "" {
+		slog.Info("running cleanup hook")
+		cleanupHook := &hooks.Hook{Command: cfg.cleanup}
+		cleanupEnv := map[string]string{
+			"AUGUSTUS_GENERATOR": cfg.generatorName,
+		}
+		if _, cleanupErr := cleanupHook.Run(context.Background(), cleanupEnv); cleanupErr != nil {
+			slog.Error("cleanup hook failed", "error", cleanupErr)
+		}
+	}
+
+	return scanErr
 }
 
 // Evaluator implementations
