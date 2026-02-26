@@ -72,6 +72,12 @@ type Rest struct {
 	proxyURL          *url.URL
 	client            *http.Client
 	limiter           *ratelimit.Limiter // Pre-request rate limiter
+
+	// Configurable SSE parsing
+	sseTextField   string // JSONPath for text extraction (e.g., "$.content.text")
+	sseMode        string // "delta" or "last"
+	sseFilterField string // JSONPath for event filtering (e.g., "$.content.type")
+	sseFilterValue string // Value to match for filter (e.g., "CHAT_TEXT")
 }
 
 // NewRest creates a new REST generator from configuration.
@@ -198,6 +204,29 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 		}
 	}
 	r.proxyURL = proxyURL
+
+	// Optional: SSE configuration
+	if sseTextField, ok := cfg["sse_text_field"].(string); ok {
+		r.sseTextField = sseTextField
+	}
+	if sseMode, ok := cfg["sse_mode"].(string); ok && sseMode != "" {
+		if sseMode != "delta" && sseMode != "last" {
+			return nil, fmt.Errorf("sse_mode must be \"delta\" or \"last\", got %q", sseMode)
+		}
+		r.sseMode = sseMode
+	}
+	if r.sseTextField != "" && r.sseMode == "" {
+		r.sseMode = "delta"
+	}
+	if sseFilterField, ok := cfg["sse_filter_field"].(string); ok {
+		r.sseFilterField = sseFilterField
+	}
+	if sseFilterValue, ok := cfg["sse_filter_value"].(string); ok {
+		r.sseFilterValue = sseFilterValue
+	}
+	if (r.sseFilterField != "") != (r.sseFilterValue != "") {
+		return nil, fmt.Errorf("sse_filter_field and sse_filter_value must both be set or both be empty")
+	}
 
 	// Optional: Rate limiting (requests per second)
 	// Supports both float64 (from JSON) and int
@@ -529,7 +558,18 @@ func valueToString(val any) string {
 
 // parseSSE extracts text content from Server-Sent Events (SSE) format.
 // SSE format: data: {...}\n\ndata: {...}\n\n
+//
+// When sseTextField is configured, uses configurable JSONPath-based extraction.
+// Otherwise, falls back to the built-in heuristic matching common SSE structures.
 func (r *Rest) parseSSE(body []byte) string {
+	if r.sseTextField != "" {
+		return r.parseSSEConfigurable(body)
+	}
+	return r.parseSSEDefault(body)
+}
+
+// parseSSEDefault is the original built-in SSE parser that matches common structures.
+func (r *Rest) parseSSEDefault(body []byte) string {
 	var textParts []string
 	lines := strings.Split(string(body), "\n")
 
@@ -590,6 +630,66 @@ func (r *Rest) parseSSE(body []byte) string {
 	// Join all extracted text
 	if len(textParts) > 0 {
 		return strings.Join(textParts, "")
+	}
+
+	// Fallback: return raw body if no text extracted
+	return string(body)
+}
+
+// parseSSEConfigurable parses SSE events using user-configured JSONPath fields.
+// It supports two modes:
+//   - "delta": concatenates extracted text from all matching events
+//   - "last": keeps only the last non-empty extracted text (for cumulative streams)
+func (r *Rest) parseSSEConfigurable(body []byte) string {
+	var result string
+	var parts []string
+	lines := strings.Split(string(body), "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+
+		jsonStr := strings.TrimPrefix(line, "data:")
+		jsonStr = strings.TrimSpace(jsonStr)
+		if jsonStr == "" {
+			continue
+		}
+
+		var data any
+		if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
+			continue
+		}
+
+		// Apply filter if configured
+		if r.sseFilterField != "" && r.sseFilterValue != "" {
+			filterVal, err := r.evaluateJSONPath(data, r.sseFilterField)
+			if err != nil || filterVal != r.sseFilterValue {
+				continue
+			}
+		}
+
+		// Extract text using configured JSONPath
+		text, err := r.evaluateJSONPath(data, r.sseTextField)
+		if err != nil || text == "" {
+			continue
+		}
+
+		if r.sseMode == "last" {
+			result = text
+		} else {
+			parts = append(parts, text)
+		}
+	}
+
+	if r.sseMode == "last" {
+		if result != "" {
+			return result
+		}
+	} else if len(parts) > 0 {
+		return strings.Join(parts, "")
 	}
 
 	// Fallback: return raw body if no text extracted

@@ -23,6 +23,12 @@ type Config struct {
 	SkipCodes         map[int]bool
 	APIKey            string
 	RateLimit         float64 // Requests per second (0 = unlimited)
+
+	// SSE configuration (optional, enables configurable SSE parsing)
+	SSETextField   string // JSONPath for text extraction from SSE events (e.g., "$.content.text")
+	SSEMode        string // "delta" (concat all chunks) or "last" (take last non-empty value)
+	SSEFilterField string // JSONPath for filtering SSE events (e.g., "$.content.type")
+	SSEFilterValue string // Value to match for sse_filter_field (e.g., "CHAT_TEXT")
 }
 
 // DefaultConfig returns a Config with sensible defaults.
@@ -122,6 +128,22 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 		cfg.RateLimit = float64(rateLimit)
 	}
 
+	// Optional: SSE configuration
+	cfg.SSETextField = registry.GetString(m, "sse_text_field", "")
+	cfg.SSEMode = registry.GetString(m, "sse_mode", "delta")
+	cfg.SSEFilterField = registry.GetString(m, "sse_filter_field", "")
+	cfg.SSEFilterValue = registry.GetString(m, "sse_filter_value", "")
+
+	// Validate SSE mode
+	if cfg.SSEMode != "delta" && cfg.SSEMode != "last" {
+		return cfg, fmt.Errorf("sse_mode must be \"delta\" or \"last\", got %q", cfg.SSEMode)
+	}
+
+	// Validate SSE filter: both field and value must be set together
+	if (cfg.SSEFilterField != "") != (cfg.SSEFilterValue != "") {
+		return cfg, fmt.Errorf("sse_filter_field and sse_filter_value must both be set or both be empty")
+	}
+
 	return cfg, nil
 }
 
@@ -207,5 +229,33 @@ func WithAPIKey(key string) Option {
 func WithRateLimit(rps float64) Option {
 	return func(c *Config) {
 		c.RateLimit = rps
+	}
+}
+
+// WithSSETextField sets the JSONPath for text extraction from SSE events.
+func WithSSETextField(field string) Option {
+	return func(c *Config) {
+		c.SSETextField = field
+	}
+}
+
+// WithSSEMode sets the SSE accumulation mode ("delta" or "last").
+func WithSSEMode(mode string) Option {
+	return func(c *Config) {
+		c.SSEMode = mode
+	}
+}
+
+// WithSSEFilterField sets the JSONPath for filtering SSE events.
+func WithSSEFilterField(field string) Option {
+	return func(c *Config) {
+		c.SSEFilterField = field
+	}
+}
+
+// WithSSEFilterValue sets the value to match for the SSE filter field.
+func WithSSEFilterValue(value string) Option {
+	return func(c *Config) {
+		c.SSEFilterValue = value
 	}
 }
