@@ -9,6 +9,9 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
+// Compile-time interface assertion.
+var _ types.Generator = (*HookedGenerator)(nil)
+
 // HookedGenerator wraps a generator with lifecycle hook support.
 // It runs the prepare hook before each Generate() call, merging
 // KEY=VALUE output into the variable map that gets injected via context.

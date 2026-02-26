@@ -57,6 +57,12 @@ func defaultTransport(proxyURL *url.URL) *http.Transport {
 	return transport
 }
 
+// Compile-time interface assertions.
+var (
+	_ generators.Generator      = (*Rest)(nil)
+	_ hooks.RawResponseProvider = (*Rest)(nil)
+)
+
 // Rest is a generic REST API generator that makes HTTP requests to configured endpoints.
 // It supports request templating, JSON response parsing, and various HTTP methods.
 type Rest struct {
@@ -385,10 +391,12 @@ func (r *Rest) populateTemplate(template, input string, hookVars map[string]stri
 	}
 
 	// Replace hook variables ($VARNAME patterns from lifecycle hooks)
+	// Values are JSON-escaped to prevent malformed JSON when hook output
+	// contains special characters (quotes, backslashes, etc.)
 	for k, v := range hookVars {
 		placeholder := "$" + k
 		if strings.Contains(result, placeholder) {
-			result = strings.ReplaceAll(result, placeholder, v)
+			result = strings.ReplaceAll(result, placeholder, jsonEscape(v))
 		}
 	}
 
