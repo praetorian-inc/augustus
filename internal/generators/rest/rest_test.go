@@ -1620,3 +1620,50 @@ func TestRestGeneratorHookVarSubstitution(t *testing.T) {
 	assert.Contains(t, receivedBody, `"parentMessageId":"msg-def456"`)
 	assert.Contains(t, receivedBody, `"message":"test input"`)
 }
+
+func TestRestGeneratorHookVarSubstitution_Headers(t *testing.T) {
+	var receivedHeader string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedHeader = r.Header.Get("X-Conversation-Id")
+		w.Write([]byte("ok"))
+	}))
+	defer ts.Close()
+
+	gen, err := generators.Create("rest.Rest", registry.Config{
+		"uri":     ts.URL,
+		"headers": map[string]any{"X-Conversation-Id": "$CONVERSATION_ID"},
+	})
+	require.NoError(t, err)
+
+	ctx := hooks.WithVars(context.Background(), map[string]string{
+		"CONVERSATION_ID": "conv-header-test",
+	})
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	_, err = gen.Generate(ctx, conv, 1)
+	require.NoError(t, err)
+	assert.Equal(t, "conv-header-test", receivedHeader)
+}
+
+func TestRestGenerator_LastRawResponse(t *testing.T) {
+	expectedBody := `{"result":"hello world"}`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(expectedBody))
+	}))
+	defer ts.Close()
+
+	gen, err := NewRest(registry.Config{"uri": ts.URL})
+	require.NoError(t, err)
+
+	restGen := gen.(*Rest)
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	_, err = restGen.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	raw := restGen.LastRawResponse()
+	assert.Equal(t, expectedBody, string(raw))
+}

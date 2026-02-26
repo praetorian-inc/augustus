@@ -2,10 +2,14 @@ package hooks
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // mockGenerator is a test double for types.Generator.
@@ -184,4 +188,82 @@ func TestHookedGeneratorProbeIndexIncrements(t *testing.T) {
 	if vars2["INDEX"] != "1" {
 		t.Errorf("second call INDEX: got %q, want %q", vars2["INDEX"], "1")
 	}
+}
+
+func TestHookedGeneratorPrepareHookFailure(t *testing.T) {
+	inner := &mockGenerator{
+		name:      "test.Mock",
+		responses: []attempt.Message{attempt.NewAssistantMessage("hello")},
+	}
+
+	prepare := &Hook{Command: "exit 1"}
+	hg := NewHookedGenerator(inner, prepare, nil)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test prompt")
+
+	_, err := hg.Generate(context.Background(), conv, 1)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "prepare hook failed")
+
+	// Verify mutex was properly released by making another call.
+	// If mutex was NOT released, this would deadlock.
+	done := make(chan struct{})
+	go func() {
+		_, _ = hg.Generate(context.Background(), conv, 1)
+		close(done)
+	}()
+	select {
+	case <-done:
+		// Good -- mutex was released
+	case <-time.After(2 * time.Second):
+		t.Fatal("deadlock: mutex was not released after prepare hook failure")
+	}
+}
+
+func TestHookedGeneratorInnerError(t *testing.T) {
+	innerErr := fmt.Errorf("model API timeout")
+	inner := &mockGenerator{
+		name: "test.Mock",
+		err:  innerErr,
+	}
+
+	hg := NewHookedGenerator(inner, nil, map[string]string{"FOO": "bar"})
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test prompt")
+
+	_, err := hg.Generate(context.Background(), conv, 1)
+	require.Error(t, err)
+	assert.Equal(t, innerErr, err)
+}
+
+func TestHookedGeneratorClearHistory(t *testing.T) {
+	inner := &mockGenerator{name: "test.Mock"}
+	hg := NewHookedGenerator(inner, nil, nil)
+	// Should not panic; delegates to inner
+	hg.ClearHistory()
+}
+
+func TestHookedGeneratorPrepareReceivesCurrentVars(t *testing.T) {
+	inner := &mockGenerator{
+		name:      "test.Mock",
+		responses: []attempt.Message{attempt.NewAssistantMessage("resp")},
+	}
+
+	// Prepare hook reads AUGUSTUS_VAR_CONVERSATION_ID and echoes it
+	prepare := &Hook{Command: `echo "ECHOED=$AUGUSTUS_VAR_CONVERSATION_ID"`}
+	hg := NewHookedGenerator(inner, prepare, map[string]string{
+		"CONVERSATION_ID": "conv-999",
+	})
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	_, err := hg.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	vars := VarsFromContext(inner.lastCtx)
+	require.NotNil(t, vars)
+	assert.Equal(t, "conv-999", vars["ECHOED"])
 }

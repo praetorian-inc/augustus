@@ -464,3 +464,25 @@ func TestLoadScanConfig_HookFields(t *testing.T) {
 	assert.Equal(t, "echo prepare", cfg.prepare)
 	assert.Equal(t, "echo cleanup", cfg.cleanup)
 }
+
+func TestScanCommand_CleanupDoesNotRunOnEarlyFailure(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	markerFile := filepath.Join(tmpDir, "cleanup_marker")
+
+	cfg := &scanConfig{
+		generatorName: "nonexistent.Generator",
+		probeNames:    []string{"test.Test"},
+		detectorNames: []string{"always.Pass"},
+		harnessName:   "probewise.Probewise",
+		outputFormat:  "table",
+		cleanup:       fmt.Sprintf("touch %s", markerFile),
+	}
+
+	eval := &mockEvaluator{}
+	err := runScan(ctx, cfg, eval)
+	require.Error(t, err)
+
+	_, statErr := os.Stat(markerFile)
+	assert.Error(t, statErr, "cleanup hook should NOT run when scan fails before reaching harness.Run()")
+}
