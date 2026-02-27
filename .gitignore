@@ -104,3 +104,7 @@ tools/python_harness/
 devpod/benchmark-results/
 benchmark-results/
 .augustus-benchmark.env
+
+# Scan reports and config (may contain sensitive target/engagement data)
+*.html
+crescendo.yaml

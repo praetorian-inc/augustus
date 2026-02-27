@@ -1,7 +1,7 @@
 package multiturn
 
 // Strategy defines how a multi-turn attack generates and adapts questions.
-// Each attack type (Crescendo, GOAT, Hydra) implements this interface.
+// Each attack type (Crescendo, GOAT, and Hydra) implements this interface.
 // The engine handles shared infrastructure (conversation management, refusal
 // detection, judge evaluation, turn recording, attempt building).
 type Strategy interface {

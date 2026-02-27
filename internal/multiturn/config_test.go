@@ -114,3 +114,68 @@ func TestConfigFromMap(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigFromMap_NewFields(t *testing.T) {
+	t.Run("new fields parsed from map", func(t *testing.T) {
+		m := registry.Config{
+			"max_backtracks":      3,
+			"enable_fast_refusal": false,
+			"enable_scan_memory":  true,
+		}
+		got := ConfigFromMap(m, Defaults())
+
+		if got.MaxBacktracks != 3 {
+			t.Errorf("MaxBacktracks = %d, want 3", got.MaxBacktracks)
+		}
+		if got.EnableFastRefusal != false {
+			t.Errorf("EnableFastRefusal = %v, want false", got.EnableFastRefusal)
+		}
+		if got.EnableScanMemory != true {
+			t.Errorf("EnableScanMemory = %v, want true", got.EnableScanMemory)
+		}
+	})
+
+	t.Run("new fields use defaults when absent", func(t *testing.T) {
+		m := registry.Config{}
+		got := ConfigFromMap(m, Defaults())
+
+		if got.MaxBacktracks != 10 {
+			t.Errorf("MaxBacktracks = %d, want 10 (default)", got.MaxBacktracks)
+		}
+		if got.EnableFastRefusal != true {
+			t.Errorf("EnableFastRefusal = %v, want true (default)", got.EnableFastRefusal)
+		}
+		if got.EnableScanMemory != false {
+			t.Errorf("EnableScanMemory = %v, want false (default)", got.EnableScanMemory)
+		}
+	})
+}
+
+func TestConfigFromMap_StatefulAndExcludeTargetOutput(t *testing.T) {
+	t.Run("stateful and exclude_target_output parsed from map", func(t *testing.T) {
+		m := registry.Config{
+			"stateful":              true,
+			"exclude_target_output": true,
+		}
+		got := ConfigFromMap(m, Defaults())
+
+		if got.Stateful != true {
+			t.Errorf("Stateful = %v, want true", got.Stateful)
+		}
+		if got.ExcludeTargetOutput != true {
+			t.Errorf("ExcludeTargetOutput = %v, want true", got.ExcludeTargetOutput)
+		}
+	})
+
+	t.Run("stateful and exclude_target_output default to false", func(t *testing.T) {
+		m := registry.Config{}
+		got := ConfigFromMap(m, Defaults())
+
+		if got.Stateful != false {
+			t.Errorf("Stateful = %v, want false (default)", got.Stateful)
+		}
+		if got.ExcludeTargetOutput != false {
+			t.Errorf("ExcludeTargetOutput = %v, want false (default)", got.ExcludeTargetOutput)
+		}
+	})
+}
