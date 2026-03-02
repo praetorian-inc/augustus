@@ -20,6 +20,8 @@ const (
 	StopReasonMaxTurns         = "max_turns"              // Exhausted all turns
 	StopReasonMaxBacktracks    = "max_backtracks_reached" // Exhausted all backtracks on a refused turn
 	StopReasonContextCancelled = "context_cancelled"      // Context was cancelled
+	StopReasonAttackerFailed   = "attacker_failed"        // Attacker LLM failed to produce valid output
+	StopReasonTargetEmpty      = "target_empty"           // Target returned empty responses
 )
 
 // TurnRecord captures one turn of a multi-turn attack for reporting and visualization.

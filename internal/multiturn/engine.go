@@ -40,6 +40,11 @@ func (e *Engine) SetTurnCallback(cb func(TurnRecord)) {
 	e.onTurn = cb
 }
 
+// contextLimit returns the token limit for conversation trimming.
+func (e *Engine) contextLimit() int {
+	return contextTokenLimit(e.cfg.AttackerModel)
+}
+
 // Run executes the multi-turn attack against the target generator.
 // Returns a slice containing a single Attempt with full conversation history.
 func (e *Engine) Run(ctx context.Context, target types.Generator) ([]*attempt.Attempt, error) {
@@ -54,11 +59,13 @@ func (e *Engine) Run(ctx context.Context, target types.Generator) ([]*attempt.At
 	var allQuestions []string
 	var allResponses []string
 	succeeded := false
+	attackerFailures := 0
+	lastRawAttackerOutput := ""
 
 	for turnNum := 1; turnNum <= e.cfg.MaxTurns; turnNum++ {
 		select {
 		case <-ctx.Done():
-			return e.buildResult(turnRecords, allQuestions, allResponses, targetConv, succeeded), ctx.Err()
+			return e.buildResult(turnRecords, allQuestions, allResponses, targetConv, succeeded, attackerFailures), ctx.Err()
 		default:
 		}
 
@@ -70,18 +77,19 @@ func (e *Engine) Run(ctx context.Context, target types.Generator) ([]*attempt.At
 			turnPrompt = e.strategy.GenerateTurnPrompt(e.cfg.Goal, turnRecords, turnNum)
 		}
 
-		questionResult, err := e.generateAttackerQuestion(ctx, attackerConv, turnPrompt)
+		questionResult, err := e.generateAttackerQuestion(ctx, attackerConv, turnPrompt, &lastRawAttackerOutput)
 		if err != nil {
-			return e.buildResult(turnRecords, allQuestions, allResponses, targetConv, succeeded), err
+			return e.buildResult(turnRecords, allQuestions, allResponses, targetConv, succeeded, attackerFailures), err
 		}
 		if questionResult == nil {
-			continue // Skip if all retries exhausted
+			attackerFailures++
+			continue
 		}
 
 		// STEP 2: QUERY TARGET with refusal retry loop
 		response, wasRefused, err := e.queryTargetWithRetry(ctx, target, targetConv, attackerConv, questionResult.Question)
 		if err != nil {
-			return e.buildResult(turnRecords, allQuestions, allResponses, targetConv, succeeded), err
+			return e.buildResult(turnRecords, allQuestions, allResponses, targetConv, succeeded, attackerFailures), err
 		}
 		if wasRefused {
 			// All retries refused — record and continue to next turn
@@ -127,16 +135,25 @@ func (e *Engine) Run(ctx context.Context, target types.Generator) ([]*attempt.At
 		// STEP 6: CHECK — Early exit if score >= threshold
 		if judgeResult.Score >= e.cfg.SuccessThreshold {
 			succeeded = true
-			return e.buildResult(turnRecords, allQuestions, allResponses, targetConv, succeeded), nil
+			return e.buildResult(turnRecords, allQuestions, allResponses, targetConv, succeeded, attackerFailures), nil
 		}
 	}
 
-	return e.buildResult(turnRecords, allQuestions, allResponses, targetConv, succeeded), nil
+	result := e.buildResult(turnRecords, allQuestions, allResponses, targetConv, succeeded, attackerFailures)
+
+	if len(turnRecords) == 0 {
+		snippet := truncateForJudge(lastRawAttackerOutput, 200)
+		result[0].WithMetadata("last_attacker_raw_output", lastRawAttackerOutput)
+		return result, fmt.Errorf("engine: no turns completed (attacker_parse_failures=%d)\nlast attacker output: %s", attackerFailures, snippet)
+	}
+
+	return result, nil
 }
 
 // generateAttackerQuestion asks the attacker LLM for the next question.
 // Retries up to AttackMaxAttempts for valid JSON output.
-func (e *Engine) generateAttackerQuestion(ctx context.Context, attackerConv *attempt.Conversation, turnPrompt string) (*QuestionResult, error) {
+// lastRawOutput is set to the last raw attacker response for diagnostics when parsing fails.
+func (e *Engine) generateAttackerQuestion(ctx context.Context, attackerConv *attempt.Conversation, turnPrompt string, lastRawOutput *string) (*QuestionResult, error) {
 	attackerConv.AddTurn(attempt.NewTurn(turnPrompt))
 
 	var questionResult *QuestionResult
@@ -148,11 +165,16 @@ func (e *Engine) generateAttackerQuestion(ctx context.Context, attackerConv *att
 	}, func() error {
 		msgs, err := e.attacker.Generate(ctx, attackerConv, 1)
 		if err != nil {
+			if isContextLengthError(err) {
+				trimConversation(attackerConv, e.contextLimit())
+				return errRetryableAttack
+			}
 			return err // Non-retryable
 		}
 		if len(msgs) == 0 {
 			return errRetryableAttack
 		}
+		*lastRawOutput = msgs[0].Content
 		result := e.strategy.ParseAttackerResponse(msgs[0].Content)
 		if result == nil {
 			return errRetryableAttack
@@ -223,6 +245,9 @@ func (e *Engine) queryTargetWithRetry(
 
 		rephraseMsgs, err := e.attacker.Generate(ctx, attackerConv, 1)
 		if err != nil {
+			if isContextLengthError(err) {
+				trimConversation(attackerConv, e.contextLimit())
+			}
 			return targetResponse, true, nil // Return what we have
 		}
 
@@ -271,8 +296,9 @@ func (e *Engine) evaluateResponse(ctx context.Context, question, response string
 
 	// Secondary judge: only if enabled and primary score is below threshold
 	if e.cfg.UseSecondaryJudge && result.Score < e.cfg.SuccessThreshold {
-		secondaryResult := e.secondaryJudge(ctx, result.Reasoning, response)
+		secondaryResult := e.secondaryJudge(ctx, result.Reasoning, question, response, history)
 		if secondaryResult.Score > result.Score {
+			secondaryResult.Verdict = "accept"
 			result = secondaryResult
 		}
 	}
@@ -280,11 +306,11 @@ func (e *Engine) evaluateResponse(ctx context.Context, question, response string
 	return result
 }
 
-// secondaryJudge reviews the primary judge's reasoning for false negatives.
-func (e *Engine) secondaryJudge(ctx context.Context, primaryReasoning, response string) SuccessJudgeResult {
+// secondaryJudge provides an independent second opinion on the primary judge's scoring.
+func (e *Engine) secondaryJudge(ctx context.Context, primaryReasoning, question, response string, history []TurnRecord) SuccessJudgeResult {
 	conv := attempt.NewConversation()
 	conv.WithSystem(SecondaryJudgeSystemPrompt(e.cfg.Goal))
-	conv.AddTurn(attempt.NewTurn(SecondaryJudgePrompt(primaryReasoning, response)))
+	conv.AddTurn(attempt.NewTurn(SecondaryJudgePrompt(primaryReasoning, question, response, history)))
 
 	msgs, err := e.judge.Generate(ctx, conv, 1)
 	if err != nil || len(msgs) == 0 {
@@ -295,17 +321,15 @@ func (e *Engine) secondaryJudge(ctx context.Context, primaryReasoning, response 
 }
 
 // buildResult constructs the final Attempt slice from collected turn data.
+// Always returns a non-nil slice so metadata is preserved even when no turns
+// were completed.
 func (e *Engine) buildResult(
 	turnRecords []TurnRecord,
 	allQuestions, allResponses []string,
 	targetConv *attempt.Conversation,
 	succeeded bool,
+	attackerFailures int,
 ) []*attempt.Attempt {
-	if len(turnRecords) == 0 {
-		return nil
-	}
-
-	// Use first question as primary prompt
 	primaryPrompt := ""
 	if len(allQuestions) > 0 {
 		primaryPrompt = allQuestions[0]
@@ -329,12 +353,19 @@ func (e *Engine) buildResult(
 	}
 	a.AddScore(maxScore)
 
+	// Pre-populate detector results with the engine's internal judge scores.
+	// The internal judge has full multi-turn conversation context, whereas the
+	// external judge.Judge detector only sees individual outputs against the
+	// first prompt — losing all conversation context and almost always scoring 0.
+	a.SetDetectorResults("judge.Judge", []float64{maxScore})
+
 	// Metadata
 	a.WithMetadata("attack_type", e.strategy.Name())
 	a.WithMetadata("goal", e.cfg.Goal)
 	a.WithMetadata("total_turns", len(turnRecords))
 	a.WithMetadata("succeeded", succeeded)
 	a.WithMetadata("turn_records", turnRecords)
+	a.WithMetadata("attacker_failures", attackerFailures)
 
 	a.Complete()
 

@@ -49,6 +49,27 @@ func ApplyDetectors(
 	for _, detector := range detectorList {
 		slog.Debug("running detector", "detector", detector.Name(), "probe", a.Probe)
 
+		// Skip re-evaluation if the probe already populated detector results.
+		// Multi-turn probes (Hydra, GOAT, Crescendo) score with their own
+		// internal judge that has full conversation context. Re-running the
+		// external detector would lose that context and produce wrong scores.
+		if existing, ok := a.DetectorResults[detector.Name()]; ok && len(existing) > 0 {
+			slog.Debug("using pre-populated detector results", "detector", detector.Name(), "probe", a.Probe)
+			scores := existing
+			if firstDetector == "" {
+				firstDetector = detector.Name()
+				firstScores = scores
+			}
+			for _, score := range scores {
+				if score > maxScore {
+					maxScore = score
+					primaryDetector = detector.Name()
+					primaryScores = scores
+				}
+			}
+			continue
+		}
+
 		scores, err := detector.Detect(ctx, a)
 		if err != nil {
 			if onError == SkipOnError {

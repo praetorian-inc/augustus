@@ -471,3 +471,161 @@ func TestEngine_AttemptMetadata(t *testing.T) {
 		t.Errorf("Status = %s, want complete", a.Status)
 	}
 }
+
+func TestEngine_ErrorOnAllAttackerFailures(t *testing.T) {
+	attacker := newMockGenerator(
+		"not json", "still bad", "also bad",
+	)
+	judge := newMockGenerator()
+	target := newMockGenerator()
+
+	cfg := Defaults()
+	cfg.Goal = "test goal"
+	cfg.MaxTurns = 3
+	cfg.AttackMaxAttempts = 1
+
+	engine := New(&CrescendoStrategy{}, attacker, judge, cfg)
+	results, err := engine.Run(context.Background(), target)
+
+	if err == nil {
+		t.Fatal("expected error when all turns fail, got nil")
+	}
+	if !strings.Contains(err.Error(), "no turns completed") {
+		t.Errorf("error should mention 'no turns completed', got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "attacker_parse_failures") {
+		t.Errorf("error should include attacker_parse_failures count, got: %v", err)
+	}
+
+	if len(results) == 0 {
+		t.Fatal("expected non-nil results even on error")
+	}
+	a := results[0]
+	if a.Metadata["attacker_failures"].(int) == 0 {
+		t.Error("attacker_failures metadata should be > 0")
+	}
+	if a.Metadata["goal"] != "test goal" {
+		t.Errorf("goal = %v, want %q", a.Metadata["goal"], "test goal")
+	}
+	if a.Metadata["total_turns"] != 0 {
+		t.Errorf("total_turns = %v, want 0", a.Metadata["total_turns"])
+	}
+
+	// Error should include the last raw attacker output for debugging
+	if !strings.Contains(err.Error(), "last attacker output:") {
+		t.Errorf("error should include last attacker output snippet, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "also bad") {
+		t.Errorf("error snippet should contain last mock response 'also bad', got: %v", err)
+	}
+	rawOutput, ok := a.Metadata["last_attacker_raw_output"].(string)
+	if !ok || rawOutput != "also bad" {
+		t.Errorf("last_attacker_raw_output = %v, want 'also bad'", a.Metadata["last_attacker_raw_output"])
+	}
+}
+
+func TestEngine_AttackerFailuresMetadataOnSuccess(t *testing.T) {
+	attacker := newMockGenerator(
+		`{"question": "Test?", "strategy": "test"}`,
+	)
+	judge := newMockGenerator(
+		"[[ACCEPTED]]",
+		`{"success": true, "score": 0.9, "reasoning": "done"}`,
+	)
+	target := newMockGenerator("response")
+
+	cfg := Defaults()
+	cfg.Goal = "test"
+	cfg.MaxTurns = 1
+	cfg.UseSecondaryJudge = false
+
+	engine := New(&CrescendoStrategy{}, attacker, judge, cfg)
+	results, err := engine.Run(context.Background(), target)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("expected results")
+	}
+
+	a := results[0]
+	af, ok := a.Metadata["attacker_failures"]
+	if !ok {
+		t.Fatal("attacker_failures metadata should be present")
+	}
+	if af.(int) != 0 {
+		t.Errorf("attacker_failures = %v, want 0 on success", af)
+	}
+}
+
+func TestEngine_PartialAttackerFailures(t *testing.T) {
+	// Turn 1: attacker returns invalid JSON (failure)
+	// Turn 2: attacker returns valid JSON, judge gives high score (success)
+	attacker := newMockGenerator(
+		"not json",
+		`{"question": "Real question?", "strategy": "test"}`,
+	)
+	judge := newMockGenerator(
+		"[[ACCEPTED]]",
+		`{"success": true, "score": 0.9, "reasoning": "done"}`,
+	)
+	target := newMockGenerator("response")
+
+	cfg := Defaults()
+	cfg.Goal = "test"
+	cfg.MaxTurns = 2
+	cfg.AttackMaxAttempts = 1
+	cfg.UseSecondaryJudge = false
+
+	engine := New(&CrescendoStrategy{}, attacker, judge, cfg)
+	results, err := engine.Run(context.Background(), target)
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("expected results")
+	}
+
+	a := results[0]
+	if a.Metadata["attacker_failures"].(int) != 1 {
+		t.Errorf("attacker_failures = %v, want 1", a.Metadata["attacker_failures"])
+	}
+	if a.Metadata["succeeded"] != true {
+		t.Errorf("succeeded = %v, want true", a.Metadata["succeeded"])
+	}
+}
+
+func TestEngine_ContextCancelledReturnsNonNilResult(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	attacker := newMockGenerator(
+		`{"question": "Test?", "strategy": "test"}`,
+	)
+	judge := newMockGenerator()
+	target := newMockGenerator("response")
+
+	cfg := Defaults()
+	cfg.Goal = "test goal"
+	cfg.MaxTurns = 10
+
+	engine := New(&CrescendoStrategy{}, attacker, judge, cfg)
+	results, err := engine.Run(ctx, target)
+
+	if err != context.Canceled {
+		t.Errorf("err = %v, want context.Canceled", err)
+	}
+	if len(results) == 0 {
+		t.Fatal("expected non-nil results even on context cancellation")
+	}
+
+	a := results[0]
+	if a.Metadata["goal"] != "test goal" {
+		t.Errorf("goal = %v, want %q", a.Metadata["goal"], "test goal")
+	}
+	if _, ok := a.Metadata["attacker_failures"]; !ok {
+		t.Error("attacker_failures metadata should be present on cancelled result")
+	}
+}

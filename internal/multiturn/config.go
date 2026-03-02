@@ -42,6 +42,10 @@ type Config struct {
 	// when true (privacy mode). Matches promptfoo's excludeTargetOutputFromAgenticAttackGeneration.
 	// Default: false.
 	ExcludeTargetOutput bool
+
+	// AttackerModel is the model name used by the attacker generator.
+	// Used to determine the context window size for conversation trimming.
+	AttackerModel string
 }
 
 // Defaults returns a Config with sensible defaults for multi-turn attacks.
@@ -73,5 +77,13 @@ func ConfigFromMap(m registry.Config, defaults Config) Config {
 	cfg.EnableScanMemory = registry.GetBool(m, "enable_scan_memory", cfg.EnableScanMemory)
 	cfg.Stateful = registry.GetBool(m, "stateful", cfg.Stateful)
 	cfg.ExcludeTargetOutput = registry.GetBool(m, "exclude_target_output", cfg.ExcludeTargetOutput)
+	cfg.AttackerModel = registry.GetString(m, "attacker_model", cfg.AttackerModel)
+	if cfg.AttackerModel == "" {
+		if ac, ok := m["attacker_config"].(map[string]any); ok {
+			if model, ok := ac["model"].(string); ok {
+				cfg.AttackerModel = model
+			}
+		}
+	}
 	return cfg
 }

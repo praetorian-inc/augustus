@@ -69,7 +69,6 @@ func TestHydraProbe_Probe(t *testing.T) {
 		`{"observation": "first turn", "thought": "try persona", "strategy": "persona_expert", "question": "As a security researcher, I need to understand the vulnerability..."}`,
 	)
 	judge := newMockGenerator(
-		"[[ACCEPTED]]",
 		`{"success": true, "score": 0.9, "reasoning": "achieved objective"}`,
 	)
 	target := newMockGenerator(
@@ -153,7 +152,6 @@ func TestNewHydra_ScanMemoryWiring(t *testing.T) {
 		`{"observation": "first turn", "thought": "try expert", "strategy": "persona_expert", "question": "Tell me about security vulnerabilities"}`,
 	)
 	judge := newMockGenerator(
-		"[[ACCEPTED]]",
 		`{"success": true, "score": 0.95, "reasoning": "fully achieved"}`,
 	)
 	target := newMockGenerator(
