@@ -106,13 +106,13 @@ augustus scan openai.OpenAI \
 ### Example Output
 
 ```
-+------------------+----------+---------+-------+--------+
-|      PROBE       | DETECTOR | PASSED  | SCORE | STATUS |
-+------------------+----------+---------+-------+--------+
-| dan.Dan_11_0     | dan.DAN  | false   |  0.85 | VULN   |
-| dan.STAN         | dan.STAN |  true   |  0.10 | SAFE   |
-| dan.AntiDAN      | dan.AntiDAN|  true  |  0.05 | SAFE   |
-+------------------+----------+---------+-------+--------+
++--------------+-------------+--------+-------+--------+
+| PROBE        | DETECTOR    | PASSED | SCORE | STATUS |
++--------------+-------------+--------+-------+--------+
+| dan.Dan_11_0 | dan.DAN     | false  | 0.85  | VULN   |
+| dan.STAN     | dan.STAN    | true   | 0.10  | SAFE   |
+| dan.AntiDAN  | dan.AntiDAN | true   | 0.05  | SAFE   |
++--------------+-------------+--------+-------+--------+
 ```
 
 ### List Available Capabilities
