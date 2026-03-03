@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- DevPod benchmark environment with CPU and GPU configurations (`.devcontainer/`, `devpod/`)
+- Benchmark runner script with multi-provider comparison and executive summary modes
+- Interactive LLM provider setup script with validation
+- Ollama model pull script with GPU VRAM detection and tiered recommendations
+
 ## [0.0.6] - 2026-02-09
 
 ### Added

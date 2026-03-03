@@ -1,0 +1,38 @@
+{
+  "name": "Augustus Benchmark (CPU)",
+  "build": {
+    "dockerfile": "../Dockerfile"
+  },
+  "remoteUser": "vscode",
+  "features": {},
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": { "label": "LiteLLM Proxy", "onAutoForward": "silent" }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": []
+    }
+  },
+  "postCreateCommand": "bash -c 'export PATH=/usr/local/go/bin:$HOME/go/bin:$PATH; echo \"=== Augustus Benchmark Environment (CPU) ===\"; echo \"\"; echo \"Building Augustus...\"; make build && echo \"Augustus built at bin/augustus\" || echo \"WARNING: Augustus build failed. Run: make build\"; echo \"\"; echo \"Next steps:\"; echo \"  1. Run: devpod/scripts/setup.sh\"; echo \"  2. Run: devpod/scripts/benchmark.sh\"'",
+  "remoteEnv": {
+    "PATH": "${containerEnv:PATH}:${containerWorkspaceFolder}/bin",
+    "OPENAI_API_KEY": "${localEnv:OPENAI_API_KEY}",
+    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}",
+    "TOGETHER_API_KEY": "${localEnv:TOGETHER_API_KEY}",
+    "GROQ_API_KEY": "${localEnv:GROQ_API_KEY}",
+    "MISTRAL_API_KEY": "${localEnv:MISTRAL_API_KEY}",
+    "COHERE_API_KEY": "${localEnv:COHERE_API_KEY}",
+    "FIREWORKS_API_KEY": "${localEnv:FIREWORKS_API_KEY}",
+    "DEEPINFRA_API_KEY": "${localEnv:DEEPINFRA_API_KEY}",
+    "REPLICATE_API_TOKEN": "${localEnv:REPLICATE_API_TOKEN}",
+    "NVIDIA_API_KEY": "${localEnv:NVIDIA_API_KEY}",
+    "HUGGINGFACE_API_KEY": "${localEnv:HUGGINGFACE_API_KEY}",
+    "AZURE_OPENAI_API_KEY": "${localEnv:AZURE_OPENAI_API_KEY}",
+    "AZURE_OPENAI_ENDPOINT": "${localEnv:AZURE_OPENAI_ENDPOINT}",
+    "AWS_ACCESS_KEY_ID": "${localEnv:AWS_ACCESS_KEY_ID}",
+    "AWS_SECRET_ACCESS_KEY": "${localEnv:AWS_SECRET_ACCESS_KEY}",
+    "AWS_DEFAULT_REGION": "${localEnv:AWS_DEFAULT_REGION}",
+    "WATSONX_API_KEY": "${localEnv:WATSONX_API_KEY}"
+  }
+}
