@@ -33,8 +33,8 @@ type scanConfig struct {
 	configFile    string // YAML config file path
 	configJSON    string
 	outputFormat  string
-	outputFile    string        // JSONL output file path
-	htmlFile      string        // HTML report file path
+	outputFile    string // JSONL output file path
+	htmlFile      string // HTML report file path
 	verbose       bool
 	allProbes     bool          // Run all registered probes
 	timeout       time.Duration // Overall scan timeout
@@ -422,9 +422,6 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	return harness.Run(ctx, gen, probeList, detectorList, eval)
 }
 
-// Evaluator implementations
-
-// tableEvaluator prints results in table format.
 type tableEvaluator struct {
 	verbose bool
 }
@@ -438,25 +435,80 @@ func (t *tableEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 		return nil
 	}
 
-	// Group by probe
-	probeAttempts := make(map[string][]*attempt.Attempt)
-	for _, a := range attempts {
-		probeAttempts[a.Probe] = append(probeAttempts[a.Probe], a)
+	type row struct {
+		probe    string
+		detector string
+		passed   string
+		score    string
+		status   string
 	}
 
-	// Print results by probe
+	rows := make([]row, 0, len(attempts))
 	totalPassed := 0
 	totalFailed := 0
 
-	for probeName, attempts := range probeAttempts {
-		fmt.Printf("\nProbe: %s\n", probeName)
-		fmt.Println("---")
+	for _, a := range attempts {
+		scores := a.GetEffectiveScores()
+		maxScore := 0.0
+		for _, score := range scores {
+			if score > maxScore {
+				maxScore = score
+			}
+		}
 
-		passed := 0
-		failed := 0
+		passed := maxScore <= attempt.DefaultVulnerabilityThreshold
+		status := "SAFE"
+		passedStr := "true"
+		if !passed {
+			status = "VULN"
+			passedStr = "false"
+			totalFailed++
+		} else {
+			totalPassed++
+		}
 
+		detector := a.Detector
+		if detector == "" {
+			detector = "-"
+		}
+
+		rows = append(rows, row{
+			probe:    a.Probe,
+			detector: detector,
+			passed:   passedStr,
+			score:    fmt.Sprintf("%.2f", maxScore),
+			status:   status,
+		})
+	}
+
+	headers := row{"PROBE", "DETECTOR", "PASSED", "SCORE", "STATUS"}
+	widths := [5]int{len(headers.probe), len(headers.detector), len(headers.passed), len(headers.score), len(headers.status)}
+	for _, r := range rows {
+		cols := [5]string{r.probe, r.detector, r.passed, r.score, r.status}
+		for i, col := range cols {
+			if len(col) > widths[i] {
+				widths[i] = len(col)
+			}
+		}
+	}
+
+	separator := fmt.Sprintf("+-%s-+-%s-+-%s-+-%s-+-%s-+",
+		repeatDash(widths[0]), repeatDash(widths[1]), repeatDash(widths[2]),
+		repeatDash(widths[3]), repeatDash(widths[4]))
+	rowFmt := fmt.Sprintf("| %%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds |",
+		widths[0], widths[1], widths[2], widths[3], widths[4])
+
+	fmt.Println(separator)
+	fmt.Println(fmt.Sprintf(rowFmt, headers.probe, headers.detector, headers.passed, headers.score, headers.status))
+	fmt.Println(separator)
+	for _, r := range rows {
+		fmt.Println(fmt.Sprintf(rowFmt, r.probe, r.detector, r.passed, r.score, r.status))
+	}
+	fmt.Println(separator)
+
+	if t.verbose {
+		fmt.Println()
 		for i, a := range attempts {
-			// Use centralized score resolution (primary detector scores)
 			scores := a.GetEffectiveScores()
 			maxScore := 0.0
 			for _, score := range scores {
@@ -464,33 +516,30 @@ func (t *tableEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 					maxScore = score
 				}
 			}
-
 			status := "PASS"
 			if maxScore > attempt.DefaultVulnerabilityThreshold {
 				status = "FAIL"
-				failed++
-			} else {
-				passed++
 			}
-
-			if t.verbose {
-				fmt.Printf("  Attempt %d: %s (score: %.2f)\n", i+1, status, maxScore)
-				if len(a.Prompts) > 0 {
-					fmt.Printf("    Prompt: %s\n", truncate(a.Prompts[0], 60))
-				}
-				if len(a.Outputs) > 0 {
-					fmt.Printf("    Response: %s\n", truncate(a.Outputs[0], 60))
-				}
+			fmt.Printf("  Attempt %d: %s (score: %.2f)\n", i+1, status, maxScore)
+			if len(a.Prompts) > 0 {
+				fmt.Printf("    Prompt: %s\n", truncate(a.Prompts[0], 60))
+			}
+			if len(a.Outputs) > 0 {
+				fmt.Printf("    Response: %s\n", truncate(a.Outputs[0], 60))
 			}
 		}
-
-		fmt.Printf("  Summary: %d/%d attempts passed\n", passed, len(attempts))
-		totalPassed += passed
-		totalFailed += failed
 	}
 
 	fmt.Printf("\nOverall: %d passed, %d failed (total: %d)\n", totalPassed, totalFailed, len(attempts))
 	return nil
+}
+
+func repeatDash(n int) string {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = '-'
+	}
+	return string(b)
 }
 
 // jsonEvaluator prints results in JSON format.
