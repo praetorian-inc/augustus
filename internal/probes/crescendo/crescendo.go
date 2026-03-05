@@ -14,6 +14,7 @@ import (
 	"fmt"
 
 	"github.com/praetorian-inc/augustus/internal/multiturn"
+	crescendostrat "github.com/praetorian-inc/augustus/internal/multiturn/strategies/crescendo"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/probes"
@@ -24,9 +25,9 @@ func init() {
 	probes.Register("crescendo.Crescendo", NewCrescendo)
 }
 
-// CrescendoProbe wraps the multi-turn engine with the Crescendo strategy.
+// CrescendoProbe wraps the unified multi-turn engine with the Crescendo strategy.
 type CrescendoProbe struct {
-	engine      *multiturn.Engine
+	engine      *multiturn.UnifiedEngine
 	name        string
 	goal        string
 	description string
@@ -70,8 +71,13 @@ func NewCrescendo(cfg registry.Config) (probes.Prober, error) {
 
 	engineCfg := multiturn.ConfigFromMap(cfg, multiturn.Defaults())
 
+	strategy := &crescendostrat.Strategy{
+		AttackerModel: engineCfg.AttackerModel,
+		MaxTurns:      engineCfg.MaxTurns,
+	}
+
 	return &CrescendoProbe{
-		engine:      multiturn.New(&multiturn.CrescendoStrategy{}, attacker, judge, engineCfg),
+		engine:      multiturn.NewUnifiedEngine(strategy, attacker, judge, engineCfg),
 		name:        registry.GetString(cfg, "name", "crescendo.Crescendo"),
 		goal:        engineCfg.Goal,
 		description: "Crescendo: Gradual escalation multi-turn attack (Russinovich et al., 2024)",
@@ -100,8 +106,12 @@ func (p *CrescendoProbe) GetPrompts() []string       { return []string{} }
 // NewCrescendoWithGenerators creates a CrescendoProbe with pre-built generators.
 // This is primarily for testing where mock generators need to be injected.
 func NewCrescendoWithGenerators(attacker, judge probes.Generator, cfg multiturn.Config) *CrescendoProbe {
+	strategy := &crescendostrat.Strategy{
+		AttackerModel: cfg.AttackerModel,
+		MaxTurns:      cfg.MaxTurns,
+	}
 	return &CrescendoProbe{
-		engine:      multiturn.New(&multiturn.CrescendoStrategy{}, attacker, judge, cfg),
+		engine:      multiturn.NewUnifiedEngine(strategy, attacker, judge, cfg),
 		name:        "crescendo.Crescendo",
 		goal:        cfg.Goal,
 		description: "Crescendo: Gradual escalation multi-turn attack (Russinovich et al., 2024)",

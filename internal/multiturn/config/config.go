@@ -1,4 +1,5 @@
-package multiturn
+// Package config defines configuration types for the multi-turn attack engine.
+package config
 
 import "github.com/praetorian-inc/augustus/pkg/registry"
 
@@ -62,9 +63,9 @@ func Defaults() Config {
 	}
 }
 
-// ConfigFromMap parses registry.Config into a typed Config using defaults.
+// FromMap parses registry.Config into a typed Config using defaults.
 // Follows the same pattern as attackengine.ConfigFromMap.
-func ConfigFromMap(m registry.Config, defaults Config) Config {
+func FromMap(m registry.Config, defaults Config) Config {
 	cfg := defaults
 	cfg.Goal = registry.GetString(m, "goal", cfg.Goal)
 	cfg.MaxTurns = registry.GetInt(m, "max_turns", cfg.MaxTurns)

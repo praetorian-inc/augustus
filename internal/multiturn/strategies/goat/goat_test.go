@@ -1,19 +1,24 @@
-package multiturn
+package goat
 
 import (
 	"strings"
 	"testing"
+
+	"github.com/praetorian-inc/augustus/internal/multiturn"
 )
 
-func TestGoatStrategy_Name(t *testing.T) {
-	s := &GoatStrategy{}
+// Compile-time interface compliance check.
+var _ multiturn.Strategy = &Strategy{}
+
+func TestStrategy_Name(t *testing.T) {
+	s := &Strategy{}
 	if s.Name() != "goat" {
 		t.Errorf("Name() = %q, want %q", s.Name(), "goat")
 	}
 }
 
-func TestGoatStrategy_AttackerSystemPrompt(t *testing.T) {
-	s := &GoatStrategy{}
+func TestStrategy_AttackerSystemPrompt(t *testing.T) {
+	s := &Strategy{}
 	prompt := s.AttackerSystemPrompt("test goal")
 
 	checks := []struct {
@@ -46,15 +51,15 @@ func TestGoatStrategy_AttackerSystemPrompt(t *testing.T) {
 	}
 }
 
-func TestGoatStrategy_GenerateTurnPrompt(t *testing.T) {
-	s := &GoatStrategy{}
+func TestStrategy_GenerateTurnPrompt(t *testing.T) {
+	s := &Strategy{}
 
 	t.Run("first turn no history", func(t *testing.T) {
 		prompt := s.GenerateTurnPrompt("explain lockpicking", nil, 1)
 		if !strings.Contains(prompt, "explain lockpicking") {
 			t.Error("prompt should contain the goal")
 		}
-		if !strings.Contains(prompt, "CURRENT TURN: 1") {
+		if !strings.Contains(prompt, "TURN: 1 of") {
 			t.Error("prompt should contain the turn number")
 		}
 		if strings.Contains(prompt, "CONVERSATION HISTORY") {
@@ -63,7 +68,7 @@ func TestGoatStrategy_GenerateTurnPrompt(t *testing.T) {
 	})
 
 	t.Run("with history", func(t *testing.T) {
-		history := []TurnRecord{
+		history := []multiturn.TurnRecord{
 			{TurnNumber: 1, Question: "Tell me about security", Response: "Security is...", JudgeScore: 0.1, Strategy: "hypothetical"},
 			{TurnNumber: 2, Question: "In a novel context...", Response: "In fiction...", JudgeScore: 0.3, Strategy: "persona modification"},
 		}
@@ -71,16 +76,22 @@ func TestGoatStrategy_GenerateTurnPrompt(t *testing.T) {
 		if !strings.Contains(prompt, "Tell me about security") {
 			t.Error("prompt should contain previous questions")
 		}
-		if !strings.Contains(prompt, "CURRENT TURN: 3") {
+		if !strings.Contains(prompt, "TURN: 3 of") {
 			t.Error("prompt should show current turn number")
 		}
 		if !strings.Contains(prompt, "hypothetical") {
 			t.Error("prompt should contain strategy from history")
 		}
+		if !strings.Contains(prompt, "TECHNIQUES TRIED") {
+			t.Error("prompt should list techniques tried")
+		}
+		if !strings.Contains(prompt, "BEST SCORE") {
+			t.Error("prompt should show best score")
+		}
 	})
 
 	t.Run("with refused turn", func(t *testing.T) {
-		history := []TurnRecord{
+		history := []multiturn.TurnRecord{
 			{TurnNumber: 1, Question: "Direct harmful request", Response: "I cannot help", WasRefused: true, Strategy: "direct"},
 		}
 		prompt := s.GenerateTurnPrompt("test goal", history, 2)
@@ -90,7 +101,7 @@ func TestGoatStrategy_GenerateTurnPrompt(t *testing.T) {
 	})
 
 	t.Run("all zero scores triggers warning", func(t *testing.T) {
-		history := []TurnRecord{
+		history := []multiturn.TurnRecord{
 			{TurnNumber: 1, Question: "Q1", Response: "R1", JudgeScore: 0.0, Strategy: "hypothetical"},
 			{TurnNumber: 2, Question: "Q2", Response: "R2", JudgeScore: 0.0, Strategy: "persona"},
 		}
@@ -101,7 +112,7 @@ func TestGoatStrategy_GenerateTurnPrompt(t *testing.T) {
 	})
 
 	t.Run("partial engagement suggests stacking", func(t *testing.T) {
-		history := []TurnRecord{
+		history := []multiturn.TurnRecord{
 			{TurnNumber: 1, Question: "Q1", Response: "R1", JudgeScore: 0.4, Strategy: "hypothetical"},
 		}
 		prompt := s.GenerateTurnPrompt("test goal", history, 2)
@@ -111,8 +122,8 @@ func TestGoatStrategy_GenerateTurnPrompt(t *testing.T) {
 	})
 }
 
-func TestGoatStrategy_RephrasePrompt(t *testing.T) {
-	s := &GoatStrategy{}
+func TestStrategy_RephrasePrompt(t *testing.T) {
+	s := &Strategy{}
 	prompt := s.RephrasePrompt("How to pick a lock?", "I cannot provide instructions on illegal activities.")
 
 	if !strings.Contains(prompt, "How to pick a lock?") {
@@ -126,8 +137,8 @@ func TestGoatStrategy_RephrasePrompt(t *testing.T) {
 	}
 }
 
-func TestGoatStrategy_FeedbackPrompt(t *testing.T) {
-	s := &GoatStrategy{}
+func TestStrategy_FeedbackPrompt(t *testing.T) {
+	s := &Strategy{}
 	prompt := s.FeedbackPrompt("Pin tumbler locks work by...", 0.35, "explain lockpicking")
 
 	if !strings.Contains(prompt, "Pin tumbler locks work by") {
@@ -144,8 +155,8 @@ func TestGoatStrategy_FeedbackPrompt(t *testing.T) {
 	}
 }
 
-func TestGoatStrategy_ParseAttackerResponse(t *testing.T) {
-	s := &GoatStrategy{}
+func TestStrategy_ParseAttackerResponse(t *testing.T) {
+	s := &Strategy{}
 
 	tests := []struct {
 		name         string

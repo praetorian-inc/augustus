@@ -1,8 +1,6 @@
-package multiturn
+package parse
 
-import (
-	"testing"
-)
+import "testing"
 
 func TestParseRefusalResponse(t *testing.T) {
 	tests := []struct {

@@ -1,4 +1,4 @@
-package multiturn
+package memory
 
 import (
 	"strings"
@@ -7,7 +7,7 @@ import (
 )
 
 func TestScanMemory_RecordAndRetrieve(t *testing.T) {
-	m := NewScanMemory()
+	m := New()
 
 	if m.Len() != 0 {
 		t.Errorf("Len() = %d, want 0", m.Len())
@@ -43,7 +43,7 @@ func TestScanMemory_RecordAndRetrieve(t *testing.T) {
 }
 
 func TestScanMemory_Empty(t *testing.T) {
-	m := NewScanMemory()
+	m := New()
 	learnings := m.GetLearnings()
 	if learnings != "" {
 		t.Errorf("GetLearnings() on empty memory = %q, want empty", learnings)
@@ -51,7 +51,7 @@ func TestScanMemory_Empty(t *testing.T) {
 }
 
 func TestScanMemory_LimitedEntries(t *testing.T) {
-	m := NewScanMemory()
+	m := New()
 
 	// Record more than 5 successes — only last 5 should appear
 	for i := 0; i < 8; i++ {
@@ -70,7 +70,7 @@ func TestScanMemory_LimitedEntries(t *testing.T) {
 }
 
 func TestScanMemory_Concurrent(t *testing.T) {
-	m := NewScanMemory()
+	m := New()
 	var wg sync.WaitGroup
 
 	// Concurrent writes
@@ -104,7 +104,7 @@ func TestScanMemory_Concurrent(t *testing.T) {
 }
 
 func TestScanMemory_SuccessOnly(t *testing.T) {
-	m := NewScanMemory()
+	m := New()
 	m.RecordSuccess("test goal", "FICTIONAL — novel scenario", 5)
 
 	learnings := m.GetLearnings()
@@ -117,7 +117,7 @@ func TestScanMemory_SuccessOnly(t *testing.T) {
 }
 
 func TestScanMemory_FailureOnly(t *testing.T) {
-	m := NewScanMemory()
+	m := New()
 	m.RecordFailure("test goal", "DIRECT — too aggressive")
 
 	learnings := m.GetLearnings()

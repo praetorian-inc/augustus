@@ -1,47 +1,52 @@
-package multiturn
+package crescendo
 
 import (
 	"strings"
 	"testing"
+
+	"github.com/praetorian-inc/augustus/internal/multiturn"
 )
 
-func TestCrescendoStrategy_Name(t *testing.T) {
-	s := &CrescendoStrategy{}
+// Compile-time interface compliance check.
+var _ multiturn.Strategy = &Strategy{}
+
+func TestStrategy_Name(t *testing.T) {
+	s := &Strategy{}
 	if s.Name() != "crescendo" {
 		t.Errorf("Name() = %q, want %q", s.Name(), "crescendo")
 	}
 }
 
-func TestCrescendoStrategy_AttackerSystemPrompt(t *testing.T) {
-	s := &CrescendoStrategy{}
+func TestStrategy_AttackerSystemPrompt(t *testing.T) {
+	s := &Strategy{}
 	prompt := s.AttackerSystemPrompt("test goal")
 
-	if !strings.Contains(prompt, "Crescendo") {
-		t.Error("AttackerSystemPrompt should mention Crescendo technique")
+	if !strings.Contains(prompt, "CRESCENDO") && !strings.Contains(prompt, "Crescendo") && !strings.Contains(prompt, "escalation") {
+		t.Error("AttackerSystemPrompt should mention technique")
 	}
-	if !strings.Contains(prompt, "START BENIGN") {
-		t.Error("AttackerSystemPrompt should instruct benign start")
+	if !strings.Contains(prompt, "CONTEXT") {
+		t.Error("AttackerSystemPrompt should describe phases")
 	}
 	if !strings.Contains(prompt, `"question"`) {
 		t.Error("AttackerSystemPrompt should specify JSON output format")
 	}
 }
 
-func TestCrescendoStrategy_GenerateTurnPrompt(t *testing.T) {
-	s := &CrescendoStrategy{}
+func TestStrategy_GenerateTurnPrompt(t *testing.T) {
+	s := &Strategy{}
 
 	t.Run("first turn no history", func(t *testing.T) {
 		prompt := s.GenerateTurnPrompt("explain lockpicking", nil, 1)
 		if !strings.Contains(prompt, "explain lockpicking") {
 			t.Error("prompt should contain the goal")
 		}
-		if !strings.Contains(prompt, "CURRENT TURN: 1") {
+		if !strings.Contains(prompt, "TURN: 1 of") {
 			t.Error("prompt should contain the turn number")
 		}
 	})
 
 	t.Run("with history", func(t *testing.T) {
-		history := []TurnRecord{
+		history := []multiturn.TurnRecord{
 			{TurnNumber: 1, Question: "What is locksmithing?", Response: "Locksmithing is...", JudgeScore: 0.1},
 			{TurnNumber: 2, Question: "How do pin tumblers work?", Response: "Pin tumbler locks...", JudgeScore: 0.3},
 		}
@@ -49,14 +54,14 @@ func TestCrescendoStrategy_GenerateTurnPrompt(t *testing.T) {
 		if !strings.Contains(prompt, "What is locksmithing?") {
 			t.Error("prompt should contain previous questions")
 		}
-		if !strings.Contains(prompt, "CURRENT TURN: 3") {
+		if !strings.Contains(prompt, "TURN: 3 of") {
 			t.Error("prompt should show current turn number")
 		}
 	})
 }
 
-func TestCrescendoStrategy_RephrasePrompt(t *testing.T) {
-	s := &CrescendoStrategy{}
+func TestStrategy_RephrasePrompt(t *testing.T) {
+	s := &Strategy{}
 	prompt := s.RephrasePrompt("How to pick a lock?", "I cannot provide instructions on illegal activities.")
 
 	if !strings.Contains(prompt, "How to pick a lock?") {
@@ -67,8 +72,8 @@ func TestCrescendoStrategy_RephrasePrompt(t *testing.T) {
 	}
 }
 
-func TestCrescendoStrategy_FeedbackPrompt(t *testing.T) {
-	s := &CrescendoStrategy{}
+func TestStrategy_FeedbackPrompt(t *testing.T) {
+	s := &Strategy{}
 	prompt := s.FeedbackPrompt("Pin tumbler locks work by...", 0.35, "explain lockpicking")
 
 	if !strings.Contains(prompt, "Pin tumbler locks work by") {
@@ -82,8 +87,8 @@ func TestCrescendoStrategy_FeedbackPrompt(t *testing.T) {
 	}
 }
 
-func TestCrescendoStrategy_ParseAttackerResponse(t *testing.T) {
-	s := &CrescendoStrategy{}
+func TestStrategy_ParseAttackerResponse(t *testing.T) {
+	s := &Strategy{}
 
 	tests := []struct {
 		name         string

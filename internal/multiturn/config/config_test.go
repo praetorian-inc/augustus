@@ -1,4 +1,4 @@
-package multiturn
+package config
 
 import (
 	"testing"
@@ -25,7 +25,7 @@ func TestDefaults(t *testing.T) {
 	}
 }
 
-func TestConfigFromMap(t *testing.T) {
+func TestFromMap(t *testing.T) {
 	tests := []struct {
 		name     string
 		m        registry.Config
@@ -92,7 +92,7 @@ func TestConfigFromMap(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := ConfigFromMap(tt.m, tt.defaults)
+			got := FromMap(tt.m, tt.defaults)
 			if got.Goal != tt.want.Goal {
 				t.Errorf("Goal = %q, want %q", got.Goal, tt.want.Goal)
 			}
@@ -115,14 +115,14 @@ func TestConfigFromMap(t *testing.T) {
 	}
 }
 
-func TestConfigFromMap_NewFields(t *testing.T) {
+func TestFromMap_NewFields(t *testing.T) {
 	t.Run("new fields parsed from map", func(t *testing.T) {
 		m := registry.Config{
 			"max_backtracks":      3,
 			"enable_fast_refusal": false,
 			"enable_scan_memory":  true,
 		}
-		got := ConfigFromMap(m, Defaults())
+		got := FromMap(m, Defaults())
 
 		if got.MaxBacktracks != 3 {
 			t.Errorf("MaxBacktracks = %d, want 3", got.MaxBacktracks)
@@ -137,7 +137,7 @@ func TestConfigFromMap_NewFields(t *testing.T) {
 
 	t.Run("new fields use defaults when absent", func(t *testing.T) {
 		m := registry.Config{}
-		got := ConfigFromMap(m, Defaults())
+		got := FromMap(m, Defaults())
 
 		if got.MaxBacktracks != 10 {
 			t.Errorf("MaxBacktracks = %d, want 10 (default)", got.MaxBacktracks)
@@ -151,13 +151,13 @@ func TestConfigFromMap_NewFields(t *testing.T) {
 	})
 }
 
-func TestConfigFromMap_StatefulAndExcludeTargetOutput(t *testing.T) {
+func TestFromMap_StatefulAndExcludeTargetOutput(t *testing.T) {
 	t.Run("stateful and exclude_target_output parsed from map", func(t *testing.T) {
 		m := registry.Config{
 			"stateful":              true,
 			"exclude_target_output": true,
 		}
-		got := ConfigFromMap(m, Defaults())
+		got := FromMap(m, Defaults())
 
 		if got.Stateful != true {
 			t.Errorf("Stateful = %v, want true", got.Stateful)
@@ -169,7 +169,7 @@ func TestConfigFromMap_StatefulAndExcludeTargetOutput(t *testing.T) {
 
 	t.Run("stateful and exclude_target_output default to false", func(t *testing.T) {
 		m := registry.Config{}
-		got := ConfigFromMap(m, Defaults())
+		got := FromMap(m, Defaults())
 
 		if got.Stateful != false {
 			t.Errorf("Stateful = %v, want false (default)", got.Stateful)

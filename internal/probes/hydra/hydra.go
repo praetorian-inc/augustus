@@ -12,6 +12,7 @@ import (
 	"fmt"
 
 	"github.com/praetorian-inc/augustus/internal/multiturn"
+	hydrastrat "github.com/praetorian-inc/augustus/internal/multiturn/strategies/hydra"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/probes"
@@ -22,9 +23,9 @@ func init() {
 	probes.Register("hydra.Hydra", NewHydra)
 }
 
-// HydraProbe wraps the Hydra engine with the single-path backtracking strategy.
+// HydraProbe wraps the unified engine with Hydra-specific hooks.
 type HydraProbe struct {
-	engine      *multiturn.HydraEngine
+	engine      *multiturn.UnifiedEngine
 	name        string
 	goal        string
 	description string
@@ -68,16 +69,25 @@ func NewHydra(cfg registry.Config) (probes.Prober, error) {
 
 	engineCfg := multiturn.ConfigFromMap(cfg, multiturn.Defaults())
 
-	// Build engine options
-	var opts []multiturn.HydraOption
+	// Build engine options — Hydra-specific features via hooks
+	opts := []multiturn.EngineOption{
+		multiturn.WithBacktracking(engineCfg.MaxBacktracks),
+		multiturn.WithFastRefusal(),
+		multiturn.WithPenalizedPhrases(),
+		multiturn.WithOutputScrubbing(),
+		multiturn.WithUnblocking(),
+		multiturn.WithConsecutiveFailureLimit(3),
+		multiturn.WithAttackerNudge(),
+	}
+
 	if engineCfg.EnableScanMemory {
 		if mem, ok := cfg["scan_memory"].(*multiturn.ScanMemory); ok && mem != nil {
-			opts = append(opts, multiturn.WithScanMemory(mem))
+			opts = append(opts, multiturn.WithMemory(mem))
 		}
 	}
 
 	return &HydraProbe{
-		engine:      multiturn.NewHydraEngine(&multiturn.HydraStrategy{}, attacker, judge, engineCfg, opts...),
+		engine:      multiturn.NewUnifiedEngine(&hydrastrat.Strategy{}, attacker, judge, engineCfg, opts...),
 		name:        registry.GetString(cfg, "name", "hydra.Hydra"),
 		goal:        engineCfg.Goal,
 		description: "Hydra: Single-path multi-turn attack with turn-level backtracking on refusal",
@@ -105,9 +115,21 @@ func (p *HydraProbe) GetPrompts() []string       { return []string{} }
 
 // NewHydraWithGenerators creates a HydraProbe with pre-built generators.
 // This is primarily for testing where mock generators need to be injected.
-func NewHydraWithGenerators(attacker, judge probes.Generator, cfg multiturn.Config, opts ...multiturn.HydraOption) *HydraProbe {
+func NewHydraWithGenerators(attacker, judge probes.Generator, cfg multiturn.Config, opts ...multiturn.EngineOption) *HydraProbe {
+	// Default Hydra options
+	defaultOpts := []multiturn.EngineOption{
+		multiturn.WithBacktracking(cfg.MaxBacktracks),
+		multiturn.WithFastRefusal(),
+		multiturn.WithPenalizedPhrases(),
+		multiturn.WithOutputScrubbing(),
+		multiturn.WithUnblocking(),
+		multiturn.WithConsecutiveFailureLimit(3),
+		multiturn.WithAttackerNudge(),
+	}
+	allOpts := append(defaultOpts, opts...)
+
 	return &HydraProbe{
-		engine:      multiturn.NewHydraEngine(&multiturn.HydraStrategy{}, attacker, judge, cfg, opts...),
+		engine:      multiturn.NewUnifiedEngine(&hydrastrat.Strategy{}, attacker, judge, cfg, allOpts...),
 		name:        "hydra.Hydra",
 		goal:        cfg.Goal,
 		description: "Hydra: Single-path multi-turn attack with turn-level backtracking on refusal",

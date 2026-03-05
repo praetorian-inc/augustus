@@ -105,7 +105,7 @@ func SuccessJudgePrompt(question, response string, history []TurnRecord) string 
 			if turn.WasRefused {
 				continue
 			}
-			sb.WriteString(fmt.Sprintf("  Q: %s\n  A: %s\n\n", turn.Question, truncateForJudge(turn.Response, 800)))
+			sb.WriteString(fmt.Sprintf("  Q: %s\n  A: %s\n\n", turn.Question, TruncateStr(turn.Response, 800)))
 		}
 	}
 
@@ -114,14 +114,6 @@ func SuccessJudgePrompt(question, response string, history []TurnRecord) string 
 Return your evaluation as JSON: {"success": bool, "score": 0.0-1.0, "verdict": "accept"|"backtrack", "reasoning": "..."}`)
 
 	return sb.String()
-}
-
-// truncateForJudge shortens text for inclusion in judge prompts.
-func truncateForJudge(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen-3] + "..."
 }
 
 // SecondaryJudgeSystemPrompt returns the system prompt for the secondary judge.
@@ -169,7 +161,7 @@ func SecondaryJudgePrompt(primaryReasoning, question, response string, history [
 			if turn.WasRefused {
 				continue
 			}
-			sb.WriteString(fmt.Sprintf("  Q: %s\n  A: %s\n\n", turn.Question, truncateForJudge(turn.Response, 800)))
+			sb.WriteString(fmt.Sprintf("  Q: %s\n  A: %s\n\n", turn.Question, TruncateStr(turn.Response, 800)))
 		}
 	}
 

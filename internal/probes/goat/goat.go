@@ -14,6 +14,7 @@ import (
 	"fmt"
 
 	"github.com/praetorian-inc/augustus/internal/multiturn"
+	goatstrat "github.com/praetorian-inc/augustus/internal/multiturn/strategies/goat"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/probes"
@@ -24,9 +25,9 @@ func init() {
 	probes.Register("goat.Goat", NewGoat)
 }
 
-// GoatProbe wraps the multi-turn engine with the GOAT strategy.
+// GoatProbe wraps the unified multi-turn engine with the GOAT strategy.
 type GoatProbe struct {
-	engine      *multiturn.Engine
+	engine      *multiturn.UnifiedEngine
 	name        string
 	goal        string
 	description string
@@ -70,8 +71,12 @@ func NewGoat(cfg registry.Config) (probes.Prober, error) {
 
 	engineCfg := multiturn.ConfigFromMap(cfg, multiturn.Defaults())
 
+	strategy := &goatstrat.Strategy{
+		AttackerModel: engineCfg.AttackerModel,
+	}
+
 	return &GoatProbe{
-		engine:      multiturn.New(&multiturn.GoatStrategy{}, attacker, judge, engineCfg),
+		engine:      multiturn.NewUnifiedEngine(strategy, attacker, judge, engineCfg),
 		name:        registry.GetString(cfg, "name", "goat.Goat"),
 		goal:        engineCfg.Goal,
 		description: "GOAT: Generative Offensive Agent Tester — adaptive multi-turn attack (Pavlova et al., 2024)",
@@ -100,8 +105,11 @@ func (p *GoatProbe) GetPrompts() []string       { return []string{} }
 // NewGoatWithGenerators creates a GoatProbe with pre-built generators.
 // This is primarily for testing where mock generators need to be injected.
 func NewGoatWithGenerators(attacker, judge probes.Generator, cfg multiturn.Config) *GoatProbe {
+	strategy := &goatstrat.Strategy{
+		AttackerModel: cfg.AttackerModel,
+	}
 	return &GoatProbe{
-		engine:      multiturn.New(&multiturn.GoatStrategy{}, attacker, judge, cfg),
+		engine:      multiturn.NewUnifiedEngine(strategy, attacker, judge, cfg),
 		name:        "goat.Goat",
 		goal:        cfg.Goal,
 		description: "GOAT: Generative Offensive Agent Tester — adaptive multi-turn attack (Pavlova et al., 2024)",

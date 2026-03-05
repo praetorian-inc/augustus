@@ -1,4 +1,6 @@
-package multiturn
+// Package parse provides JSON extraction and parsing for multi-turn attack
+// conversations, including attacker output parsing and judge response parsing.
+package parse
 
 import (
 	"encoding/json"
@@ -6,6 +8,22 @@ import (
 	"strconv"
 	"strings"
 )
+
+// QuestionResult is the parsed output from an attacker LLM.
+type QuestionResult struct {
+	Question    string `json:"question"`
+	Strategy    string `json:"strategy"`
+	Observation string `json:"observation,omitempty"` // Attacker's observation about previous turn
+	Thought     string `json:"thought,omitempty"`     // Attacker's reasoning for this turn
+	Summary     string `json:"summary,omitempty"`     // Attacker's summary of the previous response (Crescendo)
+}
+
+// SuccessJudgeResult holds the parsed result from a success judge evaluation.
+type SuccessJudgeResult struct {
+	Score     float64
+	Reasoning string
+	Verdict   string // "accept" or "backtrack"
+}
 
 var (
 	refusalPattern   = regexp.MustCompile(`(?i)\[\[(REFUSED|ACCEPTED)\]\]`)
@@ -22,13 +40,6 @@ func ParseRefusalResponse(output string) bool {
 		return false // Default to accepted if no clear signal
 	}
 	return strings.EqualFold(matches[1], "REFUSED")
-}
-
-// SuccessJudgeResult holds the parsed result from a success judge evaluation.
-type SuccessJudgeResult struct {
-	Score     float64
-	Reasoning string
-	Verdict   string // "accept" or "backtrack"
 }
 
 // ParseSuccessJudgeResponse extracts score, reasoning, and verdict from judge output.
@@ -157,6 +168,17 @@ func ExtractJSON(s string) *QuestionResult {
 	}
 
 	return nil
+}
+
+// TruncateStr shortens a string to maxLen with ellipsis.
+func TruncateStr(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-3] + "..."
 }
 
 // clampScore ensures a score is within [0.0, 1.0].
