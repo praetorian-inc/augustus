@@ -397,9 +397,14 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 			return fmt.Errorf("setup hook failed: %w", err)
 		}
 		setupVars = result.Variables
-		// Merge setup variables into generator config
+		// Merge setup variables into generator config with HOOK_ prefix
+		// to prevent overriding reserved keys like uri, method, proxy
 		for k, v := range setupVars {
-			resolved.GeneratorConfig[k] = v
+			prefixedKey := "HOOK_" + k
+			if _, exists := resolved.GeneratorConfig[k]; exists {
+				slog.Warn("setup hook variable collides with config key, using prefixed key", "key", k, "prefixed", prefixedKey)
+			}
+			resolved.GeneratorConfig[prefixedKey] = v
 		}
 		if len(setupVars) > 0 {
 			slog.Info("setup hook injected variables", "count", len(setupVars))

@@ -3,6 +3,7 @@ package hooks
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -49,7 +50,20 @@ func (h *HookedGenerator) Generate(ctx context.Context, conv *attempt.Conversati
 		env["AUGUSTUS_GENERATOR"] = h.inner.Name()
 		env["AUGUSTUS_PROBE_INDEX"] = fmt.Sprintf("%d", h.probeCount)
 		if len(h.lastResp) > 0 {
-			env["AUGUSTUS_LAST_RESPONSE"] = string(h.lastResp)
+			tmpFile, err := os.CreateTemp("", "augustus-response-*.json")
+			if err != nil {
+				h.mu.Unlock()
+				return nil, fmt.Errorf("failed to create temp file for last response: %w", err)
+			}
+			if _, err := tmpFile.Write(h.lastResp); err != nil {
+				tmpFile.Close()
+				os.Remove(tmpFile.Name())
+				h.mu.Unlock()
+				return nil, fmt.Errorf("failed to write last response to temp file: %w", err)
+			}
+			tmpFile.Close()
+			defer os.Remove(tmpFile.Name())
+			env["AUGUSTUS_LAST_RESPONSE_FILE"] = tmpFile.Name()
 		}
 		// Include current vars in env so prepare can reference them
 		for k, v := range h.vars {

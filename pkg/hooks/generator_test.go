@@ -120,14 +120,14 @@ func TestHookedGeneratorCapturesRawResponse(t *testing.T) {
 		rawResp:   []byte(`{"messageId":"msg-first"}`),
 	}
 
-	// Prepare hook echoes the last response from env
-	prepare := &Hook{Command: `echo "LAST=$AUGUSTUS_LAST_RESPONSE"`}
+	// Prepare hook reads the last response from file and echoes it
+	prepare := &Hook{Command: `if [ -n "$AUGUSTUS_LAST_RESPONSE_FILE" ]; then echo "LAST=$(cat $AUGUSTUS_LAST_RESPONSE_FILE)"; fi`}
 	hg := NewHookedGenerator(inner, prepare, nil)
 
 	conv := attempt.NewConversation()
 	conv.AddPrompt("prompt1")
 
-	// First call: no AUGUSTUS_LAST_RESPONSE yet
+	// First call: no AUGUSTUS_LAST_RESPONSE_FILE yet
 	_, err := hg.Generate(context.Background(), conv, 1)
 	if err != nil {
 		t.Fatalf("first generate: %v", err)
@@ -136,7 +136,7 @@ func TestHookedGeneratorCapturesRawResponse(t *testing.T) {
 	// Update raw response for second call
 	inner.rawResp = []byte(`{"messageId":"msg-second"}`)
 
-	// Second call: should have AUGUSTUS_LAST_RESPONSE from first call
+	// Second call: should have AUGUSTUS_LAST_RESPONSE_FILE from first call
 	_, err = hg.Generate(context.Background(), conv, 1)
 	if err != nil {
 		t.Fatalf("second generate: %v", err)

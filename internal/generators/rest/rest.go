@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -393,10 +394,19 @@ func (r *Rest) populateTemplate(template, input string, hookVars map[string]stri
 	// Replace hook variables ($VARNAME patterns from lifecycle hooks)
 	// Values are JSON-escaped to prevent malformed JSON when hook output
 	// contains special characters (quotes, backslashes, etc.)
-	for k, v := range hookVars {
+	// Sort keys by length (longest first) to prevent prefix collisions
+	// e.g., $ID_TOKEN must be substituted before $ID
+	keys := make([]string, 0, len(hookVars))
+	for k := range hookVars {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		return len(keys[i]) > len(keys[j])
+	})
+	for _, k := range keys {
 		placeholder := "$" + k
 		if strings.Contains(result, placeholder) {
-			result = strings.ReplaceAll(result, placeholder, jsonEscape(v))
+			result = strings.ReplaceAll(result, placeholder, jsonEscape(hookVars[k]))
 		}
 	}
 
