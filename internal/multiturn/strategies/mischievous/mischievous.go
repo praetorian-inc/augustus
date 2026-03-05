@@ -53,12 +53,14 @@ func (s *Strategy) ParseAttackerResponse(output string) *multiturn.QuestionResul
 		Thought  string `json:"thought"`
 		Strategy string `json:"strategy"`
 		Question string `json:"question"`
+		Summary  string `json:"summary"`
 	}
 	if err := json.Unmarshal([]byte(output), &result); err == nil && result.Question != "" {
 		return &multiturn.QuestionResult{
 			Question: result.Question,
 			Strategy: result.Strategy,
 			Thought:  result.Thought,
+			Summary:  result.Summary,
 		}
 	}
 	start := strings.Index(output, "{")
@@ -71,6 +73,7 @@ func (s *Strategy) ParseAttackerResponse(output string) *multiturn.QuestionResul
 					Question: result.Question,
 					Strategy: result.Strategy,
 					Thought:  result.Thought,
+					Summary:  result.Summary,
 				}
 			}
 		}

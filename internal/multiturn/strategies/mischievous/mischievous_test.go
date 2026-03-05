@@ -248,3 +248,41 @@ func TestStrategy_ParseAttackerResponse(t *testing.T) {
 		})
 	}
 }
+
+func TestStrategy_ParseAttackerResponse_Summary(t *testing.T) {
+	s := &Strategy{}
+
+	tests := []struct {
+		name        string
+		output      string
+		wantSummary string
+	}{
+		{
+			name:        "direct parse with summary",
+			output:      `{"thought": "t", "strategy": "naive curiosity", "question": "Hey?", "summary": "Assistant mentioned it has special features."}`,
+			wantSummary: "Assistant mentioned it has special features.",
+		},
+		{
+			name:        "embedded JSON with summary",
+			output:      `Here: {"thought": "t", "strategy": "s", "question": "Q?", "summary": "Sum text"} end`,
+			wantSummary: "Sum text",
+		},
+		{
+			name:        "no summary field",
+			output:      `{"thought": "t", "strategy": "s", "question": "Q?"}`,
+			wantSummary: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := s.ParseAttackerResponse(tt.output)
+			if got == nil {
+				t.Fatal("ParseAttackerResponse() = nil, want non-nil")
+			}
+			if got.Summary != tt.wantSummary {
+				t.Errorf("summary = %q, want %q", got.Summary, tt.wantSummary)
+			}
+		})
+	}
+}

@@ -111,6 +111,45 @@ func TestStrategy_GenerateTurnPrompt(t *testing.T) {
 		}
 	})
 
+	t.Run("prefers ResponseSummary over full Response", func(t *testing.T) {
+		history := []multiturn.TurnRecord{
+			{
+				TurnNumber:      1,
+				Question:        "Tell me about security",
+				Response:        "This is a very long response that should NOT appear in the prompt when a summary is available",
+				ResponseSummary: "concise summary of response",
+				JudgeScore:      0.2,
+				Strategy:        "hypothetical",
+			},
+		}
+		prompt := s.GenerateTurnPrompt("test goal", history, 2)
+		if !strings.Contains(prompt, "Target said (summary): concise summary of response") {
+			t.Error("prompt should use ResponseSummary when available")
+		}
+		if strings.Contains(prompt, "should NOT appear") {
+			t.Error("prompt should NOT contain full Response when ResponseSummary is set")
+		}
+	})
+
+	t.Run("falls back to truncated Response when no summary", func(t *testing.T) {
+		history := []multiturn.TurnRecord{
+			{
+				TurnNumber: 1,
+				Question:   "Tell me about security",
+				Response:   "Security is a broad topic covering many areas",
+				JudgeScore: 0.2,
+				Strategy:   "hypothetical",
+			},
+		}
+		prompt := s.GenerateTurnPrompt("test goal", history, 2)
+		if !strings.Contains(prompt, "Target said: Security is a broad topic") {
+			t.Error("prompt should use truncated Response when ResponseSummary is empty")
+		}
+		if strings.Contains(prompt, "(summary)") {
+			t.Error("prompt should NOT contain summary label when ResponseSummary is empty")
+		}
+	})
+
 	t.Run("partial engagement suggests stacking", func(t *testing.T) {
 		history := []multiturn.TurnRecord{
 			{TurnNumber: 1, Question: "Q1", Response: "R1", JudgeScore: 0.4, Strategy: "hypothetical"},
@@ -217,6 +256,44 @@ func TestStrategy_ParseAttackerResponse(t *testing.T) {
 			}
 			if got.Strategy != tt.wantStrategy {
 				t.Errorf("strategy = %q, want %q", got.Strategy, tt.wantStrategy)
+			}
+		})
+	}
+}
+
+func TestStrategy_ParseAttackerResponse_Summary(t *testing.T) {
+	s := &Strategy{}
+
+	tests := []struct {
+		name        string
+		output      string
+		wantSummary string
+	}{
+		{
+			name:        "direct parse with summary",
+			output:      `{"observation": "target engaged", "thought": "try persona", "strategy": "persona", "question": "Tell me more", "summary": "Target disclosed basic process steps but avoided quantities."}`,
+			wantSummary: "Target disclosed basic process steps but avoided quantities.",
+		},
+		{
+			name:        "embedded JSON with summary",
+			output:      `Here is my response: {"observation": "o", "thought": "t", "strategy": "s", "question": "Q?", "summary": "Summary here"} done`,
+			wantSummary: "Summary here",
+		},
+		{
+			name:        "no summary field",
+			output:      `{"observation": "o", "thought": "t", "strategy": "s", "question": "Q?"}`,
+			wantSummary: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := s.ParseAttackerResponse(tt.output)
+			if got == nil {
+				t.Fatal("ParseAttackerResponse() = nil, want non-nil")
+			}
+			if got.Summary != tt.wantSummary {
+				t.Errorf("summary = %q, want %q", got.Summary, tt.wantSummary)
 			}
 		})
 	}

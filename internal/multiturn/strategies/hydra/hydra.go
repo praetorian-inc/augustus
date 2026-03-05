@@ -53,6 +53,7 @@ func (s *Strategy) ParseAttackerResponse(output string) *multiturn.QuestionResul
 		Thought     string `json:"thought"`
 		Strategy    string `json:"strategy"`
 		Question    string `json:"question"`
+		Summary     string `json:"summary"`
 	}
 
 	// Try direct parse first
@@ -62,6 +63,7 @@ func (s *Strategy) ParseAttackerResponse(output string) *multiturn.QuestionResul
 			Strategy:    hydraResult.Strategy,
 			Observation: hydraResult.Observation,
 			Thought:     hydraResult.Thought,
+			Summary:     hydraResult.Summary,
 		}
 	}
 
@@ -77,6 +79,7 @@ func (s *Strategy) ParseAttackerResponse(output string) *multiturn.QuestionResul
 					Strategy:    hydraResult.Strategy,
 					Observation: hydraResult.Observation,
 					Thought:     hydraResult.Thought,
+					Summary:     hydraResult.Summary,
 				}
 			}
 		}

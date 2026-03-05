@@ -30,6 +30,18 @@ func TestStrategy_AttackerSystemPrompt(t *testing.T) {
 	if !strings.Contains(prompt, `"question"`) {
 		t.Error("AttackerSystemPrompt should specify JSON output format")
 	}
+	if !strings.Contains(prompt, "PSYCHOLOGICAL PRINCIPLES") {
+		t.Error("AttackerSystemPrompt should include psychological principles section")
+	}
+	if !strings.Contains(prompt, "COMMITMENT/CONSISTENCY") {
+		t.Error("AttackerSystemPrompt should include commitment/consistency principle")
+	}
+	if !strings.Contains(prompt, "RECIPROCITY") {
+		t.Error("AttackerSystemPrompt should include reciprocity principle")
+	}
+	if !strings.Contains(prompt, "CURIOSITY GAP") {
+		t.Error("AttackerSystemPrompt should include curiosity gap principle")
+	}
 }
 
 func TestStrategy_GenerateTurnPrompt(t *testing.T) {

@@ -84,6 +84,44 @@ func TestStrategy_ParseAttackerResponse(t *testing.T) {
 	}
 }
 
+func TestStrategy_ParseAttackerResponse_Summary(t *testing.T) {
+	s := &Strategy{}
+
+	tests := []struct {
+		name        string
+		output      string
+		wantSummary string
+	}{
+		{
+			name:        "direct parse with summary",
+			output:      `{"observation": "o", "thought": "t", "strategy": "decomposition", "question": "Details?", "summary": "Target explained basics of the process."}`,
+			wantSummary: "Target explained basics of the process.",
+		},
+		{
+			name:        "embedded JSON with summary",
+			output:      `Text before {"observation": "o", "thought": "t", "strategy": "s", "question": "Q?", "summary": "Sum"} text after`,
+			wantSummary: "Sum",
+		},
+		{
+			name:        "no summary field",
+			output:      `{"observation": "o", "thought": "t", "strategy": "s", "question": "Q?"}`,
+			wantSummary: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := s.ParseAttackerResponse(tt.output)
+			if got == nil {
+				t.Fatal("ParseAttackerResponse() = nil, want non-nil")
+			}
+			if got.Summary != tt.wantSummary {
+				t.Errorf("summary = %q, want %q", got.Summary, tt.wantSummary)
+			}
+		})
+	}
+}
+
 func TestStrategy_GenerateTurnPrompt(t *testing.T) {
 	s := &Strategy{MaxTurns: 10}
 
