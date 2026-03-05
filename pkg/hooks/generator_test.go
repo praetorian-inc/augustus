@@ -245,6 +245,57 @@ func TestHookedGeneratorClearHistory(t *testing.T) {
 	hg.ClearHistory()
 }
 
+func TestHookedGeneratorConcurrentSafety(t *testing.T) {
+	inner := &mockGenerator{
+		name:      "test.Mock",
+		responses: []attempt.Message{attempt.NewAssistantMessage("concurrent-resp")},
+	}
+
+	prepare := &Hook{Command: `echo "INDEX=$AUGUSTUS_PROBE_INDEX"`}
+	hg := NewHookedGenerator(inner, prepare, map[string]string{
+		"CONVERSATION_ID": "conc-test",
+	})
+
+	const goroutines = 10
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+
+	errs := make([]error, goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		go func(idx int) {
+			defer wg.Done()
+			conv := attempt.NewConversation()
+			conv.AddPrompt(fmt.Sprintf("prompt-%d", idx))
+			msgs, err := hg.Generate(context.Background(), conv, 1)
+			if err != nil {
+				errs[idx] = err
+				return
+			}
+			if len(msgs) != 1 {
+				errs[idx] = fmt.Errorf("goroutine %d: got %d messages, want 1", idx, len(msgs))
+				return
+			}
+			if msgs[0].Content != "concurrent-resp" {
+				errs[idx] = fmt.Errorf("goroutine %d: got %q, want %q", idx, msgs[0].Content, "concurrent-resp")
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("goroutine %d: %v", i, err)
+		}
+	}
+
+	// Verify all goroutines ran by checking call count
+	inner.generateMu.Lock()
+	defer inner.generateMu.Unlock()
+	assert.Equal(t, goroutines, inner.callCount, "all goroutines should have called Generate")
+}
+
 func TestHookedGeneratorPrepareReceivesCurrentVars(t *testing.T) {
 	inner := &mockGenerator{
 		name:      "test.Mock",

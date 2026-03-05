@@ -89,7 +89,7 @@ type Rest struct {
 	sseFilterField string // JSONPath for event filtering (e.g., "$.content.type")
 	sseFilterValue string // Value to match for filter (e.g., "CHAT_TEXT")
 
-	// Raw response storage for lifecycle hooks
+	// Raw response storage for runtime hooks
 	mu          sync.Mutex // protects lastRawResp
 	lastRawResp []byte
 }
@@ -359,7 +359,7 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 		return attempt.Message{}, fmt.Errorf("rest: failed to read response: %w", err)
 	}
 
-	// Store raw response for lifecycle hooks
+	// Store raw response for runtime hooks
 	r.mu.Lock()
 	r.lastRawResp = respBody
 	r.mu.Unlock()
@@ -396,7 +396,7 @@ func (r *Rest) populateTemplate(template, input string, hookVars map[string]stri
 		result = strings.ReplaceAll(result, "$INPUT", escaped)
 	}
 
-	// Replace hook variables ($VARNAME patterns from lifecycle hooks)
+	// Replace hook variables ($VARNAME patterns from runtime hooks)
 	// Values are JSON-escaped to prevent malformed JSON when hook output
 	// contains special characters (quotes, backslashes, etc.)
 	// Sort keys by length (longest first) to prevent prefix collisions

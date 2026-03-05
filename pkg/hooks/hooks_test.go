@@ -79,6 +79,78 @@ func TestParseKeyValueLines(t *testing.T) {
 	}
 }
 
+func TestParseKeyValueLines_InvalidKeysRejected(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected map[string]string
+	}{
+		{
+			name:  "key with dash is skipped",
+			input: "FOO-BAR=val\nVALID_KEY=ok\n",
+			expected: map[string]string{
+				"VALID_KEY": "ok",
+			},
+		},
+		{
+			name:  "key with dot is skipped",
+			input: "has.dot=no\nGOOD=yes\n",
+			expected: map[string]string{
+				"GOOD": "yes",
+			},
+		},
+		{
+			name:  "key with space is skipped",
+			input: "HAS SPACE=bad\nNO_SPACE=good\n",
+			expected: map[string]string{
+				"NO_SPACE": "good",
+			},
+		},
+		{
+			name:  "mixed valid and invalid keys",
+			input: "FOO-BAR=val\nVALID_KEY=ok\nhas.dot=no\nANOTHER_GOOD=yes\nwith space=bad\n",
+			expected: map[string]string{
+				"VALID_KEY":    "ok",
+				"ANOTHER_GOOD": "yes",
+			},
+		},
+		{
+			name:  "all invalid keys yields empty map",
+			input: "a-b=1\nc.d=2\ne f=3\n",
+			expected: map[string]string{},
+		},
+		{
+			name:  "key with slash is skipped",
+			input: "PATH/TO=val\nOK_KEY=fine\n",
+			expected: map[string]string{
+				"OK_KEY": "fine",
+			},
+		},
+		{
+			name:  "numeric keys are valid",
+			input: "KEY123=val\n456=num\n",
+			expected: map[string]string{
+				"KEY123": "val",
+				"456":    "num",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ParseKeyValueLines(tt.input)
+			if len(result) != len(tt.expected) {
+				t.Errorf("got %d vars, want %d: %v", len(result), len(tt.expected), result)
+			}
+			for k, v := range tt.expected {
+				if result[k] != v {
+					t.Errorf("key %q: got %q, want %q", k, result[k], v)
+				}
+			}
+		})
+	}
+}
+
 func TestHookRun(t *testing.T) {
 	ctx := context.Background()
 

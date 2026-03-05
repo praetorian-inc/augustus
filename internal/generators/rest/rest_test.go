@@ -1647,6 +1647,49 @@ func TestRestGeneratorHookVarSubstitution_Headers(t *testing.T) {
 	assert.Equal(t, "conv-header-test", receivedHeader)
 }
 
+func TestRestGenerator_HookVarSubstitution_PrefixCollision(t *testing.T) {
+	// Verify that sorted key substitution handles overlapping variable names.
+	// $ID_TOKEN must be substituted before $ID to prevent "$ID" matching the
+	// prefix of "$ID_TOKEN" and producing "short_TOKEN" instead of "long-token".
+	var receivedBody string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		receivedBody = string(body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer ts.Close()
+
+	gen, err := NewRest(registry.Config{
+		"uri":          ts.URL,
+		"req_template": `{"id":"$ID","token":"$ID_TOKEN"}`,
+	})
+	require.NoError(t, err)
+
+	// Inject hook vars with overlapping key names
+	vars := map[string]string{
+		"ID":       "short",
+		"ID_TOKEN": "long-token",
+	}
+	ctx := hooks.WithVars(context.Background(), vars)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test prompt")
+
+	msgs, err := gen.Generate(ctx, conv, 1)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+
+	// $ID_TOKEN should become "long-token", NOT "short_TOKEN"
+	assert.Contains(t, receivedBody, `"token":"long-token"`)
+	// $ID should become "short"
+	assert.Contains(t, receivedBody, `"id":"short"`)
+
+	// Verify the full expected body
+	expected := `{"id":"short","token":"long-token"}`
+	assert.Equal(t, expected, receivedBody)
+}
+
 func TestRestGenerator_LastRawResponse(t *testing.T) {
 	expectedBody := `{"result":"hello world"}`
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

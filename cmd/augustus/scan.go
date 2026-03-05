@@ -378,12 +378,25 @@ func createAndApplyBuffs(probeList []probes.Prober, buffNames []string, yamlCfg 
 
 // runScanResolved executes the scan with resolved configuration.
 func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Config, resolved *config.ResolvedConfig, eval harnesses.Evaluator, onAttemptProcessed func(*attempt.Attempt)) error {
-	// Lifecycle hooks: run setup hook before scan
+	// Resolve runtime hooks: YAML config provides defaults, CLI flags override.
+	if yamlCfg != nil {
+		if cfg.setup == "" && yamlCfg.Hooks.Setup != "" {
+			cfg.setup = yamlCfg.Hooks.Setup
+		}
+		if cfg.prepare == "" && yamlCfg.Hooks.Prepare != "" {
+			cfg.prepare = yamlCfg.Hooks.Prepare
+		}
+		if cfg.cleanup == "" && yamlCfg.Hooks.Cleanup != "" {
+			cfg.cleanup = yamlCfg.Hooks.Cleanup
+		}
+	}
+
+	// Runtime hooks: run setup hook before scan
 	var setupVars map[string]string
 	if cfg.setup != "" || cfg.prepare != "" || cfg.cleanup != "" {
 		// Force sequential execution when hooks are used (stateful scanning)
 		if resolved.ScannerOpts.Concurrency > 1 {
-			slog.Warn("forcing concurrency=1 because lifecycle hooks require sequential execution")
+			slog.Warn("forcing concurrency=1 because runtime hooks require sequential execution")
 			resolved.ScannerOpts.Concurrency = 1
 		}
 	}
@@ -417,7 +430,7 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 		return fmt.Errorf("failed to create generator %s: %w", cfg.generatorName, err)
 	}
 
-	// Wrap generator with lifecycle hooks if prepare is configured
+	// Wrap generator with runtime hooks if prepare is configured
 	if cfg.prepare != "" || len(setupVars) > 0 {
 		var prepareHook *hooks.Hook
 		if cfg.prepare != "" {
@@ -472,7 +485,7 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	// Run the scan
 	scanErr := harness.Run(ctx, gen, probeList, detectorList, eval)
 
-	// Lifecycle hooks: run cleanup hook after scan
+	// Runtime hooks: run cleanup hook after scan
 	if cfg.cleanup != "" {
 		slog.Info("running cleanup hook")
 		cleanupHook := &hooks.Hook{Command: cfg.cleanup}

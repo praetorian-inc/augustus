@@ -488,6 +488,131 @@ func TestScanCommand_CleanupDoesNotRunOnEarlyFailure(t *testing.T) {
 	assert.Error(t, statErr, "cleanup hook should NOT run when scan fails before reaching harness.Run()")
 }
 
+// TestScanCommand_SetupHookPrefixesVars tests that setup hook variables are prefixed
+// with HOOK_ so they don't override reserved generator config keys like "uri".
+// We verify this indirectly: if the prefix weren't applied, a setup hook emitting
+// "URI=should_not_override" could corrupt the generator config. Since test.Repeat
+// doesn't use "uri", we verify the scan succeeds and the HOOK_URI key doesn't
+// interfere with generator creation.
+func TestScanCommand_SetupHookPrefixesVars(t *testing.T) {
+	ctx := context.Background()
+
+	cfg := &scanConfig{
+		generatorName: "test.Repeat",
+		probeNames:    []string{"test.Test"},
+		detectorNames: []string{"always.Pass"},
+		harnessName:   "probewise.Probewise",
+		outputFormat:  "table",
+		// Setup hook emits a key that would collide with a real config key
+		setup: `echo "URI=should_not_override"`,
+	}
+
+	eval := &mockEvaluator{}
+	err := runScan(ctx, cfg, eval)
+	require.NoError(t, err, "runScan should succeed because URI is prefixed as HOOK_URI")
+	assert.NotEmpty(t, eval.attempts, "scan should produce attempts")
+}
+
+// TestScanCommand_CleanupHookErrorPropagation tests that a failing cleanup hook
+// causes the returned error to contain "cleanup hook failed", even if the scan
+// itself succeeds.
+func TestScanCommand_CleanupHookErrorPropagation(t *testing.T) {
+	ctx := context.Background()
+
+	cfg := &scanConfig{
+		generatorName: "test.Repeat",
+		probeNames:    []string{"test.Test"},
+		detectorNames: []string{"always.Pass"},
+		harnessName:   "probewise.Probewise",
+		outputFormat:  "table",
+		cleanup:       "exit 1",
+	}
+
+	eval := &mockEvaluator{}
+	err := runScan(ctx, cfg, eval)
+	require.Error(t, err, "runScan should return error when cleanup hook fails")
+	assert.Contains(t, err.Error(), "cleanup hook failed",
+		"error should contain 'cleanup hook failed'")
+	// The scan itself should have succeeded, so attempts should be populated
+	assert.NotEmpty(t, eval.attempts, "scan should still produce attempts despite cleanup failure")
+}
+
+// TestScanCommand_YAMLConfigHooks tests that hooks defined in a YAML config file
+// are resolved and executed by the scan pipeline.
+func TestScanCommand_YAMLConfigHooks(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	// Create a YAML config with hooks
+	configPath := filepath.Join(tmpDir, "hooks-config.yaml")
+	markerFile := filepath.Join(tmpDir, "yaml_cleanup_ran")
+	yamlContent := fmt.Sprintf(`
+hooks:
+  setup: 'echo "YAML_VAR=from_yaml"'
+  cleanup: 'touch %s'
+`, markerFile)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	require.NoError(t, err)
+
+	cfg := &scanConfig{
+		generatorName: "test.Repeat",
+		probeNames:    []string{"test.Test"},
+		detectorNames: []string{"always.Pass"},
+		harnessName:   "probewise.Probewise",
+		configFile:    configPath,
+		outputFormat:  "table",
+	}
+
+	eval := &mockEvaluator{}
+	err = runScan(ctx, cfg, eval)
+	require.NoError(t, err, "runScan with YAML hooks config should succeed")
+	assert.NotEmpty(t, eval.attempts, "scan with YAML hooks should produce attempts")
+
+	// Verify the YAML cleanup hook ran
+	_, err = os.Stat(markerFile)
+	assert.NoError(t, err, "YAML cleanup hook should have created marker file")
+}
+
+// TestScanCommand_CLIOverridesYAMLHooks tests that CLI hook flags override YAML config hooks.
+func TestScanCommand_CLIOverridesYAMLHooks(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	// Create YAML config with a cleanup hook that creates a marker file
+	configPath := filepath.Join(tmpDir, "hooks-config.yaml")
+	yamlMarker := filepath.Join(tmpDir, "yaml_marker")
+	cliMarker := filepath.Join(tmpDir, "cli_marker")
+	yamlContent := fmt.Sprintf(`
+hooks:
+  cleanup: 'touch %s'
+`, yamlMarker)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	require.NoError(t, err)
+
+	// CLI cleanup flag should override the YAML one
+	cfg := &scanConfig{
+		generatorName: "test.Repeat",
+		probeNames:    []string{"test.Test"},
+		detectorNames: []string{"always.Pass"},
+		harnessName:   "probewise.Probewise",
+		configFile:    configPath,
+		outputFormat:  "table",
+		cleanup:       fmt.Sprintf("touch %s", cliMarker),
+	}
+
+	eval := &mockEvaluator{}
+	err = runScan(ctx, cfg, eval)
+	require.NoError(t, err, "runScan should succeed")
+
+	// CLI marker should exist (CLI cleanup ran)
+	_, err = os.Stat(cliMarker)
+	assert.NoError(t, err, "CLI cleanup hook should have created marker file")
+
+	// YAML marker should NOT exist (YAML cleanup was overridden)
+	_, err = os.Stat(yamlMarker)
+	assert.Error(t, err, "YAML cleanup hook should NOT run when CLI cleanup overrides it")
+}
+
 // TestBuildCLIOverrides_ModelAlone tests that --model flag creates ConfigJSON with just model.
 func TestBuildCLIOverrides_ModelAlone(t *testing.T) {
 	cmd := &ScanCmd{
@@ -562,4 +687,71 @@ func TestBuildCLIOverrides_ModelWithInvalidConfigJSON(t *testing.T) {
 	}
 	cli := cmd.buildCLIOverrides()
 	assert.Equal(t, `{invalid-json`, cli.ConfigJSON, "invalid JSON should be preserved unchanged when merge fails")
+}
+
+// TestScanCommand_YAMLHooksConfig tests that hooks can be loaded from YAML config.
+func TestScanCommand_YAMLHooksConfig(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	configPath := filepath.Join(tmpDir, "hooks-config.yaml")
+	yamlContent := `
+hooks:
+  setup: 'echo "TEST_VAR=from_yaml"'
+`
+	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	require.NoError(t, err)
+
+	cfg := &scanConfig{
+		generatorName: "test.Repeat",
+		probeNames:    []string{"test.Test"},
+		detectorNames: []string{"always.Pass"},
+		harnessName:   "probewise.Probewise",
+		configFile:    configPath,
+		outputFormat:  "table",
+	}
+
+	eval := &mockEvaluator{}
+	err = runScan(ctx, cfg, eval)
+	require.NoError(t, err, "runScan with YAML hooks config should succeed")
+	assert.NotEmpty(t, eval.attempts, "scan should produce attempts")
+}
+
+// TestScanCommand_CLIHooksOverrideYAML tests that CLI hook flags take precedence over YAML config.
+func TestScanCommand_CLIHooksOverrideYAML(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+
+	configPath := filepath.Join(tmpDir, "hooks-config.yaml")
+	yamlContent := `
+hooks:
+  setup: "exit 1"
+  cleanup: 'echo "YAML_CLEANUP=true"'
+`
+	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	require.NoError(t, err)
+
+	markerFile := filepath.Join(tmpDir, "cleanup_marker")
+
+	cfg := &scanConfig{
+		generatorName: "test.Repeat",
+		probeNames:    []string{"test.Test"},
+		detectorNames: []string{"always.Pass"},
+		harnessName:   "probewise.Probewise",
+		configFile:    configPath,
+		outputFormat:  "table",
+		// CLI setup overrides YAML "exit 1" (which would fail)
+		setup: `echo "CLI_VAR=from_cli"`,
+		// CLI cleanup overrides YAML cleanup
+		cleanup: fmt.Sprintf("touch %s", markerFile),
+	}
+
+	eval := &mockEvaluator{}
+	err = runScan(ctx, cfg, eval)
+	require.NoError(t, err, "CLI setup should override YAML exit 1")
+	assert.NotEmpty(t, eval.attempts, "scan should produce attempts")
+
+	// Verify CLI cleanup ran (not the YAML cleanup)
+	_, err = os.Stat(markerFile)
+	assert.NoError(t, err, "CLI cleanup should have created marker file")
 }

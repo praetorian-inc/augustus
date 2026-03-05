@@ -13,7 +13,7 @@ import (
 // Compile-time interface assertion.
 var _ types.Generator = (*HookedGenerator)(nil)
 
-// HookedGenerator wraps a generator with lifecycle hook support.
+// HookedGenerator wraps a generator with runtime hook support.
 // It runs the prepare hook before each Generate() call, merging
 // KEY=VALUE output into the variable map that gets injected via context.
 type HookedGenerator struct {
@@ -25,7 +25,7 @@ type HookedGenerator struct {
 	probeCount int
 }
 
-// NewHookedGenerator creates a generator wrapper with lifecycle hooks.
+// NewHookedGenerator creates a generator wrapper with runtime hooks.
 // initialVars typically comes from the setup hook's output.
 func NewHookedGenerator(inner types.Generator, prepare *Hook, initialVars map[string]string) *HookedGenerator {
 	vars := make(map[string]string)

@@ -118,7 +118,7 @@ func VarsFromContext(ctx context.Context) map[string]string {
 }
 
 // RawResponseProvider is an optional interface for generators that expose
-// their last raw HTTP response body for use by lifecycle hooks.
+// their last raw HTTP response body for use by runtime hooks.
 type RawResponseProvider interface {
 	LastRawResponse() []byte
 }
