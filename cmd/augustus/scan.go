@@ -367,6 +367,37 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	if cfg.allProbes {
 		probeNames = probes.List()
 		fmt.Printf("Running all %d registered probes\n", len(probeNames))
+
+		// Warn about multi-turn probes that need explicit configuration
+		multiTurnProbes := []string{
+			"crescendo.Crescendo",
+			"goat.Goat",
+			"hydra.Hydra",
+			"mischievous.MischievousUser",
+		}
+		var unconfigured []string
+		for _, mt := range multiTurnProbes {
+			if yamlCfg == nil || !yamlCfg.HasProbeConfig(mt) {
+				unconfigured = append(unconfigured, mt)
+			}
+		}
+		if len(unconfigured) > 0 {
+			fmt.Fprintf(os.Stderr, "WARNING: Multi-turn probes require explicit configuration (goal, attacker/judge models).\n")
+			fmt.Fprintf(os.Stderr, "  Unconfigured: %s\n", strings.Join(unconfigured, ", "))
+			fmt.Fprintf(os.Stderr, "  These probes will be skipped. Use --config-file to provide settings.\n")
+			// Filter out unconfigured multi-turn probes
+			skip := make(map[string]bool, len(unconfigured))
+			for _, name := range unconfigured {
+				skip[name] = true
+			}
+			filtered := probeNames[:0]
+			for _, name := range probeNames {
+				if !skip[name] {
+					filtered = append(filtered, name)
+				}
+			}
+			probeNames = filtered
+		}
 	}
 
 	// Create probes
