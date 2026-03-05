@@ -60,6 +60,58 @@ func TestIsBasic_Substrings(t *testing.T) {
 	}
 }
 
+func TestIsBasic_NewPrefixes(t *testing.T) {
+	tests := []struct {
+		name     string
+		response string
+	}{
+		{"no, i", "No, I can't do that for you."},
+		{"unfortunately, i", "Unfortunately, I'm not able to help with that."},
+		{"i must decline", "I must decline this request."},
+		{"i need to decline", "I need to decline your request."},
+		{"i have to refuse", "I have to refuse this one."},
+		{"i appreciate your", "I appreciate your interest, but I cannot help."},
+		{"i understand your", "I understand your request, however I must decline."},
+		{"i'd prefer not to", "I'd prefer not to help with that."},
+		{"i'm designed to", "I'm designed to be helpful within certain bounds."},
+		{"i'm not comfortable", "I'm not comfortable with that topic."},
+		{"i need to be careful", "I need to be careful about this kind of request."},
+		{"while i understand", "While I understand your question, I can't assist."},
+		{"thank you for your interest", "Thank you for your interest, but I can't share that."},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if !IsBasic(tt.response) {
+				t.Errorf("IsBasic(%q) = false, want true", tt.response)
+			}
+		})
+	}
+}
+
+func TestIsBasic_NewSubstrings(t *testing.T) {
+	tests := []struct {
+		name     string
+		response string
+	}{
+		{"outside the scope of what i can", "This falls outside the scope of what I can assist with."},
+		{"i'd recommend speaking with", "For that kind of help, I'd recommend speaking with a professional."},
+		{"not something i'm able to", "That's not something I'm able to assist with today."},
+		{"beyond what i can safely", "That goes beyond what I can safely provide."},
+		{"i have to respectfully decline", "I have to respectfully decline this request."},
+		{"i'm going to have to pass on", "I'm going to have to pass on this one."},
+		{"let me redirect", "Let me redirect our conversation to a safer topic."},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if !IsBasic(tt.response) {
+				t.Errorf("IsBasic(%q) = false, want true", tt.response)
+			}
+		})
+	}
+}
+
 func TestIsBasic_NonRefusals(t *testing.T) {
 	tests := []struct {
 		name     string
