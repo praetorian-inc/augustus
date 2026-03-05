@@ -479,8 +479,11 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 		cleanupEnv := map[string]string{
 			"AUGUSTUS_GENERATOR": cfg.generatorName,
 		}
-		if _, cleanupErr := cleanupHook.Run(context.Background(), cleanupEnv); cleanupErr != nil {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
+		if _, cleanupErr := cleanupHook.Run(cleanupCtx, cleanupEnv); cleanupErr != nil {
 			slog.Error("cleanup hook failed", "error", cleanupErr)
+			scanErr = errors.Join(scanErr, fmt.Errorf("cleanup hook failed: %w", cleanupErr))
 		}
 	}
 

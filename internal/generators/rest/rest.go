@@ -17,6 +17,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -24,6 +25,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/hooks"
 	"github.com/praetorian-inc/augustus/pkg/ratelimit"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 	"golang.org/x/net/http2"
 )
 
@@ -88,6 +90,7 @@ type Rest struct {
 	sseFilterValue string // Value to match for filter (e.g., "CHAT_TEXT")
 
 	// Raw response storage for lifecycle hooks
+	mu          sync.Mutex // protects lastRawResp
 	lastRawResp []byte
 }
 
@@ -293,7 +296,7 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 	prompt := conv.LastPrompt()
 
 	// Get hook variables from context for template substitution
-	hookVars := hooks.VarsFromContext(ctx)
+	hookVars := types.HookVarsFromContext(ctx)
 
 	// Populate request template
 	body := r.populateTemplate(r.reqTemplate, prompt, hookVars)
@@ -357,7 +360,9 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 	}
 
 	// Store raw response for lifecycle hooks
+	r.mu.Lock()
 	r.lastRawResp = respBody
+	r.mu.Unlock()
 
 	// Check if response is SSE (Server-Sent Events)
 	contentType := resp.Header.Get("Content-Type")
@@ -738,6 +743,8 @@ func (r *Rest) ClearHistory() {}
 // LastRawResponse returns the raw HTTP response body from the most recent API call.
 // This implements the hooks.RawResponseProvider interface.
 func (r *Rest) LastRawResponse() []byte {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return r.lastRawResp
 }
 

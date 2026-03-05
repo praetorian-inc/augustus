@@ -16,8 +16,14 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
+
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
+
+// validKeyPattern restricts hook variable keys to uppercase alphanumeric and underscores.
+var validKeyPattern = regexp.MustCompile(`^[A-Z0-9_]+$`)
 
 // Hook represents a shell command to be executed at a specific lifecycle point.
 type Hook struct {
@@ -89,27 +95,26 @@ func ParseKeyValueLines(text string) map[string]string {
 		key := strings.TrimSpace(line[:idx])
 		value := strings.TrimSpace(line[idx+1:])
 		if key != "" {
-			vars[strings.ToUpper(key)] = value
+			upperKey := strings.ToUpper(key)
+			if !validKeyPattern.MatchString(upperKey) {
+				continue // skip keys with invalid characters
+			}
+			vars[upperKey] = value
 		}
 	}
 	return vars
 }
 
-// hookVarsKey is the context key for hook variables.
-type hookVarsKey struct{}
-
 // WithVars returns a new context with hook variables attached.
-// These variables are read by generators to perform template substitution.
+// Delegates to types.WithHookVars for decoupled context passing.
 func WithVars(ctx context.Context, vars map[string]string) context.Context {
-	return context.WithValue(ctx, hookVarsKey{}, vars)
+	return types.WithHookVars(ctx, vars)
 }
 
 // VarsFromContext returns hook variables from the context, or nil if none are set.
+// Delegates to types.HookVarsFromContext for decoupled context passing.
 func VarsFromContext(ctx context.Context) map[string]string {
-	if v, ok := ctx.Value(hookVarsKey{}).(map[string]string); ok {
-		return v
-	}
-	return nil
+	return types.HookVarsFromContext(ctx)
 }
 
 // RawResponseProvider is an optional interface for generators that expose
