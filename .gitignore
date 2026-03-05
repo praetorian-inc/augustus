@@ -108,4 +108,4 @@ benchmark-results/
 
 # Scan reports and config (may contain sensitive target/engagement data)
 *.html
-crescendo.yaml
+
