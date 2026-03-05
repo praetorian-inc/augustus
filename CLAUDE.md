@@ -42,7 +42,7 @@ Capabilities self-register via `init()` functions. Example:
 ```go
 // internal/probes/dan/templates.go
 func init() {
-    probes.Register("dan.Dan", func(_ registry.Config) (probes.Prober, error) {
+    probes.Register("dan.Dan_11_0", func(_ registry.Config) (probes.Prober, error) {
         return &DanProbe{}, nil
     })
 }
@@ -112,16 +112,16 @@ For YAML-based probes, create `.yaml` files in `data/` subdirectory and use `tem
 
 ```bash
 # Basic scan
-augustus scan openai.OpenAI --probe dan.Dan --detector dan.DanDetector
+augustus scan openai.OpenAI --probe dan.Dan_11_0 --detector dan.DAN
 
 # Glob patterns for batch runs
-augustus scan anthropic.Anthropic --probes-glob "encoding.*,dan.*" --all-detectors
+augustus scan anthropic.Anthropic --probes-glob "dan.*,goodside.*"
 
 # Apply buff transformations
 augustus scan openai.OpenAI --all --buff encoding.Base64
 
 # Custom REST endpoint
-augustus scan rest.Rest --probe dan.Dan --config '{"uri":"https://api.example.com/v1/chat"}'
+augustus scan rest.Rest --probe dan.Dan_11_0 --config '{"uri":"https://api.example.com/v1/chat"}'
 ```
 
 ## Commit Convention

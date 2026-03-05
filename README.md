@@ -99,21 +99,21 @@ make build
 ```bash
 export OPENAI_API_KEY="your-api-key"
 augustus scan openai.OpenAI \
-  --probe dan.Dan \
-  --detector dan.DanDetector \
+  --probe dan.Dan_11_0 \
+  --detector dan.DAN \
   --verbose
 ```
 
 ### Example Output
 
 ```
-+------------------+----------+---------+-------+--------+
-|      PROBE       | DETECTOR | PASSED  | SCORE | STATUS |
-+------------------+----------+---------+-------+--------+
-| dan.Dan          | dan.DAN  | false   |  0.85 | VULN   |
-| encoding.Base64  | encoding |  true   |  0.10 | SAFE   |
-| smuggling.Tag    | smuggling|  true   |  0.05 | SAFE   |
-+------------------+----------+---------+-------+--------+
++--------------+-------------+--------+-------+--------+
+| PROBE        | DETECTOR    | PASSED | SCORE | STATUS |
++--------------+-------------+--------+-------+--------+
+| dan.Dan_11_0 | dan.DAN     | false  | 0.85  | VULN   |
+| dan.STAN     | dan.STAN    | true   | 0.10  | SAFE   |
+| dan.AntiDAN  | dan.AntiDAN | true   | 0.05  | SAFE   |
++--------------+-------------+--------+-------+--------+
 ```
 
 ### List Available Capabilities
@@ -149,7 +149,7 @@ Augustus includes 28 LLM provider categories with 43 generator variants:
 | NeMo Guardrails    | `guardrails.NeMoGuardrails` | NVIDIA NeMo Guardrails       |
 | IBM watsonx        | `watsonx.WatsonX`         | IBM watsonx.ai platform        |
 | LangChain          | `langchain.LangChain`     | LangChain LLM wrapper          |
-| LangChain Serve    | `langchainserve.LangChainServe` | LangChain Serve endpoints |
+| LangChain Serve    | `langchain_serve.LangChainServe` | LangChain Serve endpoints |
 | Rasa               | `rasa.RasaRest`           | Rasa conversational AI         |
 | GGML               | `ggml.Ggml`               | GGML local model inference     |
 | Function           | `function.Single`, `function.Multiple` | Custom function generators |
@@ -167,8 +167,8 @@ All providers are available in the compiled binary. Configure via environment va
 ```bash
 # Test for DAN jailbreak
 augustus scan openai.OpenAI \
-  --probe dan.Dan \
-  --detector dan.DanDetector \
+  --probe dan.Dan_11_0 \
+  --detector dan.DAN \
   --config-file config.yaml \
   --verbose
 ```
@@ -178,7 +178,7 @@ augustus scan openai.OpenAI \
 ```bash
 # Use glob patterns to run related probes
 augustus scan openai.OpenAI \
-  --probes-glob "encoding.*,smuggling.*,dan.*" \
+  --probes-glob "dan.*,goodside.*,grandma.*" \
   --detectors-glob "*" \
   --config-file config.yaml \
   --output batch-results.jsonl
@@ -206,7 +206,7 @@ augustus scan openai.OpenAI \
 # Apply poetry transformation
 augustus scan anthropic.Anthropic \
   --probes-glob "dan.*" \
-  --buff poetry.Poetry \
+  --buff poetry.MetaPrompt \
   --config '{"model":"claude-3-opus-20240229"}'
 
 # Chain multiple buffs
@@ -220,13 +220,13 @@ augustus scan openai.OpenAI \
 
 ```bash
 # Table format (default) - human-readable
-augustus scan openai.OpenAI --probe dan.Dan --format table
+augustus scan openai.OpenAI --probe dan.Dan_11_0 --format table
 
 # JSON format - structured output
-augustus scan openai.OpenAI --probe dan.Dan --format json
+augustus scan openai.OpenAI --probe dan.Dan_11_0 --format json
 
 # JSONL format - one JSON object per line, ideal for piping
-augustus scan openai.OpenAI --probe dan.Dan --format jsonl
+augustus scan openai.OpenAI --probe dan.Dan_11_0 --format jsonl
 
 # HTML report - visual reports for stakeholders
 augustus scan openai.OpenAI --all --html report.html
@@ -237,8 +237,8 @@ augustus scan openai.OpenAI --all --html report.html
 ```bash
 # Test proprietary LLM endpoint (OpenAI-compatible API)
 augustus scan rest.Rest \
-  --probe dan.Dan \
-  --detector dan.DanDetector \
+  --probe dan.Dan_11_0 \
+  --detector dan.DAN \
   --config '{
     "uri": "https://api.example.com/v1/chat/completions",
     "method": "POST",
@@ -253,7 +253,7 @@ augustus scan rest.Rest \
 
 # Test with proxy interception (Burp Suite, mitmproxy)
 augustus scan rest.Rest \
-  --probes-glob "encoding.*" \
+  --probes-glob "goodside.*" \
   --config '{
     "uri": "https://internal-llm.corp/generate",
     "proxy": "http://127.0.0.1:8080",
@@ -290,7 +290,7 @@ augustus scan openai.OpenAI --all --harness batch.Batch
 
 # Test local model with Ollama (no API key needed)
 augustus scan ollama.OllamaChat \
-  --probe dan.Dan \
+  --probe dan.Dan_11_0 \
   --config '{"model":"llama3.2:3b"}'
 ```
 
@@ -559,7 +559,7 @@ Arguments:
 
 Probe Selection (choose one):
   --probe, -p                 Probe name (repeatable)
-  --probes-glob               Comma-separated glob patterns (e.g., "dan.*,encoding.*")
+  --probes-glob               Comma-separated glob patterns (e.g., "dan.*,goodside.*")
   --all                       Run all registered probes
 
 Detector Selection:
@@ -625,7 +625,7 @@ Yes! Use the Ollama integration for local model testing:
 ```bash
 # No API key needed
 augustus scan ollama.OllamaChat \
-  --probe dan.Dan \
+  --probe dan.Dan_11_0 \
   --config '{"model":"llama3.2:3b"}'
 ```
 
@@ -717,7 +717,7 @@ augustus scan openai.OpenAI \
 augustus list
 
 # Use exact names from the list
-augustus scan openai.OpenAI --probe dan.Dan  # Correct
+augustus scan openai.OpenAI --probe dan.Dan_11_0  # Correct
 ```
 
 ### Scan produces no results

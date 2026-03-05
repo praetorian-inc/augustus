@@ -70,6 +70,7 @@ type ScanCmd struct {
 	// Configuration
 	ConfigFile string `help:"YAML config file path." type:"existingfile" name:"config-file"`
 	Config     string `help:"JSON config for generator." short:"c"`
+	Model      string `help:"Model name for generator (shorthand for --config '{\"model\":\"...\"}')." short:"m"`
 	Profile    string `help:"Named profile to apply from config file." name:"profile"`
 
 	// Execution
@@ -83,6 +84,11 @@ type ScanCmd struct {
 	Output  string `help:"JSONL output file path." short:"o" type:"path"`
 	HTML    string `help:"HTML report file path." type:"path" name:"html"`
 	Verbose bool   `help:"Verbose output." short:"v"`
+
+	// Runtime hooks
+	Setup   string `help:"Shell command run once before all probes. Stdout KEY=VALUE lines are injected into the generator request template as $KEY." name:"setup"`
+	Prepare string `help:"Shell command run before each probe. Receives AUGUSTUS_LAST_RESPONSE env var with raw response from the previous probe." name:"prepare"`
+	Cleanup string `help:"Shell command run once after all probes complete." name:"cleanup"`
 }
 
 func (s *ScanCmd) Run() error {

@@ -14,8 +14,17 @@ type Config struct {
 	Probes     ProbeConfig                `yaml:"probes" koanf:"probes"`
 	Detectors  DetectorConfig             `yaml:"detectors" koanf:"detectors"`
 	Buffs      BuffConfig                 `yaml:"buffs,omitempty" koanf:"buffs"`
+	Hooks      HooksConfig                `yaml:"hooks,omitempty" koanf:"hooks"`
 	Output     OutputConfig               `yaml:"output" koanf:"output"`
 	Profiles   map[string]Profile         `yaml:"profiles,omitempty" koanf:"profiles"`
+}
+
+// HooksConfig contains runtime hook configuration.
+// Each field is a shell command string executed at the corresponding phase.
+type HooksConfig struct {
+	Setup   string `yaml:"setup,omitempty" koanf:"setup"`
+	Prepare string `yaml:"prepare,omitempty" koanf:"prepare"`
+	Cleanup string `yaml:"cleanup,omitempty" koanf:"cleanup"`
 }
 
 // JudgeGlobalConfig defines the default LLM judge used across probes and detectors.
@@ -35,6 +44,7 @@ type Profile struct {
 	Probes     ProbeConfig                `yaml:"probes,omitempty"`
 	Detectors  DetectorConfig             `yaml:"detectors,omitempty"`
 	Buffs      BuffConfig                 `yaml:"buffs,omitempty"`
+	Hooks      HooksConfig                `yaml:"hooks,omitempty"`
 	Output     OutputConfig               `yaml:"output,omitempty"`
 }
 
@@ -342,6 +352,17 @@ func (c *Config) Merge(other *Config) {
 		}
 	}
 
+	// Merge hooks config
+	if other.Hooks.Setup != "" {
+		c.Hooks.Setup = other.Hooks.Setup
+	}
+	if other.Hooks.Prepare != "" {
+		c.Hooks.Prepare = other.Hooks.Prepare
+	}
+	if other.Hooks.Cleanup != "" {
+		c.Hooks.Cleanup = other.Hooks.Cleanup
+	}
+
 	// Merge output config
 	if other.Output.Format != "" {
 		c.Output.Format = other.Output.Format
@@ -366,6 +387,7 @@ func (c *Config) ApplyProfile(profileName string) error {
 		Probes:     profile.Probes,
 		Detectors:  profile.Detectors,
 		Buffs:      profile.Buffs,
+		Hooks:      profile.Hooks,
 		Output:     profile.Output,
 	}
 

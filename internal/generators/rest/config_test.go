@@ -161,3 +161,83 @@ func TestConfigFromMap_RateLimitNegative(t *testing.T) {
 		})
 	}
 }
+
+func TestConfigFromMap_SSEFields(t *testing.T) {
+	m := registry.Config{
+		"uri":              "https://api.example.com",
+		"sse_text_field":   "$.content.text",
+		"sse_mode":         "last",
+		"sse_filter_field": "$.content.type",
+		"sse_filter_value": "CHAT_TEXT",
+	}
+
+	cfg, err := ConfigFromMap(m)
+	require.NoError(t, err)
+
+	assert.Equal(t, "$.content.text", cfg.SSETextField)
+	assert.Equal(t, "last", cfg.SSEMode)
+	assert.Equal(t, "$.content.type", cfg.SSEFilterField)
+	assert.Equal(t, "CHAT_TEXT", cfg.SSEFilterValue)
+}
+
+func TestConfigFromMap_SSEDefaultMode(t *testing.T) {
+	m := registry.Config{
+		"uri":            "https://api.example.com",
+		"sse_text_field": "$.text",
+	}
+
+	cfg, err := ConfigFromMap(m)
+	require.NoError(t, err)
+
+	assert.Equal(t, "delta", cfg.SSEMode)
+}
+
+func TestConfigFromMap_SSEInvalidMode(t *testing.T) {
+	m := registry.Config{
+		"uri":      "https://api.example.com",
+		"sse_mode": "invalid",
+	}
+
+	_, err := ConfigFromMap(m)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "sse_mode")
+}
+
+func TestConfigFromMap_SSEFilterFieldWithoutValue(t *testing.T) {
+	m := registry.Config{
+		"uri":              "https://api.example.com",
+		"sse_filter_field": "$.type",
+		// Missing sse_filter_value
+	}
+
+	_, err := ConfigFromMap(m)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "sse_filter_field and sse_filter_value must both be set")
+}
+
+func TestConfigFromMap_SSEFilterValueWithoutField(t *testing.T) {
+	m := registry.Config{
+		"uri":              "https://api.example.com",
+		"sse_filter_value": "CHAT_TEXT",
+		// Missing sse_filter_field
+	}
+
+	_, err := ConfigFromMap(m)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "sse_filter_field and sse_filter_value must both be set")
+}
+
+func TestFunctionalOptions_SSE(t *testing.T) {
+	cfg := ApplyOptions(DefaultConfig(),
+		WithURI("https://test.com/api"),
+		WithSSETextField("$.content.text"),
+		WithSSEMode("last"),
+		WithSSEFilterField("$.content.type"),
+		WithSSEFilterValue("CHAT_TEXT"),
+	)
+
+	assert.Equal(t, "$.content.text", cfg.SSETextField)
+	assert.Equal(t, "last", cfg.SSEMode)
+	assert.Equal(t, "$.content.type", cfg.SSEFilterField)
+	assert.Equal(t, "CHAT_TEXT", cfg.SSEFilterValue)
+}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/harnesses"
+	"github.com/praetorian-inc/augustus/pkg/hooks"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/praetorian-inc/augustus/pkg/results"
@@ -41,6 +43,9 @@ type scanConfig struct {
 	timeout       time.Duration // Overall scan timeout
 	concurrency   int           // Max concurrent probes
 	probeTimeout  time.Duration // Per-probe timeout
+	setup         string        // Shell command: once before all probes
+	prepare       string        // Shell command: before each probe
+	cleanup       string        // Shell command: after all probes
 }
 
 // Kong helper methods
@@ -115,6 +120,9 @@ func (s *ScanCmd) loadScanConfig() *scanConfig {
 		timeout:       s.Timeout,
 		concurrency:   s.Concurrency,
 		probeTimeout:  s.ProbeTimeout,
+		setup:         s.Setup,
+		prepare:       s.Prepare,
+		cleanup:       s.Cleanup,
 	}
 }
 
@@ -126,6 +134,21 @@ func (s *ScanCmd) buildCLIOverrides() config.CLIOverrides {
 		ConfigJSON:    s.Config,
 		HTMLFile:      s.HTML,
 		ProfileName:   s.Profile,
+	}
+
+	// Merge --model into ConfigJSON (takes precedence over --config model key)
+	if s.Model != "" {
+		if cli.ConfigJSON == "" {
+			cli.ConfigJSON = `{"model":"` + s.Model + `"}`
+		} else {
+			var cfgMap map[string]any
+			if err := json.Unmarshal([]byte(cli.ConfigJSON), &cfgMap); err == nil {
+				cfgMap["model"] = s.Model
+				if b, err := json.Marshal(cfgMap); err == nil {
+					cli.ConfigJSON = string(b)
+				}
+			}
+		}
 	}
 
 	if s.Concurrency > 0 {
@@ -356,10 +379,65 @@ func createAndApplyBuffs(probeList []probes.Prober, buffNames []string, yamlCfg 
 
 // runScanResolved executes the scan with resolved configuration.
 func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Config, resolved *config.ResolvedConfig, eval harnesses.Evaluator, onAttemptProcessed func(*attempt.Attempt)) error {
+	// Resolve runtime hooks: YAML config provides defaults, CLI flags override.
+	if yamlCfg != nil {
+		if cfg.setup == "" && yamlCfg.Hooks.Setup != "" {
+			cfg.setup = yamlCfg.Hooks.Setup
+		}
+		if cfg.prepare == "" && yamlCfg.Hooks.Prepare != "" {
+			cfg.prepare = yamlCfg.Hooks.Prepare
+		}
+		if cfg.cleanup == "" && yamlCfg.Hooks.Cleanup != "" {
+			cfg.cleanup = yamlCfg.Hooks.Cleanup
+		}
+	}
+
+	// Runtime hooks: run setup hook before scan
+	var setupVars map[string]string
+	if cfg.setup != "" || cfg.prepare != "" || cfg.cleanup != "" {
+		// Force sequential execution when hooks are used (stateful scanning)
+		if resolved.ScannerOpts.Concurrency > 1 {
+			slog.Warn("forcing concurrency=1 because runtime hooks require sequential execution")
+			resolved.ScannerOpts.Concurrency = 1
+		}
+	}
+	if cfg.setup != "" {
+		slog.Info("running setup hook")
+		setupHook := &hooks.Hook{Command: cfg.setup}
+		result, err := setupHook.Run(ctx, map[string]string{
+			"AUGUSTUS_GENERATOR": cfg.generatorName,
+		})
+		if err != nil {
+			return fmt.Errorf("setup hook failed: %w", err)
+		}
+		setupVars = result.Variables
+		// Merge setup variables into generator config with HOOK_ prefix
+		// to prevent overriding reserved keys like uri, method, proxy
+		for k, v := range setupVars {
+			prefixedKey := "HOOK_" + k
+			if _, exists := resolved.GeneratorConfig[k]; exists {
+				slog.Warn("setup hook variable collides with config key, using prefixed key", "key", k, "prefixed", prefixedKey)
+			}
+			resolved.GeneratorConfig[prefixedKey] = v
+		}
+		if len(setupVars) > 0 {
+			slog.Info("setup hook injected variables", "count", len(setupVars))
+		}
+	}
+
 	// Create generator
 	gen, err := generators.Create(cfg.generatorName, resolved.GeneratorConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create generator %s: %w", cfg.generatorName, err)
+	}
+
+	// Wrap generator with runtime hooks if prepare is configured
+	if cfg.prepare != "" || len(setupVars) > 0 {
+		var prepareHook *hooks.Hook
+		if cfg.prepare != "" {
+			prepareHook = &hooks.Hook{Command: cfg.prepare}
+		}
+		gen = hooks.NewHookedGenerator(gen, prepareHook, setupVars)
 	}
 
 	// Get probe names
@@ -436,12 +514,27 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 		return fmt.Errorf("failed to create harness %s: %w", cfg.harnessName, err)
 	}
 
-	return harness.Run(ctx, gen, probeList, detectorList, eval)
+	// Run the scan
+	scanErr := harness.Run(ctx, gen, probeList, detectorList, eval)
+
+	// Runtime hooks: run cleanup hook after scan
+	if cfg.cleanup != "" {
+		slog.Info("running cleanup hook")
+		cleanupHook := &hooks.Hook{Command: cfg.cleanup}
+		cleanupEnv := map[string]string{
+			"AUGUSTUS_GENERATOR": cfg.generatorName,
+		}
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cleanupCancel()
+		if _, cleanupErr := cleanupHook.Run(cleanupCtx, cleanupEnv); cleanupErr != nil {
+			slog.Error("cleanup hook failed", "error", cleanupErr)
+			scanErr = errors.Join(scanErr, fmt.Errorf("cleanup hook failed: %w", cleanupErr))
+		}
+	}
+
+	return scanErr
 }
 
-// Evaluator implementations
-
-// tableEvaluator prints results in table format.
 type tableEvaluator struct {
 	verbose bool
 }
@@ -455,25 +548,80 @@ func (t *tableEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 		return nil
 	}
 
-	// Group by probe
-	probeAttempts := make(map[string][]*attempt.Attempt)
-	for _, a := range attempts {
-		probeAttempts[a.Probe] = append(probeAttempts[a.Probe], a)
+	type row struct {
+		probe    string
+		detector string
+		passed   string
+		score    string
+		status   string
 	}
 
-	// Print results by probe
+	rows := make([]row, 0, len(attempts))
 	totalPassed := 0
 	totalFailed := 0
 
-	for probeName, attempts := range probeAttempts {
-		fmt.Printf("\nProbe: %s\n", probeName)
-		fmt.Println("---")
+	for _, a := range attempts {
+		scores := a.GetEffectiveScores()
+		maxScore := 0.0
+		for _, score := range scores {
+			if score > maxScore {
+				maxScore = score
+			}
+		}
 
-		passed := 0
-		failed := 0
+		passed := maxScore <= attempt.DefaultVulnerabilityThreshold
+		status := "SAFE"
+		passedStr := "true"
+		if !passed {
+			status = "VULN"
+			passedStr = "false"
+			totalFailed++
+		} else {
+			totalPassed++
+		}
 
+		detector := a.Detector
+		if detector == "" {
+			detector = "-"
+		}
+
+		rows = append(rows, row{
+			probe:    a.Probe,
+			detector: detector,
+			passed:   passedStr,
+			score:    fmt.Sprintf("%.2f", maxScore),
+			status:   status,
+		})
+	}
+
+	headers := row{"PROBE", "DETECTOR", "PASSED", "SCORE", "STATUS"}
+	widths := [5]int{len(headers.probe), len(headers.detector), len(headers.passed), len(headers.score), len(headers.status)}
+	for _, r := range rows {
+		cols := [5]string{r.probe, r.detector, r.passed, r.score, r.status}
+		for i, col := range cols {
+			if len(col) > widths[i] {
+				widths[i] = len(col)
+			}
+		}
+	}
+
+	separator := fmt.Sprintf("+-%s-+-%s-+-%s-+-%s-+-%s-+",
+		repeatDash(widths[0]), repeatDash(widths[1]), repeatDash(widths[2]),
+		repeatDash(widths[3]), repeatDash(widths[4]))
+	rowFmt := fmt.Sprintf("| %%-%ds | %%-%ds | %%-%ds | %%-%ds | %%-%ds |",
+		widths[0], widths[1], widths[2], widths[3], widths[4])
+
+	fmt.Println(separator)
+	fmt.Println(fmt.Sprintf(rowFmt, headers.probe, headers.detector, headers.passed, headers.score, headers.status))
+	fmt.Println(separator)
+	for _, r := range rows {
+		fmt.Println(fmt.Sprintf(rowFmt, r.probe, r.detector, r.passed, r.score, r.status))
+	}
+	fmt.Println(separator)
+
+	if t.verbose {
+		fmt.Println()
 		for i, a := range attempts {
-			// Use centralized score resolution (primary detector scores)
 			scores := a.GetEffectiveScores()
 			maxScore := 0.0
 			for _, score := range scores {
@@ -481,13 +629,9 @@ func (t *tableEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 					maxScore = score
 				}
 			}
-
 			status := "PASS"
 			if maxScore > attempt.DefaultVulnerabilityThreshold {
 				status = "FAIL"
-				failed++
-			} else {
-				passed++
 			}
 
 			// Check for multi-turn attack metadata
@@ -592,14 +736,18 @@ func (t *tableEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 				}
 			}
 		}
-
-		fmt.Printf("  Summary: %d/%d attempts passed\n", passed, len(attempts))
-		totalPassed += passed
-		totalFailed += failed
 	}
 
 	fmt.Printf("\nOverall: %d passed, %d failed (total: %d)\n", totalPassed, totalFailed, len(attempts))
 	return nil
+}
+
+func repeatDash(n int) string {
+	b := make([]byte, n)
+	for i := range b {
+		b[i] = '-'
+	}
+	return string(b)
 }
 
 // jsonEvaluator prints results in JSON format.
