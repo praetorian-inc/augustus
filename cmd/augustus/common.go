@@ -7,6 +7,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/harnesses"
+	"github.com/praetorian-inc/augustus/pkg/parsers"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 )
 
@@ -43,6 +44,12 @@ func listCapabilities() {
 
 	fmt.Printf("Buffs (%d):\n", buffs.Registry.Count())
 	for _, name := range buffs.List() {
+		fmt.Printf("  - %s\n", name)
+	}
+	fmt.Println()
+
+	fmt.Printf("Parsers (%d):\n", parsers.Registry.Count())
+	for _, name := range parsers.List() {
 		fmt.Printf("  - %s\n", name)
 	}
 }

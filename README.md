@@ -26,6 +26,7 @@ Unlike research-oriented tools, Augustus is built for production security testin
   - [Buff Transformations](#buff-transformations)
   - [Output Formats](#output-formats)
   - [Custom REST Endpoints](#custom-rest-endpoints)
+  - [Response Parsers](#response-parsers)
 - [How It Works](#how-it-works)
 - [Architecture](#architecture)
 - [Configuration](#configuration)
@@ -55,6 +56,7 @@ Unlike research-oriented tools, Augustus is built for production security testin
 | **28 LLM Providers** | OpenAI, Anthropic, Azure, Bedrock, Vertex AI, Ollama, and 22 more with 43 generator variants |
 | **90+ Detectors** | Pattern matching, LLM-as-a-judge, HarmJudge (arXiv:2511.15304), Perspective API, unsafe content detection |
 | **7 Buff Transformations** | Encoding, paraphrase, poetry (5 formats, 3 strategies), low-resource language translation, case transforms |
+| **4 Response Parsers** | SSE aggregation, JSON extraction, passthrough, external scripts (Docker/nsjail sandboxed) |
 | **Flexible Output** | Table, JSON, JSONL, and HTML report formats |
 | **Production Ready** | Concurrent scanning, rate limiting, retry logic, timeout handling |
 | **Single Binary** | Go-based tool compiles to one portable executable |
@@ -275,6 +277,114 @@ augustus scan rest.Rest \
 - `api_key`: API key for `$KEY` placeholder substitution
 - `proxy`: HTTP proxy URL for traffic inspection
 
+### Response Parsers
+
+Augustus supports configurable parsers to normalize LLM responses before detection. This is useful for APIs with non-standard response formats, Server-Sent Events (SSE), or custom JSON structures.
+
+**Built-in Parsers:**
+
+| Parser | Description |
+|--------|-------------|
+| `passthrough.Passthrough` | Returns raw response unchanged (default) |
+| `sse.Aggregate` | Aggregates SSE chunks with configurable JSONPath extraction |
+| `json.Extract` | Extracts a specific field from JSON responses |
+| `external.Script` | Runs custom Python/shell scripts for parsing |
+
+**SSE Parser Example:**
+
+```bash
+# Parse OpenAI-style SSE streaming responses
+augustus scan rest.Rest \
+  --probe dan.Dan_11_0 \
+  --detector dan.DAN \
+  --parser sse.Aggregate \
+  --parser-config '{"text_field": "$.choices[0].delta.content", "mode": "delta"}' \
+  --config '{"uri": "https://api.example.com/chat/stream"}'
+```
+
+**JSON Extract Example:**
+
+```bash
+# Extract nested field from JSON response
+augustus scan rest.Rest \
+  --probe dan.Dan_11_0 \
+  --detector dan.DAN \
+  --parser json.Extract \
+  --parser-config '{"field": "$.data.response.text"}' \
+  --config '{"uri": "https://api.example.com/generate"}'
+```
+
+**Custom Script Parser (Docker Mode - Recommended):**
+
+```bash
+# Run custom parsing logic in a sandboxed Docker container
+augustus scan rest.Rest \
+  --probe dan.Dan_11_0 \
+  --detector dan.DAN \
+  --parser external.Script \
+  --parser-config '{
+    "command": "python3 -c \"import json,sys; d=json.load(sys.stdin); print(json.dumps({\\\"content\\\": d[\\\"raw_response\\\"].upper()}))\"",
+    "mode": "docker",
+    "image": "python:3.11-slim"
+  }' \
+  --config '{"uri": "https://api.example.com/chat"}'
+```
+
+**Custom Script Parser (Unsafe Mode - Local Execution):**
+
+```bash
+# Create a custom parser script
+cat > parser.py << 'EOF'
+#!/usr/bin/env python3
+import json, sys
+
+data = json.load(sys.stdin)
+raw = data.get("raw_response", "")
+content_type = data.get("content_type", "")
+
+# Custom parsing logic
+word_count = len(raw.split())
+parsed = f"[Words: {word_count}] {raw}"
+
+print(json.dumps({"content": parsed}))
+EOF
+
+# Run with unsafe mode (requires --allow-unsafe-parsers flag)
+augustus scan rest.Rest \
+  --probe dan.Dan_11_0 \
+  --detector dan.DAN \
+  --parser external.Script \
+  --parser-config '{"command": "python3 parser.py", "mode": "unsafe"}' \
+  --allow-unsafe-parsers \
+  --config '{"uri": "https://api.example.com/chat"}'
+```
+
+**Script Protocol:**
+
+External scripts receive JSON on stdin:
+```json
+{"raw_response": "LLM output text", "content_type": "text/plain"}
+```
+
+Scripts must output JSON on stdout:
+```json
+{"content": "parsed output text"}
+```
+
+**Parser Configuration Keys:**
+
+| Key | Parser | Description |
+|-----|--------|-------------|
+| `text_field` | `sse.Aggregate` | JSONPath to extract text from each SSE chunk (e.g., `$.delta.content`) |
+| `mode` | `sse.Aggregate` | Aggregation mode: `delta` (concatenate) or `last` (use final chunk) |
+| `filter_field` | `sse.Aggregate` | JSONPath field to filter chunks (e.g., `$.type`) |
+| `filter_value` | `sse.Aggregate` | Value to match for filtering (e.g., `text`) |
+| `field` | `json.Extract` | JSONPath to extract from JSON response |
+| `command` | `external.Script` | Shell command or script path to execute |
+| `mode` | `external.Script` | Execution mode: `docker` (sandboxed), `nsjail`, or `unsafe` |
+| `image` | `external.Script` | Docker image (default: `python:3.11-slim`) |
+| `timeout` | `external.Script` | Script timeout in seconds (default: 30) |
+
 ### Advanced Options
 
 ```bash
@@ -339,6 +449,7 @@ pkg/
   logging/            Structured slog-based logging
   metrics/            Prometheus metrics collection
   prefilter/          Aho-Corasick keyword pre-filtering
+  parsers/            Response parser interfaces and registry
   probes/             Public probe interfaces and registry
   ratelimit/          Token bucket rate limiting
   registry/           Generic capability registration system
@@ -353,6 +464,7 @@ internal/
   detectors/          90+ detector implementations (35 categories)
   harnesses/          3 harness strategies (probewise, batch, agentwise)
   buffs/              7 buff transformations
+  parsers/            4 response parser implementations (passthrough, SSE, JSON, external)
   attackengine/       Iterative adversarial attack engine (PAIR/TAP backend)
   ahocorasick/        Internal Aho-Corasick keyword matching
 benchmarks/           Performance benchmarks
@@ -499,6 +611,11 @@ Output:
   --output, -o                JSONL output file path
   --html                      HTML report file path
   --verbose, -v               Verbose output
+
+Parsers:
+  --parser                    Parser to normalize LLM responses (e.g., 'sse.Aggregate', 'json.Extract')
+  --parser-config             Parser configuration as JSON
+  --allow-unsafe-parsers      Allow running external parsers without sandbox (unsafe mode)
 
 Global:
   --debug, -d                 Enable debug mode
