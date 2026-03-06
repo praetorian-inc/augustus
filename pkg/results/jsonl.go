@@ -16,8 +16,9 @@ import (
 // CI/CD pipelines.
 //
 // Example output:
-//   {"probe":"dan.Dan_11_0","prompt":"Ignore...","response":"I cannot...","detector":"dan.DAN","scores":[0.0],"passed":true,"timestamp":"2025-12-30T10:00:00Z"}
-//   {"probe":"test.Test","prompt":"Hello...","response":"Hello...","detector":"always.Pass","scores":[0.1],"passed":true,"timestamp":"2025-12-30T10:00:01Z"}
+//
+//	{"probe":"dan.Dan_11_0","prompt":"Ignore...","response":"I cannot...","detector":"dan.DAN","scores":[0.0],"passed":true,"timestamp":"2025-12-30T10:00:00Z"}
+//	{"probe":"test.Test","prompt":"Hello...","response":"Hello...","detector":"always.Pass","scores":[0.1],"passed":true,"timestamp":"2025-12-30T10:00:01Z"}
 //
 // Parameters:
 //   - outputPath: Path to the output file

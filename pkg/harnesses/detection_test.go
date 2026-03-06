@@ -174,3 +174,50 @@ func TestApplyDetectors_PreservesErrorStatus(t *testing.T) {
 	// Should preserve error status (not overwrite with Complete)
 	assert.Equal(t, attempt.StatusError, a.Status)
 }
+
+func TestApplyDetectors_PrePopulatedResultsSkipsDetector(t *testing.T) {
+	ctx := context.Background()
+	a := attempt.New("test prompt")
+
+	// Pre-populate detector results (simulates what multi-turn engines do)
+	a.SetDetectorResults("judge.Judge", []float64{0.85})
+
+	// Create a detector that would return a different score
+	detector := &mockDetector{
+		name:   "judge.Judge",
+		scores: []float64{0.0}, // Would return 0.0 if called
+	}
+
+	err := ApplyDetectors(ctx, a, []detectors.Detector{detector}, SkipOnError)
+	require.NoError(t, err)
+
+	// Should use pre-populated score (0.85), NOT the detector's score (0.0)
+	assert.Equal(t, "judge.Judge", a.Detector)
+	assert.Equal(t, []float64{0.85}, a.Scores)
+	assert.Equal(t, []float64{0.85}, a.DetectorResults["judge.Judge"])
+}
+
+func TestApplyDetectors_PrePopulatedMixedWithExternal(t *testing.T) {
+	ctx := context.Background()
+	a := attempt.New("test prompt")
+
+	// Pre-populate one detector's results
+	a.SetDetectorResults("judge.Judge", []float64{0.3})
+
+	detectorList := []detectors.Detector{
+		&mockDetector{name: "judge.Judge", scores: []float64{0.0}},    // Should be skipped
+		&mockDetector{name: "other.Detector", scores: []float64{0.9}}, // Should run normally
+	}
+
+	err := ApplyDetectors(ctx, a, detectorList, SkipOnError)
+	require.NoError(t, err)
+
+	// other.Detector has highest score, so it should be primary
+	assert.Equal(t, "other.Detector", a.Detector)
+	assert.Equal(t, []float64{0.9}, a.Scores)
+
+	// Pre-populated results should be preserved
+	assert.Equal(t, []float64{0.3}, a.DetectorResults["judge.Judge"])
+	// External detector results should also be stored
+	assert.Equal(t, []float64{0.9}, a.DetectorResults["other.Detector"])
+}

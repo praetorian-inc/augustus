@@ -1710,3 +1710,215 @@ func TestRestGenerator_LastRawResponse(t *testing.T) {
 	raw := restGen.LastRawResponse()
 	assert.Equal(t, expectedBody, string(raw))
 }
+
+func TestRestGenerator_MessagesTemplate_SingleTurn(t *testing.T) {
+	var receivedBody string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		receivedBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"response": "ok"}`)
+	}))
+	defer ts.Close()
+
+	gen, err := NewRest(registry.Config{
+		"uri":                 ts.URL,
+		"req_template":        `{"model":"test","messages":$MESSAGES}`,
+		"response_json":       true,
+		"response_json_field": "response",
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Hello!")
+
+	msgs, err := gen.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+
+	// Parse the received body to verify messages structure
+	var parsed struct {
+		Model    string `json:"model"`
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(receivedBody), &parsed))
+
+	assert.Equal(t, "test", parsed.Model)
+	require.Len(t, parsed.Messages, 1)
+	assert.Equal(t, "user", parsed.Messages[0].Role)
+	assert.Equal(t, "Hello!", parsed.Messages[0].Content)
+}
+
+func TestRestGenerator_MessagesTemplate_MultiTurn(t *testing.T) {
+	var receivedBody string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		receivedBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"response": "turn 3 response"}`)
+	}))
+	defer ts.Close()
+
+	gen, err := NewRest(registry.Config{
+		"uri":                 ts.URL,
+		"req_template":        `{"messages":$MESSAGES}`,
+		"response_json":       true,
+		"response_json_field": "response",
+	})
+	require.NoError(t, err)
+
+	// Build a multi-turn conversation (simulating what the multiturn engine does)
+	conv := attempt.NewConversation()
+	conv.AddTurn(attempt.NewTurn("Tell me about cats").WithResponse("Cats are great pets."))
+	conv.AddTurn(attempt.NewTurn("What do they eat?").WithResponse("Cats eat meat and fish."))
+	conv.AddTurn(attempt.NewTurn("Are they dangerous?"))
+
+	msgs, err := gen.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+
+	// Parse and verify the full conversation was sent
+	var parsed struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(receivedBody), &parsed))
+
+	// 3 user messages + 2 assistant responses = 5 messages total
+	require.Len(t, parsed.Messages, 5)
+	assert.Equal(t, "user", parsed.Messages[0].Role)
+	assert.Equal(t, "Tell me about cats", parsed.Messages[0].Content)
+	assert.Equal(t, "assistant", parsed.Messages[1].Role)
+	assert.Equal(t, "Cats are great pets.", parsed.Messages[1].Content)
+	assert.Equal(t, "user", parsed.Messages[2].Role)
+	assert.Equal(t, "What do they eat?", parsed.Messages[2].Content)
+	assert.Equal(t, "assistant", parsed.Messages[3].Role)
+	assert.Equal(t, "Cats eat meat and fish.", parsed.Messages[3].Content)
+	assert.Equal(t, "user", parsed.Messages[4].Role)
+	assert.Equal(t, "Are they dangerous?", parsed.Messages[4].Content)
+}
+
+func TestRestGenerator_MessagesTemplate_WithSystem(t *testing.T) {
+	var receivedBody string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		receivedBody = string(body)
+		fmt.Fprintf(w, `{"response": "ok"}`)
+	}))
+	defer ts.Close()
+
+	gen, err := NewRest(registry.Config{
+		"uri":                 ts.URL,
+		"req_template":        `{"messages":$MESSAGES}`,
+		"response_json":       true,
+		"response_json_field": "response",
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.WithSystem("You are a helpful assistant.")
+	conv.AddPrompt("Hello!")
+
+	_, err = gen.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	var parsed struct {
+		Messages []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		} `json:"messages"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(receivedBody), &parsed))
+
+	require.Len(t, parsed.Messages, 2)
+	assert.Equal(t, "system", parsed.Messages[0].Role)
+	assert.Equal(t, "You are a helpful assistant.", parsed.Messages[0].Content)
+	assert.Equal(t, "user", parsed.Messages[1].Role)
+	assert.Equal(t, "Hello!", parsed.Messages[1].Content)
+}
+
+func TestRestGenerator_MessagesTemplate_BackwardCompat(t *testing.T) {
+	// Verify that $INPUT still works when $MESSAGES is not in the template
+	var receivedBody string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		receivedBody = string(body)
+		fmt.Fprintf(w, "ok")
+	}))
+	defer ts.Close()
+
+	gen, err := NewRest(registry.Config{
+		"uri":          ts.URL,
+		"req_template": `{"input":"$INPUT"}`,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddTurn(attempt.NewTurn("first turn").WithResponse("response 1"))
+	conv.AddPrompt("second turn")
+
+	_, err = gen.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	// With $INPUT, only the last prompt is sent (backward compat)
+	assert.Equal(t, `{"input":"second turn"}`, receivedBody)
+}
+
+func TestConversationToJSON(t *testing.T) {
+	t.Run("empty conversation", func(t *testing.T) {
+		conv := attempt.NewConversation()
+		result := conversationToJSON(conv)
+		assert.Equal(t, "[]", result)
+	})
+
+	t.Run("single user message", func(t *testing.T) {
+		conv := attempt.NewConversation()
+		conv.AddPrompt("Hello")
+		result := conversationToJSON(conv)
+
+		var msgs []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(result), &msgs))
+		require.Len(t, msgs, 1)
+		assert.Equal(t, "user", msgs[0].Role)
+		assert.Equal(t, "Hello", msgs[0].Content)
+	})
+
+	t.Run("special characters in content", func(t *testing.T) {
+		conv := attempt.NewConversation()
+		conv.AddPrompt(`Say "hello" with\nnewlines`)
+		result := conversationToJSON(conv)
+
+		// Verify it produces valid JSON
+		var msgs []json.RawMessage
+		require.NoError(t, json.Unmarshal([]byte(result), &msgs))
+		require.Len(t, msgs, 1)
+	})
+
+	t.Run("full conversation", func(t *testing.T) {
+		conv := attempt.NewConversation()
+		conv.WithSystem("Be helpful")
+		conv.AddTurn(attempt.NewTurn("Q1").WithResponse("A1"))
+		conv.AddTurn(attempt.NewTurn("Q2"))
+		result := conversationToJSON(conv)
+
+		var msgs []struct {
+			Role    string `json:"role"`
+			Content string `json:"content"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(result), &msgs))
+		require.Len(t, msgs, 4) // system + user + assistant + user
+		assert.Equal(t, "system", msgs[0].Role)
+		assert.Equal(t, "user", msgs[1].Role)
+		assert.Equal(t, "assistant", msgs[2].Role)
+		assert.Equal(t, "user", msgs[3].Role)
+	})
+}
+

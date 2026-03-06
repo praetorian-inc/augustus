@@ -301,6 +301,16 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 	// Populate request template
 	body := r.populateTemplate(r.reqTemplate, prompt, hookVars)
 
+	// Replace $MESSAGES with full conversation as a JSON array of
+	// {"role","content"} objects. Enables multi-turn probes to send
+	// conversation history to REST endpoints.
+	// Template usage: "messages": $MESSAGES  (no quotes — raw JSON)
+	// Replaced after populateTemplate to prevent $INPUT/$KEY substitution
+	// inside message content.
+	if strings.Contains(body, "$MESSAGES") {
+		body = strings.ReplaceAll(body, "$MESSAGES", conversationToJSON(conv))
+	}
+
 	// Populate headers
 	headers := make(map[string]string)
 	for k, v := range r.headers {
@@ -416,6 +426,26 @@ func (r *Rest) populateTemplate(template, input string, hookVars map[string]stri
 	}
 
 	return result
+}
+
+// conversationToJSON serializes a Conversation as a JSON array of message objects.
+// Each message has "role" and "content" fields.
+// Used by the $MESSAGES template variable for multi-turn REST requests.
+func conversationToJSON(conv *attempt.Conversation) string {
+	msgs := conv.ToMessages()
+	type jsonMsg struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	out := make([]jsonMsg, len(msgs))
+	for i, m := range msgs {
+		out[i] = jsonMsg{Role: string(m.Role), Content: m.Content}
+	}
+	data, err := json.Marshal(out)
+	if err != nil {
+		return "[]"
+	}
+	return string(data)
 }
 
 // jsonEscape escapes a string for use in JSON.

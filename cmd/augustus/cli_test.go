@@ -132,47 +132,47 @@ func TestScanCmdMutuallyExclusiveFlags(t *testing.T) {
 		errorMsg    string
 	}{
 		{
-			name: "single --probe flag is valid",
-			args: []string{"scan", "openai.OpenAI", "--probe", "test.Blank"},
+			name:        "single --probe flag is valid",
+			args:        []string{"scan", "openai.OpenAI", "--probe", "test.Blank"},
 			expectError: false,
 		},
 		{
-			name: "multiple --probe flags are valid",
-			args: []string{"scan", "openai.OpenAI", "--probe", "test.Blank", "--probe", "dan.Dan1"},
+			name:        "multiple --probe flags are valid",
+			args:        []string{"scan", "openai.OpenAI", "--probe", "test.Blank", "--probe", "dan.Dan1"},
 			expectError: false,
 		},
 		{
-			name: "--all flag alone is valid",
-			args: []string{"scan", "openai.OpenAI", "--all"},
+			name:        "--all flag alone is valid",
+			args:        []string{"scan", "openai.OpenAI", "--all"},
 			expectError: false,
 		},
 		{
-			name: "--probes-glob flag alone is valid",
-			args: []string{"scan", "openai.OpenAI", "--probes-glob", "dan.*"},
+			name:        "--probes-glob flag alone is valid",
+			args:        []string{"scan", "openai.OpenAI", "--probes-glob", "dan.*"},
 			expectError: false,
 		},
 		{
-			name: "--probe with --probes-glob should fail validation",
-			args: []string{"scan", "openai.OpenAI", "--probe", "test.Blank", "--probes-glob", "dan.*"},
+			name:        "--probe with --probes-glob should fail validation",
+			args:        []string{"scan", "openai.OpenAI", "--probe", "test.Blank", "--probes-glob", "dan.*"},
 			expectError: true,
-			errorMsg: "cannot use --probe with --probes-glob",
+			errorMsg:    "cannot use --probe with --probes-glob",
 		},
 		{
-			name: "--probe with --all should fail validation",
-			args: []string{"scan", "openai.OpenAI", "--probe", "test.Blank", "--all"},
+			name:        "--probe with --all should fail validation",
+			args:        []string{"scan", "openai.OpenAI", "--probe", "test.Blank", "--all"},
 			expectError: true,
-			errorMsg: "cannot use --probe with",
+			errorMsg:    "cannot use --probe with",
 		},
 		{
-			name: "--probes-glob with --all should fail (Kong xor)",
-			args: []string{"scan", "openai.OpenAI", "--probes-glob", "dan.*", "--all"},
+			name:        "--probes-glob with --all should fail (Kong xor)",
+			args:        []string{"scan", "openai.OpenAI", "--probes-glob", "dan.*", "--all"},
 			expectError: true, // Kong's xor tag should catch this
 		},
 		{
-			name: "missing probe selection should fail validation",
-			args: []string{"scan", "openai.OpenAI"},
+			name:        "missing probe selection should fail validation",
+			args:        []string{"scan", "openai.OpenAI"},
 			expectError: true,
-			errorMsg: "at least one --probe",
+			errorMsg:    "at least one --probe",
 		},
 	}
 
@@ -226,20 +226,20 @@ func TestScanCmdConfigFileValidation(t *testing.T) {
 		errorMsg    string
 	}{
 		{
-			name: "config-file alone is valid",
-			args: []string{"scan", "openai.OpenAI", "--probe", "test.Blank", "--config-file", "config.yaml"},
+			name:        "config-file alone is valid",
+			args:        []string{"scan", "openai.OpenAI", "--probe", "test.Blank", "--config-file", "config.yaml"},
 			expectError: false,
 		},
 		{
-			name: "config JSON alone is valid",
-			args: []string{"scan", "openai.OpenAI", "--probe", "test.Blank", "--config", `{"model":"gpt-4"}`},
+			name:        "config JSON alone is valid",
+			args:        []string{"scan", "openai.OpenAI", "--probe", "test.Blank", "--config", `{"model":"gpt-4"}`},
 			expectError: false,
 		},
 		{
-			name: "both config-file and config should fail",
-			args: []string{"scan", "openai.OpenAI", "--probe", "test.Blank", "--config-file", "config.yaml", "--config", `{"model":"gpt-4"}`},
+			name:        "both config-file and config should fail",
+			args:        []string{"scan", "openai.OpenAI", "--probe", "test.Blank", "--config-file", "config.yaml", "--config", `{"model":"gpt-4"}`},
 			expectError: true,
-			errorMsg: "cannot use both --config-file and --config",
+			errorMsg:    "cannot use both --config-file and --config",
 		},
 	}
 

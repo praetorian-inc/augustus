@@ -1,0 +1,56 @@
+# Model context window sizes (in tokens).
+# Used for conversation trimming and response truncation budgets.
+# Format: model_prefix: token_limit
+# Matching uses longest-prefix: "gpt-4-0125-preview" matches "gpt-4-0125" over "gpt-4".
+
+# OpenAI
+gpt-4o: 125000
+gpt-4-turbo: 125000
+gpt-4-0125: 125000
+gpt-4-1106: 125000
+gpt-4-32k: 31000
+gpt-4: 7500
+gpt-3.5-turbo-16k: 15000
+gpt-3.5-turbo: 15000
+o1: 125000
+o3: 125000
+o4-mini: 125000
+
+# Anthropic
+claude-3: 195000
+claude-3.5: 195000
+claude-3-5: 195000
+claude-4: 195000
+claude-opus-4: 195000
+claude-sonnet-4: 195000
+
+# Google
+gemini-2: 1000000
+gemini-1.5-pro: 1000000
+gemini-1.5-flash: 1000000
+gemini-pro: 30000
+
+# Meta
+llama-3.1-405b: 125000
+llama-3.1-70b: 125000
+llama-3.1-8b: 125000
+llama-3-70b: 7500
+llama-3-8b: 7500
+llama-2: 3500
+
+# Mistral
+mistral-large: 125000
+mistral-medium: 31000
+mistral-small: 31000
+mixtral: 31000
+mistral-7b: 31000
+
+# Cohere
+command-r-plus: 125000
+command-r: 125000
+
+# DeepSeek
+deepseek-chat: 125000
+deepseek-coder: 125000
+deepseek-r1: 125000
+deepseek-v3: 125000
