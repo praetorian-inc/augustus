@@ -10,7 +10,7 @@ jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
-      - uses: praetorian-inc/external-contrib-action@v1
+      - uses: praetorian-inc/external-contrib-action@v2
         with:
           linear-team-id: ${{ secrets.LINEAR_TEAM_ID }}
           linear-assignee-id: ${{ secrets.LINEAR_ASSIGNEE_ID }}
