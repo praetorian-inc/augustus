@@ -3,6 +3,8 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,7 +13,10 @@ import (
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
+	"github.com/praetorian-inc/augustus/pkg/hooks"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRestGenerator_Name(t *testing.T) {
@@ -1156,4 +1161,552 @@ func TestRestGenerator_RateLimitFractional(t *testing.T) {
 	if elapsed < 1*time.Second {
 		t.Errorf("expected rate limiting delay, but elapsed time was only %v", elapsed)
 	}
+}
+
+// --- Configurable SSE Tests ---
+
+func TestRestGenerator_SSEConfigurable_CarGurusStyle(t *testing.T) {
+	// Simulates the CarGurus SSE format: cumulative text in content.text,
+	// filtered by content.type == "CHAT_TEXT", using "last" mode.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		// Metadata event (should be filtered out)
+		_, _ = w.Write([]byte("data:{\"messageId\":\"m1\",\"status\":\"COMPLETED_SUCCESSFULLY\",\"content\":{\"type\":\"DATA\",\"data\":{\"type\":\"ACKNOWLEDGEMENT\"}}}\n\n"))
+		// Cumulative text chunks
+		_, _ = w.Write([]byte("data:{\"messageId\":\"m2\",\"status\":\"IN_PROGRESS\",\"content\":{\"type\":\"CHAT_TEXT\",\"text\":\"I'm\"}}\n\n"))
+		_, _ = w.Write([]byte("data:{\"messageId\":\"m2\",\"status\":\"IN_PROGRESS\",\"content\":{\"type\":\"CHAT_TEXT\",\"text\":\"I'm here to help\"}}\n\n"))
+		_, _ = w.Write([]byte("data:{\"messageId\":\"m2\",\"status\":\"COMPLETED_SUCCESSFULLY\",\"content\":{\"type\":\"CHAT_TEXT\",\"text\":\"I'm here to help you find a car!\"}}\n\n"))
+		// Suggested prompts event (should be filtered out)
+		_, _ = w.Write([]byte("data:{\"messageId\":\"m3\",\"status\":\"COMPLETED_SUCCESSFULLY\",\"content\":{\"type\":\"DATA\",\"data\":{\"type\":\"SUGGESTED_PROMPT\"}}}\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":              server.URL,
+		"sse_text_field":   "$.content.text",
+		"sse_mode":         "last",
+		"sse_filter_field": "$.content.type",
+		"sse_filter_value": "CHAT_TEXT",
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Who are you?")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if len(responses) != 1 {
+		t.Fatalf("Generate() returned %d responses, want 1", len(responses))
+	}
+
+	expected := "I'm here to help you find a car!"
+	if responses[0].Content != expected {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
+	}
+}
+
+func TestRestGenerator_SSEConfigurable_DeltaMode(t *testing.T) {
+	// Test delta mode with a custom text field path.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data:{\"response\":{\"chunk\":\"Hello \"}}\n\n"))
+		_, _ = w.Write([]byte("data:{\"response\":{\"chunk\":\"World\"}}\n\n"))
+		_, _ = w.Write([]byte("data:{\"response\":{\"chunk\":\"!\"}}\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":            server.URL,
+		"sse_text_field": "$.response.chunk",
+		"sse_mode":       "delta",
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if len(responses) != 1 {
+		t.Fatalf("Generate() returned %d responses, want 1", len(responses))
+	}
+
+	expected := "Hello World!"
+	if responses[0].Content != expected {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
+	}
+}
+
+func TestRestGenerator_SSEConfigurable_FilterExcludesNonMatching(t *testing.T) {
+	// Test that filter correctly excludes events that don't match.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data:{\"type\":\"metadata\",\"value\":\"ignore me\"}\n\n"))
+		_, _ = w.Write([]byte("data:{\"type\":\"text\",\"value\":\"keep me\"}\n\n"))
+		_, _ = w.Write([]byte("data:{\"type\":\"metadata\",\"value\":\"also ignore\"}\n\n"))
+		_, _ = w.Write([]byte("data:{\"type\":\"text\",\"value\":\" too\"}\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":              server.URL,
+		"sse_text_field":   "$.value",
+		"sse_mode":         "delta",
+		"sse_filter_field": "$.type",
+		"sse_filter_value": "text",
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	expected := "keep me too"
+	if responses[0].Content != expected {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
+	}
+}
+
+func TestRestGenerator_SSEConfigurable_LastModeNoMatch(t *testing.T) {
+	// When no events match the filter, should fallback to raw body.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data:{\"type\":\"other\",\"value\":\"no match\"}\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":              server.URL,
+		"sse_text_field":   "$.value",
+		"sse_mode":         "last",
+		"sse_filter_field": "$.type",
+		"sse_filter_value": "text",
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Should fall back to raw body
+	if !strings.Contains(responses[0].Content, "no match") {
+		t.Errorf("Generate() content = %q, should contain raw body", responses[0].Content)
+	}
+}
+
+func TestRestGenerator_SSEConfigurable_DefaultDeltaMode(t *testing.T) {
+	// When sse_text_field is set but sse_mode is omitted, default to "delta".
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data:{\"msg\":\"A\"}\n\n"))
+		_, _ = w.Write([]byte("data:{\"msg\":\"B\"}\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":            server.URL,
+		"sse_text_field": "$.msg",
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Delta mode should concatenate
+	expected := "AB"
+	if responses[0].Content != expected {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
+	}
+}
+
+func TestRestGenerator_SSEConfigurable_BackwardCompatible(t *testing.T) {
+	// Without SSE config fields, the default built-in parser should still work.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"delta\":{\"text\":\"still \"}}\n\n"))
+		_, _ = w.Write([]byte("data: {\"delta\":{\"text\":\"works\"}}\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri": server.URL,
+		// No SSE config fields set
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	expected := "still works"
+	if responses[0].Content != expected {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
+	}
+}
+
+func TestRestGenerator_SSEConfigurable_InvalidMode(t *testing.T) {
+	_, err := NewRest(registry.Config{
+		"uri":            "http://example.com",
+		"sse_text_field": "$.text",
+		"sse_mode":       "invalid",
+	})
+	if err == nil {
+		t.Error("NewRest() should error with invalid sse_mode")
+	}
+}
+
+func TestRestGenerator_SSEConfigurable_FilterFieldWithoutValue(t *testing.T) {
+	_, err := NewRest(registry.Config{
+		"uri":              "http://example.com",
+		"sse_text_field":   "$.text",
+		"sse_filter_field": "$.type",
+		// Missing sse_filter_value
+	})
+	if err == nil {
+		t.Error("NewRest() should error when sse_filter_field set without sse_filter_value")
+	}
+}
+
+func TestRestGenerator_SSEConfigurable_FilterValueWithoutField(t *testing.T) {
+	_, err := NewRest(registry.Config{
+		"uri":              "http://example.com",
+		"sse_text_field":   "$.text",
+		"sse_filter_value": "CHAT_TEXT",
+		// Missing sse_filter_field
+	})
+	if err == nil {
+		t.Error("NewRest() should error when sse_filter_value set without sse_filter_field")
+	}
+}
+
+func TestRestGenerator_SSEConfigurable_NestedFilterPath(t *testing.T) {
+	// Test deeply nested filter and text paths (like CarGurus).
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data:{\"status\":\"IN_PROGRESS\",\"content\":{\"type\":\"CHAT_TEXT\",\"text\":\"partial\"}}\n\n"))
+		_, _ = w.Write([]byte("data:{\"status\":\"COMPLETED_SUCCESSFULLY\",\"content\":{\"type\":\"CHAT_TEXT\",\"text\":\"complete response\"}}\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":              server.URL,
+		"sse_text_field":   "$.content.text",
+		"sse_mode":         "last",
+		"sse_filter_field": "$.content.type",
+		"sse_filter_value": "CHAT_TEXT",
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	expected := "complete response"
+	if responses[0].Content != expected {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
+	}
+}
+
+func TestRestGenerator_SSEConfigurable_DeltaModeNoMatch(t *testing.T) {
+	// When delta mode filter excludes all events, should fallback to raw body.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data:{\"type\":\"other\",\"value\":\"no match\"}\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":              server.URL,
+		"sse_text_field":   "$.value",
+		"sse_mode":         "delta",
+		"sse_filter_field": "$.type",
+		"sse_filter_value": "text",
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	// Should fall back to raw body
+	if !strings.Contains(responses[0].Content, "no match") {
+		t.Errorf("Generate() content = %q, should contain raw body", responses[0].Content)
+	}
+}
+
+func TestRestGenerator_SSEConfigurable_NonJSONSentinels(t *testing.T) {
+	// Non-JSON lines like "data: [DONE]" and empty "data: " should be skipped.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data:{\"msg\":\"Hello\"}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		_, _ = w.Write([]byte("data:   \n\n"))
+		_, _ = w.Write([]byte("data:{\"msg\":\" World\"}\n\n"))
+		_, _ = w.Write([]byte(": keepalive comment\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":            server.URL,
+		"sse_text_field": "$.msg",
+		"sse_mode":       "delta",
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	expected := "Hello World"
+	if responses[0].Content != expected {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
+	}
+}
+
+func TestRestGenerator_SSEConfigurable_EmptyTextValues(t *testing.T) {
+	// Events with empty text field values should be skipped.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data:{\"msg\":\"\"}\n\n"))
+		_, _ = w.Write([]byte("data:{\"msg\":\"real content\"}\n\n"))
+		_, _ = w.Write([]byte("data:{\"msg\":\"\"}\n\n"))
+	}))
+	defer server.Close()
+
+	// Test in "last" mode: empty values should not overwrite real content.
+	g, err := NewRest(registry.Config{
+		"uri":            server.URL,
+		"sse_text_field": "$.msg",
+		"sse_mode":       "last",
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	expected := "real content"
+	if responses[0].Content != expected {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
+	}
+}
+
+func TestRestGenerator_SSEConfigurable_MissingTextField(t *testing.T) {
+	// Events where the text field JSONPath doesn't resolve should be skipped.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data:{\"other\":\"no msg field here\"}\n\n"))
+		_, _ = w.Write([]byte("data:{\"msg\":\"found it\"}\n\n"))
+		_, _ = w.Write([]byte("data:{\"unrelated\":{\"nested\":true}}\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":            server.URL,
+		"sse_text_field": "$.msg",
+		"sse_mode":       "delta",
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	expected := "found it"
+	if responses[0].Content != expected {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
+	}
+}
+
+func TestRestGeneratorHookVarSubstitution(t *testing.T) {
+	// Create a test server that echoes the request body back
+	var receivedBody string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		receivedBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `{"response": "ok"}`)
+	}))
+	defer ts.Close()
+
+	gen, err := generators.Create("rest.Rest", registry.Config{
+		"uri":                 ts.URL,
+		"req_template":        `{"conversationId":"$CONVERSATION_ID","parentMessageId":"$PARENT_MESSAGE_ID","message":"$INPUT"}`,
+		"response_json":       true,
+		"response_json_field": "response",
+	})
+	require.NoError(t, err)
+
+	// Create context with hook variables
+	ctx := hooks.WithVars(context.Background(), map[string]string{
+		"CONVERSATION_ID":   "conv-abc123",
+		"PARENT_MESSAGE_ID": "msg-def456",
+	})
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test input")
+
+	msgs, err := gen.Generate(ctx, conv, 1)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+
+	// Verify the hook variables were substituted in the request
+	assert.Contains(t, receivedBody, `"conversationId":"conv-abc123"`)
+	assert.Contains(t, receivedBody, `"parentMessageId":"msg-def456"`)
+	assert.Contains(t, receivedBody, `"message":"test input"`)
+}
+
+func TestRestGeneratorHookVarSubstitution_Headers(t *testing.T) {
+	var receivedHeader string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedHeader = r.Header.Get("X-Conversation-Id")
+		w.Write([]byte("ok"))
+	}))
+	defer ts.Close()
+
+	gen, err := generators.Create("rest.Rest", registry.Config{
+		"uri":     ts.URL,
+		"headers": map[string]any{"X-Conversation-Id": "$CONVERSATION_ID"},
+	})
+	require.NoError(t, err)
+
+	ctx := hooks.WithVars(context.Background(), map[string]string{
+		"CONVERSATION_ID": "conv-header-test",
+	})
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	_, err = gen.Generate(ctx, conv, 1)
+	require.NoError(t, err)
+	assert.Equal(t, "conv-header-test", receivedHeader)
+}
+
+func TestRestGenerator_HookVarSubstitution_PrefixCollision(t *testing.T) {
+	// Verify that sorted key substitution handles overlapping variable names.
+	// $ID_TOKEN must be substituted before $ID to prevent "$ID" matching the
+	// prefix of "$ID_TOKEN" and producing "short_TOKEN" instead of "long-token".
+	var receivedBody string
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		receivedBody = string(body)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer ts.Close()
+
+	gen, err := NewRest(registry.Config{
+		"uri":          ts.URL,
+		"req_template": `{"id":"$ID","token":"$ID_TOKEN"}`,
+	})
+	require.NoError(t, err)
+
+	// Inject hook vars with overlapping key names
+	vars := map[string]string{
+		"ID":       "short",
+		"ID_TOKEN": "long-token",
+	}
+	ctx := hooks.WithVars(context.Background(), vars)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test prompt")
+
+	msgs, err := gen.Generate(ctx, conv, 1)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+
+	// $ID_TOKEN should become "long-token", NOT "short_TOKEN"
+	assert.Contains(t, receivedBody, `"token":"long-token"`)
+	// $ID should become "short"
+	assert.Contains(t, receivedBody, `"id":"short"`)
+
+	// Verify the full expected body
+	expected := `{"id":"short","token":"long-token"}`
+	assert.Equal(t, expected, receivedBody)
+}
+
+func TestRestGenerator_LastRawResponse(t *testing.T) {
+	expectedBody := `{"result":"hello world"}`
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(expectedBody))
+	}))
+	defer ts.Close()
+
+	gen, err := NewRest(registry.Config{"uri": ts.URL})
+	require.NoError(t, err)
+
+	restGen := gen.(*Rest)
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	_, err = restGen.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	raw := restGen.LastRawResponse()
+	assert.Equal(t, expectedBody, string(raw))
 }

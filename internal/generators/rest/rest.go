@@ -15,13 +15,17 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
+	"github.com/praetorian-inc/augustus/pkg/hooks"
 	"github.com/praetorian-inc/augustus/pkg/ratelimit"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 	"golang.org/x/net/http2"
 )
 
@@ -56,6 +60,12 @@ func defaultTransport(proxyURL *url.URL) *http.Transport {
 	return transport
 }
 
+// Compile-time interface assertions.
+var (
+	_ generators.Generator      = (*Rest)(nil)
+	_ hooks.RawResponseProvider = (*Rest)(nil)
+)
+
 // Rest is a generic REST API generator that makes HTTP requests to configured endpoints.
 // It supports request templating, JSON response parsing, and various HTTP methods.
 type Rest struct {
@@ -72,6 +82,16 @@ type Rest struct {
 	proxyURL          *url.URL
 	client            *http.Client
 	limiter           *ratelimit.Limiter // Pre-request rate limiter
+
+	// Configurable SSE parsing
+	sseTextField   string // JSONPath for text extraction (e.g., "$.content.text")
+	sseMode        string // "delta" or "last"
+	sseFilterField string // JSONPath for event filtering (e.g., "$.content.type")
+	sseFilterValue string // Value to match for filter (e.g., "CHAT_TEXT")
+
+	// Raw response storage for runtime hooks
+	mu          sync.Mutex // protects lastRawResp
+	lastRawResp []byte
 }
 
 // NewRest creates a new REST generator from configuration.
@@ -199,6 +219,29 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 	}
 	r.proxyURL = proxyURL
 
+	// Optional: SSE configuration
+	if sseTextField, ok := cfg["sse_text_field"].(string); ok {
+		r.sseTextField = sseTextField
+	}
+	if sseMode, ok := cfg["sse_mode"].(string); ok && sseMode != "" {
+		if sseMode != "delta" && sseMode != "last" {
+			return nil, fmt.Errorf("sse_mode must be \"delta\" or \"last\", got %q", sseMode)
+		}
+		r.sseMode = sseMode
+	}
+	if r.sseTextField != "" && r.sseMode == "" {
+		r.sseMode = "delta"
+	}
+	if sseFilterField, ok := cfg["sse_filter_field"].(string); ok {
+		r.sseFilterField = sseFilterField
+	}
+	if sseFilterValue, ok := cfg["sse_filter_value"].(string); ok {
+		r.sseFilterValue = sseFilterValue
+	}
+	if (r.sseFilterField != "") != (r.sseFilterValue != "") {
+		return nil, fmt.Errorf("sse_filter_field and sse_filter_value must both be set or both be empty")
+	}
+
 	// Optional: Rate limiting (requests per second)
 	// Supports both float64 (from JSON) and int
 	if rateLimit, ok := cfg["rate_limit"].(float64); ok && rateLimit > 0 {
@@ -252,13 +295,16 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 
 	prompt := conv.LastPrompt()
 
+	// Get hook variables from context for template substitution
+	hookVars := types.HookVarsFromContext(ctx)
+
 	// Populate request template
-	body := r.populateTemplate(r.reqTemplate, prompt)
+	body := r.populateTemplate(r.reqTemplate, prompt, hookVars)
 
 	// Populate headers
 	headers := make(map[string]string)
 	for k, v := range r.headers {
-		headers[k] = r.populateTemplate(v, prompt)
+		headers[k] = r.populateTemplate(v, prompt, hookVars)
 	}
 
 	// Create request
@@ -313,6 +359,11 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 		return attempt.Message{}, fmt.Errorf("rest: failed to read response: %w", err)
 	}
 
+	// Store raw response for runtime hooks
+	r.mu.Lock()
+	r.lastRawResp = respBody
+	r.mu.Unlock()
+
 	// Check if response is SSE (Server-Sent Events)
 	contentType := resp.Header.Get("Content-Type")
 	if strings.Contains(contentType, "text/event-stream") {
@@ -331,7 +382,7 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 }
 
 // populateTemplate replaces $INPUT and $KEY placeholders in the template.
-func (r *Rest) populateTemplate(template, input string) string {
+func (r *Rest) populateTemplate(template, input string, hookVars map[string]string) string {
 	result := template
 
 	// Replace $KEY with API key
@@ -343,6 +394,25 @@ func (r *Rest) populateTemplate(template, input string) string {
 	if strings.Contains(result, "$INPUT") {
 		escaped := jsonEscape(input)
 		result = strings.ReplaceAll(result, "$INPUT", escaped)
+	}
+
+	// Replace hook variables ($VARNAME patterns from runtime hooks)
+	// Values are JSON-escaped to prevent malformed JSON when hook output
+	// contains special characters (quotes, backslashes, etc.)
+	// Sort keys by length (longest first) to prevent prefix collisions
+	// e.g., $ID_TOKEN must be substituted before $ID
+	keys := make([]string, 0, len(hookVars))
+	for k := range hookVars {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		return len(keys[i]) > len(keys[j])
+	})
+	for _, k := range keys {
+		placeholder := "$" + k
+		if strings.Contains(result, placeholder) {
+			result = strings.ReplaceAll(result, placeholder, jsonEscape(hookVars[k]))
+		}
 	}
 
 	return result
@@ -529,7 +599,18 @@ func valueToString(val any) string {
 
 // parseSSE extracts text content from Server-Sent Events (SSE) format.
 // SSE format: data: {...}\n\ndata: {...}\n\n
+//
+// When sseTextField is configured, uses configurable JSONPath-based extraction.
+// Otherwise, falls back to the built-in heuristic matching common SSE structures.
 func (r *Rest) parseSSE(body []byte) string {
+	if r.sseTextField != "" {
+		return r.parseSSEConfigurable(body)
+	}
+	return r.parseSSEDefault(body)
+}
+
+// parseSSEDefault is the original built-in SSE parser that matches common structures.
+func (r *Rest) parseSSEDefault(body []byte) string {
 	var textParts []string
 	lines := strings.Split(string(body), "\n")
 
@@ -596,8 +677,76 @@ func (r *Rest) parseSSE(body []byte) string {
 	return string(body)
 }
 
+// parseSSEConfigurable parses SSE events using user-configured JSONPath fields.
+// It supports two modes:
+//   - "delta": concatenates extracted text from all matching events
+//   - "last": keeps only the last non-empty extracted text (for cumulative streams)
+func (r *Rest) parseSSEConfigurable(body []byte) string {
+	var result string
+	var parts []string
+	lines := strings.Split(string(body), "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+
+		jsonStr := strings.TrimPrefix(line, "data:")
+		jsonStr = strings.TrimSpace(jsonStr)
+		if jsonStr == "" {
+			continue
+		}
+
+		var data any
+		if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
+			continue
+		}
+
+		// Apply filter if configured
+		if r.sseFilterField != "" && r.sseFilterValue != "" {
+			filterVal, err := r.evaluateJSONPath(data, r.sseFilterField)
+			if err != nil || filterVal != r.sseFilterValue {
+				continue
+			}
+		}
+
+		// Extract text using configured JSONPath
+		text, err := r.evaluateJSONPath(data, r.sseTextField)
+		if err != nil || text == "" {
+			continue
+		}
+
+		if r.sseMode == "last" {
+			result = text
+		} else {
+			parts = append(parts, text)
+		}
+	}
+
+	if r.sseMode == "last" {
+		if result != "" {
+			return result
+		}
+	} else if len(parts) > 0 {
+		return strings.Join(parts, "")
+	}
+
+	// Fallback: return raw body if no text extracted
+	return string(body)
+}
+
 // ClearHistory is a no-op for REST generator (stateless).
 func (r *Rest) ClearHistory() {}
+
+// LastRawResponse returns the raw HTTP response body from the most recent API call.
+// This implements the hooks.RawResponseProvider interface.
+func (r *Rest) LastRawResponse() []byte {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.lastRawResp
+}
 
 // Name returns the generator's fully qualified name.
 func (r *Rest) Name() string {

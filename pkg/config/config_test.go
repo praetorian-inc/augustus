@@ -1054,3 +1054,74 @@ func TestConfig_Validate_ValidTimeout(t *testing.T) {
 	err := cfg.Validate()
 	assert.NoError(t, err)
 }
+
+// TestHooksYAML tests loading hook configuration from YAML
+func TestHooksYAML(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	yamlContent := `
+hooks:
+  setup: "echo CSRF_TOKEN=abc123"
+  prepare: "echo PARENT_MSG_ID=msg-456"
+  cleanup: "echo done"
+`
+
+	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	require.NoError(t, err)
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	assert.Equal(t, "echo CSRF_TOKEN=abc123", cfg.Hooks.Setup)
+	assert.Equal(t, "echo PARENT_MSG_ID=msg-456", cfg.Hooks.Prepare)
+	assert.Equal(t, "echo done", cfg.Hooks.Cleanup)
+}
+
+// TestHooksMerge tests merging hook configuration
+func TestHooksMerge(t *testing.T) {
+	base := &Config{
+		Hooks: HooksConfig{
+			Setup:   "echo base_setup",
+			Cleanup: "echo base_cleanup",
+		},
+	}
+	overlay := &Config{
+		Hooks: HooksConfig{
+			Setup:   "echo overlay_setup",
+			Prepare: "echo overlay_prepare",
+		},
+	}
+
+	base.Merge(overlay)
+
+	assert.Equal(t, "echo overlay_setup", base.Hooks.Setup, "overlay should win for setup")
+	assert.Equal(t, "echo overlay_prepare", base.Hooks.Prepare, "overlay should set prepare")
+	assert.Equal(t, "echo base_cleanup", base.Hooks.Cleanup, "base cleanup should be preserved")
+}
+
+// TestHooksProfile tests that hooks are applied from profiles
+func TestHooksProfile(t *testing.T) {
+	cfg := &Config{
+		Hooks: HooksConfig{
+			Setup: "echo base_setup",
+		},
+		Profiles: map[string]Profile{
+			"stateful": {
+				Hooks: HooksConfig{
+					Setup:   "echo profile_setup",
+					Prepare: "echo profile_prepare",
+					Cleanup: "echo profile_cleanup",
+				},
+			},
+		},
+	}
+
+	err := cfg.ApplyProfile("stateful")
+	require.NoError(t, err)
+
+	assert.Equal(t, "echo profile_setup", cfg.Hooks.Setup)
+	assert.Equal(t, "echo profile_prepare", cfg.Hooks.Prepare)
+	assert.Equal(t, "echo profile_cleanup", cfg.Hooks.Cleanup)
+}
