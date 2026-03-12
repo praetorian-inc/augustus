@@ -89,6 +89,11 @@ type ScanCmd struct {
 	Setup   string `help:"Shell command run once before all probes. Stdout KEY=VALUE lines are injected into the generator request template as $KEY." name:"setup"`
 	Prepare string `help:"Shell command run before each probe. Receives AUGUSTUS_LAST_RESPONSE env var with raw response from the previous probe." name:"prepare"`
 	Cleanup string `help:"Shell command run once after all probes complete." name:"cleanup"`
+
+	// Parser configuration
+	Parser             string `help:"Parser to normalize LLM responses (e.g., 'sse.Aggregate', 'json.Extract', 'external.Script')." name:"parser"`
+	ParserConfig       string `help:"Parser configuration as JSON." name:"parser-config"`
+	AllowUnsafeParsers bool   `help:"Allow running external parsers without sandbox (unsafe mode)." name:"allow-unsafe-parsers"`
 }
 
 func (s *ScanCmd) Run() error {
