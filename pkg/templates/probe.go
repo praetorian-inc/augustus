@@ -21,7 +21,7 @@ func NewTemplateProbe(tmpl *ProbeTemplate) *TemplateProbe {
 // Probe executes the probe against the generator.
 // Implements types.Prober interface.
 func (t *TemplateProbe) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
-	return probes.RunPrompts(ctx, gen, t.template.Prompts, t.Name(), t.GetPrimaryDetector(), nil)
+	return probes.RunPrompts(ctx, gen, t.template.Prompts, t.Name(), t.GetPrimaryDetector(), t.Goal(), nil)
 }
 
 // Name returns the probe's fully qualified name.

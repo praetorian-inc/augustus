@@ -41,7 +41,7 @@ func TestRunPrompts_Basic(t *testing.T) {
 	gen := &mockGen{}
 	prompts := []string{"prompt1", "prompt2", "prompt3"}
 
-	attempts, err := probes.RunPrompts(context.Background(), gen, prompts, "test-probe", "test-detector", nil)
+	attempts, err := probes.RunPrompts(context.Background(), gen, prompts, "test-probe", "test-detector", "", nil)
 
 	require.NoError(t, err)
 	assert.Len(t, attempts, 3, "should return one attempt per prompt")
@@ -62,7 +62,7 @@ func TestRunPrompts_GeneratorError(t *testing.T) {
 	gen := &mockGen{err: expectedErr}
 	prompts := []string{"prompt1"}
 
-	attempts, err := probes.RunPrompts(context.Background(), gen, prompts, "test-probe", "test-detector", nil)
+	attempts, err := probes.RunPrompts(context.Background(), gen, prompts, "test-probe", "test-detector", "", nil)
 
 	require.NoError(t, err, "RunPrompts should not return error on generation failure")
 	require.Len(t, attempts, 1)
@@ -80,7 +80,7 @@ func TestRunPrompts_ContextCancellation(t *testing.T) {
 	gen := &mockGen{}
 	prompts := []string{"prompt1"}
 
-	attempts, err := probes.RunPrompts(ctx, gen, prompts, "test-probe", "test-detector", nil)
+	attempts, err := probes.RunPrompts(ctx, gen, prompts, "test-probe", "test-detector", "", nil)
 
 	require.Error(t, err, "should return error when context is cancelled")
 	assert.Contains(t, err.Error(), "context canceled", "error should indicate context cancellation")
@@ -98,7 +98,7 @@ func TestRunPrompts_MetadataFn(t *testing.T) {
 		att.Metadata["index"] = i
 	}
 
-	attempts, err := probes.RunPrompts(context.Background(), gen, prompts, "test-probe", "test-detector", metadataFn)
+	attempts, err := probes.RunPrompts(context.Background(), gen, prompts, "test-probe", "test-detector", "", metadataFn)
 
 	require.NoError(t, err)
 	require.Len(t, attempts, 2)
@@ -115,8 +115,31 @@ func TestRunPrompts_EmptyPrompts(t *testing.T) {
 	gen := &mockGen{}
 	prompts := []string{}
 
-	attempts, err := probes.RunPrompts(context.Background(), gen, prompts, "test-probe", "test-detector", nil)
+	attempts, err := probes.RunPrompts(context.Background(), gen, prompts, "test-probe", "test-detector", "", nil)
 
 	require.NoError(t, err)
 	assert.Empty(t, attempts, "should return empty slice for empty prompts")
+}
+
+func TestRunPrompts_GoalPropagation(t *testing.T) {
+	gen := &mockGen{}
+	prompts := []string{"test prompt"}
+
+	attempts, err := probes.RunPrompts(context.Background(), gen, prompts, "test-probe", "test-detector", "elicit biased responses", nil)
+
+	require.NoError(t, err)
+	require.Len(t, attempts, 1)
+	assert.Equal(t, "elicit biased responses", attempts[0].Metadata["goal"], "goal should be propagated into attempt metadata")
+}
+
+func TestRunPrompts_EmptyGoalNotSet(t *testing.T) {
+	gen := &mockGen{}
+	prompts := []string{"test prompt"}
+
+	attempts, err := probes.RunPrompts(context.Background(), gen, prompts, "test-probe", "test-detector", "", nil)
+
+	require.NoError(t, err)
+	require.Len(t, attempts, 1)
+	_, hasGoal := attempts[0].Metadata["goal"]
+	assert.False(t, hasGoal, "empty goal should not be set in metadata")
 }

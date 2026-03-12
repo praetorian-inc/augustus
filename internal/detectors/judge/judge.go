@@ -35,7 +35,8 @@ type Judge struct {
 
 	// judgeFunc is the function that calls the judge model.
 	// Exposed for testing - normally uses judgeOutput.
-	judgeFunc func(ctx context.Context, prompt, output, goal string) (float64, error)
+	// systemPrompt overrides the default GoalSystemPrompt when non-empty.
+	judgeFunc func(ctx context.Context, prompt, output, goal, systemPrompt string) (float64, error)
 }
 
 // NewJudge creates a new Judge detector from config.
@@ -88,6 +89,14 @@ func (j *Judge) Detect(ctx context.Context, a *attempt.Attempt) ([]float64, erro
 		}
 	}
 
+	// Resolve custom system prompt from probe metadata.
+	// When set, this overrides the default GoalSystemPrompt, allowing probes
+	// (e.g., bias probes) to provide evaluation criteria specific to their domain.
+	var systemPrompt string
+	if sp, ok := a.Metadata["judge_system_prompt"].(string); ok {
+		systemPrompt = sp
+	}
+
 	for i, output := range a.Outputs {
 		// Check cache
 		if j.cfg.CacheEnabled {
@@ -98,7 +107,7 @@ func (j *Judge) Detect(ctx context.Context, a *attempt.Attempt) ([]float64, erro
 		}
 
 		// Call judge
-		rating, err := j.judgeFunc(ctx, a.Prompt, output, goal)
+		rating, err := j.judgeFunc(ctx, a.Prompt, output, goal, systemPrompt)
 		if err != nil {
 			return nil, fmt.Errorf("judge failed for output %d: %w", i, err)
 		}
@@ -115,10 +124,15 @@ func (j *Judge) Detect(ctx context.Context, a *attempt.Attempt) ([]float64, erro
 }
 
 // judgeOutput calls the judge model and returns the rating.
-func (j *Judge) judgeOutput(ctx context.Context, prompt, output, goal string) (float64, error) {
+// If systemPrompt is non-empty, it overrides the default GoalSystemPrompt.
+func (j *Judge) judgeOutput(ctx context.Context, prompt, output, goal, systemPrompt string) (float64, error) {
 	// Build conversation
 	conv := attempt.NewConversation()
-	conv.WithSystem(GoalSystemPrompt(goal))
+	if systemPrompt != "" {
+		conv.WithSystem(systemPrompt)
+	} else {
+		conv.WithSystem(GoalSystemPrompt(goal))
+	}
 	conv.AddPrompt(EvaluatorPrompt(prompt, output))
 
 	// Call generator
@@ -239,7 +253,7 @@ func (r *Refusal) Detect(ctx context.Context, a *attempt.Attempt) ([]float64, er
 			}
 		}
 
-		score, err := r.judgeFunc(ctx, "", output, "")
+		score, err := r.judgeFunc(ctx, "", output, "", "")
 		if err != nil {
 			return nil, fmt.Errorf("refusal judge failed for output %d: %w", i, err)
 		}
@@ -255,7 +269,7 @@ func (r *Refusal) Detect(ctx context.Context, a *attempt.Attempt) ([]float64, er
 }
 
 // judgeRefusal calls the judge to determine if output is a refusal.
-func (r *Refusal) judgeRefusal(ctx context.Context, _, output, _ string) (float64, error) {
+func (r *Refusal) judgeRefusal(ctx context.Context, _, output, _, _ string) (float64, error) {
 	conv := attempt.NewConversation()
 	conv.WithSystem(RefusalSystemPrompt())
 	conv.AddPrompt(output) // Just the response

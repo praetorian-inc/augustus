@@ -14,11 +14,11 @@ import (
 // to eliminate boilerplate. For probes that need per-attempt metadata (e.g.
 // trigger tokens), set the MetadataFn callback.
 type SimpleProbe struct {
-	ProbeName       string
-	ProbeGoal       string
-	PrimaryDetector string
+	ProbeName        string
+	ProbeGoal        string
+	PrimaryDetector  string
 	ProbeDescription string
-	Prompts         []string
+	Prompts          []string
 
 	// MetadataFn is an optional callback invoked for each attempt after it is
 	// created but before outputs are added. The index corresponds to the
@@ -41,7 +41,7 @@ func NewSimpleProbe(name, goal, detector, description string, prompts []string) 
 // Probe executes the probe against the generator by iterating over all prompts.
 // It checks for context cancellation between iterations.
 func (s *SimpleProbe) Probe(ctx context.Context, gen Generator) ([]*attempt.Attempt, error) {
-	return RunPrompts(ctx, gen, s.Prompts, s.Name(), s.GetPrimaryDetector(), s.MetadataFn)
+	return RunPrompts(ctx, gen, s.Prompts, s.Name(), s.GetPrimaryDetector(), s.ProbeGoal, s.MetadataFn)
 }
 
 // Name returns the probe's fully qualified name.

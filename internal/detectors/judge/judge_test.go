@@ -93,7 +93,7 @@ func TestJudgeDetect(t *testing.T) {
 	}
 
 	// Mock the judgeOutput method for testing
-	j.judgeFunc = func(ctx context.Context, prompt, output, goal string) (float64, error) {
+	j.judgeFunc = func(ctx context.Context, prompt, output, goal, systemPrompt string) (float64, error) {
 		return 7.0, nil // Return rating 7
 	}
 
@@ -120,7 +120,7 @@ func TestJudgeDetectWithCache(t *testing.T) {
 			CacheEnabled:     true,
 		},
 		cache: NewCache(),
-		judgeFunc: func(ctx context.Context, prompt, output, goal string) (float64, error) {
+		judgeFunc: func(ctx context.Context, prompt, output, goal, systemPrompt string) (float64, error) {
 			callCount++
 			return 8.0, nil
 		},
@@ -153,7 +153,7 @@ func TestJudgeMultipleOutputs(t *testing.T) {
 			CacheEnabled:     true,
 		},
 		cache: NewCache(),
-		judgeFunc: func(ctx context.Context, prompt, output, goal string) (float64, error) {
+		judgeFunc: func(ctx context.Context, prompt, output, goal, systemPrompt string) (float64, error) {
 			callCount++
 			if strings.Contains(output, "harmful") {
 				return 9.0, nil
@@ -192,7 +192,7 @@ func TestRefusalDetect(t *testing.T) {
 	}
 
 	// Mock to return [[YES]] (answered)
-	r.judgeFunc = func(ctx context.Context, prompt, output, goal string) (float64, error) {
+	r.judgeFunc = func(ctx context.Context, prompt, output, goal, systemPrompt string) (float64, error) {
 		return 1.0, nil // parseRefusalScore returns 1.0 for [[YES]]
 	}
 
@@ -241,4 +241,61 @@ func TestNewRefusal(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "judge.Refusal", detector.Name())
 	assert.Contains(t, detector.Description(), "refusal")
+}
+
+func TestJudgeDetectWithCustomSystemPrompt(t *testing.T) {
+	var capturedSystemPrompt string
+	j := &Judge{
+		cfg: Config{
+			ConfidenceCutoff: 7,
+			CacheEnabled:     false,
+		},
+		cache: NewCache(),
+		judgeFunc: func(ctx context.Context, prompt, output, goal, systemPrompt string) (float64, error) {
+			capturedSystemPrompt = systemPrompt
+			return 3.0, nil // Return safe rating
+		},
+	}
+
+	a := &attempt.Attempt{
+		Prompt:  "test prompt",
+		Outputs: []string{"test output"},
+		Metadata: map[string]any{
+			"goal":                "test goal",
+			"judge_system_prompt": "Custom bias evaluation prompt here",
+		},
+	}
+
+	ctx := context.Background()
+	scores, err := j.Detect(ctx, a)
+	require.NoError(t, err)
+	require.Len(t, scores, 1)
+	assert.Equal(t, 0.0, scores[0]) // 3.0 < 7 cutoff = safe
+	assert.Equal(t, "Custom bias evaluation prompt here", capturedSystemPrompt)
+}
+
+func TestJudgeDetectWithoutCustomSystemPrompt(t *testing.T) {
+	var capturedSystemPrompt string
+	j := &Judge{
+		cfg: Config{
+			ConfidenceCutoff: 7,
+			CacheEnabled:     false,
+		},
+		cache: NewCache(),
+		judgeFunc: func(ctx context.Context, prompt, output, goal, systemPrompt string) (float64, error) {
+			capturedSystemPrompt = systemPrompt
+			return 3.0, nil
+		},
+	}
+
+	a := &attempt.Attempt{
+		Prompt:   "test prompt",
+		Outputs:  []string{"test output"},
+		Metadata: map[string]any{"goal": "test goal"},
+	}
+
+	ctx := context.Background()
+	_, err := j.Detect(ctx, a)
+	require.NoError(t, err)
+	assert.Empty(t, capturedSystemPrompt, "system prompt should be empty when not set in metadata")
 }

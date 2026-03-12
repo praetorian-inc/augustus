@@ -13,6 +13,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/autodan"
 	_ "github.com/praetorian-inc/augustus/internal/probes/avspamscanning"
 	_ "github.com/praetorian-inc/augustus/internal/probes/badchars"
+	_ "github.com/praetorian-inc/augustus/internal/probes/bias"
 	_ "github.com/praetorian-inc/augustus/internal/probes/browsing"
 	_ "github.com/praetorian-inc/augustus/internal/probes/continuation"
 	_ "github.com/praetorian-inc/augustus/internal/probes/dan"

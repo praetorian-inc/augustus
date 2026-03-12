@@ -27,12 +27,14 @@ import (
 //   - prompts: Slice of prompts to execute
 //   - probeName: Name stamped onto every attempt
 //   - detector: Detector name stamped onto every attempt
+//   - goal: Probe goal propagated into attempt metadata for judge-based detectors;
+//     pass empty string when no goal is needed
 //   - metadataFn: Optional callback invoked after attempt creation but before
 //     outputs are added; pass nil when no per-attempt metadata is needed
 //
 // Example:
 //
-//	attempts, err := RunPrompts(ctx, gen, prompts, "probe", "detector", nil)
+//	attempts, err := RunPrompts(ctx, gen, prompts, "probe", "detector", "elicit harmful output", nil)
 //	if err != nil {
 //	    // Context was cancelled
 //	    return err
@@ -49,6 +51,7 @@ func RunPrompts(
 	prompts []string,
 	probeName string,
 	detector string,
+	goal string,
 	metadataFn func(i int, prompt string, a *attempt.Attempt),
 ) ([]*attempt.Attempt, error) {
 	attempts := make([]*attempt.Attempt, 0, len(prompts))
@@ -69,6 +72,12 @@ func RunPrompts(
 		a := attempt.New(prompt)
 		a.Probe = probeName
 		a.Detector = detector
+
+		// Propagate probe goal so judge-based detectors evaluate against the
+		// correct objective instead of the generic fallback.
+		if goal != "" {
+			a.WithMetadata("goal", goal)
+		}
 
 		// Apply optional per-attempt metadata.
 		if metadataFn != nil {
