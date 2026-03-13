@@ -132,8 +132,9 @@ OUTPUT FORMAT (JSON only):
 
 The "question" field is the ONLY text the target will see.`
 
-// turnPrompt builds the prompt for generating the next turn,
-// including full conversation history with refusal markers.
+// turnPrompt builds the prompt for the next Hydra attack turn.
+// Complexity: 16 (justified: prompt generation requires turn-phase awareness,
+// backtrack-aware messaging, and history formatting — inherent domain complexity).
 func turnPrompt(goal string, history []multiturn.TurnRecord, turnNum, maxTurns int) string {
 	var sb strings.Builder
 

@@ -12,12 +12,10 @@ package mischievous
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/praetorian-inc/augustus/internal/multiturn"
 	mischievousstrat "github.com/praetorian-inc/augustus/internal/multiturn/strategies/mischievous"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -38,41 +36,13 @@ type MischievousProbe struct {
 // Config keys mirror GOAT/Crescendo: attacker_generator_type, attacker_config,
 // judge_generator_type, judge_config, plus multi-turn specific settings.
 func NewMischievousUser(cfg registry.Config) (probes.Prober, error) {
-	if cfg == nil {
-		cfg = make(registry.Config)
-	}
-
-	// Create attacker generator
-	attackerType := registry.GetString(cfg, "attacker_generator_type", "openai.OpenAI")
-	attackerCfg := make(registry.Config)
-	if ac, ok := cfg["attacker_config"].(map[string]any); ok {
-		attackerCfg = ac
-	}
-	if model := registry.GetString(cfg, "attacker_model", ""); model != "" {
-		attackerCfg["model"] = model
-	}
-	attacker, err := generators.Create(attackerType, attackerCfg)
-	if err != nil {
-		return nil, fmt.Errorf("creating attacker generator: %w", err)
-	}
-
-	// Create judge generator
-	judgeType := registry.GetString(cfg, "judge_generator_type", "openai.OpenAI")
-	judgeCfg := make(registry.Config)
-	if jc, ok := cfg["judge_config"].(map[string]any); ok {
-		judgeCfg = jc
-	}
-	if model := registry.GetString(cfg, "judge_model", ""); model != "" {
-		judgeCfg["model"] = model
-	}
-	judge, err := generators.Create(judgeType, judgeCfg)
-	if err != nil {
-		return nil, fmt.Errorf("creating judge generator: %w", err)
-	}
-
 	defaults := multiturn.Defaults()
 	defaults.MaxTurns = 5 // Mischievous user is subtler, fewer turns needed
-	engineCfg := multiturn.ConfigFromMap(cfg, defaults)
+
+	attacker, judge, engineCfg, err := multiturn.CreateGenerators(cfg, &defaults)
+	if err != nil {
+		return nil, err
+	}
 
 	strategy := &mischievousstrat.Strategy{MaxTurns: engineCfg.MaxTurns}
 

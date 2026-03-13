@@ -7,9 +7,6 @@
 package goat
 
 import (
-	"encoding/json"
-	"strings"
-
 	"github.com/praetorian-inc/augustus/internal/multiturn"
 )
 
@@ -66,46 +63,5 @@ func (s *Strategy) maxTurns() int {
 // GOAT outputs include observation, thought, strategy, and question fields.
 // Falls back to ExtractJSON for simpler formats.
 func (s *Strategy) ParseAttackerResponse(output string) *multiturn.QuestionResult {
-	output = strings.TrimSpace(output)
-
-	// Try parsing the full GOAT JSON format with observation/thought/strategy/question
-	var goatResult struct {
-		Observation string `json:"observation"`
-		Thought     string `json:"thought"`
-		Strategy    string `json:"strategy"`
-		Question    string `json:"question"`
-		Summary     string `json:"summary"`
-	}
-
-	// Try direct parse first
-	if err := json.Unmarshal([]byte(output), &goatResult); err == nil && goatResult.Question != "" {
-		return &multiturn.QuestionResult{
-			Question:    goatResult.Question,
-			Strategy:    goatResult.Strategy,
-			Observation: goatResult.Observation,
-			Thought:     goatResult.Thought,
-			Summary:     goatResult.Summary,
-		}
-	}
-
-	// Try to find JSON object within surrounding text
-	start := strings.Index(output, "{")
-	if start != -1 {
-		end := strings.LastIndex(output, "}")
-		if end > start {
-			jsonStr := output[start : end+1]
-			if err := json.Unmarshal([]byte(jsonStr), &goatResult); err == nil && goatResult.Question != "" {
-				return &multiturn.QuestionResult{
-					Question:    goatResult.Question,
-					Strategy:    goatResult.Strategy,
-					Observation: goatResult.Observation,
-					Thought:     goatResult.Thought,
-					Summary:     goatResult.Summary,
-				}
-			}
-		}
-	}
-
-	// Fall back to standard ExtractJSON for simpler question/strategy format
-	return multiturn.ExtractJSON(output)
+	return multiturn.ExtractExtendedJSON(output)
 }

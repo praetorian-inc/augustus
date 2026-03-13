@@ -9,9 +9,6 @@
 package mischievous
 
 import (
-	"encoding/json"
-	"strings"
-
 	"github.com/praetorian-inc/augustus/internal/multiturn"
 )
 
@@ -48,35 +45,5 @@ func (s *Strategy) FeedbackPrompt(response string, score float64, goal string) s
 
 // ParseAttackerResponse extracts the question and strategy from attacker output.
 func (s *Strategy) ParseAttackerResponse(output string) *multiturn.QuestionResult {
-	output = strings.TrimSpace(output)
-	var result struct {
-		Thought  string `json:"thought"`
-		Strategy string `json:"strategy"`
-		Question string `json:"question"`
-		Summary  string `json:"summary"`
-	}
-	if err := json.Unmarshal([]byte(output), &result); err == nil && result.Question != "" {
-		return &multiturn.QuestionResult{
-			Question: result.Question,
-			Strategy: result.Strategy,
-			Thought:  result.Thought,
-			Summary:  result.Summary,
-		}
-	}
-	start := strings.Index(output, "{")
-	if start != -1 {
-		end := strings.LastIndex(output, "}")
-		if end > start {
-			jsonStr := output[start : end+1]
-			if err := json.Unmarshal([]byte(jsonStr), &result); err == nil && result.Question != "" {
-				return &multiturn.QuestionResult{
-					Question: result.Question,
-					Strategy: result.Strategy,
-					Thought:  result.Thought,
-					Summary:  result.Summary,
-				}
-			}
-		}
-	}
-	return multiturn.ExtractJSON(output)
+	return multiturn.ExtractExtendedJSON(output)
 }

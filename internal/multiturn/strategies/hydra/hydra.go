@@ -5,9 +5,6 @@
 package hydra
 
 import (
-	"encoding/json"
-	"strings"
-
 	"github.com/praetorian-inc/augustus/internal/multiturn"
 )
 
@@ -46,45 +43,5 @@ func (s *Strategy) FeedbackPrompt(response string, score float64, goal string) s
 
 // ParseAttackerResponse extracts the question, strategy, observation, and thought from Hydra attacker output.
 func (s *Strategy) ParseAttackerResponse(output string) *multiturn.QuestionResult {
-	output = strings.TrimSpace(output)
-
-	var hydraResult struct {
-		Observation string `json:"observation"`
-		Thought     string `json:"thought"`
-		Strategy    string `json:"strategy"`
-		Question    string `json:"question"`
-		Summary     string `json:"summary"`
-	}
-
-	// Try direct parse first
-	if err := json.Unmarshal([]byte(output), &hydraResult); err == nil && hydraResult.Question != "" {
-		return &multiturn.QuestionResult{
-			Question:    hydraResult.Question,
-			Strategy:    hydraResult.Strategy,
-			Observation: hydraResult.Observation,
-			Thought:     hydraResult.Thought,
-			Summary:     hydraResult.Summary,
-		}
-	}
-
-	// Try to find JSON object within surrounding text
-	start := strings.Index(output, "{")
-	if start != -1 {
-		end := strings.LastIndex(output, "}")
-		if end > start {
-			jsonStr := output[start : end+1]
-			if err := json.Unmarshal([]byte(jsonStr), &hydraResult); err == nil && hydraResult.Question != "" {
-				return &multiturn.QuestionResult{
-					Question:    hydraResult.Question,
-					Strategy:    hydraResult.Strategy,
-					Observation: hydraResult.Observation,
-					Thought:     hydraResult.Thought,
-					Summary:     hydraResult.Summary,
-				}
-			}
-		}
-	}
-
-	// Fall back to standard ExtractJSON for simpler question/strategy format
-	return multiturn.ExtractJSON(output)
+	return multiturn.ExtractExtendedJSON(output)
 }

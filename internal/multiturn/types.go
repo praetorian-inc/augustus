@@ -87,6 +87,9 @@ type Strategy interface {
 	// SetMaxTurns configures the maximum number of turns for prompt generation.
 	// Called by the engine before the first turn so strategies can include
 	// turn-count awareness in their prompts.
+	//
+	// NOTE: Strategy instances must not be shared across goroutines. Each probe
+	// creates its own strategy instance, so this mutation is safe in practice.
 	SetMaxTurns(n int)
 
 	// AttackerSystemPrompt returns the system prompt for the attacker LLM.
@@ -118,6 +121,10 @@ func ConfigFromMap(m registry.Config, defaults Config) Config { return config.Fr
 
 // ExtractJSON extracts a QuestionResult from raw attacker output.
 func ExtractJSON(s string) *QuestionResult { return parse.ExtractJSON(s) }
+
+// ExtractExtendedJSON extracts a QuestionResult using the extended format with
+// observation/thought/strategy/question fields. Falls back to ExtractJSON.
+func ExtractExtendedJSON(s string) *QuestionResult { return parse.ExtractExtendedJSON(s) }
 
 // TruncateStr shortens a string to maxLen with ellipsis.
 func TruncateStr(s string, maxLen int) string { return parse.TruncateStr(s, maxLen) }

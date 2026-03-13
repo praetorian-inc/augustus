@@ -84,8 +84,11 @@ type Hooks struct {
 	// Use for: penalized phrase capping, backtrack decisions.
 	AfterJudge []Hook
 
-	// OnRefusal runs when the target refuses (old engine refusal-retry path).
-	// Use for: rephrase-on-refusal (crescendo/goat) vs backtrack (hydra).
+	// OnRefusal is reserved for future use. Currently, refusal handling is done
+	// inline in the engine (non-backtracking: rephrase retry loop; backtracking:
+	// via BeforeJudge fast refusal hook + AfterJudge backtrack decision).
+	// This field is retained for forward compatibility if refusal handling is
+	// extracted into hooks in the future.
 	OnRefusal []Hook
 
 	// AfterTurn runs after a turn is fully recorded.

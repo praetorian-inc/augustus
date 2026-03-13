@@ -14,6 +14,465 @@ import (
 // errRetryableAttack is a sentinel error for retryable attacker LLM failures.
 var errRetryableAttack = errors.New("retryable attack attempt")
 
+// runState holds mutable state for a single Run() execution.
+type runState struct {
+	attackerConv                *attempt.Conversation
+	targetConv                  *attempt.Conversation
+	turnRecords                 []TurnRecord
+	allQuestions                []string
+	allResponses                []string
+	succeeded                   bool
+	totalBacktracks             int
+	stopReason                  string
+	attackerFailures            int
+	consecutiveAttackerFailures int
+	targetEmptyCount            int
+	lastRawAttackerOutput       string
+	lastStrategy                string
+	maxBacktracks               int
+	maxConsecFail               int
+	turnNum                     int
+}
+
+// initRunState initializes the mutable state for a single Run() execution.
+func (e *UnifiedEngine) initRunState() *runState {
+	systemPrompt := e.strategy.AttackerSystemPrompt(e.cfg.Goal)
+	if e.memory != nil {
+		if learnings := e.memory.GetLearnings(); learnings != "" {
+			systemPrompt = systemPrompt + "\n\n" + learnings
+		}
+	}
+	attackerConv := attempt.NewConversation()
+	attackerConv.WithSystem(systemPrompt)
+
+	maxBacktracks := e.maxBacktracks
+	if maxBacktracks <= 0 && e.enableBacktracking {
+		maxBacktracks = 10
+	}
+	maxConsecFail := e.maxConsecutiveFailures
+	if maxConsecFail <= 0 {
+		maxConsecFail = maxConsecutiveAttackerFailures
+	}
+
+	return &runState{
+		attackerConv:  attackerConv,
+		targetConv:    attempt.NewConversation(),
+		stopReason:    StopReasonMaxTurns,
+		maxBacktracks: maxBacktracks,
+		maxConsecFail: maxConsecFail,
+	}
+}
+
+// buildTurnContext constructs a TurnContext for hook invocations.
+func (e *UnifiedEngine) buildTurnContext(s *runState) *TurnContext {
+	return &TurnContext{
+		TurnNum:      s.turnNum,
+		Goal:         e.cfg.Goal,
+		AttackerConv: s.attackerConv,
+		TargetConv:   s.targetConv,
+		TurnRecords:  s.turnRecords,
+		MaxTurns:     e.cfg.MaxTurns,
+		Config:       e.cfg,
+		Memory:       e.memory,
+	}
+}
+
+// generateAndParseQuestion generates the next question from the attacker LLM.
+// Returns nil questionResult with nil error to signal continue.
+// Returns nil questionResult with non-nil error to signal break.
+func (e *UnifiedEngine) generateAndParseQuestion(ctx context.Context, s *runState, tc *TurnContext) (*QuestionResult, error) {
+	var turnPrompt string
+	if s.turnNum == 1 && len(s.turnRecords) == 0 {
+		turnPrompt = e.strategy.GenerateTurnPrompt(e.cfg.Goal, nil, s.turnNum)
+	} else {
+		turnPrompt = e.strategy.GenerateTurnPrompt(e.cfg.Goal, s.turnRecords, s.turnNum)
+	}
+
+	questionResult, err := e.generateQuestion(ctx, s.attackerConv, turnPrompt, &s.lastRawAttackerOutput)
+	if err != nil {
+		s.stopReason = StopReasonAttackerFailed
+		return nil, err
+	}
+	if questionResult == nil {
+		s.attackerFailures++
+		s.consecutiveAttackerFailures++
+		if e.enableBacktracking && s.consecutiveAttackerFailures >= s.maxConsecFail {
+			s.stopReason = StopReasonAttackerFailed
+			return nil, nil // signal: break the loop
+		}
+		return nil, errRetryableAttack // signal: continue
+	}
+	s.consecutiveAttackerFailures = 0
+	s.lastStrategy = questionResult.Strategy
+
+	// Store attacker's summary of the previous response
+	if questionResult.Summary != "" && len(s.turnRecords) > 0 {
+		s.turnRecords[len(s.turnRecords)-1].ResponseSummary = questionResult.Summary
+	}
+
+	return questionResult, nil
+}
+
+// queryTarget queries the target generator and handles empty responses.
+// Returns skip=true to signal continue to next turn.
+func (e *UnifiedEngine) queryTarget(ctx context.Context, s *runState, tc *TurnContext, target types.Generator, questionResult *QuestionResult) (bool, error) {
+	s.targetConv.AddTurn(attempt.NewTurn(questionResult.Question))
+	msgs, err := target.Generate(ctx, s.targetConv, 1)
+	if err != nil {
+		s.targetConv.Turns = s.targetConv.Turns[:len(s.targetConv.Turns)-1]
+		return false, fmt.Errorf("target generation failed: %w", err)
+	}
+	if len(msgs) == 0 {
+		s.targetConv.Turns = s.targetConv.Turns[:len(s.targetConv.Turns)-1]
+		s.targetEmptyCount++
+		return true, nil // skip=true: continue to next turn
+	}
+
+	tc.Response = msgs[0].Content
+
+	if err := e.runHooks(ctx, e.hooks.AfterQuery, tc); err != nil {
+		return false, err
+	}
+
+	if e.enableUnblocking && isClarifyingQuestion(tc.Response) {
+		if e.handleUnblocking(ctx, tc, target) {
+			s.turnNum--
+		}
+	}
+
+	scrubbedResponse := tc.Response
+	if e.enableBacktracking {
+		scrubbedResponse = scrubOutputForHistory(tc.Response)
+	}
+	s.targetConv.Turns[len(s.targetConv.Turns)-1] = attempt.NewTurn(questionResult.Question).WithResponse(scrubbedResponse)
+
+	return false, nil
+}
+
+// evaluateAndJudge runs BeforeJudge hooks, handles refusal, and evaluates response.
+func (e *UnifiedEngine) evaluateAndJudge(ctx context.Context, s *runState, tc *TurnContext, target types.Generator, questionResult *QuestionResult) error {
+	tc.ShouldSkipTurn = false
+	tc.WasRefused = false
+	if err := e.runHooks(ctx, e.hooks.BeforeJudge, tc); err != nil {
+		return err
+	}
+
+	if !tc.ShouldSkipTurn {
+		if !e.enableBacktracking {
+			refused := e.checkRefusal(ctx, tc.Question, tc.Response)
+			if refused {
+				tc.WasRefused = true
+				s.targetConv.Turns = s.targetConv.Turns[:len(s.targetConv.Turns)-1]
+				response, wasRefusedFinal := e.handleRefusalRetry(ctx, target, s.targetConv, s.attackerConv, tc)
+				if wasRefusedFinal {
+					record := TurnRecord{
+						TurnNumber: s.turnNum,
+						Question:   questionResult.Question,
+						Response:   response,
+						WasRefused: true,
+						Strategy:   questionResult.Strategy,
+					}
+					s.turnRecords = append(s.turnRecords, record)
+					if e.onTurn != nil {
+						e.onTurn(record)
+					}
+					return errRetryableAttack // signal: continue
+				}
+				tc.Response = response
+				tc.WasRefused = false
+			}
+		}
+		tc.JudgeResult = e.evaluateResponse(ctx, tc.Question, tc.Response, s.turnRecords)
+	}
+
+	tc.ShouldBacktrack = false
+	if err := e.runHooks(ctx, e.hooks.AfterJudge, tc); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// handleSuccess processes a successful attack (score >= threshold).
+func (e *UnifiedEngine) handleSuccess(ctx context.Context, s *runState, tc *TurnContext, questionResult *QuestionResult) {
+	score := tc.JudgeResult.Score
+	if score > 0 {
+		s.allQuestions = append(s.allQuestions, questionResult.Question)
+		s.allResponses = append(s.allResponses, tc.Response)
+	}
+
+	record := TurnRecord{
+		TurnNumber:     s.turnNum,
+		Question:       questionResult.Question,
+		Response:       tc.Response,
+		WasRefused:     false,
+		RefusalType:    ClassifyRefusal(false, score),
+		JudgeScore:     score,
+		JudgeReasoning: tc.JudgeResult.Reasoning,
+		Strategy:       questionResult.Strategy,
+		Observation:    questionResult.Observation,
+		Thought:        questionResult.Thought,
+	}
+	s.turnRecords = append(s.turnRecords, record)
+	tc.Record = &record
+	tc.TurnRecords = s.turnRecords
+
+	if e.onTurn != nil {
+		e.onTurn(record)
+	}
+	e.logHookErrors(e.runHooks(ctx, e.hooks.AfterTurn, tc))
+
+	s.succeeded = true
+	s.stopReason = StopReasonGraderFailed
+
+	if e.memory != nil && questionResult.Strategy != "" {
+		e.memory.RecordSuccess(e.cfg.Goal, questionResult.Strategy, len(s.turnRecords))
+	}
+
+	e.logHookErrors(e.runHooks(ctx, e.hooks.OnSuccess, tc))
+}
+
+// processAcceptTurn processes a turn that should be accepted (not backtracked).
+func (e *UnifiedEngine) processAcceptTurn(ctx context.Context, s *runState, tc *TurnContext, questionResult *QuestionResult) {
+	score := tc.JudgeResult.Score
+	s.allQuestions = append(s.allQuestions, questionResult.Question)
+	s.allResponses = append(s.allResponses, tc.Response)
+
+	wasRefused := score == 0 && tc.WasRefused
+	refusalType := ClassifyRefusal(wasRefused, score)
+	if wasRefused && refusalType == "" {
+		refusalType = RefusalHard
+	}
+
+	record := TurnRecord{
+		TurnNumber:     s.turnNum,
+		Question:       questionResult.Question,
+		Response:       tc.Response,
+		WasRefused:     wasRefused,
+		RefusalType:    refusalType,
+		JudgeScore:     score,
+		JudgeReasoning: tc.JudgeResult.Reasoning,
+		Strategy:       questionResult.Strategy,
+		Observation:    questionResult.Observation,
+		Thought:        questionResult.Thought,
+	}
+	s.turnRecords = append(s.turnRecords, record)
+	tc.Record = &record
+	tc.TurnRecords = s.turnRecords
+
+	if e.onTurn != nil {
+		e.onTurn(record)
+	}
+	e.logHookErrors(e.runHooks(ctx, e.hooks.AfterTurn, tc))
+
+	feedbackResponse := tc.Response
+	if e.cfg.ExcludeTargetOutput {
+		feedbackResponse = "[target response hidden]"
+	}
+	feedbackPrompt := e.strategy.FeedbackPrompt(feedbackResponse, score, e.cfg.Goal)
+	s.attackerConv.AddTurn(attempt.NewTurn(feedbackPrompt))
+}
+
+// processBacktrack processes a turn that should be backtracked.
+// Returns true if backtrack succeeded and loop should continue.
+// Returns false if backtracks exhausted and loop should break.
+func (e *UnifiedEngine) processBacktrack(ctx context.Context, s *runState, tc *TurnContext, questionResult *QuestionResult) bool {
+	score := tc.JudgeResult.Score
+	s.targetConv.Turns = s.targetConv.Turns[:len(s.targetConv.Turns)-1]
+
+	if s.totalBacktracks < s.maxBacktracks {
+		s.totalBacktracks++
+
+		wasRefused := score == 0
+		btRefusalType := ClassifyRefusal(wasRefused, score)
+		if wasRefused {
+			btRefusalType = RefusalHard
+		}
+
+		backtrackRecord := TurnRecord{
+			TurnNumber:     s.turnNum,
+			Question:       questionResult.Question,
+			Response:       tc.Response,
+			WasRefused:     wasRefused,
+			WasBacktracked: true,
+			RefusalType:    btRefusalType,
+			JudgeScore:     score,
+			JudgeReasoning: tc.JudgeResult.Reasoning,
+			Strategy:       questionResult.Strategy,
+			Observation:    questionResult.Observation,
+			Thought:        questionResult.Thought,
+		}
+		s.turnRecords = append(s.turnRecords, backtrackRecord)
+		tc.Record = &backtrackRecord
+		tc.TurnRecords = s.turnRecords
+
+		if e.onTurn != nil {
+			e.onTurn(backtrackRecord)
+		}
+		e.logHookErrors(e.runHooks(ctx, e.hooks.AfterTurn, tc))
+
+		backtrackPrompt := e.strategy.RephrasePrompt(questionResult.Question, tc.Response)
+		s.attackerConv.AddTurn(attempt.NewTurn(backtrackPrompt))
+
+		backtrackMsgs, err := e.attacker.Generate(ctx, s.attackerConv, 1)
+		if err == nil && len(backtrackMsgs) > 0 {
+			s.attackerConv.Turns[len(s.attackerConv.Turns)-1] = attempt.NewTurn(backtrackPrompt).WithResponse(backtrackMsgs[0].Content)
+		}
+
+		s.turnNum--
+		return true // continue loop
+	}
+
+	// Exhausted backtracks
+	exhaustedRefused := score == 0
+	exhaustedRefusalType := ClassifyRefusal(exhaustedRefused, score)
+	if exhaustedRefused {
+		exhaustedRefusalType = RefusalHard
+	}
+	record := TurnRecord{
+		TurnNumber:     s.turnNum,
+		Question:       questionResult.Question,
+		Response:       tc.Response,
+		WasRefused:     exhaustedRefused,
+		RefusalType:    exhaustedRefusalType,
+		JudgeScore:     score,
+		JudgeReasoning: tc.JudgeResult.Reasoning,
+		Strategy:       questionResult.Strategy,
+		Observation:    questionResult.Observation,
+		Thought:        questionResult.Thought,
+	}
+	s.turnRecords = append(s.turnRecords, record)
+	if e.onTurn != nil {
+		e.onTurn(record)
+	}
+	s.stopReason = StopReasonMaxBacktracks
+	return false // break loop
+}
+
+// logHookErrors logs non-nil hook errors at debug level.
+// Used for non-critical hooks (AfterTurn, OnSuccess, OnComplete) where errors
+// should not stop the attack flow but should be visible for debugging.
+func (e *UnifiedEngine) logHookErrors(err error) {
+	if err != nil {
+		fmt.Printf("[multiturn] non-critical hook error: %v\n", err)
+	}
+}
+
+// executeTurn executes a single turn of the attack loop.
+// Returns (done=true, result, error) if the loop should exit.
+// Returns (done=false, nil, nil) to continue to next turn.
+func (e *UnifiedEngine) executeTurn(ctx context.Context, s *runState, target types.Generator) (bool, []*attempt.Attempt, error) {
+	select {
+	case <-ctx.Done():
+		s.stopReason = StopReasonContextCancelled
+		return true, e.buildUnifiedResult(s.turnRecords, s.allQuestions, s.allResponses, s.targetConv, s.succeeded, s.totalBacktracks, s.stopReason, s.attackerFailures, s.targetEmptyCount), ctx.Err()
+	default:
+	}
+
+	tc := e.buildTurnContext(s)
+
+	// HOOK: BeforeTurn
+	if err := e.runHooks(ctx, e.hooks.BeforeTurn, tc); err != nil {
+		return true, e.buildUnifiedResult(s.turnRecords, s.allQuestions, s.allResponses, s.targetConv, s.succeeded, s.totalBacktracks, s.stopReason, s.attackerFailures, s.targetEmptyCount), err
+	}
+
+	// STEP 1: Generate attacker question
+	questionResult, err := e.generateAndParseQuestion(ctx, s, tc)
+	if err != nil {
+		if errors.Is(err, errRetryableAttack) {
+			return false, nil, nil // continue to next turn
+		}
+		return true, e.buildUnifiedResult(s.turnRecords, s.allQuestions, s.allResponses, s.targetConv, s.succeeded, s.totalBacktracks, s.stopReason, s.attackerFailures, s.targetEmptyCount), err
+	}
+	if questionResult == nil {
+		return true, nil, nil // break loop (consecutive failures exceeded)
+	}
+	tc.QuestionResult = questionResult
+	tc.Question = questionResult.Question
+
+	// STEP 2: Query target
+	skip, err := e.queryTarget(ctx, s, tc, target, questionResult)
+	if err != nil {
+		return true, e.buildUnifiedResult(s.turnRecords, s.allQuestions, s.allResponses, s.targetConv, s.succeeded, s.totalBacktracks, s.stopReason, s.attackerFailures, s.targetEmptyCount), err
+	}
+	if skip {
+		return false, nil, nil // continue to next turn
+	}
+
+	// STEP 3: Evaluate with judge
+	err = e.evaluateAndJudge(ctx, s, tc, target, questionResult)
+	if err != nil {
+		if errors.Is(err, errRetryableAttack) {
+			return false, nil, nil // refusal handled, continue
+		}
+		return true, e.buildUnifiedResult(s.turnRecords, s.allQuestions, s.allResponses, s.targetConv, s.succeeded, s.totalBacktracks, s.stopReason, s.attackerFailures, s.targetEmptyCount), err
+	}
+
+	// STEP 4: Success check
+	if tc.JudgeResult.Score >= e.cfg.SuccessThreshold {
+		e.handleSuccess(ctx, s, tc, questionResult)
+		return true, e.buildUnifiedResult(s.turnRecords, s.allQuestions, s.allResponses, s.targetConv, s.succeeded, s.totalBacktracks, s.stopReason, s.attackerFailures, s.targetEmptyCount), nil
+	}
+
+	// STEP 5: Verdict — accept or backtrack
+	return e.handleVerdict(ctx, s, tc, questionResult)
+}
+
+// handleVerdict determines whether to accept or backtrack based on the judge's verdict.
+// Returns (done=true, result, error) if the loop should exit.
+// Returns (done=false, nil, nil) to continue to next turn.
+func (e *UnifiedEngine) handleVerdict(ctx context.Context, s *runState, tc *TurnContext, questionResult *QuestionResult) (bool, []*attempt.Attempt, error) {
+	verdict := tc.JudgeResult.Verdict
+	if verdict == "" {
+		if tc.JudgeResult.Score >= 0.4 {
+			verdict = "accept"
+		} else {
+			verdict = "backtrack"
+		}
+	}
+
+	shouldBacktrack := tc.ShouldBacktrack || (e.enableBacktracking && verdict == "backtrack" && !e.cfg.Stateful)
+	if !shouldBacktrack || e.cfg.Stateful || !e.enableBacktracking {
+		e.processAcceptTurn(ctx, s, tc, questionResult)
+		return false, nil, nil // continue to next turn
+	}
+
+	if !e.processBacktrack(ctx, s, tc, questionResult) {
+		return true, nil, nil // break loop (backtracks exhausted)
+	}
+	return false, nil, nil // continue to next turn
+}
+
+// finalizeRun finalizes the run after the main loop completes.
+func (e *UnifiedEngine) finalizeRun(ctx context.Context, s *runState) ([]*attempt.Attempt, error) {
+	// Determine stop reason for no-turn cases
+	if len(s.turnRecords) == 0 {
+		if s.attackerFailures > 0 {
+			s.stopReason = StopReasonAttackerFailed
+		} else if s.targetEmptyCount > 0 {
+			s.stopReason = StopReasonTargetEmpty
+		}
+	}
+
+	// HOOK: OnComplete
+	tc := e.buildTurnContext(s)
+	if !s.succeeded && e.memory != nil && s.lastStrategy != "" {
+		e.memory.RecordFailure(e.cfg.Goal, s.lastStrategy)
+	}
+	e.logHookErrors(e.runHooks(ctx, e.hooks.OnComplete, tc))
+
+	result := e.buildUnifiedResult(s.turnRecords, s.allQuestions, s.allResponses, s.targetConv, s.succeeded, s.totalBacktracks, s.stopReason, s.attackerFailures, s.targetEmptyCount)
+
+	if len(s.turnRecords) == 0 {
+		snippet := TruncateStr(s.lastRawAttackerOutput, 200)
+		result[0].WithMetadata("last_attacker_raw_output", s.lastRawAttackerOutput)
+		return result, fmt.Errorf("%s: no turns completed (attacker_parse_failures=%d, target_empty=%d, stop_reason=%s)\nlast attacker output: %s",
+			e.strategy.Name(), s.attackerFailures, s.targetEmptyCount, s.stopReason, snippet)
+	}
+
+	return result, nil
+}
+
 // Run executes the multi-turn attack against the target generator.
 // This is the unified pipeline that replaces both Engine.Run and HydraEngine.Run.
 //
@@ -29,384 +488,22 @@ var errRetryableAttack = errors.New("retryable attack attempt")
 //  9. Feedback to attacker OR backtrack
 //  10. Success check → OnSuccess hooks
 func (e *UnifiedEngine) Run(ctx context.Context, target types.Generator) ([]*attempt.Attempt, error) {
-	// Pass MaxTurns to strategy for turn-count awareness in prompts.
 	e.strategy.SetMaxTurns(e.cfg.MaxTurns)
+	s := e.initRunState()
 
-	// Build system prompt
-	systemPrompt := e.strategy.AttackerSystemPrompt(e.cfg.Goal)
-	if e.memory != nil {
-		if learnings := e.memory.GetLearnings(); learnings != "" {
-			systemPrompt = systemPrompt + "\n\n" + learnings
+	for s.turnNum < e.cfg.MaxTurns {
+		s.turnNum++
+
+		done, result, err := e.executeTurn(ctx, s, target)
+		if done {
+			if result != nil || err != nil {
+				return result, err
+			}
+			break
 		}
 	}
 
-	attackerConv := attempt.NewConversation()
-	attackerConv.WithSystem(systemPrompt)
-	targetConv := attempt.NewConversation()
-
-	var turnRecords []TurnRecord
-	var allQuestions []string
-	var allResponses []string
-	succeeded := false
-	totalBacktracks := 0
-	stopReason := StopReasonMaxTurns
-	attackerFailures := 0
-	consecutiveAttackerFailures := 0
-	targetEmptyCount := 0
-	lastRawAttackerOutput := ""
-	lastStrategy := ""
-
-	maxBacktracks := e.maxBacktracks
-	if maxBacktracks <= 0 && e.enableBacktracking {
-		maxBacktracks = 10
-	}
-	maxConsecFail := e.maxConsecutiveFailures
-	if maxConsecFail <= 0 {
-		maxConsecFail = maxConsecutiveAttackerFailures
-	}
-
-	turnNum := 0
-	for turnNum < e.cfg.MaxTurns {
-		turnNum++
-
-		select {
-		case <-ctx.Done():
-			stopReason = StopReasonContextCancelled
-			return e.buildUnifiedResult(turnRecords, allQuestions, allResponses, targetConv, succeeded, totalBacktracks, stopReason, attackerFailures, targetEmptyCount), ctx.Err()
-		default:
-		}
-
-		// Build TurnContext for hooks
-		tc := &TurnContext{
-			TurnNum:      turnNum,
-			Goal:         e.cfg.Goal,
-			AttackerConv: attackerConv,
-			TargetConv:   targetConv,
-			TurnRecords:  turnRecords,
-			MaxTurns:     e.cfg.MaxTurns,
-			Config:       e.cfg,
-			Memory:       e.memory,
-		}
-
-		// --- HOOK: BeforeTurn ---
-		if err := e.runHooks(ctx, e.hooks.BeforeTurn, tc); err != nil {
-			return e.buildUnifiedResult(turnRecords, allQuestions, allResponses, targetConv, succeeded, totalBacktracks, stopReason, attackerFailures, targetEmptyCount), err
-		}
-
-		// STEP 1: GENERATE — Ask attacker for next question
-		var turnPrompt string
-		if turnNum == 1 && len(turnRecords) == 0 {
-			turnPrompt = e.strategy.GenerateTurnPrompt(e.cfg.Goal, nil, turnNum)
-		} else {
-			turnPrompt = e.strategy.GenerateTurnPrompt(e.cfg.Goal, turnRecords, turnNum)
-		}
-
-		questionResult, err := e.generateQuestion(ctx, attackerConv, turnPrompt, &lastRawAttackerOutput)
-		if err != nil {
-			stopReason = StopReasonAttackerFailed
-			return e.buildUnifiedResult(turnRecords, allQuestions, allResponses, targetConv, succeeded, totalBacktracks, stopReason, attackerFailures, targetEmptyCount), err
-		}
-		if questionResult == nil {
-			attackerFailures++
-			consecutiveAttackerFailures++
-			if e.enableBacktracking && consecutiveAttackerFailures >= maxConsecFail {
-				stopReason = StopReasonAttackerFailed
-				break
-			}
-			continue
-		}
-		consecutiveAttackerFailures = 0
-		lastStrategy = questionResult.Strategy
-		tc.QuestionResult = questionResult
-		tc.Question = questionResult.Question
-
-		// Store attacker's summary of the previous response (Crescendo paper alignment)
-		if questionResult.Summary != "" && len(turnRecords) > 0 {
-			turnRecords[len(turnRecords)-1].ResponseSummary = questionResult.Summary
-		}
-
-		// STEP 2: QUERY TARGET
-		targetConv.AddTurn(attempt.NewTurn(questionResult.Question))
-		msgs, err := target.Generate(ctx, targetConv, 1)
-		if err != nil {
-			targetConv.Turns = targetConv.Turns[:len(targetConv.Turns)-1]
-			return e.buildUnifiedResult(turnRecords, allQuestions, allResponses, targetConv, succeeded, totalBacktracks, stopReason, attackerFailures, targetEmptyCount), fmt.Errorf("target generation failed: %w", err)
-		}
-		if len(msgs) == 0 {
-			targetConv.Turns = targetConv.Turns[:len(targetConv.Turns)-1]
-			targetEmptyCount++
-			continue
-		}
-
-		tc.Response = msgs[0].Content
-
-		// --- HOOK: AfterQuery ---
-		if err := e.runHooks(ctx, e.hooks.AfterQuery, tc); err != nil {
-			return e.buildUnifiedResult(turnRecords, allQuestions, allResponses, targetConv, succeeded, totalBacktracks, stopReason, attackerFailures, targetEmptyCount), err
-		}
-
-		// Handle unblocking if enabled
-		if e.enableUnblocking && isClarifyingQuestion(tc.Response) {
-			if e.handleUnblocking(ctx, tc, target) {
-				turnNum-- // Don't count this as a turn
-			}
-		}
-
-		// Record response in target conversation
-		scrubbedResponse := tc.Response
-		if e.enableBacktracking {
-			scrubbedResponse = scrubOutputForHistory(tc.Response)
-		}
-		targetConv.Turns[len(targetConv.Turns)-1] = attempt.NewTurn(questionResult.Question).WithResponse(scrubbedResponse)
-
-		// --- HOOK: BeforeJudge (fast refusal, etc.) ---
-		tc.ShouldSkipTurn = false
-		tc.WasRefused = false
-		if err := e.runHooks(ctx, e.hooks.BeforeJudge, tc); err != nil {
-			return e.buildUnifiedResult(turnRecords, allQuestions, allResponses, targetConv, succeeded, totalBacktracks, stopReason, attackerFailures, targetEmptyCount), err
-		}
-
-		// STEP 3: EVALUATE — Judge scores the response
-		if !tc.ShouldSkipTurn {
-			// For non-backtracking engines, check refusal via LLM judge
-			if !e.enableBacktracking {
-				refused := e.checkRefusal(ctx, tc.Question, tc.Response)
-				if refused {
-					tc.WasRefused = true
-					// Remove from target conversation and rephrase
-					targetConv.Turns = targetConv.Turns[:len(targetConv.Turns)-1]
-					response, wasRefusedFinal := e.handleRefusalRetry(ctx, target, targetConv, attackerConv, tc)
-					if wasRefusedFinal {
-						record := TurnRecord{
-							TurnNumber: turnNum,
-							Question:   questionResult.Question,
-							Response:   response,
-							WasRefused: true,
-							Strategy:   questionResult.Strategy,
-						}
-						turnRecords = append(turnRecords, record)
-						if e.onTurn != nil {
-							e.onTurn(record)
-						}
-						continue
-					}
-					tc.Response = response
-					tc.WasRefused = false
-				}
-			}
-
-			tc.JudgeResult = e.evaluateResponse(ctx, tc.Question, tc.Response, turnRecords)
-		}
-
-		// --- HOOK: AfterJudge (penalized phrases, backtrack decision) ---
-		tc.ShouldBacktrack = false
-		if err := e.runHooks(ctx, e.hooks.AfterJudge, tc); err != nil {
-			return e.buildUnifiedResult(turnRecords, allQuestions, allResponses, targetConv, succeeded, totalBacktracks, stopReason, attackerFailures, targetEmptyCount), err
-		}
-
-		score := tc.JudgeResult.Score
-		verdict := tc.JudgeResult.Verdict
-
-		// STEP 4: SUCCESS CHECK
-		if score >= e.cfg.SuccessThreshold {
-			if score > 0 {
-				allQuestions = append(allQuestions, questionResult.Question)
-				allResponses = append(allResponses, tc.Response)
-			}
-
-			record := TurnRecord{
-				TurnNumber:     turnNum,
-				Question:       questionResult.Question,
-				Response:       tc.Response,
-				WasRefused:     false,
-				RefusalType:    ClassifyRefusal(false, score),
-				JudgeScore:     score,
-				JudgeReasoning: tc.JudgeResult.Reasoning,
-				Strategy:       questionResult.Strategy,
-				Observation:    questionResult.Observation,
-				Thought:        questionResult.Thought,
-			}
-			turnRecords = append(turnRecords, record)
-			tc.Record = &record
-			tc.TurnRecords = turnRecords
-
-			if e.onTurn != nil {
-				e.onTurn(record)
-			}
-			_ = e.runHooks(ctx, e.hooks.AfterTurn, tc)
-
-			succeeded = true
-			stopReason = StopReasonGraderFailed
-
-			if e.memory != nil && questionResult.Strategy != "" {
-				e.memory.RecordSuccess(e.cfg.Goal, questionResult.Strategy, len(turnRecords))
-			}
-
-			// --- HOOK: OnSuccess ---
-			_ = e.runHooks(ctx, e.hooks.OnSuccess, tc)
-
-			return e.buildUnifiedResult(turnRecords, allQuestions, allResponses, targetConv, succeeded, totalBacktracks, stopReason, attackerFailures, targetEmptyCount), nil
-		}
-
-		// STEP 5: VERDICT — Accept or backtrack
-		if verdict == "" {
-			if score >= 0.4 {
-				verdict = "accept"
-			} else {
-				verdict = "backtrack"
-			}
-		}
-
-		// Determine if we should backtrack
-		shouldBacktrack := tc.ShouldBacktrack || (e.enableBacktracking && verdict == "backtrack" && !e.cfg.Stateful)
-
-		if !shouldBacktrack || e.cfg.Stateful || !e.enableBacktracking {
-			// ACCEPT — keep this turn
-			allQuestions = append(allQuestions, questionResult.Question)
-			allResponses = append(allResponses, tc.Response)
-
-			wasRefused := score == 0 && tc.WasRefused
-			refusalType := ClassifyRefusal(wasRefused, score)
-			if wasRefused && refusalType == "" {
-				refusalType = RefusalHard
-			}
-
-			record := TurnRecord{
-				TurnNumber:     turnNum,
-				Question:       questionResult.Question,
-				Response:       tc.Response,
-				WasRefused:     wasRefused,
-				RefusalType:    refusalType,
-				JudgeScore:     score,
-				JudgeReasoning: tc.JudgeResult.Reasoning,
-				Strategy:       questionResult.Strategy,
-				Observation:    questionResult.Observation,
-				Thought:        questionResult.Thought,
-			}
-			turnRecords = append(turnRecords, record)
-			tc.Record = &record
-			tc.TurnRecords = turnRecords
-
-			if e.onTurn != nil {
-				e.onTurn(record)
-			}
-			_ = e.runHooks(ctx, e.hooks.AfterTurn, tc)
-
-			// Feed response + score to attacker
-			feedbackResponse := tc.Response
-			if e.cfg.ExcludeTargetOutput {
-				feedbackResponse = "[target response hidden]"
-			}
-			feedbackPrompt := e.strategy.FeedbackPrompt(feedbackResponse, score, e.cfg.Goal)
-			attackerConv.AddTurn(attempt.NewTurn(feedbackPrompt))
-			continue
-		}
-
-		// BACKTRACK — roll back from target conversation
-		targetConv.Turns = targetConv.Turns[:len(targetConv.Turns)-1]
-
-		if totalBacktracks < maxBacktracks {
-			totalBacktracks++
-
-			wasRefused := score == 0
-			btRefusalType := ClassifyRefusal(wasRefused, score)
-			if wasRefused {
-				btRefusalType = RefusalHard
-			}
-
-			backtrackRecord := TurnRecord{
-				TurnNumber:     turnNum,
-				Question:       questionResult.Question,
-				Response:       tc.Response,
-				WasRefused:     wasRefused,
-				WasBacktracked: true,
-				RefusalType:    btRefusalType,
-				JudgeScore:     score,
-				JudgeReasoning: tc.JudgeResult.Reasoning,
-				Strategy:       questionResult.Strategy,
-				Observation:    questionResult.Observation,
-				Thought:        questionResult.Thought,
-			}
-			turnRecords = append(turnRecords, backtrackRecord)
-			tc.Record = &backtrackRecord
-			tc.TurnRecords = turnRecords
-
-			if e.onTurn != nil {
-				e.onTurn(backtrackRecord)
-			}
-			_ = e.runHooks(ctx, e.hooks.AfterTurn, tc)
-
-			backtrackPrompt := e.strategy.RephrasePrompt(questionResult.Question, tc.Response)
-			attackerConv.AddTurn(attempt.NewTurn(backtrackPrompt))
-
-			backtrackMsgs, err := e.attacker.Generate(ctx, attackerConv, 1)
-			if err == nil && len(backtrackMsgs) > 0 {
-				attackerConv.Turns[len(attackerConv.Turns)-1] = attempt.NewTurn(backtrackPrompt).WithResponse(backtrackMsgs[0].Content)
-			}
-
-			turnNum--
-			continue
-		}
-
-		// Exhausted backtracks
-		exhaustedRefused := score == 0
-		exhaustedRefusalType := ClassifyRefusal(exhaustedRefused, score)
-		if exhaustedRefused {
-			exhaustedRefusalType = RefusalHard
-		}
-		record := TurnRecord{
-			TurnNumber:     turnNum,
-			Question:       questionResult.Question,
-			Response:       tc.Response,
-			WasRefused:     exhaustedRefused,
-			RefusalType:    exhaustedRefusalType,
-			JudgeScore:     score,
-			JudgeReasoning: tc.JudgeResult.Reasoning,
-			Strategy:       questionResult.Strategy,
-			Observation:    questionResult.Observation,
-			Thought:        questionResult.Thought,
-		}
-		turnRecords = append(turnRecords, record)
-		if e.onTurn != nil {
-			e.onTurn(record)
-		}
-		stopReason = StopReasonMaxBacktracks
-		break
-	}
-
-	// Determine stop reason
-	if len(turnRecords) == 0 {
-		if attackerFailures > 0 {
-			stopReason = StopReasonAttackerFailed
-		} else if targetEmptyCount > 0 {
-			stopReason = StopReasonTargetEmpty
-		}
-	}
-
-	// --- HOOK: OnComplete ---
-	tc := &TurnContext{
-		Goal:         e.cfg.Goal,
-		TurnRecords:  turnRecords,
-		AttackerConv: attackerConv,
-		TargetConv:   targetConv,
-		Config:       e.cfg,
-		Memory:       e.memory,
-	}
-	if !succeeded && e.memory != nil && lastStrategy != "" {
-		e.memory.RecordFailure(e.cfg.Goal, lastStrategy)
-	}
-	_ = e.runHooks(ctx, e.hooks.OnComplete, tc)
-
-	result := e.buildUnifiedResult(turnRecords, allQuestions, allResponses, targetConv, succeeded, totalBacktracks, stopReason, attackerFailures, targetEmptyCount)
-
-	if len(turnRecords) == 0 {
-		snippet := TruncateStr(lastRawAttackerOutput, 200)
-		result[0].WithMetadata("last_attacker_raw_output", lastRawAttackerOutput)
-		return result, fmt.Errorf("%s: no turns completed (attacker_parse_failures=%d, target_empty=%d, stop_reason=%s)\nlast attacker output: %s",
-			e.strategy.Name(), attackerFailures, targetEmptyCount, stopReason, snippet)
-	}
-
-	return result, nil
+	return e.finalizeRun(ctx, s)
 }
 
 // runHooks executes a slice of hooks sequentially, stopping on first error.

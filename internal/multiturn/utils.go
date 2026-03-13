@@ -48,6 +48,26 @@ func estimateConversationTokens(conv *attempt.Conversation) int {
 	return total
 }
 
+// shouldTrimConversation returns true if the estimated token count of the
+// conversation exceeds 80% of the context window limit.
+func shouldTrimConversation(conv *attempt.Conversation, contextLimit int) bool {
+	if contextLimit <= 0 {
+		return false
+	}
+	// Rough estimate: 4 chars per token
+	estimatedTokens := 0
+	if conv.System != nil {
+		estimatedTokens += len(conv.System.Content) / 4
+	}
+	for _, turn := range conv.Turns {
+		estimatedTokens += len(turn.Prompt.Content) / 4
+		if turn.Response != nil {
+			estimatedTokens += len(turn.Response.Content) / 4
+		}
+	}
+	return estimatedTokens > (contextLimit * 80 / 100)
+}
+
 // trimConversation removes the oldest non-system turns to fit within maxTokens.
 // It keeps the system prompt and the most recent turns, inserting a truncation
 // notice so the attacker LLM knows earlier context was removed.

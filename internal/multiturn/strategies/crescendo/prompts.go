@@ -39,7 +39,9 @@ OUTPUT FORMAT:
 
 Only output the JSON object.`
 
-// turnPrompt builds the prompt for generating the next escalating question.
+// turnPrompt builds the prompt for the next Crescendo attack turn.
+// Complexity: 18 (justified: prompt generation requires turn-phase awareness,
+// urgency messaging, history formatting, and technique selection — inherent domain complexity).
 func turnPrompt(goal string, history []multiturn.TurnRecord, turnNum, maxTurns, charBudget int) string {
 	var sb strings.Builder
 

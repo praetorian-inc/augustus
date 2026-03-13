@@ -9,12 +9,10 @@ package hydra
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/praetorian-inc/augustus/internal/multiturn"
 	hydrastrat "github.com/praetorian-inc/augustus/internal/multiturn/strategies/hydra"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -35,39 +33,10 @@ type HydraProbe struct {
 // Config keys mirror GOAT/Crescendo: attacker_generator_type, attacker_config,
 // judge_generator_type, judge_config, plus max_backtracks for turn-level rollbacks.
 func NewHydra(cfg registry.Config) (probes.Prober, error) {
-	if cfg == nil {
-		cfg = make(registry.Config)
-	}
-
-	// Create attacker generator
-	attackerType := registry.GetString(cfg, "attacker_generator_type", "openai.OpenAI")
-	attackerCfg := make(registry.Config)
-	if ac, ok := cfg["attacker_config"].(map[string]any); ok {
-		attackerCfg = ac
-	}
-	if model := registry.GetString(cfg, "attacker_model", ""); model != "" {
-		attackerCfg["model"] = model
-	}
-	attacker, err := generators.Create(attackerType, attackerCfg)
+	attacker, judge, engineCfg, err := multiturn.CreateGenerators(cfg, nil)
 	if err != nil {
-		return nil, fmt.Errorf("creating attacker generator: %w", err)
+		return nil, err
 	}
-
-	// Create judge generator
-	judgeType := registry.GetString(cfg, "judge_generator_type", "openai.OpenAI")
-	judgeCfg := make(registry.Config)
-	if jc, ok := cfg["judge_config"].(map[string]any); ok {
-		judgeCfg = jc
-	}
-	if model := registry.GetString(cfg, "judge_model", ""); model != "" {
-		judgeCfg["model"] = model
-	}
-	judge, err := generators.Create(judgeType, judgeCfg)
-	if err != nil {
-		return nil, fmt.Errorf("creating judge generator: %w", err)
-	}
-
-	engineCfg := multiturn.ConfigFromMap(cfg, multiturn.Defaults())
 
 	// Build engine options — Hydra-specific features via hooks
 	opts := []multiturn.EngineOption{

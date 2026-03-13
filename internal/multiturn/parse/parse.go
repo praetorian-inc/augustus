@@ -170,6 +170,34 @@ func ExtractJSON(s string) *QuestionResult {
 	return nil
 }
 
+// ExtractExtendedJSON extracts a QuestionResult from attacker output using the
+// extended GOAT/Hydra/Mischievous JSON format (observation/thought/strategy/question/summary fields).
+// Falls back to ExtractJSON for simpler formats.
+func ExtractExtendedJSON(output string) *QuestionResult {
+	output = strings.TrimSpace(output)
+
+	// Try parsing using the full QuestionResult struct (which already has all the json tags)
+	var result QuestionResult
+	if err := json.Unmarshal([]byte(output), &result); err == nil && result.Question != "" {
+		return &result
+	}
+
+	// Try to find JSON object within surrounding text
+	start := strings.Index(output, "{")
+	if start != -1 {
+		end := strings.LastIndex(output, "}")
+		if end > start {
+			jsonStr := output[start : end+1]
+			if err := json.Unmarshal([]byte(jsonStr), &result); err == nil && result.Question != "" {
+				return &result
+			}
+		}
+	}
+
+	// Fall back to ExtractJSON for simpler question/strategy format
+	return ExtractJSON(output)
+}
+
 // TruncateStr shortens a string to maxLen with ellipsis.
 func TruncateStr(s string, maxLen int) string {
 	if len(s) <= maxLen {
