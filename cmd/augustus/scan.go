@@ -282,14 +282,45 @@ func runScan(ctx context.Context, cfg *scanConfig, eval harnesses.Evaluator) err
 	return runScanResolved(ctx, cfg, yamlCfg, resolved, eval, nil)
 }
 
+// injectDetectorDefaults injects target generator type and model into detector config
+// as lowest-priority fallbacks for judge.Judge and judge.Refusal detectors.
+func injectDetectorDefaults(detCfg registry.Config, targetGeneratorName string, targetGeneratorConfig registry.Config) {
+	if _, hasJudgeType := detCfg["judge_generator_type"]; !hasJudgeType {
+		slog.Debug("detector inheriting judge generator type from target", "type", targetGeneratorName)
+		detCfg["judge_generator_type"] = targetGeneratorName
+	}
+	if _, hasJudgeModel := detCfg["judge_model"]; !hasJudgeModel {
+		if model, ok := targetGeneratorConfig["model"]; ok {
+			detCfg["judge_model"] = model
+		}
+	}
+}
+
 // createProbes creates probe instances from probe names.
-func createProbes(probeNames []string, yamlCfg *config.Config) ([]probes.Prober, error) {
+// Injects target generator type and config into probe config so PAIR/TAP can inherit them.
+func createProbes(probeNames []string, yamlCfg *config.Config, targetGeneratorName string, targetGeneratorConfig registry.Config) ([]probes.Prober, error) {
 	probeList := make([]probes.Prober, 0, len(probeNames))
 	for _, probeName := range probeNames {
 		var probeCfg registry.Config
 		if yamlCfg != nil {
 			probeCfg = yamlCfg.ResolveProbeConfig(probeName)
+		} else {
+			probeCfg = make(registry.Config)
 		}
+
+		// Inject target generator type and model config for PAIR/TAP inheritance
+		// Only inject if not already explicitly configured in YAML
+		if _, hasTargetType := probeCfg["target_generator_type"]; !hasTargetType {
+			slog.Debug("probe inheriting target generator type", "probe", probeName, "type", targetGeneratorName)
+			probeCfg["target_generator_type"] = targetGeneratorName
+		}
+		// Inject base model config if not already present
+		if _, hasModel := probeCfg["model"]; !hasModel {
+			if model, ok := targetGeneratorConfig["model"]; ok {
+				probeCfg["model"] = model
+			}
+		}
+
 		probe, err := probes.Create(probeName, probeCfg)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create probe %s: %w", probeName, err)
@@ -300,7 +331,7 @@ func createProbes(probeNames []string, yamlCfg *config.Config) ([]probes.Prober,
 }
 
 // createDetectors creates detector instances from explicit names or auto-discovers from probes.
-func createDetectors(detectorNames []string, probeList []probes.Prober, yamlCfg *config.Config) ([]detectors.Detector, error) {
+func createDetectors(detectorNames []string, probeList []probes.Prober, yamlCfg *config.Config, targetGeneratorName string, targetGeneratorConfig registry.Config) ([]detectors.Detector, error) {
 	var detectorList []detectors.Detector
 
 	if len(detectorNames) > 0 {
@@ -310,7 +341,12 @@ func createDetectors(detectorNames []string, probeList []probes.Prober, yamlCfg 
 			var detCfg registry.Config
 			if yamlCfg != nil {
 				detCfg = yamlCfg.ResolveDetectorConfig(detectorName)
+			} else {
+				detCfg = make(registry.Config)
 			}
+
+			injectDetectorDefaults(detCfg, targetGeneratorName, targetGeneratorConfig)
+
 			detector, err := detectors.Create(detectorName, detCfg)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create detector %s: %w", detectorName, err)
@@ -329,7 +365,12 @@ func createDetectors(detectorNames []string, probeList []probes.Prober, yamlCfg 
 			var detCfg registry.Config
 			if yamlCfg != nil {
 				detCfg = yamlCfg.ResolveDetectorConfig(detectorName)
+			} else {
+				detCfg = make(registry.Config)
 			}
+
+			injectDetectorDefaults(detCfg, targetGeneratorName, targetGeneratorConfig)
+
 			detector, err := detectors.Create(detectorName, detCfg)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create detector %s: %w", detectorName, err)
@@ -447,13 +488,13 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	}
 
 	// Create probes
-	probeList, err := createProbes(probeNames, yamlCfg)
+	probeList, err := createProbes(probeNames, yamlCfg, cfg.generatorName, resolved.GeneratorConfig)
 	if err != nil {
 		return err
 	}
 
 	// Create detectors
-	detectorList, err := createDetectors(cfg.detectorNames, probeList, yamlCfg)
+	detectorList, err := createDetectors(cfg.detectorNames, probeList, yamlCfg, cfg.generatorName, resolved.GeneratorConfig)
 	if err != nil {
 		return err
 	}
