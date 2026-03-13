@@ -14,6 +14,10 @@ import (
 
 // Strategy implements the mischievous user multi-turn attack.
 type Strategy struct {
+	// AttackerModel is the attacker model name, used to derive context-aware
+	// truncation limits for response text in prompts.
+	AttackerModel string
+
 	MaxTurns int
 }
 
@@ -30,20 +34,33 @@ func (s *Strategy) AttackerSystemPrompt(goal string) string {
 
 // GenerateTurnPrompt builds the prompt asking the attacker for the next question.
 func (s *Strategy) GenerateTurnPrompt(goal string, turnHistory []multiturn.TurnRecord, turnNum int) string {
-	return turnPrompt(goal, turnHistory, turnNum, s.MaxTurns)
+	return turnPrompt(goal, turnHistory, turnNum, s.maxTurns(), s.charBudget())
 }
 
 // RephrasePrompt builds a prompt asking the attacker to rephrase a refused question.
 func (s *Strategy) RephrasePrompt(rejectedQuestion, refusalResponse string) string {
-	return rephrasePrompt(rejectedQuestion, refusalResponse)
+	return rephrasePrompt(rejectedQuestion, refusalResponse, s.charBudget())
 }
 
 // FeedbackPrompt feeds target response + score back to the attacker.
 func (s *Strategy) FeedbackPrompt(response string, score float64, goal string) string {
-	return feedbackPrompt(response, score, goal)
+	return feedbackPrompt(response, score, goal, s.charBudget())
 }
 
 // ParseAttackerResponse extracts the question and strategy from attacker output.
 func (s *Strategy) ParseAttackerResponse(output string) *multiturn.QuestionResult {
 	return multiturn.ExtractExtendedJSON(output)
+}
+
+// charBudget returns the per-response character budget based on attacker model.
+func (s *Strategy) charBudget() int {
+	return multiturn.ResponseCharBudget(s.AttackerModel)
+}
+
+// maxTurns returns MaxTurns with a default fallback.
+func (s *Strategy) maxTurns() int {
+	if s.MaxTurns > 0 {
+		return s.MaxTurns
+	}
+	return 5 // Mischievous user is subtler, fewer turns needed (default from probe)
 }

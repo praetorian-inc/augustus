@@ -11,11 +11,8 @@
 package mischievous
 
 import (
-	"context"
-
 	"github.com/praetorian-inc/augustus/internal/multiturn"
 	mischievousstrat "github.com/praetorian-inc/augustus/internal/multiturn/strategies/mischievous"
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -26,10 +23,7 @@ func init() {
 
 // MischievousProbe wraps the unified multi-turn engine with the mischievous user strategy.
 type MischievousProbe struct {
-	engine      *multiturn.UnifiedEngine
-	name        string
-	goal        string
-	description string
+	multiturn.BaseMultiTurnProbe
 }
 
 // NewMischievousUser creates a MischievousProbe from registry config.
@@ -44,43 +38,34 @@ func NewMischievousUser(cfg registry.Config) (probes.Prober, error) {
 		return nil, err
 	}
 
-	strategy := &mischievousstrat.Strategy{MaxTurns: engineCfg.MaxTurns}
+	strategy := &mischievousstrat.Strategy{
+		AttackerModel: engineCfg.AttackerModel,
+		MaxTurns:      engineCfg.MaxTurns,
+	}
 
 	return &MischievousProbe{
-		engine:      multiturn.NewUnifiedEngine(strategy, attacker, judge, engineCfg),
-		name:        registry.GetString(cfg, "name", "mischievous.MischievousUser"),
-		goal:        engineCfg.Goal,
-		description: "Mischievous User: Subtle multi-turn attack simulating an innocent curious user (Tau-bench inspired)",
+		BaseMultiTurnProbe: multiturn.BaseMultiTurnProbe{
+			Engine:    multiturn.NewUnifiedEngine(strategy, attacker, judge, engineCfg),
+			ProbeName: registry.GetString(cfg, "name", "mischievous.MischievousUser"),
+			ProbeGoal: engineCfg.Goal,
+			ProbeDesc: "Mischievous User: Subtle multi-turn attack simulating an innocent curious user (Tau-bench inspired)",
+		},
 	}, nil
 }
-
-// Probe executes the mischievous user attack against the target generator.
-func (p *MischievousProbe) Probe(ctx context.Context, gen probes.Generator) ([]*attempt.Attempt, error) {
-	attempts, err := p.engine.Run(ctx, gen)
-	if err != nil {
-		return nil, err
-	}
-	for _, a := range attempts {
-		a.Probe = p.Name()
-		a.Detector = p.GetPrimaryDetector()
-	}
-	return attempts, nil
-}
-
-func (p *MischievousProbe) Name() string               { return p.name }
-func (p *MischievousProbe) Description() string        { return p.description }
-func (p *MischievousProbe) Goal() string               { return p.goal }
-func (p *MischievousProbe) GetPrimaryDetector() string { return "judge.Judge" }
-func (p *MischievousProbe) GetPrompts() []string       { return []string{} }
 
 // NewMischievousWithGenerators creates a MischievousProbe with pre-built generators.
 // This is primarily for testing where mock generators need to be injected.
 func NewMischievousWithGenerators(attacker, judge probes.Generator, cfg multiturn.Config) *MischievousProbe {
-	strategy := &mischievousstrat.Strategy{MaxTurns: cfg.MaxTurns}
+	strategy := &mischievousstrat.Strategy{
+		AttackerModel: cfg.AttackerModel,
+		MaxTurns:      cfg.MaxTurns,
+	}
 	return &MischievousProbe{
-		engine:      multiturn.NewUnifiedEngine(strategy, attacker, judge, cfg),
-		name:        "mischievous.MischievousUser",
-		goal:        cfg.Goal,
-		description: "Mischievous User: Subtle multi-turn attack simulating an innocent curious user (Tau-bench inspired)",
+		BaseMultiTurnProbe: multiturn.BaseMultiTurnProbe{
+			Engine:    multiturn.NewUnifiedEngine(strategy, attacker, judge, cfg),
+			ProbeName: "mischievous.MischievousUser",
+			ProbeGoal: cfg.Goal,
+			ProbeDesc: "Mischievous User: Subtle multi-turn attack simulating an innocent curious user (Tau-bench inspired)",
+		},
 	}
 }

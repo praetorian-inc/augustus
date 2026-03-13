@@ -411,3 +411,49 @@ func TestStrategy_FeedbackPromptUrgencyBranches(t *testing.T) {
 		t.Error("truncated response should end with ...")
 	}
 }
+
+func TestStrategy_CharBudget(t *testing.T) {
+	tests := []struct {
+		name          string
+		attackerModel string
+		wantBudget    int
+	}{
+		{"large context model", "gpt-4-turbo-128k", 2000},
+		{"medium context model", "gpt-4-32k", 1000},
+		{"small context model", "gpt-3.5-turbo", 600},
+		{"tiny context model", "unknown-tiny-model", 300},
+		{"empty model defaults to small", "", 300},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Strategy{AttackerModel: tt.attackerModel}
+			got := s.charBudget()
+			if got != tt.wantBudget {
+				t.Errorf("charBudget() = %d, want %d", got, tt.wantBudget)
+			}
+		})
+	}
+}
+
+func TestStrategy_MaxTurns(t *testing.T) {
+	tests := []struct {
+		name     string
+		maxTurns int
+		want     int
+	}{
+		{"custom max turns", 15, 15},
+		{"zero defaults to 10", 0, 10},
+		{"negative defaults to 10", -1, 10},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := &Strategy{MaxTurns: tt.maxTurns}
+			got := s.maxTurns()
+			if got != tt.want {
+				t.Errorf("maxTurns() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+
+	"github.com/praetorian-inc/augustus/internal/multiturn/parse"
 )
 
 // ScanMemory persists successful and failed tactics across test cases within a scan.
@@ -70,7 +72,7 @@ func (m *ScanMemory) GetLearnings() string {
 		}
 		for _, s := range m.successes[start:] {
 			sb.WriteString(fmt.Sprintf("    - Strategy %q succeeded on goal %q in %d turns\n",
-				s.Strategy, truncateStr(s.Goal, 80), s.TurnCount))
+				s.Strategy, parse.TruncateStr(s.Goal, 80), s.TurnCount))
 		}
 	}
 
@@ -83,7 +85,7 @@ func (m *ScanMemory) GetLearnings() string {
 		}
 		for _, f := range m.failures[start:] {
 			sb.WriteString(fmt.Sprintf("    - Strategy %q failed on goal %q\n",
-				f.Strategy, truncateStr(f.Goal, 80)))
+				f.Strategy, parse.TruncateStr(f.Goal, 80)))
 		}
 	}
 
@@ -96,15 +98,4 @@ func (m *ScanMemory) Len() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.successes) + len(m.failures)
-}
-
-// truncateStr shortens a string to maxLen with ellipsis.
-func truncateStr(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen <= 3 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
 }

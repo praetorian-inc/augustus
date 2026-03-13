@@ -46,6 +46,9 @@ const (
 	StopReasonTargetEmpty      = "target_empty"           // Target returned empty responses
 )
 
+// DetectorJudge is the detector name used for multi-turn judge-based scoring.
+const DetectorJudge = "judge.Judge"
+
 // TurnRecord captures one turn of a multi-turn attack for reporting and visualization.
 type TurnRecord struct {
 	TurnNumber      int     `json:"turn_number"`

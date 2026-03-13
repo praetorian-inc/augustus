@@ -8,11 +8,8 @@
 package hydra
 
 import (
-	"context"
-
 	"github.com/praetorian-inc/augustus/internal/multiturn"
 	hydrastrat "github.com/praetorian-inc/augustus/internal/multiturn/strategies/hydra"
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -23,10 +20,7 @@ func init() {
 
 // HydraProbe wraps the unified engine with Hydra-specific hooks.
 type HydraProbe struct {
-	engine      *multiturn.UnifiedEngine
-	name        string
-	goal        string
-	description string
+	multiturn.BaseMultiTurnProbe
 }
 
 // NewHydra creates a HydraProbe from registry config.
@@ -55,32 +49,20 @@ func NewHydra(cfg registry.Config) (probes.Prober, error) {
 		}
 	}
 
+	strategy := &hydrastrat.Strategy{
+		AttackerModel: engineCfg.AttackerModel,
+		MaxTurns:      engineCfg.MaxTurns,
+	}
+
 	return &HydraProbe{
-		engine:      multiturn.NewUnifiedEngine(&hydrastrat.Strategy{}, attacker, judge, engineCfg, opts...),
-		name:        registry.GetString(cfg, "name", "hydra.Hydra"),
-		goal:        engineCfg.Goal,
-		description: "Hydra: Single-path multi-turn attack with turn-level backtracking on refusal",
+		BaseMultiTurnProbe: multiturn.BaseMultiTurnProbe{
+			Engine:    multiturn.NewUnifiedEngine(strategy, attacker, judge, engineCfg, opts...),
+			ProbeName: registry.GetString(cfg, "name", "hydra.Hydra"),
+			ProbeGoal: engineCfg.Goal,
+			ProbeDesc: "Hydra: Single-path multi-turn attack with turn-level backtracking on refusal",
+		},
 	}, nil
 }
-
-// Probe executes the Hydra attack against the target generator.
-func (p *HydraProbe) Probe(ctx context.Context, gen probes.Generator) ([]*attempt.Attempt, error) {
-	attempts, err := p.engine.Run(ctx, gen)
-	if err != nil {
-		return nil, err
-	}
-	for _, a := range attempts {
-		a.Probe = p.Name()
-		a.Detector = p.GetPrimaryDetector()
-	}
-	return attempts, nil
-}
-
-func (p *HydraProbe) Name() string               { return p.name }
-func (p *HydraProbe) Description() string        { return p.description }
-func (p *HydraProbe) Goal() string               { return p.goal }
-func (p *HydraProbe) GetPrimaryDetector() string { return "judge.Judge" }
-func (p *HydraProbe) GetPrompts() []string       { return []string{} }
 
 // NewHydraWithGenerators creates a HydraProbe with pre-built generators.
 // This is primarily for testing where mock generators need to be injected.
@@ -97,10 +79,17 @@ func NewHydraWithGenerators(attacker, judge probes.Generator, cfg multiturn.Conf
 	}
 	allOpts := append(defaultOpts, opts...)
 
+	strategy := &hydrastrat.Strategy{
+		AttackerModel: cfg.AttackerModel,
+		MaxTurns:      cfg.MaxTurns,
+	}
+
 	return &HydraProbe{
-		engine:      multiturn.NewUnifiedEngine(&hydrastrat.Strategy{}, attacker, judge, cfg, allOpts...),
-		name:        "hydra.Hydra",
-		goal:        cfg.Goal,
-		description: "Hydra: Single-path multi-turn attack with turn-level backtracking on refusal",
+		BaseMultiTurnProbe: multiturn.BaseMultiTurnProbe{
+			Engine:    multiturn.NewUnifiedEngine(strategy, attacker, judge, cfg, allOpts...),
+			ProbeName: "hydra.Hydra",
+			ProbeGoal: cfg.Goal,
+			ProbeDesc: "Hydra: Single-path multi-turn attack with turn-level backtracking on refusal",
+		},
 	}
 }

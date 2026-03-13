@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/praetorian-inc/augustus/internal/multiturn/refusal"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -13,6 +14,66 @@ import (
 
 // errRetryableAttack is a sentinel error for retryable attacker LLM failures.
 var errRetryableAttack = errors.New("retryable attack attempt")
+
+// UnifiedEngine is the single engine that powers all multi-turn attack strategies.
+// It replaces both Engine and HydraEngine with a hook-based pipeline.
+type UnifiedEngine struct {
+	strategy Strategy
+	attacker types.Generator
+	judge    types.Generator
+	cfg      Config
+	hooks    Hooks
+	memory   *ScanMemory
+	onTurn   func(TurnRecord)
+
+	// Feature flags (set via options)
+	enableBacktracking     bool
+	maxBacktracks          int
+	enableUnblocking       bool
+	maxConsecutiveFailures int
+	enableAttackerNudge    bool
+}
+
+// NewUnifiedEngine creates a unified engine with the given strategy, generators,
+// config, and optional hooks/features via EngineOption.
+func NewUnifiedEngine(strategy Strategy, attacker, judge types.Generator, cfg Config, opts ...EngineOption) *UnifiedEngine {
+	e := &UnifiedEngine{
+		strategy: strategy,
+		attacker: attacker,
+		judge:    judge,
+		cfg:      cfg,
+	}
+	for _, opt := range opts {
+		opt(e)
+	}
+	return e
+}
+
+// SetTurnCallback sets an optional callback fired after each completed turn.
+func (e *UnifiedEngine) SetTurnCallback(cb func(TurnRecord)) {
+	e.onTurn = cb
+}
+
+// newTurnRecord creates a TurnRecord from the current turn state.
+func newTurnRecord(s *runState, qr *QuestionResult, response string, wasRefused, wasBacktracked bool, judgeResult SuccessJudgeResult) TurnRecord {
+	refusalType := ClassifyRefusal(wasRefused, judgeResult.Score)
+	if wasRefused && refusalType == "" {
+		refusalType = RefusalHard
+	}
+	return TurnRecord{
+		TurnNumber:     s.turnNum,
+		Question:       qr.Question,
+		Response:       response,
+		WasRefused:     wasRefused,
+		WasBacktracked: wasBacktracked,
+		RefusalType:    refusalType,
+		JudgeScore:     judgeResult.Score,
+		JudgeReasoning: judgeResult.Reasoning,
+		Strategy:       qr.Strategy,
+		Observation:    qr.Observation,
+		Thought:        qr.Thought,
+	}
+}
 
 // runState holds mutable state for a single Run() execution.
 type runState struct {
@@ -201,18 +262,7 @@ func (e *UnifiedEngine) handleSuccess(ctx context.Context, s *runState, tc *Turn
 		s.allResponses = append(s.allResponses, tc.Response)
 	}
 
-	record := TurnRecord{
-		TurnNumber:     s.turnNum,
-		Question:       questionResult.Question,
-		Response:       tc.Response,
-		WasRefused:     false,
-		RefusalType:    ClassifyRefusal(false, score),
-		JudgeScore:     score,
-		JudgeReasoning: tc.JudgeResult.Reasoning,
-		Strategy:       questionResult.Strategy,
-		Observation:    questionResult.Observation,
-		Thought:        questionResult.Thought,
-	}
+	record := newTurnRecord(s, questionResult, tc.Response, false, false, tc.JudgeResult)
 	s.turnRecords = append(s.turnRecords, record)
 	tc.Record = &record
 	tc.TurnRecords = s.turnRecords
@@ -239,23 +289,7 @@ func (e *UnifiedEngine) processAcceptTurn(ctx context.Context, s *runState, tc *
 	s.allResponses = append(s.allResponses, tc.Response)
 
 	wasRefused := score == 0 && tc.WasRefused
-	refusalType := ClassifyRefusal(wasRefused, score)
-	if wasRefused && refusalType == "" {
-		refusalType = RefusalHard
-	}
-
-	record := TurnRecord{
-		TurnNumber:     s.turnNum,
-		Question:       questionResult.Question,
-		Response:       tc.Response,
-		WasRefused:     wasRefused,
-		RefusalType:    refusalType,
-		JudgeScore:     score,
-		JudgeReasoning: tc.JudgeResult.Reasoning,
-		Strategy:       questionResult.Strategy,
-		Observation:    questionResult.Observation,
-		Thought:        questionResult.Thought,
-	}
+	record := newTurnRecord(s, questionResult, tc.Response, wasRefused, false, tc.JudgeResult)
 	s.turnRecords = append(s.turnRecords, record)
 	tc.Record = &record
 	tc.TurnRecords = s.turnRecords
@@ -284,24 +318,7 @@ func (e *UnifiedEngine) processBacktrack(ctx context.Context, s *runState, tc *T
 		s.totalBacktracks++
 
 		wasRefused := score == 0
-		btRefusalType := ClassifyRefusal(wasRefused, score)
-		if wasRefused {
-			btRefusalType = RefusalHard
-		}
-
-		backtrackRecord := TurnRecord{
-			TurnNumber:     s.turnNum,
-			Question:       questionResult.Question,
-			Response:       tc.Response,
-			WasRefused:     wasRefused,
-			WasBacktracked: true,
-			RefusalType:    btRefusalType,
-			JudgeScore:     score,
-			JudgeReasoning: tc.JudgeResult.Reasoning,
-			Strategy:       questionResult.Strategy,
-			Observation:    questionResult.Observation,
-			Thought:        questionResult.Thought,
-		}
+		backtrackRecord := newTurnRecord(s, questionResult, tc.Response, wasRefused, true, tc.JudgeResult)
 		s.turnRecords = append(s.turnRecords, backtrackRecord)
 		tc.Record = &backtrackRecord
 		tc.TurnRecords = s.turnRecords
@@ -325,22 +342,7 @@ func (e *UnifiedEngine) processBacktrack(ctx context.Context, s *runState, tc *T
 
 	// Exhausted backtracks
 	exhaustedRefused := score == 0
-	exhaustedRefusalType := ClassifyRefusal(exhaustedRefused, score)
-	if exhaustedRefused {
-		exhaustedRefusalType = RefusalHard
-	}
-	record := TurnRecord{
-		TurnNumber:     s.turnNum,
-		Question:       questionResult.Question,
-		Response:       tc.Response,
-		WasRefused:     exhaustedRefused,
-		RefusalType:    exhaustedRefusalType,
-		JudgeScore:     score,
-		JudgeReasoning: tc.JudgeResult.Reasoning,
-		Strategy:       questionResult.Strategy,
-		Observation:    questionResult.Observation,
-		Thought:        questionResult.Thought,
-	}
+	record := newTurnRecord(s, questionResult, tc.Response, exhaustedRefused, false, tc.JudgeResult)
 	s.turnRecords = append(s.turnRecords, record)
 	if e.onTurn != nil {
 		e.onTurn(record)
@@ -354,7 +356,7 @@ func (e *UnifiedEngine) processBacktrack(ctx context.Context, s *runState, tc *T
 // should not stop the attack flow but should be visible for debugging.
 func (e *UnifiedEngine) logHookErrors(err error) {
 	if err != nil {
-		fmt.Printf("[multiturn] non-critical hook error: %v\n", err)
+		slog.Warn("[multiturn] non-critical hook error", "error", err)
 	}
 }
 
@@ -365,7 +367,7 @@ func (e *UnifiedEngine) executeTurn(ctx context.Context, s *runState, target typ
 	select {
 	case <-ctx.Done():
 		s.stopReason = StopReasonContextCancelled
-		return true, e.buildUnifiedResult(s.turnRecords, s.allQuestions, s.allResponses, s.targetConv, s.succeeded, s.totalBacktracks, s.stopReason, s.attackerFailures, s.targetEmptyCount), ctx.Err()
+		return true, e.buildUnifiedResult(s), ctx.Err()
 	default:
 	}
 
@@ -373,7 +375,7 @@ func (e *UnifiedEngine) executeTurn(ctx context.Context, s *runState, target typ
 
 	// HOOK: BeforeTurn
 	if err := e.runHooks(ctx, e.hooks.BeforeTurn, tc); err != nil {
-		return true, e.buildUnifiedResult(s.turnRecords, s.allQuestions, s.allResponses, s.targetConv, s.succeeded, s.totalBacktracks, s.stopReason, s.attackerFailures, s.targetEmptyCount), err
+		return true, e.buildUnifiedResult(s), err
 	}
 
 	// STEP 1: Generate attacker question
@@ -382,7 +384,7 @@ func (e *UnifiedEngine) executeTurn(ctx context.Context, s *runState, target typ
 		if errors.Is(err, errRetryableAttack) {
 			return false, nil, nil // continue to next turn
 		}
-		return true, e.buildUnifiedResult(s.turnRecords, s.allQuestions, s.allResponses, s.targetConv, s.succeeded, s.totalBacktracks, s.stopReason, s.attackerFailures, s.targetEmptyCount), err
+		return true, e.buildUnifiedResult(s), err
 	}
 	if questionResult == nil {
 		return true, nil, nil // break loop (consecutive failures exceeded)
@@ -393,7 +395,7 @@ func (e *UnifiedEngine) executeTurn(ctx context.Context, s *runState, target typ
 	// STEP 2: Query target
 	skip, err := e.queryTarget(ctx, s, tc, target, questionResult)
 	if err != nil {
-		return true, e.buildUnifiedResult(s.turnRecords, s.allQuestions, s.allResponses, s.targetConv, s.succeeded, s.totalBacktracks, s.stopReason, s.attackerFailures, s.targetEmptyCount), err
+		return true, e.buildUnifiedResult(s), err
 	}
 	if skip {
 		return false, nil, nil // continue to next turn
@@ -405,13 +407,13 @@ func (e *UnifiedEngine) executeTurn(ctx context.Context, s *runState, target typ
 		if errors.Is(err, errRetryableAttack) {
 			return false, nil, nil // refusal handled, continue
 		}
-		return true, e.buildUnifiedResult(s.turnRecords, s.allQuestions, s.allResponses, s.targetConv, s.succeeded, s.totalBacktracks, s.stopReason, s.attackerFailures, s.targetEmptyCount), err
+		return true, e.buildUnifiedResult(s), err
 	}
 
 	// STEP 4: Success check
 	if tc.JudgeResult.Score >= e.cfg.SuccessThreshold {
 		e.handleSuccess(ctx, s, tc, questionResult)
-		return true, e.buildUnifiedResult(s.turnRecords, s.allQuestions, s.allResponses, s.targetConv, s.succeeded, s.totalBacktracks, s.stopReason, s.attackerFailures, s.targetEmptyCount), nil
+		return true, e.buildUnifiedResult(s), nil
 	}
 
 	// STEP 5: Verdict — accept or backtrack
@@ -461,7 +463,7 @@ func (e *UnifiedEngine) finalizeRun(ctx context.Context, s *runState) ([]*attemp
 	}
 	e.logHookErrors(e.runHooks(ctx, e.hooks.OnComplete, tc))
 
-	result := e.buildUnifiedResult(s.turnRecords, s.allQuestions, s.allResponses, s.targetConv, s.succeeded, s.totalBacktracks, s.stopReason, s.attackerFailures, s.targetEmptyCount)
+	result := e.buildUnifiedResult(s)
 
 	if len(s.turnRecords) == 0 {
 		snippet := TruncateStr(s.lastRawAttackerOutput, 200)
@@ -595,7 +597,8 @@ func (e *UnifiedEngine) handleRefusalRetry(
 		targetConv.AddTurn(attempt.NewTurn(currentQuestion))
 		msgs, err := target.Generate(ctx, targetConv, 1)
 		if err != nil {
-			targetConv.Turns = targetConv.Turns[:len(targetConv.Turns)-1]
+		slog.Warn("[multiturn] target error during refusal retry", "error", err)
+		targetConv.Turns = targetConv.Turns[:len(targetConv.Turns)-1]
 			return "", false
 		}
 		if len(msgs) == 0 {
@@ -644,6 +647,9 @@ func (e *UnifiedEngine) checkRefusal(ctx context.Context, question, response str
 
 	msgs, err := e.judge.Generate(ctx, conv, 1)
 	if err != nil || len(msgs) == 0 {
+		if err != nil {
+			slog.Warn("[multiturn] judge error in refusal check", "error", err)
+		}
 		return false
 	}
 
@@ -658,6 +664,9 @@ func (e *UnifiedEngine) evaluateResponse(ctx context.Context, question, response
 
 	msgs, err := e.judge.Generate(ctx, conv, 1)
 	if err != nil || len(msgs) == 0 {
+		if err != nil {
+			slog.Warn("[multiturn] judge error in response evaluation", "error", err)
+		}
 		return SuccessJudgeResult{Score: 0, Reasoning: "judge error"}
 	}
 
@@ -682,6 +691,9 @@ func (e *UnifiedEngine) secondaryJudge(ctx context.Context, primaryReasoning, qu
 
 	msgs, err := e.judge.Generate(ctx, conv, 1)
 	if err != nil || len(msgs) == 0 {
+		if err != nil {
+			slog.Warn("[multiturn] secondary judge error", "error", err)
+		}
 		return SuccessJudgeResult{Score: 0, Reasoning: "secondary judge error"}
 	}
 
@@ -715,7 +727,10 @@ func (e *UnifiedEngine) handleUnblocking(ctx context.Context, tc *TurnContext, t
 
 	msgs, err := e.attacker.Generate(ctx, tc.AttackerConv, 1)
 	if err != nil || len(msgs) == 0 {
-		tc.AttackerConv.Turns = tc.AttackerConv.Turns[:len(tc.AttackerConv.Turns)-1]
+		if err != nil {
+		slog.Warn("[multiturn] attacker error during unblocking", "error", err)
+	}
+	tc.AttackerConv.Turns = tc.AttackerConv.Turns[:len(tc.AttackerConv.Turns)-1]
 		return false
 	}
 
@@ -752,55 +767,46 @@ func (e *UnifiedEngine) handleUnblocking(ctx context.Context, tc *TurnContext, t
 }
 
 // buildUnifiedResult constructs the final Attempt from collected turn data.
-func (e *UnifiedEngine) buildUnifiedResult(
-	turnRecords []TurnRecord,
-	allQuestions, allResponses []string,
-	targetConv *attempt.Conversation,
-	succeeded bool,
-	totalBacktracks int,
-	stopReason string,
-	attackerFailures int,
-	targetEmptyCount int,
-) []*attempt.Attempt {
+func (e *UnifiedEngine) buildUnifiedResult(s *runState) []*attempt.Attempt {
 	primaryPrompt := ""
-	if len(allQuestions) > 0 {
-		primaryPrompt = allQuestions[0]
+	if len(s.allQuestions) > 0 {
+		primaryPrompt = s.allQuestions[0]
 	}
 
 	a := attempt.New(primaryPrompt)
-	a.Prompts = allQuestions
-	for _, resp := range allResponses {
+	a.Prompts = s.allQuestions
+	for _, resp := range s.allResponses {
 		a.AddOutput(resp)
 	}
 
-	a.Conversations = []*attempt.Conversation{targetConv.Clone()}
+	a.Conversations = []*attempt.Conversation{s.targetConv.Clone()}
 
 	maxScore := 0.0
-	for _, tr := range turnRecords {
+	for _, tr := range s.turnRecords {
 		if tr.JudgeScore > maxScore {
 			maxScore = tr.JudgeScore
 		}
 	}
 	a.AddScore(maxScore)
-	a.SetDetectorResults("judge.Judge", []float64{maxScore})
+	a.SetDetectorResults(DetectorJudge, []float64{maxScore})
 
 	a.WithMetadata("attack_type", e.strategy.Name())
 	a.WithMetadata("goal", e.cfg.Goal)
-	a.WithMetadata("total_turns", len(turnRecords))
-	a.WithMetadata("succeeded", succeeded)
-	a.WithMetadata("turn_records", turnRecords)
-	a.WithMetadata("attacker_failures", attackerFailures)
+	a.WithMetadata("total_turns", len(s.turnRecords))
+	a.WithMetadata("succeeded", s.succeeded)
+	a.WithMetadata("turn_records", s.turnRecords)
+	a.WithMetadata("attacker_failures", s.attackerFailures)
 
 	// Backtracking-specific metadata
 	if e.enableBacktracking {
-		a.WithMetadata("total_backtracks", totalBacktracks)
-		a.WithMetadata("stop_reason", stopReason)
-		a.WithMetadata("target_empty_responses", targetEmptyCount)
+		a.WithMetadata("total_backtracks", s.totalBacktracks)
+		a.WithMetadata("stop_reason", s.stopReason)
+		a.WithMetadata("target_empty_responses", s.targetEmptyCount)
 
 		// Build redteam_history
 		var redteamHistory []map[string]string
 		nonBacktrackedCount := 0
-		for _, tr := range turnRecords {
+		for _, tr := range s.turnRecords {
 			if !tr.WasBacktracked {
 				redteamHistory = append(redteamHistory, map[string]string{
 					"prompt": tr.Question,
@@ -811,8 +817,8 @@ func (e *UnifiedEngine) buildUnifiedResult(
 		}
 		a.WithMetadata("redteam_history", redteamHistory)
 		a.WithMetadata("hydra_rounds_completed", nonBacktrackedCount)
-		a.WithMetadata("hydra_backtrack_count", totalBacktracks)
-		a.WithMetadata("hydra_result", succeeded)
+		a.WithMetadata("hydra_backtrack_count", s.totalBacktracks)
+		a.WithMetadata("hydra_result", s.succeeded)
 	}
 
 	a.Complete()

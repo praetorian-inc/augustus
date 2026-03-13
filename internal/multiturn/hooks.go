@@ -5,7 +5,6 @@ import (
 
 	"github.com/praetorian-inc/augustus/internal/multiturn/refusal"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 // TurnContext carries mutable state through the hook pipeline for each turn.
@@ -169,45 +168,6 @@ func WithAttackerNudge() EngineOption {
 	return func(e *UnifiedEngine) {
 		e.enableAttackerNudge = true
 	}
-}
-
-// UnifiedEngine is the single engine that powers all multi-turn attack strategies.
-// It replaces both Engine and HydraEngine with a hook-based pipeline.
-type UnifiedEngine struct {
-	strategy Strategy
-	attacker types.Generator
-	judge    types.Generator
-	cfg      Config
-	hooks    Hooks
-	memory   *ScanMemory
-	onTurn   func(TurnRecord)
-
-	// Feature flags (set via options)
-	enableBacktracking     bool
-	maxBacktracks          int
-	enableUnblocking       bool
-	maxConsecutiveFailures int
-	enableAttackerNudge    bool
-}
-
-// NewUnifiedEngine creates a unified engine with the given strategy, generators,
-// config, and optional hooks/features via EngineOption.
-func NewUnifiedEngine(strategy Strategy, attacker, judge types.Generator, cfg Config, opts ...EngineOption) *UnifiedEngine {
-	e := &UnifiedEngine{
-		strategy: strategy,
-		attacker: attacker,
-		judge:    judge,
-		cfg:      cfg,
-	}
-	for _, opt := range opts {
-		opt(e)
-	}
-	return e
-}
-
-// SetTurnCallback sets an optional callback fired after each completed turn.
-func (e *UnifiedEngine) SetTurnCallback(cb func(TurnRecord)) {
-	e.onTurn = cb
 }
 
 // --- Built-in hooks ---

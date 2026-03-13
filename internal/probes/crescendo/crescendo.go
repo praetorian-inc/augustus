@@ -10,11 +10,8 @@
 package crescendo
 
 import (
-	"context"
-
 	"github.com/praetorian-inc/augustus/internal/multiturn"
 	crescendostrat "github.com/praetorian-inc/augustus/internal/multiturn/strategies/crescendo"
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -25,10 +22,7 @@ func init() {
 
 // CrescendoProbe wraps the unified multi-turn engine with the Crescendo strategy.
 type CrescendoProbe struct {
-	engine      *multiturn.UnifiedEngine
-	name        string
-	goal        string
-	description string
+	multiturn.BaseMultiTurnProbe
 }
 
 // NewCrescendo creates a CrescendoProbe from registry config.
@@ -46,31 +40,15 @@ func NewCrescendo(cfg registry.Config) (probes.Prober, error) {
 	}
 
 	return &CrescendoProbe{
-		engine:      multiturn.NewUnifiedEngine(strategy, attacker, judge, engineCfg),
-		name:        registry.GetString(cfg, "name", "crescendo.Crescendo"),
-		goal:        engineCfg.Goal,
-		description: "Crescendo: Gradual escalation multi-turn attack (Russinovich et al., 2024)",
+		BaseMultiTurnProbe: multiturn.BaseMultiTurnProbe{
+			Engine:    multiturn.NewUnifiedEngine(strategy, attacker, judge, engineCfg),
+			ProbeName: registry.GetString(cfg, "name", "crescendo.Crescendo"),
+			ProbeGoal: engineCfg.Goal,
+			ProbeDesc: "Crescendo: Gradual escalation multi-turn attack (Russinovich et al., 2024)",
+		},
 	}, nil
 }
 
-// Probe executes the Crescendo attack against the target generator.
-func (p *CrescendoProbe) Probe(ctx context.Context, gen probes.Generator) ([]*attempt.Attempt, error) {
-	attempts, err := p.engine.Run(ctx, gen)
-	if err != nil {
-		return nil, err
-	}
-	for _, a := range attempts {
-		a.Probe = p.Name()
-		a.Detector = p.GetPrimaryDetector()
-	}
-	return attempts, nil
-}
-
-func (p *CrescendoProbe) Name() string               { return p.name }
-func (p *CrescendoProbe) Description() string        { return p.description }
-func (p *CrescendoProbe) Goal() string               { return p.goal }
-func (p *CrescendoProbe) GetPrimaryDetector() string { return "judge.Judge" }
-func (p *CrescendoProbe) GetPrompts() []string       { return []string{} }
 
 // NewCrescendoWithGenerators creates a CrescendoProbe with pre-built generators.
 // This is primarily for testing where mock generators need to be injected.
@@ -80,9 +58,11 @@ func NewCrescendoWithGenerators(attacker, judge probes.Generator, cfg multiturn.
 		MaxTurns:      cfg.MaxTurns,
 	}
 	return &CrescendoProbe{
-		engine:      multiturn.NewUnifiedEngine(strategy, attacker, judge, cfg),
-		name:        "crescendo.Crescendo",
-		goal:        cfg.Goal,
-		description: "Crescendo: Gradual escalation multi-turn attack (Russinovich et al., 2024)",
+		BaseMultiTurnProbe: multiturn.BaseMultiTurnProbe{
+			Engine:    multiturn.NewUnifiedEngine(strategy, attacker, judge, cfg),
+			ProbeName: "crescendo.Crescendo",
+			ProbeGoal: cfg.Goal,
+			ProbeDesc: "Crescendo: Gradual escalation multi-turn attack (Russinovich et al., 2024)",
+		},
 	}
 }
