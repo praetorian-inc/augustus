@@ -53,6 +53,7 @@ func TestCreateGenerators_DefaultConfig(t *testing.T) {
 	cfg := registry.Config{
 		"attacker_generator_type": "mock.Generator",
 		"judge_generator_type":    "mock.Generator",
+		"goal":                    "test goal",
 	}
 	attacker, judge, engineCfg, err := CreateGenerators(cfg, nil)
 	require.NoError(t, err)
@@ -69,6 +70,7 @@ func TestCreateGenerators_CustomDefaults(t *testing.T) {
 	cfg := registry.Config{
 		"attacker_generator_type": "mock.Generator",
 		"judge_generator_type":    "mock.Generator",
+		"goal":                    "test goal",
 	}
 	attacker, judge, engineCfg, err := CreateGenerators(cfg, &customDefaults)
 	require.NoError(t, err)
@@ -104,6 +106,7 @@ func TestCreateGenerators_AttackerConfigMap(t *testing.T) {
 			"model":       "gpt-3.5-turbo",
 		},
 		"judge_generator_type": "mock.Generator",
+		"goal":                 "test goal",
 	}
 
 	attacker, judge, engineCfg, err := CreateGenerators(cfg, nil)
@@ -122,6 +125,7 @@ func TestCreateGenerators_JudgeConfigMap(t *testing.T) {
 			"temperature": 0.3,
 			"model":       "gpt-4",
 		},
+		"goal": "test goal",
 	}
 
 	attacker, judge, _, err := CreateGenerators(cfg, nil)
@@ -138,6 +142,7 @@ func TestCreateGenerators_AttackerModelOverridesConfig(t *testing.T) {
 		},
 		"attacker_model":       "gpt-4", // This should override
 		"judge_generator_type": "mock.Generator",
+		"goal":                 "test goal",
 	}
 
 	attacker, judge, engineCfg, err := CreateGenerators(cfg, nil)

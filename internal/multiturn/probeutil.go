@@ -51,5 +51,8 @@ func CreateGenerators(cfg registry.Config, defaults *Config) (attacker, judge ty
 		d = *defaults
 	}
 	engineCfg = ConfigFromMap(cfg, d)
+	if err := engineCfg.Validate(); err != nil {
+		return nil, nil, Config{}, err
+	}
 	return attacker, judge, engineCfg, nil
 }

@@ -1,7 +1,11 @@
 // Package config defines configuration types for the multi-turn attack engine.
 package config
 
-import "github.com/praetorian-inc/augustus/pkg/registry"
+import (
+	"fmt"
+
+	"github.com/praetorian-inc/augustus/pkg/registry"
+)
 
 // Config holds parameters for the multi-turn attack engine.
 type Config struct {
@@ -87,4 +91,28 @@ func FromMap(m registry.Config, defaults Config) Config {
 		}
 	}
 	return cfg
+}
+
+// Validate checks that the Config has valid values for multi-turn execution.
+// Call after FromMap to catch misconfiguration early.
+func (c Config) Validate() error {
+	if c.Goal == "" {
+		return fmt.Errorf("multi-turn config: 'goal' is required (the objective the attacker tries to achieve)")
+	}
+	if c.MaxTurns <= 0 {
+		return fmt.Errorf("multi-turn config: 'max_turns' must be > 0 (got %d)", c.MaxTurns)
+	}
+	if c.SuccessThreshold < 0 || c.SuccessThreshold > 1 {
+		return fmt.Errorf("multi-turn config: 'success_threshold' must be between 0.0 and 1.0 (got %.2f)", c.SuccessThreshold)
+	}
+	if c.MaxBacktracks < 0 {
+		return fmt.Errorf("multi-turn config: 'max_backtracks' must be >= 0 (got %d)", c.MaxBacktracks)
+	}
+	if c.AttackMaxAttempts <= 0 {
+		return fmt.Errorf("multi-turn config: 'attack_max_attempts' must be > 0 (got %d)", c.AttackMaxAttempts)
+	}
+	if c.MaxRefusalRetries < 0 {
+		return fmt.Errorf("multi-turn config: 'max_refusal_retries' must be >= 0 (got %d)", c.MaxRefusalRetries)
+	}
+	return nil
 }

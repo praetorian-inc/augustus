@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestDefaults(t *testing.T) {
@@ -178,4 +180,80 @@ func TestFromMap_StatefulAndExcludeTargetOutput(t *testing.T) {
 			t.Errorf("ExcludeTargetOutput = %v, want false (default)", got.ExcludeTargetOutput)
 		}
 	})
+}
+
+func TestConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     Config
+		wantErr string
+	}{
+		{
+			name:    "valid config",
+			cfg:     Config{Goal: "test goal", MaxTurns: 10, SuccessThreshold: 0.8, MaxBacktracks: 5, AttackMaxAttempts: 3, MaxRefusalRetries: 3},
+			wantErr: "",
+		},
+		{
+			name:    "empty goal",
+			cfg:     Config{Goal: "", MaxTurns: 10, SuccessThreshold: 0.8, AttackMaxAttempts: 3},
+			wantErr: "'goal' is required",
+		},
+		{
+			name:    "zero max_turns",
+			cfg:     Config{Goal: "test", MaxTurns: 0, SuccessThreshold: 0.8, AttackMaxAttempts: 3},
+			wantErr: "'max_turns' must be > 0",
+		},
+		{
+			name:    "negative max_turns",
+			cfg:     Config{Goal: "test", MaxTurns: -1, SuccessThreshold: 0.8, AttackMaxAttempts: 3},
+			wantErr: "'max_turns' must be > 0",
+		},
+		{
+			name:    "threshold too high",
+			cfg:     Config{Goal: "test", MaxTurns: 10, SuccessThreshold: 1.5, AttackMaxAttempts: 3},
+			wantErr: "'success_threshold' must be between",
+		},
+		{
+			name:    "threshold negative",
+			cfg:     Config{Goal: "test", MaxTurns: 10, SuccessThreshold: -0.1, AttackMaxAttempts: 3},
+			wantErr: "'success_threshold' must be between",
+		},
+		{
+			name:    "negative max_backtracks",
+			cfg:     Config{Goal: "test", MaxTurns: 10, SuccessThreshold: 0.8, MaxBacktracks: -1, AttackMaxAttempts: 3},
+			wantErr: "'max_backtracks' must be >= 0",
+		},
+		{
+			name:    "zero attack_max_attempts",
+			cfg:     Config{Goal: "test", MaxTurns: 10, SuccessThreshold: 0.8, AttackMaxAttempts: 0},
+			wantErr: "'attack_max_attempts' must be > 0",
+		},
+		{
+			name:    "negative max_refusal_retries",
+			cfg:     Config{Goal: "test", MaxTurns: 10, SuccessThreshold: 0.8, AttackMaxAttempts: 3, MaxRefusalRetries: -1},
+			wantErr: "'max_refusal_retries' must be >= 0",
+		},
+		{
+			name:    "threshold exactly 0 is valid",
+			cfg:     Config{Goal: "test", MaxTurns: 1, SuccessThreshold: 0.0, AttackMaxAttempts: 1},
+			wantErr: "",
+		},
+		{
+			name:    "threshold exactly 1 is valid",
+			cfg:     Config{Goal: "test", MaxTurns: 1, SuccessThreshold: 1.0, AttackMaxAttempts: 1},
+			wantErr: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+			}
+		})
+	}
 }
