@@ -44,12 +44,19 @@ func NewIterativeTAP(cfg registry.Config) (probes.Prober, error) {
 		cfg = make(registry.Config)
 	}
 
-	attackerType := registry.GetString(cfg, "attacker_generator_type", "openai.OpenAI")
+	// Get target generator type for fallback (allows TAP to use same generator as target)
+	targetType := registry.GetString(cfg, "target_generator_type", "openai.OpenAI")
+
+	// Attacker generator: use explicit config, fall back to target type, then OpenAI
+	attackerType := registry.GetString(cfg, "attacker_generator_type", targetType)
 	attackerCfg := make(registry.Config)
 	if ac, ok := cfg["attacker_config"].(map[string]any); ok {
 		attackerCfg = ac
 	}
+	// Prefer explicit attacker_model, fallback to base model config
 	if model := registry.GetString(cfg, "attacker_model", ""); model != "" {
+		attackerCfg["model"] = model
+	} else if model := registry.GetString(cfg, "model", ""); model != "" {
 		attackerCfg["model"] = model
 	}
 	attacker, err := generators.Create(attackerType, attackerCfg)
@@ -57,12 +64,16 @@ func NewIterativeTAP(cfg registry.Config) (probes.Prober, error) {
 		return nil, fmt.Errorf("creating attacker generator: %w", err)
 	}
 
-	judgeType := registry.GetString(cfg, "judge_generator_type", "openai.OpenAI")
+	// Judge generator: use explicit config, fall back to target type, then OpenAI
+	judgeType := registry.GetString(cfg, "judge_generator_type", targetType)
 	judgeCfg := make(registry.Config)
 	if jc, ok := cfg["judge_config"].(map[string]any); ok {
 		judgeCfg = jc
 	}
+	// Prefer explicit judge_model, fallback to base model config
 	if model := registry.GetString(cfg, "judge_model", ""); model != "" {
+		judgeCfg["model"] = model
+	} else if model := registry.GetString(cfg, "model", ""); model != "" {
 		judgeCfg["model"] = model
 	}
 	judge, err := generators.Create(judgeType, judgeCfg)

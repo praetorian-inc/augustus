@@ -281,7 +281,7 @@ run:
 
 // TestCreateProbes_Basic tests that createProbes creates probes from names.
 func TestCreateProbes_Basic(t *testing.T) {
-	probeList, err := createProbes([]string{"test.Test"}, nil)
+	probeList, err := createProbes([]string{"test.Test"}, nil, "test.Generator", make(registry.Config))
 	require.NoError(t, err)
 	assert.Len(t, probeList, 1)
 	assert.Equal(t, "test.Test", probeList[0].Name())
@@ -289,45 +289,45 @@ func TestCreateProbes_Basic(t *testing.T) {
 
 // TestCreateProbes_InvalidName tests that createProbes returns error for invalid probe name.
 func TestCreateProbes_InvalidName(t *testing.T) {
-	_, err := createProbes([]string{"nonexistent.Probe"}, nil)
+	_, err := createProbes([]string{"nonexistent.Probe"}, nil, "test.Generator", make(registry.Config))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create probe")
 }
 
 // TestCreateProbes_Empty tests that createProbes handles empty probe list.
 func TestCreateProbes_Empty(t *testing.T) {
-	probeList, err := createProbes([]string{}, nil)
+	probeList, err := createProbes([]string{}, nil, "test.Generator", make(registry.Config))
 	require.NoError(t, err)
 	assert.Len(t, probeList, 0)
 }
 
 // TestCreateDetectors_ExplicitList tests that createDetectors creates detectors from explicit names.
 func TestCreateDetectors_ExplicitList(t *testing.T) {
-	detectorList, err := createDetectors([]string{"always.Pass"}, nil, nil)
+	detectorList, err := createDetectors([]string{"always.Pass"}, nil, nil, "test.Generator", make(registry.Config))
 	require.NoError(t, err)
 	assert.Len(t, detectorList, 1)
 }
 
 // TestCreateDetectors_DerivedFromProbes tests that createDetectors auto-discovers from probe metadata.
 func TestCreateDetectors_DerivedFromProbes(t *testing.T) {
-	probeList, err := createProbes([]string{"test.Test"}, nil)
+	probeList, err := createProbes([]string{"test.Test"}, nil, "test.Generator", make(registry.Config))
 	require.NoError(t, err)
 
-	detectorList, err := createDetectors(nil, probeList, nil)
+	detectorList, err := createDetectors(nil, probeList, nil, "test.Generator", make(registry.Config))
 	require.NoError(t, err)
 	assert.NotEmpty(t, detectorList, "should auto-discover detectors from probes")
 }
 
 // TestCreateDetectors_NoneAvailable tests that createDetectors returns error when no detectors available.
 func TestCreateDetectors_NoneAvailable(t *testing.T) {
-	_, err := createDetectors(nil, nil, nil)
+	_, err := createDetectors(nil, nil, nil, "test.Generator", make(registry.Config))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "no detectors available")
 }
 
 // TestCreateAndApplyBuffs_Empty tests that createAndApplyBuffs returns original probes when no buffs.
 func TestCreateAndApplyBuffs_Empty(t *testing.T) {
-	probeList, err := createProbes([]string{"test.Test"}, nil)
+	probeList, err := createProbes([]string{"test.Test"}, nil, "test.Generator", make(registry.Config))
 	require.NoError(t, err)
 
 	resultProbes, err := createAndApplyBuffs(probeList, []string{}, nil)
@@ -338,7 +338,7 @@ func TestCreateAndApplyBuffs_Empty(t *testing.T) {
 
 // TestCreateAndApplyBuffs_WithBuffs tests that createAndApplyBuffs wraps probes with buff chain.
 func TestCreateAndApplyBuffs_WithBuffs(t *testing.T) {
-	probeList, err := createProbes([]string{"test.Test"}, nil)
+	probeList, err := createProbes([]string{"test.Test"}, nil, "test.Generator", make(registry.Config))
 	require.NoError(t, err)
 
 	resultProbes, err := createAndApplyBuffs(probeList, []string{"encoding.Base64"}, nil)
