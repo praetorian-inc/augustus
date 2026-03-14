@@ -223,6 +223,14 @@ func (c *Config) ResolveBuffConfig(buffName string) map[string]any {
 	return cfg
 }
 
+// HasProbeConfig checks if the probes.settings map has an entry for the given probe name.
+func (c *Config) HasProbeConfig(probeName string) bool {
+	if c == nil || c.Probes.Settings == nil {
+		return false
+	}
+	_, ok := c.Probes.Settings[probeName]
+	return ok
+}
 // Validate validates the configuration and returns helpful error messages
 func (c *Config) Validate() error {
 	// Validate run config

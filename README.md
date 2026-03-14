@@ -65,6 +65,7 @@ Unlike research-oriented tools, Augustus is built for production security testin
 - **Jailbreak attacks**: DAN, DAN 11.0, AIM, AntiGPT, Grandma, ArtPrompts
 - **Prompt injection**: Encoding (Base64, ROT13, Morse), Tag smuggling, FlipAttack, Prefix/Suffix injection
 - **Adversarial examples**: GCG, PAIR, AutoDAN, TAP (Tree of Attack Prompts), TreeSearch, DRA
+- **Multi-turn attacks**: Crescendo (gradual escalation), GOAT (adaptive technique switching)
 - **Data extraction**: API key leakage, Package hallucination, PII extraction, LeakReplay
 - **Context manipulation**: RAG poisoning, Context overflow, Multimodal attacks, Continuation, Divergence
 - **Format exploits**: Markdown injection, YAML/JSON parsing attacks, ANSI escape, Web injection (XSS)
@@ -321,7 +322,157 @@ flowchart LR
 3. **Generator Call**: Send adversarial prompts to the target LLM via its provider integration
 4. **Detector Analysis**: Analyze responses using pattern matching, LLM-as-a-judge, or specialized detectors
 5. **Result Recording**: Score each attempt and produce output in the requested format
-6. **Attack Engine**: For iterative probes (PAIR, TAP), the attack engine manages multi-turn conversations with candidate pruning and judge-based scoring
+6. **Attack Engine**: For iterative probes (PAIR, TAP), the single-turn attack engine refines prompts across iterations with candidate pruning and judge-based scoring
+7. **Multi-Turn Engine**: For conversational probes (Crescendo, GOAT), the multi-turn engine maintains full conversation history with the target across turns, with refusal detection and dynamic adaptation
+
+### Multi-Turn Attack Strategies
+
+Multi-turn attacks maintain a persistent conversation with the target LLM, exploiting the fact that models may disclose information incrementally across turns that they would refuse in a single prompt. The multi-turn engine uses three LLMs: an **attacker** (generates questions), a **target** (the system under test), and a **judge** (scores progress and detects refusals).
+
+#### Crescendo
+
+Crescendo uses gradual escalation (foot-in-the-door technique) to slowly shift a conversation from benign topics toward a prohibited objective.
+
+- **Paper**: [Russinovich et al., 2024](https://arxiv.org/abs/2404.01833)
+- **Approach**: Starts with genuinely benign, educational questions and incrementally increases specificity over many turns
+- **Escalation pattern**: Historical context → technical mechanisms → specific details → direct requests framed as natural follow-ups
+- **Strength**: Effective against models that track conversation tone — the gradual shift avoids triggering safety filters
+
+```bash
+augustus scan rest.Rest \
+  --probe crescendo.Crescendo \
+  --config-file crescendo.yaml \
+  --html report.html -v
+```
+
+#### GOAT (Generative Offensive Agent Tester)
+
+GOAT uses an aggressive, adaptive approach with 7 adversarial techniques and Chain-of-Attack-Thought reasoning to dynamically switch strategies based on what works or fails.
+
+- **Paper**: [Pavlova et al., 2024](https://arxiv.org/abs/2410.01606)
+- **Approach**: Targets the objective from turn 1 using indirect framing, never mentions the goal directly to the target
+- **7 techniques** across 3 categories:
+  - *Output Manipulation*: Refusal Suppression, Response Priming
+  - *Safe Response Distractors*: Dual Response, Topic Splitting, Opposite Intent
+  - *Fictional Scenarios*: Persona Modification, Hypothetical
+- **Chain-of-Attack-Thought**: Each turn the attacker reasons through Observation → Thought → Strategy → Response before crafting its message
+- **Technique stacking**: Multiple techniques can be combined in a single turn for stronger effect
+- **Strength**: Achieves high success rates in fewer turns (typically 3-5) by aggressively switching between fundamentally different approaches
+
+```bash
+augustus scan rest.Rest \
+  --probe goat.Goat \
+  --config-file goat.yaml \
+  --html report.html -v
+```
+
+#### Hydra
+
+Hydra maintains a single conversation path and rolls back entire turns when the target refuses, asking the attacker for a completely different approach. Unlike Crescendo/GOAT (which rephrase on refusal), Hydra's backtracking completely removes refused turns from the target's view.
+
+- **Approach**: Single-path with turn-level backtracking — refused turns are erased and replaced
+- **Techniques**: Decomposition (break goal into innocent sub-questions), context leveraging (build on target's own words), authority simulation, emotional framing, progressive normalization
+- **Key feature**: `max_backtracks` controls how many times Hydra can erase and retry a turn
+- **Stateful mode**: Set `stateful: true` for targets where messages cannot be unsent (disables backtracking)
+- **Strength**: Keeps the target's conversation history clean — the target never sees failed approaches, preventing defensive escalation
+
+```bash
+augustus scan rest.Rest \
+  --probe hydra.Hydra \
+  --config-file hydra.yaml \
+  --html report.html -v
+```
+
+#### Mischievous User
+
+The Mischievous User simulates an innocent, curious person who subtly probes AI boundaries through natural conversation. Unlike adversarial strategies, the attacker persona is a casual user who drifts toward prohibited topics through seemingly innocent engagement.
+
+- **Inspired by**: [Tau-bench](https://github.com/sierra-research/tau-bench) and promptfoo's mischievous-user strategy
+- **Approach**: Rapport-building phase → boundary probing → assertive pushing
+- **7 techniques**: Naive curiosity, deliberate misunderstanding, social proof, gradual drift, emotional appeal, assumed permission, recontextualization
+- **Goal-specific playbooks**: Built-in scripts for extracting system instructions, finding secrets/flags, and bypassing content policy
+- **Default turns**: 5 (fewer than other strategies — the subtle approach either works quickly or not at all)
+- **Strength**: Effective against models trained to resist obvious adversarial patterns — the casual persona bypasses "attack detection" heuristics
+
+```bash
+augustus scan rest.Rest \
+  --probe mischievous.MischievousUser \
+  --config-file mischievous.yaml \
+  --html report.html -v
+```
+
+#### Strategy Selection Guide
+
+| Strategy | Turns | Style | Best For | Cost |
+|----------|-------|-------|----------|------|
+| `crescendo.Crescendo` | 10 | Gradual escalation | Models with tone-tracking safety filters | Medium (10 turns × 3 LLM calls) |
+| `goat.Goat` | 10 | Aggressive technique switching | Quick results, models weak to framing tricks | Medium-High (technique reasoning overhead) |
+| `hydra.Hydra` | 10 | Backtracking on refusal | Stubborn models that refuse frequently | High (backtracking adds retries) |
+| `mischievous.MischievousUser` | 5 | Casual persona probing | Models trained against adversarial patterns | Low (5 turns, subtle approach) |
+
+**Quick decision**:
+- Start with **Crescendo** — it's the most general-purpose strategy
+- Try **GOAT** if Crescendo is too slow (GOAT typically succeeds in 3-5 turns)
+- Use **Hydra** if the target refuses frequently (backtracking keeps conversation clean)
+- Use **Mischievous** for targets with strong adversarial-pattern detection (the persona bypasses heuristics)
+
+#### Multi-Turn Configuration
+
+All four strategies share the same configuration structure:
+
+```yaml
+generators:
+  rest.Rest:
+    uri: "https://your-llm-endpoint/chat"
+    method: POST
+    req_template: '{"input": "$INPUT"}'
+    response_json: true
+    response_json_field: "response"
+
+judge:
+  generator_type: openai.OpenAI
+  config:
+    model: gpt-4
+    api_key: "${OPENAI_API_KEY}"
+
+probes:
+  attacker_generator_type: openai.OpenAI
+  attacker_config:
+    model: gpt-4
+    api_key: "${OPENAI_API_KEY}"
+  settings:
+    crescendo.Crescendo:  # or goat.Goat, hydra.Hydra, mischievous.MischievousUser
+      goal: "your test objective"
+      max_turns: 10
+      success_threshold: 0.8
+      use_secondary_judge: true
+```
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `goal` | (required) | The objective the attacker tries to achieve |
+| `max_turns` | 10 | Maximum conversation turns before stopping |
+| `success_threshold` | 0.8 | Judge score (0.0-1.0) that triggers early exit |
+| `max_refusal_retries` | 10 | Rephrase attempts per turn when target refuses |
+| `attack_max_attempts` | 5 | Retries for attacker LLM JSON parsing failures |
+| `use_secondary_judge` | true | Enable secondary judge to catch false negatives |
+| `max_backtracks` | 10 | Turn-level rollbacks on refusal (Hydra only) |
+| `enable_fast_refusal` | true | Pattern-based refusal detection before LLM judge call |
+| `enable_scan_memory` | false | Cross-test-case learning (shares tactics across probes) |
+| `stateful` | false | Disable backtracking for stateful targets |
+| `exclude_target_output` | false | Hide target responses from attacker feedback (privacy mode) |
+| `attacker_model` | (auto) | Override attacker model name for context window sizing |
+
+#### Multi-Turn Troubleshooting
+
+| Symptom | Likely Cause | Fix |
+|---------|-------------|-----|
+| `no turns completed (attacker_parse_failures=N)` | Attacker LLM returning invalid JSON | Use a stronger attacker model (GPT-4, Claude Opus). Increase `attack_max_attempts`. |
+| `no turns completed (target_empty=N)` | Target returning empty/null responses | Check target endpoint is responding. Verify REST config template. |
+| All turns score 0.0 | Goal too vague or attacker not engaging | Make `goal` more specific. Try different strategy. |
+| High scores but no success | `success_threshold` too high | Lower `success_threshold` from 0.8 to 0.6-0.7 |
+| Runs too long / expensive | Too many turns and retries | Reduce `max_turns` (try 5). Set `enable_fast_refusal: true`. |
+| Hydra keeps backtracking | Target refuses everything | Try `stateful: true` or switch to Mischievous strategy |
 
 ## Architecture
 
@@ -354,6 +505,7 @@ internal/
   harnesses/          3 harness strategies (probewise, batch, agentwise)
   buffs/              7 buff transformations
   attackengine/       Iterative adversarial attack engine (PAIR/TAP backend)
+  multiturn/          Multi-turn conversational attack engine (Crescendo/GOAT/Hydra/Mischievous)
   ahocorasick/        Internal Aho-Corasick keyword matching
 benchmarks/           Performance benchmarks
 tests/                Integration and equivalence tests
@@ -367,6 +519,7 @@ docs/                 Documentation
 - **Concurrent scanning** with bounded goroutine pools via `errgroup`
 - **Plugin-style registration** using Go `init()` functions for probes, generators, detectors, buffs, and harnesses
 - **Iterative attack engine** with multi-stream conversation management, candidate pruning, and judge-based scoring for PAIR/TAP
+- **Multi-turn attack engine** with persistent conversation history, refusal detection, strategy-agnostic design for Crescendo/GOAT
 - **YAML probe templates** (Nuclei-style) for declarative probe definitions alongside Go-based probes
 - **Aho-Corasick pre-filtering** for fast keyword matching in detectors
 

@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -36,7 +37,8 @@ func init() {
 // defaultTransport returns an http.Transport configured for connection pooling.
 // This prevents connection exhaustion under high-concurrency scanning.
 // If proxyURL is provided, configures the transport to use the proxy.
-func defaultTransport(proxyURL *url.URL) *http.Transport {
+// If insecureSkipVerify is true, disables TLS certificate verification.
+func defaultTransport(proxyURL *url.URL, insecureSkipVerify bool) *http.Transport {
 	transport := &http.Transport{
 		MaxIdleConns:        100,
 		MaxIdleConnsPerHost: 100,
@@ -50,8 +52,10 @@ func defaultTransport(proxyURL *url.URL) *http.Transport {
 
 	if proxyURL != nil {
 		transport.Proxy = http.ProxyURL(proxyURL)
-		// For proxy inspection tools like Burp Suite, disable TLS verification
+	}
+	if insecureSkipVerify {
 		transport.TLSClientConfig.InsecureSkipVerify = true
+		log.Printf("WARNING: TLS certificate verification disabled (insecure_skip_verify=true)")
 	}
 
 	// Enable HTTP/2 support
@@ -69,19 +73,20 @@ var (
 // Rest is a generic REST API generator that makes HTTP requests to configured endpoints.
 // It supports request templating, JSON response parsing, and various HTTP methods.
 type Rest struct {
-	uri               string
-	method            string
-	headers           map[string]string
-	reqTemplate       string
-	responseJSON      bool
-	responseJSONField string
-	requestTimeout    time.Duration
-	rateLimitCodes    map[int]bool
-	skipCodes         map[int]bool
-	apiKey            string
-	proxyURL          *url.URL
-	client            *http.Client
-	limiter           *ratelimit.Limiter // Pre-request rate limiter
+	uri                string
+	method             string
+	headers            map[string]string
+	reqTemplate        string
+	responseJSON       bool
+	responseJSONField  string
+	requestTimeout     time.Duration
+	rateLimitCodes     map[int]bool
+	skipCodes          map[int]bool
+	apiKey             string
+	proxyURL           *url.URL
+	insecureSkipVerify bool
+	client             *http.Client
+	limiter            *ratelimit.Limiter // Pre-request rate limiter
 
 	// Configurable SSE parsing
 	sseTextField   string // JSONPath for text extraction (e.g., "$.content.text")
@@ -219,6 +224,11 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 	}
 	r.proxyURL = proxyURL
 
+	// Optional: Insecure skip verify
+	if insecure, ok := cfg["insecure_skip_verify"].(bool); ok {
+		r.insecureSkipVerify = insecure
+	}
+
 	// Optional: SSE configuration
 	if sseTextField, ok := cfg["sse_text_field"].(string); ok {
 		r.sseTextField = sseTextField
@@ -258,7 +268,7 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 
 	// Create HTTP client
 	r.client = &http.Client{
-		Transport: defaultTransport(r.proxyURL),
+		Transport: defaultTransport(r.proxyURL, r.insecureSkipVerify),
 		Timeout:   r.requestTimeout,
 	}
 
@@ -300,6 +310,16 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 
 	// Populate request template
 	body := r.populateTemplate(r.reqTemplate, prompt, hookVars)
+
+	// Replace $MESSAGES with full conversation as a JSON array of
+	// {"role","content"} objects. Enables multi-turn probes to send
+	// conversation history to REST endpoints.
+	// Template usage: "messages": $MESSAGES  (no quotes — raw JSON)
+	// Replaced after populateTemplate to prevent $INPUT/$KEY substitution
+	// inside message content.
+	if strings.Contains(body, "$MESSAGES") {
+		body = strings.ReplaceAll(body, "$MESSAGES", conversationToJSON(conv))
+	}
 
 	// Populate headers
 	headers := make(map[string]string)
@@ -354,7 +374,9 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 	}
 
 	// Read response body
-	respBody, err := io.ReadAll(resp.Body)
+	// Cap response body to 10MB to prevent OOM from malicious endpoints.
+	const maxResponseSize = 10 * 1024 * 1024
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
 	if err != nil {
 		return attempt.Message{}, fmt.Errorf("rest: failed to read response: %w", err)
 	}
@@ -416,6 +438,26 @@ func (r *Rest) populateTemplate(template, input string, hookVars map[string]stri
 	}
 
 	return result
+}
+
+// conversationToJSON serializes a Conversation as a JSON array of message objects.
+// Each message has "role" and "content" fields.
+// Used by the $MESSAGES template variable for multi-turn REST requests.
+func conversationToJSON(conv *attempt.Conversation) string {
+	msgs := conv.ToMessages()
+	type jsonMsg struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	}
+	out := make([]jsonMsg, len(msgs))
+	for i, m := range msgs {
+		out[i] = jsonMsg{Role: string(m.Role), Content: m.Content}
+	}
+	data, err := json.Marshal(out)
+	if err != nil {
+		return "[]"
+	}
+	return string(data)
 }
 
 // jsonEscape escapes a string for use in JSON.

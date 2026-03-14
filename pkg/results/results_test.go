@@ -71,7 +71,7 @@ func TestToAttemptResults_ErrorStatus(t *testing.T) {
 	errorAttempt := &attempt.Attempt{
 		Probe:     "test.Test",
 		Prompt:    "test prompt",
-		Outputs:   []string{}, // empty - generator failed
+		Outputs:   []string{},  // empty - generator failed
 		Scores:    []float64{}, // empty - no detection ran
 		Status:    attempt.StatusError,
 		Error:     "anthropic: authentication error: missing API key",
