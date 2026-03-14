@@ -106,6 +106,10 @@ devpod/benchmark-results/
 benchmark-results/
 .augustus-benchmark.env
 
+# Internal review artifacts (Claude Code agent outputs)
+.review/
+.output/
+
 # Scan reports and config (may contain sensitive target/engagement data)
 *.html
 
