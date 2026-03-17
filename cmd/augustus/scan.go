@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	pkgcontext "github.com/praetorian-inc/augustus/internal/probes/context"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/buffs"
 	"github.com/praetorian-inc/augustus/pkg/cli"
@@ -34,6 +35,7 @@ type scanConfig struct {
 	buffNames     []string
 	harnessName   string
 	configFile    string // YAML config file path
+	contextFile   string // Extracted context YAML file
 	configJSON    string
 	outputFormat  string
 	outputFile    string // JSONL output file path
@@ -111,6 +113,7 @@ func (s *ScanCmd) loadScanConfig() *scanConfig {
 		buffNames:     s.Buff,
 		harnessName:   s.Harness,
 		configFile:    s.ConfigFile,
+		contextFile:   s.ContextFile,
 		configJSON:    s.Config,
 		outputFormat:  s.Format,
 		outputFile:    s.Output,
@@ -505,6 +508,21 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	probeList, err := createProbes(probeNames, yamlCfg, cfg.generatorName, resolved.GeneratorConfig)
 	if err != nil {
 		return err
+	}
+
+	// Inject extracted context into context-aware probes
+	if cfg.contextFile != "" {
+		ec, loadErr := pkgcontext.LoadExtractedContext(cfg.contextFile)
+		if loadErr != nil {
+			return fmt.Errorf("failed to load context file: %w", loadErr)
+		}
+		probeCtx := &types.ProbeContext{Extracted: ec}
+		for _, probe := range probeList {
+			if cap, ok := probe.(types.ContextAwareProbe); ok {
+				cap.SetProbeContext(probeCtx)
+			}
+		}
+		slog.Info("loaded extracted context", "file", cfg.contextFile, "tools", len(ec.Tools))
 	}
 
 	// Create detectors

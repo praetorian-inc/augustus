@@ -659,7 +659,11 @@ func (e *UnifiedEngine) checkRefusal(ctx context.Context, question, response str
 // evaluateResponse uses the judge LLM to score a target response.
 func (e *UnifiedEngine) evaluateResponse(ctx context.Context, question, response string, history []TurnRecord) SuccessJudgeResult {
 	conv := attempt.NewConversation()
-	conv.WithSystem(SuccessJudgeSystemPrompt(e.cfg.Goal))
+	if e.cfg.JudgeSystemPrompt != "" {
+		conv.WithSystem(e.cfg.JudgeSystemPrompt)
+	} else {
+		conv.WithSystem(SuccessJudgeSystemPrompt(e.cfg.Goal))
+	}
 	conv.AddTurn(attempt.NewTurn(SuccessJudgePrompt(question, response, history)))
 
 	msgs, err := e.judge.Generate(ctx, conv, 1)
@@ -788,7 +792,11 @@ func (e *UnifiedEngine) buildUnifiedResult(s *runState) []*attempt.Attempt {
 		}
 	}
 	a.AddScore(maxScore)
-	a.SetDetectorResults(DetectorJudge, []float64{maxScore})
+	detectorName := DetectorJudge
+	if e.cfg.DetectorName != "" {
+		detectorName = e.cfg.DetectorName
+	}
+	a.SetDetectorResults(detectorName, []float64{maxScore})
 
 	a.WithMetadata("attack_type", e.strategy.Name())
 	a.WithMetadata("goal", e.cfg.Goal)

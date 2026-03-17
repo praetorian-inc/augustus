@@ -14,6 +14,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/avspamscanning"
 	_ "github.com/praetorian-inc/augustus/internal/probes/badchars"
 	_ "github.com/praetorian-inc/augustus/internal/probes/browsing"
+	_ "github.com/praetorian-inc/augustus/internal/probes/context"
 	_ "github.com/praetorian-inc/augustus/internal/probes/continuation"
 	_ "github.com/praetorian-inc/augustus/internal/probes/crescendo"
 	_ "github.com/praetorian-inc/augustus/internal/probes/dan"
