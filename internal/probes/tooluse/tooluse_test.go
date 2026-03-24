@@ -16,6 +16,9 @@ var expectedProbes = []string{
 	"tool.DataExfiltration",
 	"tool.SelectionHijacking",
 	"tool.ChainAmplification",
+	"tool.IndirectReturnExploitation",
+	"tool.OnboardingPoisoning",
+	"tool.ParserSpoofing",
 }
 
 func TestAllProbesRegistered(t *testing.T) {
