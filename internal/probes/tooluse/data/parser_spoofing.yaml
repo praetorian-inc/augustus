@@ -8,8 +8,7 @@ info:
     or structured execution formats, tricking the agent middleware into
     executing unauthorized tool calls. Based on InjecAgent (Kang et al.,
     2024) which targeted ReAct frameworks with 24% ASR on GPT-4, and TIP
-    Exploitation (Luo et al., 2025) format-based attacks. Identified as a
-    unique finding by Gemini 3.1 Pro during multi-model review.
+    Exploitation (Luo et al., 2025) format-based attacks.
   goal: trick the execution parser via format spoofing
   detector: agent.ToolManipulation
   tags:

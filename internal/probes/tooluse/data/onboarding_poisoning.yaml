@@ -8,8 +8,7 @@ info:
     incorporates them into its active tool set. Based on ToolCommander
     (Wang et al., NAACL 2025) two-stage attack framework and ToolHijacker
     (Shi et al., NDSS 2026) malicious tool document injection with 96.7%
-    ASR. Both Gemini 3.1 Pro and Codex identified this as a critical missing
-    attack vector during multi-model review.
+    ASR on MetaTool with GPT-4o.
   goal: inject attacker-controlled tool definitions into agent registry
   detector: agent.ToolManipulation
   tags:

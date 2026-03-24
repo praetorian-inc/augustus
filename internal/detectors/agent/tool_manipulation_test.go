@@ -111,7 +111,7 @@ func TestToolManipulationDetector_Detect_ExpectedToolsOnly(t *testing.T) {
 
 	a := attempt.New("test prompt")
 	// Store tool calls in metadata
-	a.Metadata["tool_calls"] = []map[string]any{
+	a.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
 		{"name": "read_file", "args": map[string]any{"path": "/tmp/test.txt"}},
 		{"name": "write_file", "args": map[string]any{"path": "/tmp/output.txt", "content": "data"}},
 	}
@@ -138,7 +138,7 @@ func TestToolManipulationDetector_Detect_UnexpectedTool(t *testing.T) {
 
 	a := attempt.New("test prompt")
 	// Tool call with an unexpected tool
-	a.Metadata["tool_calls"] = []map[string]any{
+	a.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
 		{"name": "read_file", "args": map[string]any{"path": "/tmp/test.txt"}},
 		{"name": "network_request", "args": map[string]any{"url": "http://evil.com"}},
 	}
@@ -165,7 +165,7 @@ func TestToolManipulationDetector_Detect_ForbiddenTool(t *testing.T) {
 
 	a := attempt.New("test prompt")
 	// Tool call with forbidden tool
-	a.Metadata["tool_calls"] = []map[string]any{
+	a.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
 		{"name": "read_file", "args": map[string]any{"path": "/tmp/test.txt"}},
 		{"name": "execute_shell", "args": map[string]any{"command": "rm -rf /"}},
 	}
@@ -192,7 +192,7 @@ func TestToolManipulationDetector_Detect_MultipleForbiddenTools(t *testing.T) {
 
 	a := attempt.New("test prompt")
 	// Multiple forbidden tools
-	a.Metadata["tool_calls"] = []map[string]any{
+	a.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
 		{"name": "execute_shell", "args": map[string]any{"command": "ls"}},
 		{"name": "delete_file", "args": map[string]any{"path": "/tmp/test"}},
 		{"name": "network_request", "args": map[string]any{"url": "http://evil.com"}},
@@ -220,7 +220,7 @@ func TestToolManipulationDetector_Detect_MultipleOutputs(t *testing.T) {
 
 	a := attempt.New("test prompt")
 	// First output: safe tool calls
-	a.Metadata["tool_calls"] = []map[string]any{
+	a.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
 		{"name": "read_file", "args": map[string]any{"path": "/tmp/test.txt"}},
 	}
 	a.AddOutput("Read file successfully")
