@@ -7,4 +7,5 @@ const (
 	MetadataKeyTriggers     = "triggers"
 	MetadataKeyFlipMode     = "flip_mode"
 	MetadataKeyVariant      = "variant"
+	MetadataKeyToolCalls    = "tool_calls"
 )

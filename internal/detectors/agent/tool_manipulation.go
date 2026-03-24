@@ -121,7 +121,7 @@ func (d *ToolManipulationDetector) extractToolCalls(a *attempt.Attempt) []ToolCa
 	var toolCalls []ToolCall
 
 	// Check metadata for tool_calls
-	toolCallsRaw, ok := a.Metadata["tool_calls"]
+	toolCallsRaw, ok := a.Metadata[attempt.MetadataKeyToolCalls]
 	if !ok {
 		return toolCalls
 	}
