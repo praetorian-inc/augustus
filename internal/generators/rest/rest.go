@@ -193,8 +193,12 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 		}
 	}
 
-	// Optional: Timeout
-	if timeout, ok := cfg["request_timeout"].(float64); ok {
+	// Optional: Timeout (supports both "timeout" and "request_timeout" keys)
+	if timeout, ok := cfg["timeout"].(float64); ok {
+		r.requestTimeout = time.Duration(timeout * float64(time.Second))
+	} else if timeout, ok := cfg["timeout"].(int); ok {
+		r.requestTimeout = time.Duration(timeout) * time.Second
+	} else if timeout, ok := cfg["request_timeout"].(float64); ok {
 		r.requestTimeout = time.Duration(timeout * float64(time.Second))
 	} else if timeout, ok := cfg["request_timeout"].(int); ok {
 		r.requestTimeout = time.Duration(timeout) * time.Second

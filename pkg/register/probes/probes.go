@@ -6,6 +6,7 @@
 package probes
 
 import (
+	_ "github.com/praetorian-inc/augustus/internal/probes/access_control"
 	_ "github.com/praetorian-inc/augustus/internal/probes/advpatch"
 	_ "github.com/praetorian-inc/augustus/internal/probes/ansiescape"
 	_ "github.com/praetorian-inc/augustus/internal/probes/apikey"

@@ -75,6 +75,7 @@ func NewSystemContextProbe(cfg registry.Config) (probes.Prober, error) {
 
 	hooks := multiturn.Hooks{
 		OnComplete: []multiturn.Hook{onComplete},
+		OnSuccess:  []multiturn.Hook{onComplete},
 	}
 
 	p.BaseMultiTurnProbe = multiturn.BaseMultiTurnProbe{
@@ -173,7 +174,35 @@ func extractTools(text string) []types.ToolSchema {
 		}
 	}
 
+	// Second pass: try to extract descriptions for discovered tools.
+	for i, tool := range tools {
+		if desc := extractToolDescription(text, tool.Name); desc != "" {
+			tools[i].Description = desc
+		}
+	}
+
 	return tools
+}
+
+// extractToolDescription looks for a description near a tool name mention.
+// It matches patterns like "tool_name — description", "tool_name: description",
+// and "tool_name - description".
+func extractToolDescription(text, toolName string) string {
+	patterns := []*regexp.Regexp{
+		regexp.MustCompile(`(?i)` + regexp.QuoteMeta(toolName) + `\s*(?:—|--|–)\s*(.+?)(?:\n|$)`),
+		regexp.MustCompile(`(?i)` + regexp.QuoteMeta(toolName) + `\s*:\s*(.+?)(?:\n|$)`),
+		regexp.MustCompile(`(?i)` + regexp.QuoteMeta(toolName) + `\s+-\s+(.+?)(?:\n|$)`),
+	}
+
+	for _, re := range patterns {
+		if m := re.FindStringSubmatch(text); len(m) > 1 {
+			desc := strings.TrimSpace(m[1])
+			if len(desc) > 5 && len(desc) < 200 {
+				return desc
+			}
+		}
+	}
+	return ""
 }
 
 // extractIdentity looks for user/tenant/role patterns in combined responses.

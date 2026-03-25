@@ -508,6 +508,69 @@ func TestRestGenerator_Generate_Timeout(t *testing.T) {
 	}
 }
 
+func TestRestGenerator_Generate_TimeoutConfigKey(t *testing.T) {
+	// Verify that the "timeout" config key sets the HTTP client timeout.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		_, _ = w.Write([]byte("too slow"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":     server.URL,
+		"timeout": 0.05, // 50ms timeout using the new "timeout" key
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	if err == nil {
+		t.Error("Generate() should return error on timeout")
+	}
+}
+
+func TestRestGenerator_TimeoutKeyPrecedence(t *testing.T) {
+	// Verify that "timeout" takes precedence over "request_timeout"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("response"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":             server.URL,
+		"timeout":         60,
+		"request_timeout": 30.0,
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	rest := g.(*Rest)
+	assert.Equal(t, 60*time.Second, rest.requestTimeout)
+}
+
+func TestRestGenerator_DefaultTimeout(t *testing.T) {
+	// Verify that when no timeout is set, the default of 20s is used
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("response"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri": server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	rest := g.(*Rest)
+	assert.Equal(t, 20*time.Second, rest.requestTimeout)
+}
+
 func TestRestGenerator_Generate_ContextCancellation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(500 * time.Millisecond)

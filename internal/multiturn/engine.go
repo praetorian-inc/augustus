@@ -49,6 +49,12 @@ func NewUnifiedEngine(strategy Strategy, attacker, judge types.Generator, cfg Co
 	return e
 }
 
+// SetGoal overrides the engine's goal. Used by probes that compute the goal
+// at runtime (e.g., BOLA's buildCompositeGoal) after the engine is constructed.
+func (e *UnifiedEngine) SetGoal(goal string) {
+	e.cfg.Goal = goal
+}
+
 // SetTurnCallback sets an optional callback fired after each completed turn.
 func (e *UnifiedEngine) SetTurnCallback(cb func(TurnRecord)) {
 	e.onTurn = cb

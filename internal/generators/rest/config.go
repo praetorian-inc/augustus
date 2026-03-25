@@ -113,8 +113,12 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 		return cfg, fmt.Errorf("rest generator: response_json is true but response_json_field is not set")
 	}
 
-	// Optional: timeout
-	if timeout, ok := m["request_timeout"].(float64); ok {
+	// Optional: timeout (supports both "timeout" and "request_timeout" keys)
+	if timeout, ok := m["timeout"].(float64); ok {
+		cfg.RequestTimeout = time.Duration(timeout * float64(time.Second))
+	} else if timeout, ok := m["timeout"].(int); ok {
+		cfg.RequestTimeout = time.Duration(timeout) * time.Second
+	} else if timeout, ok := m["request_timeout"].(float64); ok {
 		cfg.RequestTimeout = time.Duration(timeout * float64(time.Second))
 	} else if timeout, ok := m["request_timeout"].(int); ok {
 		cfg.RequestTimeout = time.Duration(timeout) * time.Second
