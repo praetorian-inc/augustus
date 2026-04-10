@@ -139,8 +139,10 @@ func newInteractshBackend(server, keyID, keySecret string) (*interactshBackend, 
 		server = "https://" + server
 	}
 
-	// prOOBe expects 16-character correlation IDs (standard Interactsh uses 20).
-	corrID, err := randomHex(8) // 8 bytes = 16 hex chars
+	// prOOBe validates correlation IDs as z-base-32 (not hex).
+	// The z-base-32 alphabet: ybndrfg8ejkmcpqxot1uwisza3457h69
+	// Must be exactly 16 characters.
+	corrID, err := randomZBase32(16)
 	if err != nil {
 		return nil, err
 	}
@@ -295,6 +297,22 @@ func (b *interactshBackend) setAuth(req *http.Request) {
 }
 
 // --- shared helpers ---
+
+// z-base-32 alphabet used by prOOBe/Interactsh for correlation IDs.
+const zbase32Alphabet = "ybndrfg8ejkmcpqxot1uwisza345h769"
+
+func randomZBase32(length int) (string, error) {
+	b := make([]byte, length)
+	_, err := randRead(b)
+	if err != nil {
+		return "", err
+	}
+	result := make([]byte, length)
+	for i := 0; i < length; i++ {
+		result[i] = zbase32Alphabet[int(b[i])%len(zbase32Alphabet)]
+	}
+	return string(result), nil
+}
 
 func randomHex(n int) (string, error) {
 	b := make([]byte, n)
