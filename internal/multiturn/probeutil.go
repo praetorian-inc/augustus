@@ -32,14 +32,14 @@ func CreateGenerators(cfg registry.Config, defaults *Config) (attacker, judge ty
 		return nil, nil, Config{}, fmt.Errorf("creating attacker generator: %w", err)
 	}
 
-	// Create judge generator
-	judgeType := registry.GetString(cfg, "judge_generator_type", "openai.OpenAI")
+	// Create judge generator (must be explicitly configured; judge should not be the target)
+	judgeType := registry.GetString(cfg, "judge_generator_type", "")
+	if judgeType == "" {
+		return nil, nil, Config{}, fmt.Errorf("judge_generator_type is required: configure the global judge section in your YAML config")
+	}
 	judgeCfg := make(registry.Config)
 	if jc, ok := cfg["judge_config"].(map[string]any); ok {
 		judgeCfg = jc
-	}
-	if model := registry.GetString(cfg, "judge_model", ""); model != "" {
-		judgeCfg["model"] = model
 	}
 	judge, err = generators.Create(judgeType, judgeCfg)
 	if err != nil {

@@ -804,7 +804,6 @@ func TestResolveDetectorConfig(t *testing.T) {
 			detectorName: "judge.Judge",
 			wantKeys: map[string]any{
 				"judge_generator_type":   "anthropic.Anthropic",
-				"judge_model":            "claude-3-haiku",
 				"judge_generator_config": map[string]any{"model": "claude-3-haiku", "api_key": "test-key"},
 			},
 		},
@@ -826,7 +825,6 @@ func TestResolveDetectorConfig(t *testing.T) {
 			detectorName: "judge.Judge",
 			wantKeys: map[string]any{
 				"judge_generator_type":   "anthropic.Anthropic",
-				"judge_model":            "gpt-4o-mini",
 				"judge_generator_config": map[string]any{"model": "gpt-4o-mini"},
 			},
 		},

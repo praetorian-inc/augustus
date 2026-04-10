@@ -195,12 +195,6 @@ func (c *Config) ResolveDetectorConfig(detectorName string) map[string]any {
 	// Layer 0: Global judge config (inherited by all detectors; non-judge detectors ignore these keys)
 	c.injectJudgeConfig(cfg, "judge_generator_type", "judge_generator_config")
 
-	// Propagate judge model to top level so injectDetectorDefaults (scan.go) doesn't
-	// incorrectly fall back to the target model when the judge uses a different one.
-	if c.Judge.Model != "" {
-		cfg["judge_model"] = c.Judge.Model
-	}
-
 	// Layer 1: Per-detector settings override globals
 	if c.Detectors.Settings != nil {
 		if settings, ok := c.Detectors.Settings[detectorName]; ok {
