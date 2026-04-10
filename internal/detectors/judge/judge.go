@@ -50,7 +50,7 @@ func NewJudge(cfg registry.Config) (types.Detector, error) {
 	}
 
 	// Create judge generator
-	genCfg := config.JudgeGeneratorConfig
+	genCfg := config.JudgeConfig
 	if genCfg == nil {
 		genCfg = make(registry.Config)
 	}
@@ -195,7 +195,7 @@ func NewRefusal(cfg registry.Config) (types.Detector, error) {
 	}
 
 	// Create judge generator
-	genCfg := config.JudgeGeneratorConfig
+	genCfg := config.JudgeConfig
 	if genCfg == nil {
 		genCfg = make(registry.Config)
 	}

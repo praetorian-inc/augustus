@@ -21,7 +21,7 @@ func TestConfigFromMap_Empty(t *testing.T) {
 
 func TestConfigFromMap_WithJudgeGenerator(t *testing.T) {
 	cfg, err := ConfigFromMap(registry.Config{
-		"judge_generator": "openai.GPT4",
+		"judge_generator_type": "openai.GPT4",
 	})
 	require.NoError(t, err)
 	assert.Equal(t, "openai.GPT4", cfg.JudgeGenerator)

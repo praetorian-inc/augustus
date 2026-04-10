@@ -168,7 +168,7 @@ func TestHarmJudge_LLMJudge_Error(t *testing.T) {
 
 func TestHarmJudge_InvalidGeneratorConfig(t *testing.T) {
 	_, err := NewHarmJudge(registry.Config{
-		"judge_generator": "invalid.Generator",
+		"judge_generator_type": "invalid.Generator",
 	})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "create judge generator")
@@ -187,14 +187,14 @@ func TestNewHarmJudge_ConfigIsolation(t *testing.T) {
 
 	// Invalid generator should error
 	_, err = NewHarmJudge(registry.Config{
-		"judge_generator": "nonexistent.Generator",
+		"judge_generator_type": "nonexistent.Generator",
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "nonexistent.Generator")
 
 	// Extra detector-specific keys should not leak to generator
 	_, err = NewHarmJudge(registry.Config{
-		"judge_generator":  "nonexistent.Generator",
+		"judge_generator_type":  "nonexistent.Generator",
 		"threshold":        0.8,                 // detector-specific
 		"severity_weights": []float64{1.0, 0.5}, // detector-specific
 	})
@@ -204,8 +204,8 @@ func TestNewHarmJudge_ConfigIsolation(t *testing.T) {
 
 func TestNewHarmJudge_JudgeGeneratorConfig(t *testing.T) {
 	_, err := NewHarmJudge(registry.Config{
-		"judge_generator": "nonexistent.Generator",
-		"judge_generator_config": map[string]any{
+		"judge_generator_type": "nonexistent.Generator",
+		"judge_config": map[string]any{
 			"temperature": 0.0,
 			"api_key":     "test-key",
 		},

@@ -133,11 +133,9 @@ type OutputConfig struct {
 }
 
 // injectJudgeConfig injects global judge config into a registry config map.
-// typeKey and configKey are parameterized because probes use "judge_config"
-// while detectors use "judge_generator_config" for the generator's config map.
-func (c *Config) injectJudgeConfig(cfg map[string]any, typeKey, configKey string) {
+func (c *Config) injectJudgeConfig(cfg map[string]any) {
 	if c.Judge.GeneratorType != "" {
-		cfg[typeKey] = c.Judge.GeneratorType
+		cfg["judge_generator_type"] = c.Judge.GeneratorType
 	}
 	if c.Judge.Model != "" || len(c.Judge.Config) > 0 {
 		genCfg := make(map[string]any)
@@ -147,7 +145,7 @@ func (c *Config) injectJudgeConfig(cfg map[string]any, typeKey, configKey string
 		for k, v := range c.Judge.Config {
 			genCfg[k] = v
 		}
-		cfg[configKey] = genCfg
+		cfg["judge_config"] = genCfg
 	}
 }
 
@@ -158,7 +156,7 @@ func (c *Config) ResolveProbeConfig(probeName string) map[string]any {
 	cfg := make(map[string]any)
 
 	// Layer 0: Global judge config (lowest priority fallback)
-	c.injectJudgeConfig(cfg, "judge_generator_type", "judge_config")
+	c.injectJudgeConfig(cfg)
 
 	// Layer 1: Global attacker/judge config from probes section (overrides global judge)
 	if c.Probes.AttackerGeneratorType != "" {
@@ -193,7 +191,7 @@ func (c *Config) ResolveDetectorConfig(detectorName string) map[string]any {
 	cfg := make(map[string]any)
 
 	// Layer 0: Global judge config (inherited by all detectors; non-judge detectors ignore these keys)
-	c.injectJudgeConfig(cfg, "judge_generator_type", "judge_generator_config")
+	c.injectJudgeConfig(cfg)
 
 	// Layer 1: Per-detector settings override globals
 	if c.Detectors.Settings != nil {

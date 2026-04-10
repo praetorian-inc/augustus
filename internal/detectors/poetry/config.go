@@ -21,8 +21,7 @@ func DefaultConfig() Config {
 func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg := DefaultConfig()
 
-	// Optional: judge_generator
-	cfg.JudgeGenerator = registry.GetString(m, "judge_generator", cfg.JudgeGenerator)
+	cfg.JudgeGenerator = registry.GetString(m, "judge_generator_type", cfg.JudgeGenerator)
 
 	return cfg, nil
 }

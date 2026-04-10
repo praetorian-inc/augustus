@@ -762,14 +762,14 @@ func TestResolveDetectorConfig(t *testing.T) {
 				Detectors: DetectorConfig{
 					Settings: map[string]map[string]any{
 						"poetry.HarmJudge": {
-							"judge_generator": "anthropic.Anthropic",
+							"judge_generator_type": "anthropic.Anthropic",
 						},
 					},
 				},
 			},
 			detectorName: "poetry.HarmJudge",
 			wantKeys: map[string]any{
-				"judge_generator": "anthropic.Anthropic",
+				"judge_generator_type": "anthropic.Anthropic",
 			},
 		},
 		{
@@ -804,7 +804,7 @@ func TestResolveDetectorConfig(t *testing.T) {
 			detectorName: "judge.Judge",
 			wantKeys: map[string]any{
 				"judge_generator_type":   "anthropic.Anthropic",
-				"judge_generator_config": map[string]any{"model": "claude-3-haiku", "api_key": "test-key"},
+				"judge_config": map[string]any{"model": "claude-3-haiku", "api_key": "test-key"},
 			},
 		},
 		{
@@ -825,7 +825,7 @@ func TestResolveDetectorConfig(t *testing.T) {
 			detectorName: "judge.Judge",
 			wantKeys: map[string]any{
 				"judge_generator_type":   "anthropic.Anthropic",
-				"judge_generator_config": map[string]any{"model": "gpt-4o-mini"},
+				"judge_config": map[string]any{"model": "gpt-4o-mini"},
 			},
 		},
 	}
@@ -919,7 +919,7 @@ buffs:
 detectors:
   settings:
     poetry.HarmJudge:
-      judge_generator_config:
+      judge_config:
         api_key: ${AUGUSTUS_ANTHROPIC_KEY}
 `
 
@@ -944,7 +944,7 @@ detectors:
 	// Verify env var was interpolated in nested detector settings
 	harmCfg := cfg.Detectors.Settings["poetry.HarmJudge"]
 	require.NotNil(t, harmCfg)
-	judgeCfg, ok := harmCfg["judge_generator_config"].(map[string]any)
+	judgeCfg, ok := harmCfg["judge_config"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "sk-ant-test-123", judgeCfg["api_key"])
 }

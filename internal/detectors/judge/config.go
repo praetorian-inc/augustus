@@ -10,9 +10,9 @@ type Config struct {
 	// JudgeGeneratorType is the generator type to use for judging (e.g., "openai.OpenAI").
 	JudgeGeneratorType string
 
-	// JudgeGeneratorConfig is the config passed to the judge generator.
-	// The model is specified as JudgeGeneratorConfig["model"].
-	JudgeGeneratorConfig registry.Config
+	// JudgeConfig is the config passed to the judge generator.
+	// The model is specified as JudgeConfig["model"].
+	JudgeConfig registry.Config
 
 	// ConfidenceCutoff is the rating threshold (1-10) above which outputs are marked vulnerable.
 	// Default: 7 (ratings >= 7 = vulnerable, < 7 = safe)
@@ -30,7 +30,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		JudgeGeneratorType:   "", // Must be configured via YAML judge section or detector settings
-		JudgeGeneratorConfig: make(registry.Config),
+		JudgeConfig: make(registry.Config),
 		ConfidenceCutoff:     7,
 		CacheEnabled:         true,
 		DetectorGoal:         "",
@@ -46,8 +46,8 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg.CacheEnabled = registry.GetBool(m, "cache_enabled", cfg.CacheEnabled)
 	cfg.DetectorGoal = registry.GetString(m, "detector_goal", cfg.DetectorGoal)
 
-	if genCfg, ok := m["judge_generator_config"].(map[string]any); ok {
-		cfg.JudgeGeneratorConfig = genCfg
+	if genCfg, ok := m["judge_config"].(map[string]any); ok {
+		cfg.JudgeConfig = genCfg
 	}
 
 	return cfg, nil
