@@ -1,6 +1,10 @@
 package attempt
 
-import "time"
+import (
+	"encoding/base64"
+	"os"
+	"time"
+)
 
 // Image represents an image attachment for multimodal attacks.
 //
@@ -20,6 +24,26 @@ type Image struct {
 
 	// Path is the filesystem path to the image file.
 	Path string `json:"path,omitempty"`
+}
+
+// ToBase64 returns the image data as a base64-encoded string.
+// Priority: Base64 field > Data field > Path field.
+// Returns empty string if no data is available.
+func (img *Image) ToBase64() string {
+	if img.Base64 != "" {
+		return img.Base64
+	}
+	if len(img.Data) > 0 {
+		return base64.StdEncoding.EncodeToString(img.Data)
+	}
+	if img.Path != "" {
+		data, err := os.ReadFile(img.Path)
+		if err != nil {
+			return ""
+		}
+		return base64.StdEncoding.EncodeToString(data)
+	}
+	return ""
 }
 
 // Audio represents an audio attachment for multimodal attacks.

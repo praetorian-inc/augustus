@@ -36,6 +36,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/mischievous"
 	_ "github.com/praetorian-inc/augustus/internal/probes/misleading"
 	_ "github.com/praetorian-inc/augustus/internal/probes/multiagent"
+	_ "github.com/praetorian-inc/augustus/internal/probes/multimodal"
 	_ "github.com/praetorian-inc/augustus/internal/probes/obscureprompt"
 	_ "github.com/praetorian-inc/augustus/internal/probes/packagehallucination"
 	_ "github.com/praetorian-inc/augustus/internal/probes/pair"

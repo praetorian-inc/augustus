@@ -23,6 +23,8 @@ type Message struct {
 	Role Role `json:"role"`
 	// Content is the text content of the message.
 	Content string `json:"content"`
+	// Images contains optional image attachments for multimodal messages.
+	Images []Image `json:"images,omitempty"`
 }
 
 // NewMessage creates a new message with the given role and content.
@@ -46,4 +48,13 @@ func NewAssistantMessage(content string) Message {
 // NewSystemMessage creates a new system message.
 func NewSystemMessage(content string) Message {
 	return NewMessage(RoleSystem, content)
+}
+
+// NewUserMessageWithImages creates a new user message with image attachments.
+func NewUserMessageWithImages(content string, images []Image) Message {
+	return Message{
+		Role:    RoleUser,
+		Content: content,
+		Images:  images,
+	}
 }

@@ -87,10 +87,33 @@ func ConversationToMessages(conv *attempt.Conversation) []goopenai.ChatCompletio
 	// Add turns
 	for _, turn := range conv.Turns {
 		// Add user message
-		messages = append(messages, goopenai.ChatCompletionMessage{
-			Role:    goopenai.ChatMessageRoleUser,
-			Content: turn.Prompt.Content,
-		})
+		if len(turn.Prompt.Images) > 0 {
+			// Build multipart message with text + image parts
+			parts := make([]goopenai.ChatMessagePart, 0, 1+len(turn.Prompt.Images))
+			parts = append(parts, goopenai.ChatMessagePart{
+				Type: goopenai.ChatMessagePartTypeText,
+				Text: turn.Prompt.Content,
+			})
+			for _, img := range turn.Prompt.Images {
+				dataURL := fmt.Sprintf("data:%s;base64,%s", img.MimeType, img.ToBase64())
+				parts = append(parts, goopenai.ChatMessagePart{
+					Type: goopenai.ChatMessagePartTypeImageURL,
+					ImageURL: &goopenai.ChatMessageImageURL{
+						URL:    dataURL,
+						Detail: goopenai.ImageURLDetailAuto,
+					},
+				})
+			}
+			messages = append(messages, goopenai.ChatCompletionMessage{
+				Role:         goopenai.ChatMessageRoleUser,
+				MultiContent: parts,
+			})
+		} else {
+			messages = append(messages, goopenai.ChatCompletionMessage{
+				Role:    goopenai.ChatMessageRoleUser,
+				Content: turn.Prompt.Content,
+			})
+		}
 
 		// Add assistant response if present
 		if turn.Response != nil {

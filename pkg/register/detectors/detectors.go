@@ -32,6 +32,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/detectors/misleading"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/mitigation"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/multiagent"
+	_ "github.com/praetorian-inc/augustus/internal/detectors/multimodal"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/packagehallucination"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/pair"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/patterns"

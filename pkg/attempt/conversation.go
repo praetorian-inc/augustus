@@ -56,6 +56,12 @@ func (c *Conversation) AddPrompt(prompt string) {
 	c.AddTurn(NewTurn(prompt))
 }
 
+// AddPromptMessage adds a pre-built Message as a turn's prompt.
+// This lets multimodal probes add messages with images.
+func (c *Conversation) AddPromptMessage(msg Message) {
+	c.AddTurn(Turn{Prompt: msg})
+}
+
 // ToMessages flattens the conversation to a slice of messages.
 // This is useful for APIs that expect a flat message list.
 func (c *Conversation) ToMessages() []Message {
