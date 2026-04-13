@@ -116,3 +116,4 @@ func (p *IterativeTAP) Description() string        { return p.description }
 func (p *IterativeTAP) Goal() string               { return p.goal }
 func (p *IterativeTAP) GetPrimaryDetector() string { return "judge.Judge" }
 func (p *IterativeTAP) GetPrompts() []string       { return []string{} }
+

@@ -119,3 +119,4 @@ func NewIterativePAIRWithGenerators(attacker, judge probes.Generator, cfg attack
 		description: "PAIR: Prompt Automatic Iterative Refinement - iterative jailbreak discovery",
 	}
 }
+

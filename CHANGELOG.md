@@ -12,6 +12,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Interactive LLM provider setup script with validation
 - Ollama model pull script with GPU VRAM detection and tiered recommendations
 
+### Changed
+- **BREAKING:** The `judge:` section in YAML config is now required when using `judge.Judge`, `judge.Refusal`, or multi-turn probes (PAIR, TAP, Crescendo, GOAT, Hydra, Mischievous). The judge no longer silently falls back to the target model.
+
+### Deprecated
+- `judge_model` config key — set the model inside `judge.config` (YAML) or the `judge_config` map (per-component settings) instead.
+- `judge_generator_config` config key — use `judge_config` instead.
+- `judge_generator` config key (poetry.HarmJudge) — use `judge_generator_type` instead.
+
+### Fixed
+- Judge detector using target model instead of configured judge model when target and judge use different OpenAI-compatible APIs.
+
 ## [0.0.6] - 2026-02-09
 
 ### Added

@@ -551,6 +551,13 @@ generators:
     model: "llama3.2:3b"
     temperature: 0.8
 
+# Judge configuration (required for judge.Judge, judge.Refusal, and multi-turn probes)
+judge:
+  generator_type: openai.OpenAI
+  model: gpt-4o-mini
+  config:
+    api_key: "${OPENAI_API_KEY}"
+
 # Output configuration
 output:
   format: "jsonl"

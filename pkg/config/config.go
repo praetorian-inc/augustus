@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 // Config represents the complete Augustus configuration
@@ -181,6 +183,7 @@ func (c *Config) ResolveProbeConfig(probeName string) map[string]any {
 		}
 	}
 
+	registry.WarnDeprecatedKeys(cfg)
 	return cfg
 }
 
@@ -202,6 +205,7 @@ func (c *Config) ResolveDetectorConfig(detectorName string) map[string]any {
 		}
 	}
 
+	registry.WarnDeprecatedKeys(cfg)
 	return cfg
 }
 
