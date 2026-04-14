@@ -110,11 +110,13 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 		skipCodes:      make(map[int]bool),
 	}
 
-	// Required: URI
+	// Required: URI (also accept "endpoint" as alias for compatibility with GeneratorConfig)
 	if uri, ok := cfg["uri"].(string); ok && uri != "" {
 		r.uri = uri
+	} else if endpoint, ok := cfg["endpoint"].(string); ok && endpoint != "" {
+		r.uri = endpoint
 	} else {
-		return nil, fmt.Errorf("rest generator requires 'uri' configuration")
+		return nil, fmt.Errorf("rest generator requires 'uri' or 'endpoint' configuration")
 	}
 
 	// Optional: HTTP method
@@ -139,9 +141,11 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 		}
 	}
 
-	// Optional: Request template
+	// Optional: Request template (also accept "body" as alias for compatibility with GeneratorConfig)
 	if tmpl, ok := cfg["req_template"].(string); ok {
 		r.reqTemplate = tmpl
+	} else if body, ok := cfg["body"].(string); ok {
+		r.reqTemplate = body
 	}
 
 	// Optional: JSON request template object
@@ -158,6 +162,9 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 	}
 	if responseJSONField, ok := cfg["response_json_field"].(string); ok {
 		r.responseJSONField = responseJSONField
+	} else if responsePath, ok := cfg["response_path"].(string); ok {
+		r.responseJSONField = responsePath
+		r.responseJSON = true
 	}
 
 	// Validate JSON response configuration

@@ -570,6 +570,155 @@ func TestRestGenerator_Generate_JSONEscapeInput(t *testing.T) {
 	}
 }
 
+// TestNewRest_EndpointAlias verifies that "endpoint" works as an alias for "uri".
+func TestNewRest_EndpointAlias(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"endpoint": server.URL,
+	})
+	require.NoError(t, err, "NewRest with 'endpoint' key should succeed")
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hello")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	assert.Len(t, responses, 1)
+	assert.Equal(t, "ok", responses[0].Content)
+}
+
+// TestNewRest_BodyAlias verifies that "body" works as an alias for "req_template".
+func TestNewRest_BodyAlias(t *testing.T) {
+	var received string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf, _ := io.ReadAll(r.Body)
+		received = string(buf)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":  server.URL,
+		"body": `{"input":"$INPUT"}`,
+	})
+	require.NoError(t, err, "NewRest with 'body' key should succeed")
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test-input")
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	assert.Equal(t, `{"input":"test-input"}`, received)
+}
+
+// TestNewRest_ResponsePathAlias verifies that "response_path" works as an alias
+// for "response_json_field" and also implicitly enables JSON parsing.
+func TestNewRest_ResponsePathAlias(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"answer":"hello from path"}`)
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":           server.URL,
+		"response_path": "answer",
+	})
+	require.NoError(t, err, "NewRest with 'response_path' key should succeed")
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("ping")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	assert.Len(t, responses, 1)
+	assert.Equal(t, "hello from path", responses[0].Content)
+}
+
+// TestNewRest_URITakesPrecedenceOverEndpoint verifies that when both "uri" and
+// "endpoint" are present, "uri" wins.
+func TestNewRest_URITakesPrecedenceOverEndpoint(t *testing.T) {
+	uriServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("from-uri"))
+	}))
+	defer uriServer.Close()
+
+	endpointServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("from-endpoint"))
+	}))
+	defer endpointServer.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":      uriServer.URL,
+		"endpoint": endpointServer.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	assert.Len(t, responses, 1)
+	assert.Equal(t, "from-uri", responses[0].Content, "uri should take precedence over endpoint")
+}
+
+// TestNewRest_ReqTemplateTakesPrecedenceOverBody verifies that when both
+// "req_template" and "body" are present, "req_template" wins.
+func TestNewRest_ReqTemplateTakesPrecedenceOverBody(t *testing.T) {
+	var received string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf, _ := io.ReadAll(r.Body)
+		received = string(buf)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":          server.URL,
+		"req_template": `{"from":"req_template"}`,
+		"body":         `{"from":"body"}`,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("x")
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	assert.Equal(t, `{"from":"req_template"}`, received, "req_template should take precedence over body")
+}
+
+// TestNewRest_ResponseJSONFieldTakesPrecedenceOverResponsePath verifies that
+// when both "response_json_field" and "response_path" are present, "response_json_field" wins.
+func TestNewRest_ResponseJSONFieldTakesPrecedenceOverResponsePath(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"canonical":"from-json-field","alias":"from-path"}`)
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":                 server.URL,
+		"response_json":       true,
+		"response_json_field": "canonical",
+		"response_path":       "alias",
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("ping")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	assert.Len(t, responses, 1)
+	assert.Equal(t, "from-json-field", responses[0].Content, "response_json_field should take precedence over response_path")
+}
+
 func TestRestGenerator_Generate_GETMethod(t *testing.T) {
 	var receivedParams string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

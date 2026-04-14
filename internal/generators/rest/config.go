@@ -47,10 +47,14 @@ func DefaultConfig() Config {
 func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg := DefaultConfig()
 
-	// Required: URI
+	// Required: URI (also accept "endpoint" as alias for compatibility with GeneratorConfig)
 	uri, err := registry.RequireString(m, "uri")
 	if err != nil {
-		return cfg, fmt.Errorf("rest generator requires 'uri' configuration")
+		endpoint, endpointErr := registry.RequireString(m, "endpoint")
+		if endpointErr != nil {
+			return cfg, fmt.Errorf("rest generator requires 'uri' or 'endpoint' configuration")
+		}
+		uri = endpoint
 	}
 	cfg.URI = uri
 
@@ -67,14 +71,26 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 		}
 	}
 
-	// Optional: request template
+	// Optional: request template (also accept "body" as alias for compatibility with GeneratorConfig)
 	cfg.ReqTemplate = registry.GetString(m, "req_template", cfg.ReqTemplate)
+	if _, hasReqTemplate := m["req_template"]; !hasReqTemplate {
+		if body := registry.GetString(m, "body", ""); body != "" {
+			cfg.ReqTemplate = body
+		}
+	}
 
 	// Optional: response JSON parsing
 	if responseJSON, ok := m["response_json"].(bool); ok {
 		cfg.ResponseJSON = responseJSON
 	}
 	cfg.ResponseJSONField = registry.GetString(m, "response_json_field", "")
+	// Also accept "response_path" as alias for compatibility with GeneratorConfig
+	if cfg.ResponseJSONField == "" {
+		if responsePath := registry.GetString(m, "response_path", ""); responsePath != "" {
+			cfg.ResponseJSONField = responsePath
+			cfg.ResponseJSON = true
+		}
+	}
 
 	// Validate JSON response configuration
 	if cfg.ResponseJSON && cfg.ResponseJSONField == "" {
