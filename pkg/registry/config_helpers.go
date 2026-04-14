@@ -2,7 +2,9 @@ package registry
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
+	"sync"
 )
 
 // GetString retrieves a string value from Config with a default fallback.
@@ -137,6 +139,28 @@ func GetOptionalAPIKeyWithEnv(cfg Config, envVar string) string {
 		key = os.Getenv(envVar)
 	}
 	return key
+}
+
+// DeprecatedKeys lists all deprecated config keys and their migration guidance.
+// This is the single source of truth for deprecated configuration.
+var DeprecatedKeys = map[string]string{
+	"judge_model":            "set model inside judge.config (YAML) or judge_config map instead",
+	"judge_generator_config": "use judge_config instead",
+	"judge_generator":        "use judge_generator_type instead",
+}
+
+var warnedDeprecatedKeys sync.Map
+
+// WarnDeprecatedKeys checks cfg for any keys in DeprecatedKeys and emits slog.Warn
+// for each. Each key only warns once per process to avoid log spam during scans.
+func WarnDeprecatedKeys(cfg Config) {
+	for key, guidance := range DeprecatedKeys {
+		if _, ok := cfg[key]; ok {
+			if _, already := warnedDeprecatedKeys.LoadOrStore(key, true); !already {
+				slog.Warn("deprecated config key: "+key, "guidance", guidance)
+			}
+		}
+	}
 }
 
 // MaskAPIKey masks an API key for safe display in logs and error messages.

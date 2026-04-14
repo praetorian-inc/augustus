@@ -84,9 +84,11 @@ func TestCreateGenerators_WithConfig(t *testing.T) {
 		"attacker_generator_type": "mock.Generator",
 		"attacker_model":          "gpt-4",
 		"judge_generator_type":    "mock.Generator",
-		"judge_model":             "gpt-4",
-		"goal":                    "Test goal",
-		"max_turns":               7,
+		"judge_config": map[string]any{
+			"model": "gpt-4",
+		},
+		"goal":      "Test goal",
+		"max_turns": 7,
 	}
 
 	attacker, judge, engineCfg, err := CreateGenerators(cfg, nil)
@@ -96,6 +98,17 @@ func TestCreateGenerators_WithConfig(t *testing.T) {
 	assert.Equal(t, "Test goal", engineCfg.Goal)
 	assert.Equal(t, 7, engineCfg.MaxTurns)
 	assert.Equal(t, "gpt-4", engineCfg.AttackerModel)
+}
+
+func TestCreateGenerators_MissingJudgeType(t *testing.T) {
+	cfg := registry.Config{
+		"attacker_generator_type": "mock.Generator",
+		"goal":                    "test goal",
+	}
+
+	_, _, _, err := CreateGenerators(cfg, nil)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "judge_generator_type is required")
 }
 
 func TestCreateGenerators_AttackerConfigMap(t *testing.T) {

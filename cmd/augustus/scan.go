@@ -283,20 +283,6 @@ func runScan(ctx context.Context, cfg *scanConfig, eval harnesses.Evaluator) err
 	return runScanResolved(ctx, cfg, yamlCfg, resolved, eval, nil)
 }
 
-// injectDetectorDefaults injects target generator type and model into detector config
-// as lowest-priority fallbacks for judge.Judge and judge.Refusal detectors.
-func injectDetectorDefaults(detCfg registry.Config, targetGeneratorName string, targetGeneratorConfig registry.Config) {
-	if _, hasJudgeType := detCfg["judge_generator_type"]; !hasJudgeType {
-		slog.Debug("detector inheriting judge generator type from target", "type", targetGeneratorName)
-		detCfg["judge_generator_type"] = targetGeneratorName
-	}
-	if _, hasJudgeModel := detCfg["judge_model"]; !hasJudgeModel {
-		if model, ok := targetGeneratorConfig["model"]; ok {
-			detCfg["judge_model"] = model
-		}
-	}
-}
-
 // createProbes creates probe instances from probe names.
 // Injects target generator type and config into probe config so PAIR/TAP can inherit them.
 func createProbes(probeNames []string, yamlCfg *config.Config, targetGeneratorName string, targetGeneratorConfig registry.Config) ([]probes.Prober, error) {
@@ -332,7 +318,7 @@ func createProbes(probeNames []string, yamlCfg *config.Config, targetGeneratorNa
 }
 
 // createDetectors creates detector instances from explicit names or auto-discovers from probes.
-func createDetectors(detectorNames []string, probeList []probes.Prober, yamlCfg *config.Config, targetGeneratorName string, targetGeneratorConfig registry.Config) ([]detectors.Detector, error) {
+func createDetectors(detectorNames []string, probeList []probes.Prober, yamlCfg *config.Config) ([]detectors.Detector, error) {
 	var detectorList []detectors.Detector
 
 	if len(detectorNames) > 0 {
@@ -345,8 +331,6 @@ func createDetectors(detectorNames []string, probeList []probes.Prober, yamlCfg 
 			} else {
 				detCfg = make(registry.Config)
 			}
-
-			injectDetectorDefaults(detCfg, targetGeneratorName, targetGeneratorConfig)
 
 			detector, err := detectors.Create(detectorName, detCfg)
 			if err != nil {
@@ -369,8 +353,6 @@ func createDetectors(detectorNames []string, probeList []probes.Prober, yamlCfg 
 			} else {
 				detCfg = make(registry.Config)
 			}
-
-			injectDetectorDefaults(detCfg, targetGeneratorName, targetGeneratorConfig)
 
 			detector, err := detectors.Create(detectorName, detCfg)
 			if err != nil {
@@ -526,7 +508,7 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	}
 
 	// Create detectors
-	detectorList, err := createDetectors(cfg.detectorNames, probeList, yamlCfg, cfg.generatorName, resolved.GeneratorConfig)
+	detectorList, err := createDetectors(cfg.detectorNames, probeList, yamlCfg)
 	if err != nil {
 		return err
 	}
