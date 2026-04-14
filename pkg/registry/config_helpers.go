@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync"
 )
 
 // GetString retrieves a string value from Config with a default fallback.
@@ -148,11 +149,16 @@ var DeprecatedKeys = map[string]string{
 	"judge_generator":        "use judge_generator_type instead",
 }
 
-// WarnDeprecatedKeys checks cfg for any keys in DeprecatedKeys and emits slog.Warn for each.
+var warnedDeprecatedKeys sync.Map
+
+// WarnDeprecatedKeys checks cfg for any keys in DeprecatedKeys and emits slog.Warn
+// for each. Each key only warns once per process to avoid log spam during scans.
 func WarnDeprecatedKeys(cfg Config) {
 	for key, guidance := range DeprecatedKeys {
 		if _, ok := cfg[key]; ok {
-			slog.Warn("deprecated config key: "+key, "guidance", guidance)
+			if _, already := warnedDeprecatedKeys.LoadOrStore(key, true); !already {
+				slog.Warn("deprecated config key: "+key, "guidance", guidance)
+			}
 		}
 	}
 }
