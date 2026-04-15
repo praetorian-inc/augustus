@@ -307,6 +307,22 @@ func TestConfigFromMap_ResponseJSONFieldTakesPrecedenceOverResponsePath(t *testi
 	assert.Equal(t, "canonical_field", cfg.ResponseJSONField, "response_json_field should take precedence over response_path")
 }
 
+// TestConfigFromMap_ResponsePathRespectsExplicitResponseJSONFalse verifies that
+// when "response_path" is used alongside an explicit "response_json": false,
+// the explicit false is respected (ResponseJSON stays false).
+func TestConfigFromMap_ResponsePathRespectsExplicitResponseJSONFalse(t *testing.T) {
+	m := registry.Config{
+		"uri":           "https://api.example.com",
+		"response_json": false,
+		"response_path": "choices[0].text",
+	}
+
+	cfg, err := ConfigFromMap(m)
+	require.NoError(t, err, "ConfigFromMap should succeed")
+	assert.Equal(t, "choices[0].text", cfg.ResponseJSONField, "response_path should still set the field")
+	assert.False(t, cfg.ResponseJSON, "explicit response_json: false should be respected despite response_path alias")
+}
+
 func TestFunctionalOptions_SSE(t *testing.T) {
 	cfg := ApplyOptions(DefaultConfig(),
 		WithURI("https://test.com/api"),

@@ -719,6 +719,33 @@ func TestNewRest_ResponseJSONFieldTakesPrecedenceOverResponsePath(t *testing.T) 
 	assert.Equal(t, "from-json-field", responses[0].Content, "response_json_field should take precedence over response_path")
 }
 
+// TestNewRest_ResponsePathRespectsExplicitResponseJSONFalse verifies that when
+// "response_path" is used alongside an explicit "response_json": false, the
+// explicit false is respected (response_json stays false).
+func TestNewRest_ResponsePathRespectsExplicitResponseJSONFalse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"answer":"raw json body"}`))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":           server.URL,
+		"response_json": false,
+		"response_path": "answer",
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("ping")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	assert.Len(t, responses, 1)
+	// Because response_json is explicitly false, the raw body should be returned
+	assert.Equal(t, `{"answer":"raw json body"}`, responses[0].Content,
+		"explicit response_json: false should prevent JSON field extraction even with response_path alias")
+}
+
 func TestRestGenerator_Generate_GETMethod(t *testing.T) {
 	var receivedParams string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

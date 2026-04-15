@@ -2,6 +2,7 @@ package rest
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -55,6 +56,9 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 			return cfg, fmt.Errorf("rest generator requires 'uri' or 'endpoint' configuration")
 		}
 		uri = endpoint
+	} else if endpoint, _ := registry.RequireString(m, "endpoint"); endpoint != "" && endpoint != uri {
+		slog.Warn("both 'uri' and 'endpoint' specified; using 'uri'",
+			"uri", uri, "endpoint", endpoint)
 	}
 	cfg.URI = uri
 
@@ -77,9 +81,13 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 		if body := registry.GetString(m, "body", ""); body != "" {
 			cfg.ReqTemplate = body
 		}
+	} else if body := registry.GetString(m, "body", ""); body != "" && body != cfg.ReqTemplate {
+		slog.Warn("both 'req_template' and 'body' specified; using 'req_template'",
+			"req_template", cfg.ReqTemplate, "body", body)
 	}
 
 	// Optional: response JSON parsing
+	_, responseJSONExplicit := m["response_json"].(bool)
 	if responseJSON, ok := m["response_json"].(bool); ok {
 		cfg.ResponseJSON = responseJSON
 	}
@@ -88,8 +96,16 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	if cfg.ResponseJSONField == "" {
 		if responsePath := registry.GetString(m, "response_path", ""); responsePath != "" {
 			cfg.ResponseJSONField = responsePath
-			cfg.ResponseJSON = true
+			if responseJSONExplicit && !cfg.ResponseJSON {
+				slog.Warn("'response_path' would enable JSON parsing, but 'response_json' is explicitly false; respecting 'response_json: false'",
+					"response_path", responsePath)
+			} else {
+				cfg.ResponseJSON = true
+			}
 		}
+	} else if responsePath := registry.GetString(m, "response_path", ""); responsePath != "" && responsePath != cfg.ResponseJSONField {
+		slog.Warn("both 'response_json_field' and 'response_path' specified; using 'response_json_field'",
+			"response_json_field", cfg.ResponseJSONField, "response_path", responsePath)
 	}
 
 	// Validate JSON response configuration
