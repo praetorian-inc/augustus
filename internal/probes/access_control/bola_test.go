@@ -192,6 +192,8 @@ func TestExtractJSON(t *testing.T) {
 		{"nested JSON", `{"outer":{"inner":"val"}}`, `{"outer":{"inner":"val"}}`},
 		{"no JSON", "no json here", ""},
 		{"unclosed brace", `{"key":"value"`, ""},
+		{"markdown fence", "```json\n{\"score\":0.95,\"verdict\":\"breach\"}\n```", `{"score":0.95,"verdict":"breach"}`},
+		{"brace in string", `{"evidence":"response shows }unbalanced","score":0.5}`, `{"evidence":"response shows }unbalanced","score":0.5}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -704,17 +706,17 @@ func TestBOLAProbe_MultiTurn(t *testing.T) {
 		t.Fatalf("Probe() error = %v", err)
 	}
 
-	if len(attempts) != 2 {
-		t.Fatalf("expected 2 attempts, got %d", len(attempts))
+	// UnifiedEngine returns a single combined attempt with the max score.
+	if len(attempts) != 1 {
+		t.Fatalf("expected 1 attempt, got %d", len(attempts))
 	}
 
-	// First attempt should have low score.
-	if attempts[0].Scores[0] != 0.3 {
-		t.Errorf("attempt[0] score = %f, want %f", attempts[0].Scores[0], 0.3)
+	att := attempts[0]
+	if att.Scores[0] != 0.95 {
+		t.Errorf("score = %f, want %f (max across turns)", att.Scores[0], 0.95)
 	}
-	// Second attempt should have high score (breach) and stop the loop.
-	if attempts[1].Scores[0] != 0.95 {
-		t.Errorf("attempt[1] score = %f, want %f", attempts[1].Scores[0], 0.95)
+	if att.Probe != "access_control.BOLA" {
+		t.Errorf("Probe = %q, want %q", att.Probe, "access_control.BOLA")
 	}
 }
 
