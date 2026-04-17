@@ -14,6 +14,7 @@ import (
 	"io"
 	"log"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -69,6 +70,7 @@ func defaultTransport(proxyURL *url.URL, insecureSkipVerify bool) *http.Transpor
 var (
 	_ generators.Generator      = (*Rest)(nil)
 	_ hooks.RawResponseProvider = (*Rest)(nil)
+	_ types.ReauthGenerator     = (*Rest)(nil)
 )
 
 // Rest is a generic REST API generator that makes HTTP requests to configured endpoints.
@@ -807,6 +809,38 @@ func (r *Rest) parseSSEConfigurable(body []byte) string {
 
 	// Fallback: return raw body if no text extracted
 	return string(body)
+}
+
+// WithIdentity returns a copy of this generator with a different Authorization
+// header. All other configuration (URI, method, template, timeouts, etc.) is
+// shared. This allows access control probes to derive target variants for
+// different roles without duplicating the full generator config.
+func (r *Rest) WithIdentity(token string) (types.Generator, error) {
+	clone := &Rest{
+		uri:                r.uri,
+		method:             r.method,
+		reqTemplate:        r.reqTemplate,
+		responseJSON:       r.responseJSON,
+		responseJSONField:  r.responseJSONField,
+		requestTimeout:     r.requestTimeout,
+		apiKey:             r.apiKey,
+		proxyURL:           r.proxyURL,
+		insecureSkipVerify: r.insecureSkipVerify,
+		client:             r.client,
+		limiter:            r.limiter,
+		sseTextField:       r.sseTextField,
+		sseMode:            r.sseMode,
+		sseFilterField:     r.sseFilterField,
+		sseFilterValue:     r.sseFilterValue,
+		headers:            make(map[string]string, len(r.headers)),
+		rateLimitCodes:     make(map[int]bool, len(r.rateLimitCodes)),
+		skipCodes:          make(map[int]bool, len(r.skipCodes)),
+	}
+	maps.Copy(clone.headers, r.headers)
+	clone.headers["Authorization"] = token
+	maps.Copy(clone.rateLimitCodes, r.rateLimitCodes)
+	maps.Copy(clone.skipCodes, r.skipCodes)
+	return clone, nil
 }
 
 // ClearHistory is a no-op for REST generator (stateless).

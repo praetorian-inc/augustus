@@ -572,6 +572,17 @@ func TestBOLAProbe_SetProbeContext(t *testing.T) {
 	}
 }
 
+// mockReauthGenerator wraps a mockGenerator and returns a configured generator
+// from WithIdentity. Used to test probes that call target.(ReauthGenerator).
+type mockReauthGenerator struct {
+	mockGenerator
+	identityGen types.Generator
+}
+
+func (m *mockReauthGenerator) WithIdentity(_ string) (types.Generator, error) {
+	return m.identityGen, nil
+}
+
 // sequenceMockGenerator returns different responses for each Generate call.
 type sequenceMockGenerator struct {
 	responses []string

@@ -108,6 +108,17 @@ func (h *HookedGenerator) Generate(ctx context.Context, conv *attempt.Conversati
 	return messages, nil
 }
 
+// WithIdentity forwards to the inner generator if it supports ReauthGenerator.
+// The returned generator is unwrapped (no hooks) since it's used internally
+// by probes for recon with a different auth token, not as the scanner's target.
+func (h *HookedGenerator) WithIdentity(token string) (types.Generator, error) {
+	reauth, ok := h.inner.(types.ReauthGenerator)
+	if !ok {
+		return nil, fmt.Errorf("inner generator %T does not support WithIdentity", h.inner)
+	}
+	return reauth.WithIdentity(token)
+}
+
 // ClearHistory delegates to the inner generator.
 func (h *HookedGenerator) ClearHistory() {
 	h.inner.ClearHistory()

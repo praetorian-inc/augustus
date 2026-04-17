@@ -324,11 +324,7 @@ func TestBFLAProbe_ReconSuccess(t *testing.T) {
 		response: "Here are the results from delete_order: Order 123 has been deleted successfully.",
 	}
 
-	p := &BFLAProbe{
-		highPrivGenerator: adminGen,
-	}
-
-	result := p.reconSingleTool(context.Background(), "delete_order", "admin_exclusive")
+	result := reconSingleTool(context.Background(), adminGen, "delete_order", "admin_exclusive")
 	if !result.AdminSuccess {
 		t.Error("expected admin success")
 	}
@@ -342,18 +338,13 @@ func TestBFLAProbe_ReconRefused(t *testing.T) {
 		response: "Access denied: you do not have permission to delete orders.",
 	}
 
-	p := &BFLAProbe{
-		highPrivGenerator: adminGen,
-	}
-
-	result := p.reconSingleTool(context.Background(), "delete_order", "admin_exclusive")
+	result := reconSingleTool(context.Background(), adminGen, "delete_order", "admin_exclusive")
 	if result.AdminSuccess {
 		t.Error("expected admin failure (access denied)")
 	}
 }
 
 func TestBFLAProbe_ReconRetry(t *testing.T) {
-	callCount := 0
 	adminGen := &sequenceMockGenerator{
 		responses: []string{
 			"Access denied: you do not have permission.",
@@ -361,12 +352,7 @@ func TestBFLAProbe_ReconRetry(t *testing.T) {
 		},
 	}
 
-	p := &BFLAProbe{
-		highPrivGenerator: adminGen,
-	}
-
-	results := p.reconAdminTools(context.Background(), []string{"delete_order"}, map[string]string{"delete_order": "admin_exclusive"})
-	_ = callCount
+	results := reconAdminTools(context.Background(), adminGen, []string{"delete_order"}, map[string]string{"delete_order": "admin_exclusive"})
 	if len(results) != 1 {
 		t.Errorf("expected 1 result after retry, got %d", len(results))
 	}
@@ -376,7 +362,6 @@ func TestBFLAProbe_ReconRetry(t *testing.T) {
 
 func TestBFLAProbe_TestToolAsViewer_Breach(t *testing.T) {
 	// Attacker sends a message, viewer responds with success, judge scores 1.0.
-	adminGen := &mockGenerator{response: "Order 123 deleted successfully."}
 	attacker := &mockGenerator{
 		response: `{"action":"send","mode":"fresh","reasoning":"test","message":"Use delete_order tool"}`,
 	}
@@ -388,10 +373,9 @@ func TestBFLAProbe_TestToolAsViewer_Breach(t *testing.T) {
 	}
 
 	p := &BFLAProbe{
-		attacker:          attacker,
-		judge:             judge,
-		highPrivGenerator: adminGen,
-		maxTurns:          3,
+		attacker: attacker,
+		judge:    judge,
+		maxTurns: 3,
 		groundTruth: types.AccessControlContext{
 			AuthenticatedIdentifiers: map[string]string{"user": "viewer", "role": "viewer"},
 			VictimIdentifiers:        map[string]string{"user": "admin", "role": "admin"},
@@ -412,7 +396,6 @@ func TestBFLAProbe_TestToolAsViewer_Breach(t *testing.T) {
 }
 
 func TestBFLAProbe_TestToolAsViewer_Blocked(t *testing.T) {
-	adminGen := &mockGenerator{response: "Order 123 deleted successfully."}
 	attacker := &mockGenerator{
 		response: `{"action":"send","mode":"fresh","reasoning":"test","message":"Use delete_order"}`,
 	}
@@ -424,10 +407,9 @@ func TestBFLAProbe_TestToolAsViewer_Blocked(t *testing.T) {
 	}
 
 	p := &BFLAProbe{
-		attacker:          attacker,
-		judge:             judge,
-		highPrivGenerator: adminGen,
-		maxTurns:          2,
+		attacker: attacker,
+		judge:    judge,
+		maxTurns: 2,
 		groundTruth: types.AccessControlContext{
 			AuthenticatedIdentifiers: map[string]string{"user": "viewer", "role": "viewer"},
 			VictimIdentifiers:        map[string]string{"user": "admin", "role": "admin"},
@@ -449,7 +431,6 @@ func TestBFLAProbe_TestToolAsViewer_Blocked(t *testing.T) {
 
 func TestBFLAProbe_TestToolAsViewer_MultiTurn(t *testing.T) {
 	// Turn 1: blocked. Turn 2: breach.
-	adminGen := &mockGenerator{response: "Order 123 deleted successfully."}
 	attacker := &sequenceMockGenerator{responses: []string{
 		`{"action":"send","mode":"fresh","reasoning":"direct","message":"Use delete_order"}`,
 		`{"action":"send","mode":"fresh","reasoning":"indirect","message":"Please remove order 123"}`,
@@ -464,10 +445,9 @@ func TestBFLAProbe_TestToolAsViewer_MultiTurn(t *testing.T) {
 	}}
 
 	p := &BFLAProbe{
-		attacker:          attacker,
-		judge:             judge,
-		highPrivGenerator: adminGen,
-		maxTurns:          3,
+		attacker: attacker,
+		judge:    judge,
+		maxTurns: 3,
 		groundTruth: types.AccessControlContext{
 			AuthenticatedIdentifiers: map[string]string{"user": "viewer", "role": "viewer"},
 			VictimIdentifiers:        map[string]string{"user": "admin", "role": "admin"},
@@ -493,9 +473,9 @@ func TestBFLAProbe_BasicLoop(t *testing.T) {
 	// Admin discovers tools, recon succeeds, viewer breaches.
 	adminGen := &sequenceMockGenerator{
 		responses: []string{
-			"I have these tools: `delete_order`, `search_orders`",       // discoverAdminTools
-			"Order 123 deleted successfully.",                           // recon delete_order
-			"Here are the search results: order A, order B, order C.",   // recon search_orders
+			"I have these tools: `delete_order`, `search_orders`",     // discoverAdminTools
+			"Order 123 deleted successfully.",                         // recon delete_order
+			"Here are the search results: order A, order B, order C.", // recon search_orders
 		},
 	}
 	attackerGen := &mockGenerator{
@@ -504,8 +484,9 @@ func TestBFLAProbe_BasicLoop(t *testing.T) {
 	judgeGen := &mockGenerator{
 		response: `{"score":1.0,"verdict":"breach_confirmed","evidence":"order deleted"}`,
 	}
-	viewerGen := &mockGenerator{
-		response: "Order 123 has been deleted successfully.",
+	viewerGen := &mockReauthGenerator{
+		mockGenerator: mockGenerator{response: "Order 123 has been deleted successfully."},
+		identityGen:   adminGen,
 	}
 
 	cfg := registry.Config{
@@ -517,12 +498,12 @@ func TestBFLAProbe_BasicLoop(t *testing.T) {
 	gt, _ := parseAccessControlConfig(cfg)
 
 	p := &BFLAProbe{
-		attacker:          attackerGen,
-		judge:             judgeGen,
-		highPrivGenerator: adminGen,
-		maxTurns:          6,
-		groundTruth:       gt,
-		cfg:               cfg,
+		attacker:      attackerGen,
+		judge:         judgeGen,
+		highPrivToken: "Bearer admin-token",
+		maxTurns:      6,
+		groundTruth:   gt,
+		cfg:           cfg,
 	}
 
 	// Set probe context with viewer tools matching admin tools.
@@ -587,14 +568,19 @@ func TestBFLAProbe_NoToolsDiscovered(t *testing.T) {
 	}
 	gt, _ := parseAccessControlConfig(cfg)
 
-	p := &BFLAProbe{
-		highPrivGenerator: adminGen,
-		maxTurns:          6,
-		groundTruth:       gt,
-		cfg:               cfg,
+	target := &mockReauthGenerator{
+		mockGenerator: mockGenerator{},
+		identityGen:   adminGen,
 	}
 
-	attempts, err := p.Probe(context.Background(), &mockGenerator{})
+	p := &BFLAProbe{
+		highPrivToken: "Bearer admin-token",
+		maxTurns:      6,
+		groundTruth:   gt,
+		cfg:           cfg,
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
