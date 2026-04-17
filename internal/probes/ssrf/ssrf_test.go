@@ -638,18 +638,14 @@ func TestSSRFProbe_MultiTurn(t *testing.T) {
 		t.Fatalf("Probe() error: %v", err)
 	}
 
-	if len(attempts) != 2 {
-		t.Fatalf("Expected 2 attempts, got %d", len(attempts))
+	// UnifiedEngine returns a single combined attempt with the max score across turns.
+	if len(attempts) != 1 {
+		t.Fatalf("Expected 1 attempt, got %d", len(attempts))
 	}
 
-	// First attempt should be refused.
-	if attempts[0].MaxScore() >= 0.5 {
-		t.Errorf("First attempt should have low score, got %f", attempts[0].MaxScore())
-	}
-
-	// Second attempt should confirm SSRF.
-	if attempts[1].MaxScore() < 0.9 {
-		t.Errorf("Second attempt should have high score, got %f", attempts[1].MaxScore())
+	att := attempts[0]
+	if att.MaxScore() < 0.9 {
+		t.Errorf("Expected max score >= 0.9 (SSRF confirmed turn), got %f", att.MaxScore())
 	}
 }
 
