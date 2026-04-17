@@ -545,6 +545,7 @@ func (e *UnifiedEngine) generateQuestion(ctx context.Context, attackerConv *atte
 	}, func() error {
 		msgs, err := e.attacker.Generate(ctx, attackerConv, 1)
 		if err != nil {
+			slog.Warn("[multiturn] attacker Generate error", "error", err)
 			if isContextLengthError(err) {
 				trimConversation(attackerConv, e.contextLimit())
 				return errRetryableAttack
@@ -552,6 +553,7 @@ func (e *UnifiedEngine) generateQuestion(ctx context.Context, attackerConv *atte
 			return err
 		}
 		if len(msgs) == 0 {
+			slog.Warn("[multiturn] attacker returned 0 messages")
 			return errRetryableAttack
 		}
 		*lastRawOutput = msgs[0].Content

@@ -555,6 +555,15 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 		return fmt.Errorf("failed to create harness %s: %w", cfg.harnessName, err)
 	}
 
+	// Propagate setup hook variables through the scan context so nested
+	// generators created by probes (e.g. BFLA high_priv_generator, RBAC
+	// role_generators, judge.Judge's own generator) can resolve $VAR
+	// placeholders in headers/templates. The HookedGenerator only wraps the
+	// main generator; anything a probe instantiates directly bypasses it.
+	if len(setupVars) > 0 {
+		ctx = types.WithHookVars(ctx, setupVars)
+	}
+
 	// Run the scan
 	scanErr := harness.Run(ctx, gen, probeList, detectorList, eval)
 
