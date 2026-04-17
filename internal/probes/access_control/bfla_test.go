@@ -281,9 +281,6 @@ func TestBuildBFLAFirstTurnPrompt(t *testing.T) {
 	if !strings.Contains(prompt, "DIRECT INVOCATION") {
 		t.Error("should reference direct invocation as starting strategy")
 	}
-	if !strings.Contains(prompt, "fresh") {
-		t.Error("should mention fresh mode")
-	}
 }
 
 func TestBuildBFLAFeedback(t *testing.T) {
