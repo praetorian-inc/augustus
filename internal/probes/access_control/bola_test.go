@@ -23,7 +23,7 @@ func (m *mockGenerator) Generate(_ context.Context, _ *attempt.Conversation, _ i
 	return []attempt.Message{attempt.NewAssistantMessage(m.response)}, nil
 }
 
-func (m *mockGenerator) ClearHistory()      {}
+func (m *mockGenerator) ClearHistory()       {}
 func (m *mockGenerator) Name() string        { return "mock" }
 func (m *mockGenerator) Description() string { return "mock generator" }
 
@@ -598,7 +598,7 @@ func (m *sequenceMockGenerator) Generate(_ context.Context, _ *attempt.Conversat
 	return []attempt.Message{attempt.NewAssistantMessage(resp)}, nil
 }
 
-func (m *sequenceMockGenerator) ClearHistory()      {}
+func (m *sequenceMockGenerator) ClearHistory()       {}
 func (m *sequenceMockGenerator) Name() string        { return "sequence-mock" }
 func (m *sequenceMockGenerator) Description() string { return "sequence mock generator" }
 

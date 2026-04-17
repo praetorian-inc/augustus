@@ -120,7 +120,7 @@ func NewRBAC(cfg registry.Config) (probes.Prober, error) {
 }
 
 func (p *RBACProbe) SetProbeContext(ctx *types.ProbeContext) { p.probeCtx = ctx }
-func (p *RBACProbe) Name() string                           { return "access_control.RBAC" }
+func (p *RBACProbe) Name() string                            { return "access_control.RBAC" }
 func (p *RBACProbe) Description() string {
 	return "RBAC: LLM-driven role-based access control testing across N-role hierarchies (OWASP API5:2023)"
 }
@@ -288,10 +288,10 @@ func (p *RBACProbe) Probe(ctx context.Context, target types.Generator) ([]*attem
 		}
 
 		engineCfg := multiturn.ConfigFromMap(p.cfg, multiturn.Defaults())
-		engineCfg.MaxTurns = p.maxTurns        // full budget — no per-tool split
-		engineCfg.SuccessThreshold = 1.1        // prevent early stop; let attacker test all tools
+		engineCfg.MaxTurns = p.maxTurns  // full budget — no per-tool split
+		engineCfg.SuccessThreshold = 1.1 // prevent early stop; let attacker test all tools
 		engineCfg.JudgeSystemPrompt = judgeSystemPrompt
-		engineCfg.Stateful = true               // RBAC manages target state via modeAwareTarget
+		engineCfg.Stateful = true // RBAC manages target state via modeAwareTarget
 
 		// Wrap the role generator to handle fresh/continue mode.
 		wrappedTarget := &modeAwareTarget{
@@ -692,17 +692,17 @@ func buildBoundaries(roles []RoleConfig) []BoundaryTest {
 // It holds ALL role-gated tools for a boundary and lets the attacker choose
 // which to test each turn (pooled budget, like bflaStrategy).
 type rbacStrategy struct {
-	reconAll    []ReconResult
-	reconByName map[string]*ReconResult
-	boundary    BoundaryTest
-	hierarchy   []string
-	viewerTools []types.ToolSchema // attacker's allowed tools from context probe
-	maxTurns    int
-	turnNum     int // updated by turn callback
-	lastJudge   JudgeResult
-	currentTool string // set by ParseAttackerResponse each turn
-	wantsFresh     bool // set by ParseAttackerResponse, read by BeforeTurn hook
-	doneRedirected bool // true after first "done" redirect; second "done" stops engine
+	reconAll       []ReconResult
+	reconByName    map[string]*ReconResult
+	boundary       BoundaryTest
+	hierarchy      []string
+	viewerTools    []types.ToolSchema // attacker's allowed tools from context probe
+	maxTurns       int
+	turnNum        int // updated by turn callback
+	lastJudge      JudgeResult
+	currentTool    string // set by ParseAttackerResponse each turn
+	wantsFresh     bool   // set by ParseAttackerResponse, read by BeforeTurn hook
+	doneRedirected bool   // true after first "done" redirect; second "done" stops engine
 
 	// Per-tool tracking (populated by BeforeJudge hook).
 	toolStrategies  map[string][]string // strategies used per tool, for diversity feedback
@@ -903,7 +903,7 @@ func (t *modeAwareTarget) Generate(ctx context.Context, conv *attempt.Conversati
 	return t.inner.Generate(ctx, conv, n)
 }
 
-func (t *modeAwareTarget) ClearHistory()      { t.inner.ClearHistory() }
+func (t *modeAwareTarget) ClearHistory()       { t.inner.ClearHistory() }
 func (t *modeAwareTarget) Name() string        { return t.inner.Name() }
 func (t *modeAwareTarget) Description() string { return t.inner.Description() }
 

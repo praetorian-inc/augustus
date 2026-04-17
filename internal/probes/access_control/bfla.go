@@ -86,7 +86,7 @@ func NewBFLA(cfg registry.Config) (probes.Prober, error) {
 }
 
 func (p *BFLAProbe) SetProbeContext(ctx *types.ProbeContext) { p.probeCtx = ctx }
-func (p *BFLAProbe) Name() string                           { return "access_control.BFLA" }
+func (p *BFLAProbe) Name() string                            { return "access_control.BFLA" }
 func (p *BFLAProbe) Description() string {
 	return "BFLA: LLM-driven function-level authorization testing (OWASP API5:2023)"
 }
@@ -259,7 +259,7 @@ func (p *BFLAProbe) Probe(ctx context.Context, target types.Generator) ([]*attem
 	}
 
 	engineCfg := multiturn.ConfigFromMap(p.cfg, multiturn.Defaults())
-	engineCfg.MaxTurns = p.maxTurns // full budget — no per-tool split
+	engineCfg.MaxTurns = p.maxTurns  // full budget — no per-tool split
 	engineCfg.SuccessThreshold = 1.1 // prevent early stop; let attacker test all tools
 	engineCfg.JudgeSystemPrompt = judgeSystemPrompt
 	engineCfg.Stateful = true // BFLA manages target state itself

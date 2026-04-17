@@ -1,13 +1,13 @@
 // Package ssrf provides an SSRF detector with two detection layers:
 //
-//   Primary — OOB callback detection: reads the OOB URL from attempt metadata
-//             (set by the SSRF probe) and polls the corresponding backend
-//             (webhook.site or Interactsh/prOOBe) for recorded interactions.
-//             A hit is definitive proof of SSRF.
+//	Primary — OOB callback detection: reads the OOB URL from attempt metadata
+//	          (set by the SSRF probe) and polls the corresponding backend
+//	          (webhook.site or Interactsh/prOOBe) for recorded interactions.
+//	          A hit is definitive proof of SSRF.
 //
-//   Secondary — Pattern matching: regex scan for known SSRF evidence in the
-//               response text (cloud metadata, internal network errors, file
-//               contents). Deterministic, fast, zero-config fallback.
+//	Secondary — Pattern matching: regex scan for known SSRF evidence in the
+//	            response text (cloud metadata, internal network errors, file
+//	            contents). Deterministic, fast, zero-config fallback.
 //
 // Final score = max(oob, pattern).
 package ssrf

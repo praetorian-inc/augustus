@@ -590,7 +590,7 @@ func TestRBACProbe_PooledBoundary_Blocked(t *testing.T) {
 func TestRBACProbe_PooledBoundary_MultiTool(t *testing.T) {
 	adminGen := &sequenceMockGenerator{
 		responses: []string{
-			"Report generated: Q1 summary.",       // recon generate_report
+			"Report generated: Q1 summary.",        // recon generate_report
 			"Analytics results: 100 active users.", // recon run_analytics
 		},
 	}
@@ -604,8 +604,8 @@ func TestRBACProbe_PooledBoundary_MultiTool(t *testing.T) {
 		`{"score":0.0,"verdict":"function_blocked","evidence":"blocked"}`,
 	}}
 	viewerGen := &sequenceMockGenerator{responses: []string{
-		"Here is the report: Q1 Revenue.",       // test generate_report
-		"You don't have permission.",              // test run_analytics
+		"Here is the report: Q1 Revenue.", // test generate_report
+		"You don't have permission.",      // test run_analytics
 	}}
 	target := &reauthedMock{
 		Generator:  viewerGen,
@@ -1046,7 +1046,7 @@ func (m *callbackMockGenerator) Generate(_ context.Context, conv *attempt.Conver
 	return []attempt.Message{attempt.NewAssistantMessage(resp)}, nil
 }
 
-func (m *callbackMockGenerator) ClearHistory()      {}
+func (m *callbackMockGenerator) ClearHistory()       {}
 func (m *callbackMockGenerator) Name() string        { return "callback-mock" }
 func (m *callbackMockGenerator) Description() string { return "callback mock generator" }
 

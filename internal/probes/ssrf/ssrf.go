@@ -22,12 +22,12 @@ func init() {
 
 // AttackerAction is the parsed output from the attacker LLM.
 type AttackerAction struct {
-	Action    string `json:"action"`     // "send" or "done"
-	Mode      string `json:"mode"`       // "continue" or "fresh"
-	Reasoning string `json:"reasoning"`  // why this message
+	Action     string `json:"action"`     // "send" or "done"
+	Mode       string `json:"mode"`       // "continue" or "fresh"
+	Reasoning  string `json:"reasoning"`  // why this message
 	Scratchpad string `json:"scratchpad"` // persistent notes across turns
-	Technique string `json:"technique"`  // SSRF technique used (e.g., "cloud_metadata", "internal_ip")
-	Message   string `json:"message"`    // text to send to target
+	Technique  string `json:"technique"`  // SSRF technique used (e.g., "cloud_metadata", "internal_ip")
+	Message    string `json:"message"`    // text to send to target
 }
 
 // JudgeResult is the parsed output from the judge LLM.
@@ -106,8 +106,8 @@ func (p *SSRFProbe) SetProbeContext(ctx *types.ProbeContext) {
 	p.probeCtx = ctx
 }
 
-func (p *SSRFProbe) Name() string        { return "ssrf.SSRF" }
-func (p *SSRFProbe) GetPrompts() []string { return nil }
+func (p *SSRFProbe) Name() string               { return "ssrf.SSRF" }
+func (p *SSRFProbe) GetPrompts() []string       { return nil }
 func (p *SSRFProbe) GetPrimaryDetector() string { return "judge.Judge" }
 
 func (p *SSRFProbe) Description() string {
@@ -369,7 +369,7 @@ func (t *ssrfModeTarget) Generate(ctx context.Context, conv *attempt.Conversatio
 	return t.inner.Generate(ctx, conv, n)
 }
 
-func (t *ssrfModeTarget) ClearHistory()      { t.inner.ClearHistory() }
+func (t *ssrfModeTarget) ClearHistory()       { t.inner.ClearHistory() }
 func (t *ssrfModeTarget) Name() string        { return t.inner.Name() }
 func (t *ssrfModeTarget) Description() string { return t.inner.Description() }
 

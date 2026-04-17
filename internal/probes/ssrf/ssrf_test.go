@@ -17,9 +17,9 @@ type mockOOBBackend struct {
 	url string
 }
 
-func (m *mockOOBBackend) URL() string                  { return m.url }
+func (m *mockOOBBackend) URL() string                    { return m.url }
 func (m *mockOOBBackend) HasInteractions() (bool, error) { return false, nil }
-func (m *mockOOBBackend) Close() error                  { return nil }
+func (m *mockOOBBackend) Close() error                   { return nil }
 
 var _ oob.Backend = (*mockOOBBackend)(nil)
 
@@ -43,7 +43,7 @@ func (m *mockGenerator) Generate(_ context.Context, _ *attempt.Conversation, _ i
 	return []attempt.Message{attempt.NewAssistantMessage(resp)}, nil
 }
 
-func (m *mockGenerator) ClearHistory()      {}
+func (m *mockGenerator) ClearHistory()       {}
 func (m *mockGenerator) Name() string        { return "mock" }
 func (m *mockGenerator) Description() string { return "mock generator" }
 
