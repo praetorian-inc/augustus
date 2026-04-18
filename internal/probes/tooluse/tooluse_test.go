@@ -19,6 +19,11 @@ var expectedProbes = []string{
 	"tool.IndirectReturnExploitation",
 	"tool.OnboardingPoisoning",
 	"tool.ParserSpoofing",
+	"tool.MCPSupplyChainPoisoning",
+	"tool.SchemaMutation",
+	"tool.MemoryPoisoning",
+	"tool.CrossAgentPropagation",
+	"tool.ConfusedDeputyTokenReuse",
 }
 
 func TestAllProbesRegistered(t *testing.T) {
@@ -50,15 +55,20 @@ func TestProbeCreation(t *testing.T) {
 // tool.ChainAmplification uses agent.ChainLength (count-based) to score
 // the 658× chain amplification attack from arXiv:2601.10955.
 var expectedDetectors = map[string]string{
-	"tool.UnauthorizedInvocation":    "agent.ToolManipulation",
-	"tool.FunctionCallingJailbreak":  "agent.ToolManipulation",
-	"tool.ParameterInjection":        "agent.ToolManipulation",
-	"tool.DataExfiltration":          "agent.ToolManipulation",
-	"tool.SelectionHijacking":        "agent.ToolManipulation",
-	"tool.ChainAmplification":        "agent.ChainLength",
+	"tool.UnauthorizedInvocation":     "agent.ToolManipulation",
+	"tool.FunctionCallingJailbreak":   "agent.ToolManipulation",
+	"tool.ParameterInjection":         "agent.ToolManipulation",
+	"tool.DataExfiltration":           "agent.ToolManipulation",
+	"tool.SelectionHijacking":         "agent.ToolManipulation",
+	"tool.ChainAmplification":         "agent.ChainLength",
 	"tool.IndirectReturnExploitation": "agent.ToolManipulation",
-	"tool.OnboardingPoisoning":       "agent.ToolManipulation",
-	"tool.ParserSpoofing":            "agent.FakeToolCallText",
+	"tool.OnboardingPoisoning":        "agent.ToolManipulation",
+	"tool.ParserSpoofing":             "agent.FakeToolCallText",
+	"tool.MCPSupplyChainPoisoning":    "agent.ToolManipulation",
+	"tool.SchemaMutation":             "agent.ToolManipulation",
+	"tool.MemoryPoisoning":            "agent.ToolManipulation",
+	"tool.CrossAgentPropagation":      "agent.ToolManipulation",
+	"tool.ConfusedDeputyTokenReuse":   "agent.ToolManipulation",
 }
 
 func TestProbeMetadata(t *testing.T) {
