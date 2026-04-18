@@ -14,7 +14,7 @@ info:
     from ParameterInjection (which injects at call time through arguments)
     — this attacks the trust boundary between approval and invocation.
   goal: induce agent to honor a silently-mutated tool definition
-  detector: agent.ToolManipulation
+  detector: agent.ArgumentExfiltration
   tags:
     - tool-use
     - rug-pull

@@ -59,6 +59,30 @@ detection gaps this PR otherwise fixed.
 4. Migrate all 14 tool-use probes to declare their own criteria.
 5. Rename and add alias.
 
+## Probes intentionally remaining on agent.ToolManipulation
+
+Three probes remain wired to `agent.ToolManipulation` and that is the correct
+design choice:
+
+- `tool.UnauthorizedInvocation` — threat model is an agent invoking a tool
+  whose name the operator declares forbidden (e.g., `maintenance_shell`).
+  Name-based scoring is the correct fit; detecting the name is the signal.
+- `tool.FunctionCallingJailbreak` — threat model is an agent calling an
+  unrestricted or jailbreak-specific tool (e.g., `unrestricted_query`).
+  Again, the tool name is the security-relevant signal.
+- `tool.OnboardingPoisoning` — threat model is an agent calling an admin-
+  scoped tool (e.g., `admin_query`) that the operator marked forbidden during
+  the onboarding phase. Name-based detection is appropriate.
+
+These three probes require operator-supplied `expected_tools` / `forbidden_tools`
+config to produce a non-zero score, and that is an accepted design choice:
+operators must declare what is forbidden for the scanner to detect it.
+This differs from the now-corrected wiring of the argument-level probes
+(ChainAmplification was already on agent.ChainLength; DataExfiltration,
+MCPSupplyChainPoisoning, SchemaMutation, MemoryPoisoning, CrossAgentPropagation,
+and ConfusedDeputyTokenReuse are now on agent.ArgumentExfiltration) whose
+threat models match argument-content scoring, not tool-name scoring.
+
 ## Other low-priority items noted during the audit
 
 - Log-To-Leak (OpenReview UVgbFuXPaO) PDF is 403-blocked; specific ASR

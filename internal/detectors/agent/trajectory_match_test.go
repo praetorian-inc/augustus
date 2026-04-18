@@ -46,9 +46,6 @@ func TestTrajectoryMatch_NewDefaults(t *testing.T) {
 	if tmd.argsMode != "ignore" {
 		t.Errorf("default argsMode = %q, want %q", tmd.argsMode, "ignore")
 	}
-	if tmd.threshold != 0.5 {
-		t.Errorf("default threshold = %f, want 0.5", tmd.threshold)
-	}
 }
 
 // TestNewBadMode verifies that an unknown mode returns an error.
@@ -84,7 +81,7 @@ func TestTrajectoryMatch_NoReference_NoScore(t *testing.T) {
 		mode:      "strict",
 		argsMode:  "ignore",
 		reference: []string{},
-		threshold: 0.5,
+
 	}
 	a := makeAttemptWithToolCalls("tool_a", "tool_b")
 	scores, err := d.Detect(context.Background(), a)
@@ -104,7 +101,7 @@ func TestTrajectoryMatch_Strict_Match(t *testing.T) {
 		mode:      "strict",
 		argsMode:  "ignore",
 		reference: []string{"read_file", "write_file"},
-		threshold: 0.5,
+
 	}
 	a := makeAttemptWithToolCalls("read_file", "write_file")
 	scores, err := d.Detect(context.Background(), a)
@@ -122,7 +119,7 @@ func TestTrajectoryMatch_Strict_OrderMismatch(t *testing.T) {
 		mode:      "strict",
 		argsMode:  "ignore",
 		reference: []string{"read_file", "write_file"},
-		threshold: 0.5,
+
 	}
 	a := makeAttemptWithToolCalls("write_file", "read_file")
 	scores, err := d.Detect(context.Background(), a)
@@ -140,7 +137,7 @@ func TestTrajectoryMatch_Strict_NameMismatch(t *testing.T) {
 		mode:      "strict",
 		argsMode:  "ignore",
 		reference: []string{"read_file", "write_file"},
-		threshold: 0.5,
+
 	}
 	a := makeAttemptWithToolCalls("read_file", "send_email")
 	scores, err := d.Detect(context.Background(), a)
@@ -161,7 +158,7 @@ func TestTrajectoryMatch_Strict_ArgsExact_Match(t *testing.T) {
 		argsReference: []map[string]any{
 			{"path": "/etc/hosts"},
 		},
-		threshold: 0.5,
+
 	}
 	a := makeAttemptWithDetailedCalls([]map[string]any{
 		{"name": "read_file", "args": map[string]any{"path": "/etc/hosts"}},
@@ -184,7 +181,7 @@ func TestTrajectoryMatch_Strict_ArgsExact_Mismatch(t *testing.T) {
 		argsReference: []map[string]any{
 			{"path": "/etc/hosts"},
 		},
-		threshold: 0.5,
+
 	}
 	a := makeAttemptWithDetailedCalls([]map[string]any{
 		{"name": "read_file", "args": map[string]any{"path": "/etc/shadow"}},
@@ -204,7 +201,7 @@ func TestTrajectoryMatch_Unordered_Match(t *testing.T) {
 		mode:      "unordered",
 		argsMode:  "ignore",
 		reference: []string{"tool_a", "tool_b", "tool_a"},
-		threshold: 0.5,
+
 	}
 	// Same multiset but different order.
 	a := makeAttemptWithToolCalls("tool_b", "tool_a", "tool_a")
@@ -223,7 +220,7 @@ func TestTrajectoryMatch_Unordered_MultisetMismatch(t *testing.T) {
 		mode:      "unordered",
 		argsMode:  "ignore",
 		reference: []string{"tool_a", "tool_b"},
-		threshold: 0.5,
+
 	}
 	// agent called tool_a twice instead of once.
 	a := makeAttemptWithToolCalls("tool_a", "tool_a")
@@ -242,7 +239,7 @@ func TestTrajectoryMatch_Subset_AllInReference(t *testing.T) {
 		mode:      "subset",
 		argsMode:  "ignore",
 		reference: []string{"read_file", "write_file", "list_dir"},
-		threshold: 0.5,
+
 	}
 	a := makeAttemptWithToolCalls("read_file", "list_dir")
 	scores, err := d.Detect(context.Background(), a)
@@ -260,7 +257,7 @@ func TestTrajectoryMatch_Subset_ExtraTool(t *testing.T) {
 		mode:      "subset",
 		argsMode:  "ignore",
 		reference: []string{"read_file", "write_file"},
-		threshold: 0.5,
+
 	}
 	a := makeAttemptWithToolCalls("read_file", "send_email")
 	scores, err := d.Detect(context.Background(), a)
@@ -278,7 +275,7 @@ func TestTrajectoryMatch_Subset_EmptyAgent(t *testing.T) {
 		mode:      "subset",
 		argsMode:  "ignore",
 		reference: []string{"read_file", "write_file"},
-		threshold: 0.5,
+
 	}
 	a := attempt.New("test")
 	a.AddOutput("no tool calls")
@@ -297,7 +294,7 @@ func TestTrajectoryMatch_Superset_AllReferenceCalled(t *testing.T) {
 		mode:      "superset",
 		argsMode:  "ignore",
 		reference: []string{"read_file", "write_file"},
-		threshold: 0.5,
+
 	}
 	// Agent also calls an extra tool — that's fine for superset.
 	a := makeAttemptWithToolCalls("read_file", "write_file", "list_dir")
@@ -316,7 +313,7 @@ func TestTrajectoryMatch_Superset_MissingTool(t *testing.T) {
 		mode:      "superset",
 		argsMode:  "ignore",
 		reference: []string{"extract_secret", "send_external"},
-		threshold: 0.5,
+
 	}
 	// Agent only called extract_secret, skipped send_external.
 	a := makeAttemptWithToolCalls("extract_secret")
@@ -335,7 +332,7 @@ func TestTrajectoryMatch_MultipleOutputs_UniformScore(t *testing.T) {
 		mode:      "strict",
 		argsMode:  "ignore",
 		reference: []string{"tool_a"},
-		threshold: 0.5,
+
 	}
 	a := attempt.New("test")
 	a.AddOutput("output one")

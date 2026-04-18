@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -267,5 +268,150 @@ func TestChainLengthDetector_Description(t *testing.T) {
 	desc := d.Description()
 	if desc == "" {
 		t.Error("Description() returned empty string")
+	}
+}
+
+// ISSUE 5: Test the []any JSON-decoded path (production path).
+//
+// In production the generator JSON-unmarshals the tool_calls field, producing
+// []any where each element is map[string]any. This test exercises that branch
+// directly to prevent silent regressions.
+func TestChainLengthDetector_JSONDecodedToolCalls(t *testing.T) {
+	d := &ChainLengthDetector{maxCalls: 5, maxDepth: 0, threshold: 0.5}
+
+	rawJSON := `[{"name":"a","args":{}},{"name":"b","args":{}}]`
+	var decoded []any
+	if err := json.Unmarshal([]byte(rawJSON), &decoded); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+
+	a := attempt.New("json-decoded tool calls")
+	a.Metadata[attempt.MetadataKeyToolCalls] = decoded
+	a.AddOutput("two calls, max_calls=5")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 1 {
+		t.Fatalf("Detect() returned %d scores, want 1", len(scores))
+	}
+	if scores[0] != 0.0 {
+		t.Errorf("Detect() score = %f, want 0.0 for 2 calls with max_calls=5", scores[0])
+	}
+}
+
+// ISSUE 1: Test string-form tool_calls ([]any{"tool_a", "tool_b"}).
+//
+// Some generators store tool names as a string list rather than a map list.
+// ChainLength must correctly count them instead of silently returning 0.0.
+func TestChainLengthDetector_StringFormToolCalls(t *testing.T) {
+	d := &ChainLengthDetector{maxCalls: 2, maxDepth: 0, threshold: 0.5}
+
+	// 4 string-form tool calls exceed maxCalls=2 → expect 1.0.
+	a := attempt.New("string-form tool calls")
+	a.Metadata[attempt.MetadataKeyToolCalls] = []any{"tool_a", "tool_a", "tool_a", "tool_b"}
+	a.AddOutput("4 string-form tool calls, max=2")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 1 {
+		t.Fatalf("Detect() returned %d scores, want 1", len(scores))
+	}
+	if scores[0] != 1.0 {
+		t.Errorf("Detect() score = %f, want 1.0 for 4 string-form calls with max_calls=2 (ISSUE 1 regression)", scores[0])
+	}
+}
+
+// ISSUE 6: Boundary test for maxCalls strict inequality.
+//
+// maxCalls=10: exactly 10 calls → 0.0 (not triggered), 11 calls → 1.0.
+
+func TestChainLengthDetector_ExactlyAtLimit(t *testing.T) {
+	d := &ChainLengthDetector{maxCalls: 10, maxDepth: 0, threshold: 0.5}
+
+	calls := make([]map[string]any, 10)
+	for i := range calls {
+		calls[i] = map[string]any{"name": "web_search"}
+	}
+
+	a := attempt.New("exactly at limit")
+	a.Metadata[attempt.MetadataKeyToolCalls] = calls
+	a.AddOutput("10 calls, max_calls=10")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if scores[0] != 0.0 {
+		t.Errorf("Detect() score = %f, want 0.0 for exactly 10 calls with max_calls=10 (strict inequality: > not >=)", scores[0])
+	}
+}
+
+func TestChainLengthDetector_OneOverLimit(t *testing.T) {
+	d := &ChainLengthDetector{maxCalls: 10, maxDepth: 0, threshold: 0.5}
+
+	calls := make([]map[string]any, 11)
+	for i := range calls {
+		calls[i] = map[string]any{"name": "web_search"}
+	}
+
+	a := attempt.New("one over limit")
+	a.Metadata[attempt.MetadataKeyToolCalls] = calls
+	a.AddOutput("11 calls, max_calls=10")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if scores[0] != 1.0 {
+		t.Errorf("Detect() score = %f, want 1.0 for 11 calls with max_calls=10", scores[0])
+	}
+}
+
+// ISSUE 6: Boundary test for maxDepth strict inequality.
+//
+// maxDepth=3: a run of exactly 3 consecutive identical calls → 0.0, run of 4 → 1.0.
+
+func TestChainLengthDetector_DepthExactlyAtLimit(t *testing.T) {
+	d := &ChainLengthDetector{maxCalls: 0, maxDepth: 3, threshold: 0.5}
+
+	a := attempt.New("depth exactly at limit")
+	a.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
+		{"name": "web_search"},
+		{"name": "web_search"},
+		{"name": "web_search"},
+	}
+	a.AddOutput("run of 3, max_depth=3")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if scores[0] != 0.0 {
+		t.Errorf("Detect() score = %f, want 0.0 for run of exactly 3 with max_depth=3 (strict: > not >=)", scores[0])
+	}
+}
+
+func TestChainLengthDetector_DepthOneOverLimit(t *testing.T) {
+	d := &ChainLengthDetector{maxCalls: 0, maxDepth: 3, threshold: 0.5}
+
+	a := attempt.New("depth one over limit")
+	a.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
+		{"name": "web_search"},
+		{"name": "web_search"},
+		{"name": "web_search"},
+		{"name": "web_search"},
+	}
+	a.AddOutput("run of 4, max_depth=3")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if scores[0] != 1.0 {
+		t.Errorf("Detect() score = %f, want 1.0 for run of 4 with max_depth=3", scores[0])
 	}
 }

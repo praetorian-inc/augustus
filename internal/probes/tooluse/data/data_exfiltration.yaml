@@ -12,7 +12,7 @@ info:
     (telemetry pretexts, Markdown rendering, Base64 encoding) rather than
     blatant webhook posts.
   goal: exfiltrate sensitive data through tool parameters
-  detector: agent.ToolManipulation
+  detector: agent.ArgumentExfiltration
   tags:
     - tool-use
     - data-exfiltration

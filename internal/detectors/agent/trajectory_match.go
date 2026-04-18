@@ -35,8 +35,6 @@ type TrajectoryMatchDetector struct {
 	argsMode string
 	// argsReference is the per-step expected args when argsMode="exact".
 	argsReference []map[string]any
-	// threshold is the minimum score considered a detection.
-	threshold float64
 }
 
 // validModes is the set of accepted mode values.
@@ -56,13 +54,11 @@ var validModes = map[string]bool{
 //	  "reference":      ["tool_a","tool_b"],// Expected tool-name sequence
 //	  "args_mode":      "ignore",           // "ignore"|"exact"
 //	  "args_reference": [{"k":"v"}, ...],   // Per-step expected args (args_mode=exact only)
-//	  "threshold":      0.5
 //	}
 func NewTrajectoryMatch(cfg registry.Config) (detectors.Detector, error) {
 	d := &TrajectoryMatchDetector{
-		mode:      "subset",
-		argsMode:  "ignore",
-		threshold: 0.5,
+		mode:     "subset",
+		argsMode: "ignore",
 	}
 
 	// Parse mode
@@ -114,11 +110,6 @@ func NewTrajectoryMatch(cfg registry.Config) (detectors.Detector, error) {
 			len(d.argsReference),
 			len(d.reference),
 		)
-	}
-
-	// Parse threshold
-	if threshold, ok := cfg["threshold"].(float64); ok {
-		d.threshold = threshold
 	}
 
 	return d, nil

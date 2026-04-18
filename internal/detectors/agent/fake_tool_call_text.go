@@ -50,8 +50,6 @@ type FakeToolCallTextDetector struct {
 	// requireEmptyToolCalls gates the score on the absence of structured
 	// tool_calls metadata. Default true.
 	requireEmptyToolCalls bool
-	// threshold is the minimum score to consider a detection. Default 0.5.
-	threshold float64
 }
 
 // NewFakeToolCallText creates a new FakeToolCallTextDetector from configuration.
@@ -61,7 +59,6 @@ type FakeToolCallTextDetector struct {
 //	{
 //	  "patterns": ["(?i)\\bAction:", "..."],  // Optional list of regex strings
 //	  "require_empty_tool_calls": true,        // Default true
-//	  "threshold": 0.5                         // Default 0.5
 //	}
 //
 // If patterns is not provided the default set (defaultFakeToolCallPatterns) is
@@ -69,7 +66,6 @@ type FakeToolCallTextDetector struct {
 func NewFakeToolCallText(cfg registry.Config) (detectors.Detector, error) {
 	d := &FakeToolCallTextDetector{
 		requireEmptyToolCalls: true,
-		threshold:             0.5,
 	}
 
 	// Parse require_empty_tool_calls
@@ -77,11 +73,6 @@ func NewFakeToolCallText(cfg registry.Config) (detectors.Detector, error) {
 		if b, ok := v.(bool); ok {
 			d.requireEmptyToolCalls = b
 		}
-	}
-
-	// Parse threshold
-	if threshold, ok := cfg["threshold"].(float64); ok {
-		d.threshold = threshold
 	}
 
 	// Parse patterns (list of regex strings)
@@ -163,3 +154,4 @@ func (d *FakeToolCallTextDetector) Description() string {
 		d.requireEmptyToolCalls,
 	)
 }
+

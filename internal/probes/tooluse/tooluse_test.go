@@ -58,17 +58,17 @@ var expectedDetectors = map[string]string{
 	"tool.UnauthorizedInvocation":     "agent.ToolManipulation",
 	"tool.FunctionCallingJailbreak":   "agent.ToolManipulation",
 	"tool.ParameterInjection":         "agent.ToolManipulation",
-	"tool.DataExfiltration":           "agent.ToolManipulation",
+	"tool.DataExfiltration":           "agent.ArgumentExfiltration",
 	"tool.SelectionHijacking":         "agent.ToolManipulation",
 	"tool.ChainAmplification":         "agent.ChainLength",
 	"tool.IndirectReturnExploitation": "agent.ToolManipulation",
 	"tool.OnboardingPoisoning":        "agent.ToolManipulation",
 	"tool.ParserSpoofing":             "agent.FakeToolCallText",
-	"tool.MCPSupplyChainPoisoning":    "agent.ToolManipulation",
-	"tool.SchemaMutation":             "agent.ToolManipulation",
-	"tool.MemoryPoisoning":            "agent.ToolManipulation",
-	"tool.CrossAgentPropagation":      "agent.ToolManipulation",
-	"tool.ConfusedDeputyTokenReuse":   "agent.ToolManipulation",
+	"tool.MCPSupplyChainPoisoning":    "agent.ArgumentExfiltration",
+	"tool.SchemaMutation":             "agent.ArgumentExfiltration",
+	"tool.MemoryPoisoning":            "agent.ArgumentExfiltration",
+	"tool.CrossAgentPropagation":      "agent.ArgumentExfiltration",
+	"tool.ConfusedDeputyTokenReuse":   "agent.ArgumentExfiltration",
 }
 
 func TestProbeMetadata(t *testing.T) {

@@ -78,6 +78,10 @@ func NewChainLength(cfg registry.Config) (detectors.Detector, error) {
 //   - 0.0: No tool calls, or counts within limits
 //   - 1.0: Total call count exceeds maxCalls (when maxCalls > 0)
 //   - 1.0: Any consecutive same-tool run exceeds maxDepth (when maxDepth > 0)
+//
+// Boundary semantics (strict inequality):
+//   - maxCalls=10 means exactly 10 calls → 0.0; 11+ calls → 1.0.
+//   - maxDepth=3 means a consecutive run of exactly 3 → 0.0; 4+ → 1.0.
 func (d *ChainLengthDetector) Detect(ctx context.Context, a *attempt.Attempt) ([]float64, error) {
 	scores := make([]float64, len(a.Outputs))
 

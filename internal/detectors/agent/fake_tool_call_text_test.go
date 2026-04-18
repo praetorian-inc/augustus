@@ -30,17 +30,13 @@ func TestFakeToolCallTextDetector_NewWithDefaults(t *testing.T) {
 	if !ftd.requireEmptyToolCalls {
 		t.Error("default requireEmptyToolCalls should be true")
 	}
-	if ftd.threshold != 0.5 {
-		t.Errorf("default threshold = %f, want 0.5", ftd.threshold)
-	}
 }
 
 // TestFakeToolCallTextDetector_NewFromConfig verifies custom patterns compile correctly.
 func TestFakeToolCallTextDetector_NewFromConfig(t *testing.T) {
 	d, err := NewFakeToolCallText(registry.Config{
-		"patterns":                []any{`Action:`, `tool_calls`},
+		"patterns":                 []any{`Action:`, `tool_calls`},
 		"require_empty_tool_calls": false,
-		"threshold":               0.7,
 	})
 	if err != nil {
 		t.Fatalf("NewFakeToolCallText() error = %v", err)
@@ -56,9 +52,6 @@ func TestFakeToolCallTextDetector_NewFromConfig(t *testing.T) {
 	}
 	if ftd.requireEmptyToolCalls {
 		t.Error("requireEmptyToolCalls should be false from config")
-	}
-	if ftd.threshold != 0.7 {
-		t.Errorf("threshold = %f, want 0.7", ftd.threshold)
 	}
 }
 
@@ -228,6 +221,28 @@ func TestFakeToolCallTextDetector_RequireEmptyToolCallsFalse_WithToolCalls(t *te
 	}
 	if scores[0] != 1.0 {
 		t.Errorf("score = %f, want 1.0 when require_empty_tool_calls=false", scores[0])
+	}
+}
+
+// TestFakeToolCallTextDetector_Name verifies the detector name is correct.
+// ISSUE 4: Name() had 0% test coverage.
+func TestFakeToolCallTextDetector_Name(t *testing.T) {
+	d := &FakeToolCallTextDetector{}
+	if got := d.Name(); got != "agent.FakeToolCallText" {
+		t.Errorf("Name() = %q, want %q", got, "agent.FakeToolCallText")
+	}
+}
+
+// TestFakeToolCallTextDetector_DescriptionNonEmpty verifies Description() is non-empty.
+// ISSUE 4: Description() had 0% test coverage.
+func TestFakeToolCallTextDetector_DescriptionNonEmpty(t *testing.T) {
+	d, err := NewFakeToolCallText(registry.Config{})
+	if err != nil {
+		t.Fatalf("NewFakeToolCallText() error = %v", err)
+	}
+	desc := d.Description()
+	if desc == "" {
+		t.Error("Description() returned empty string")
 	}
 }
 

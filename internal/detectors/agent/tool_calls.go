@@ -20,10 +20,15 @@ func extractToolCalls(a *attempt.Attempt) []ToolCall {
 		// Fall back to []any and convert
 		if toolCallsIface, ok := toolCallsRaw.([]any); ok {
 			for _, tc := range toolCallsIface {
-				if tcMap, ok := tc.(map[string]any); ok {
-					toolCall := parseToolCall(tcMap)
+				switch v := tc.(type) {
+				case map[string]any:
+					toolCall := parseToolCall(v)
 					if toolCall.Name != "" {
 						toolCalls = append(toolCalls, toolCall)
+					}
+				case string:
+					if v != "" {
+						toolCalls = append(toolCalls, ToolCall{Name: v})
 					}
 				}
 			}
