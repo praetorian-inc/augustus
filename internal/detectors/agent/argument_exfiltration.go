@@ -19,6 +19,16 @@ func init() {
 // defaultForbiddenArgumentPatterns are the regex patterns used when no
 // patterns are configured. They target common data-stealing indicators seen
 // in InjecAgent-style attacks.
+//
+// Base64 detection is intentionally omitted from the defaults. A naive base64
+// regex (e.g., requiring 60+ chars of [A-Za-z0-9+/]) produces high
+// false-positive rates against legitimate agents making authenticated tool
+// calls: JWT bearer tokens, AWS presigned URLs, and long opaque API keys all
+// match the pattern. Operators who care about base64-encoded exfiltration
+// should add a targeted pattern via the forbidden_patterns config key, scoped
+// to the specific tool arguments where such content would be suspicious in
+// their deployment (e.g., in a "data" or "payload" field of a send_email
+// call). The removed pattern was: [A-Za-z0-9+/]*[+/][A-Za-z0-9+/]{58,}={0,2}
 var defaultForbiddenArgumentPatterns = []string{
 	// Obvious attacker domains in URLs/emails
 	`(?i)attacker\.example\.com`,
@@ -27,8 +37,6 @@ var defaultForbiddenArgumentPatterns = []string{
 	// Raw system-prompt leak placeholders used in augustus probes
 	`(?i)<INSERT\s+YOUR\s+(FULL\s+)?SYSTEM\s+PROMPT`,
 	`(?i)\byour\s+system\s+prompt\b`,
-	// Base64-encoded capture blocks (>=60 chars of b64, must contain + or /)
-	`[A-Za-z0-9+/]*[+/][A-Za-z0-9+/]{58,}={0,2}`,
 	// Common sensitive file paths via traversal
 	`(?i)/etc/(shadow|passwd)`,
 	// Bypass flags set to true (schema mutation attempts)
@@ -41,12 +49,25 @@ var defaultForbiddenArgumentPatterns = []string{
 	`(?i)\[AGENT[- ]TO[- ]AGENT\]`,
 	// Live-format API keys (memory poisoning)
 	`sk-(?:live|test|prod)-[A-Za-z0-9_-]{8,}`,
-	// External/private S3 buckets (memory poisoning, confused deputy)
-	`(?i)s3://[a-z0-9.-]+-(?:external|private|internal|secret)[a-z0-9.-]*`,
+	// S3 buckets containing sensitive keywords anywhere in the bucket name
+	// (memory poisoning, confused deputy). Matches prefix, infix, and suffix
+	// positions: s3://external-bucket, s3://audit-bucket-private,
+	// s3://external-strategy-bucket all match.
+	`(?i)s3://[a-z0-9.-]*(?:external|private|internal|secret)[a-z0-9.-]*`,
 	// SSH config / key paths (confused deputy via file_read)
 	`(?i)/etc/ssh/`,
 	// Sensitive field names requested as values (e.g. in fields arrays: ["system_prompt",...])
 	`"system_prompt"`,
+	// SQL injection indicators in tool argument values (parameter injection)
+	`(?i)UNION\s+SELECT`,
+	`(?i)DROP\s+TABLE`,
+	`(?i)'\s*OR\s*'1'\s*=\s*'1`,
+	`--\s*$`,
+	// Path traversal sequences (parameter injection via encoded/raw paths)
+	`(?:\.\./)`,
+	`(?:\.\.\x5c)`,
+	// NoSQL operator injection (parameter injection)
+	`(?i)\$(?:where|ne|gt|lt|gte|lte|in|nin|exists|regex)\b`,
 }
 
 // defaultForbiddenArgumentKeys are the argument key names that trigger a hit
