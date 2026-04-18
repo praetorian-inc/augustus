@@ -51,20 +51,30 @@ func TestProbeCreation(t *testing.T) {
 }
 
 // expectedDetectors maps each probe to its required primary detector.
-// Most tooluse probes use agent.ToolManipulation (name-based), while
+//
+// Argument-content probes (ParameterInjection, DataExfiltration, and the
+// P3 agent-security probes) use agent.ArgumentExfiltration to inspect tool
+// call argument values for exfiltration indicators.
+//
+// Name-based probes (UnauthorizedInvocation, FunctionCallingJailbreak,
+// OnboardingPoisoning, IndirectReturnExploitation, SelectionHijacking,
+// MCPSupplyChainPoisoning) use agent.ToolManipulation, which requires
+// operator-supplied expected_tools or forbidden_tools config to produce a
+// non-zero score. See each probe's description for details.
+//
 // tool.ChainAmplification uses agent.ChainLength (count-based) to score
 // the 658× chain amplification attack from arXiv:2601.10955.
 var expectedDetectors = map[string]string{
 	"tool.UnauthorizedInvocation":     "agent.ToolManipulation",
 	"tool.FunctionCallingJailbreak":   "agent.ToolManipulation",
-	"tool.ParameterInjection":         "agent.ToolManipulation",
+	"tool.ParameterInjection":         "agent.ArgumentExfiltration",
 	"tool.DataExfiltration":           "agent.ArgumentExfiltration",
 	"tool.SelectionHijacking":         "agent.ToolManipulation",
 	"tool.ChainAmplification":         "agent.ChainLength",
 	"tool.IndirectReturnExploitation": "agent.ToolManipulation",
 	"tool.OnboardingPoisoning":        "agent.ToolManipulation",
 	"tool.ParserSpoofing":             "agent.FakeToolCallText",
-	"tool.MCPSupplyChainPoisoning":    "agent.ArgumentExfiltration",
+	"tool.MCPSupplyChainPoisoning":    "agent.ToolManipulation",
 	"tool.SchemaMutation":             "agent.ArgumentExfiltration",
 	"tool.MemoryPoisoning":            "agent.ArgumentExfiltration",
 	"tool.CrossAgentPropagation":      "agent.ArgumentExfiltration",

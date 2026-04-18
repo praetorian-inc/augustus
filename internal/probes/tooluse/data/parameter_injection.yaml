@@ -15,7 +15,7 @@ info:
     class. Prompts use schema abuse, encoding tricks, and plausible business
     pretexts rather than textbook injection strings.
   goal: inject malicious payloads into tool arguments
-  detector: agent.ToolManipulation
+  detector: agent.ArgumentExfiltration
   tags:
     - tool-use
     - injection
