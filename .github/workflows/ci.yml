@@ -12,10 +12,11 @@ permissions:
 
 jobs:
   ci:
-    uses: praetorian-inc/public-workflows/.github/workflows/go-ci.yml@56eb1be4ae704e15e29beca8f1bb611bde8f99ce  # v1.0.0
+    uses: praetorian-inc/public-workflows/.github/workflows/go-ci.yml@7867fcf335716be84f807cf3d9c1eed44eb5d7c1  # v1.0.1
     permissions:
       contents: read
     with:
       build-cmd-path: ./cmd/augustus
       build-binary-name: augustus
+      golangci-lint-only-new-issues: true
     secrets: inherit
