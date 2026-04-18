@@ -1,7 +1,6 @@
 package openai
 
 import (
-	"os"
 	"testing"
 
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -55,8 +54,7 @@ func TestOpenAIConfigFromMapMissingModel(t *testing.T) {
 
 func TestOpenAIConfigFromMapEnvAPIKey(t *testing.T) {
 	// Set env var for test
-	os.Setenv("OPENAI_API_KEY", "sk-env-test")
-	defer os.Unsetenv("OPENAI_API_KEY")
+	t.Setenv("OPENAI_API_KEY", "sk-env-test")
 
 	m := registry.Config{"model": "gpt-4"}
 

@@ -56,7 +56,7 @@ func (c *PkgGoDevChecker) Exists(ctx context.Context, pkg string) (bool, error) 
 	if err != nil {
 		return false, fmt.Errorf("pkg.go.dev request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:

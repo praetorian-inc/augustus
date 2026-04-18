@@ -230,7 +230,7 @@ func (g *Anthropic) generateOne(ctx context.Context, conv *attempt.Conversation)
 	if err != nil {
 		return attempt.Message{}, fmt.Errorf("anthropic: request failed: %w", err)
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 
 	// Read response body
 	respBody, err := io.ReadAll(httpResp.Body)

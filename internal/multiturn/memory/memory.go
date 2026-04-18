@@ -71,8 +71,8 @@ func (m *ScanMemory) GetLearnings() string {
 			start = 0
 		}
 		for _, s := range m.successes[start:] {
-			sb.WriteString(fmt.Sprintf("    - Strategy %q succeeded on goal %q in %d turns\n",
-				s.Strategy, parse.TruncateStr(s.Goal, 80), s.TurnCount))
+			fmt.Fprintf(&sb, "    - Strategy %q succeeded on goal %q in %d turns\n",
+				s.Strategy, parse.TruncateStr(s.Goal, 80), s.TurnCount)
 		}
 	}
 
@@ -84,8 +84,8 @@ func (m *ScanMemory) GetLearnings() string {
 			start = 0
 		}
 		for _, f := range m.failures[start:] {
-			sb.WriteString(fmt.Sprintf("    - Strategy %q failed on goal %q\n",
-				f.Strategy, parse.TruncateStr(f.Goal, 80)))
+			fmt.Fprintf(&sb, "    - Strategy %q failed on goal %q\n",
+				f.Strategy, parse.TruncateStr(f.Goal, 80))
 		}
 	}
 

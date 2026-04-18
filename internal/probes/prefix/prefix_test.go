@@ -19,7 +19,7 @@ func TestPrefixProbeImplementsProber(t *testing.T) {
 	}
 
 	// Verify it implements Prober interface
-	var _ probes.Prober = p
+	var _ = p
 }
 
 // TestPrefixProbeMetadata verifies the probe returns correct metadata.

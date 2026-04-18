@@ -21,12 +21,12 @@ func TestDefaultConfig(t *testing.T) {
 func TestConfigFromMap_RequiresModel(t *testing.T) {
 	// Clear env var
 	origKey := os.Getenv("FIREWORKS_API_KEY")
-	os.Setenv("FIREWORKS_API_KEY", "test-key")
+	_ = os.Setenv("FIREWORKS_API_KEY", "test-key")
 	defer func() {
 		if origKey != "" {
-			os.Setenv("FIREWORKS_API_KEY", origKey)
+			_ = os.Setenv("FIREWORKS_API_KEY", origKey)
 		} else {
-			os.Unsetenv("FIREWORKS_API_KEY")
+			_ = os.Unsetenv("FIREWORKS_API_KEY")
 		}
 	}()
 
@@ -40,10 +40,10 @@ func TestConfigFromMap_RequiresModel(t *testing.T) {
 func TestConfigFromMap_RequiresAPIKey(t *testing.T) {
 	// Clear env var
 	origKey := os.Getenv("FIREWORKS_API_KEY")
-	os.Unsetenv("FIREWORKS_API_KEY")
+	_ = os.Unsetenv("FIREWORKS_API_KEY")
 	defer func() {
 		if origKey != "" {
-			os.Setenv("FIREWORKS_API_KEY", origKey)
+			_ = os.Setenv("FIREWORKS_API_KEY", origKey)
 		}
 	}()
 
@@ -80,12 +80,12 @@ func TestConfigFromMap_Success(t *testing.T) {
 func TestConfigFromMap_APIKeyFromEnv(t *testing.T) {
 	// Set env var
 	origKey := os.Getenv("FIREWORKS_API_KEY")
-	os.Setenv("FIREWORKS_API_KEY", "env-key")
+	_ = os.Setenv("FIREWORKS_API_KEY", "env-key")
 	defer func() {
 		if origKey != "" {
-			os.Setenv("FIREWORKS_API_KEY", origKey)
+			_ = os.Setenv("FIREWORKS_API_KEY", origKey)
 		} else {
-			os.Unsetenv("FIREWORKS_API_KEY")
+			_ = os.Unsetenv("FIREWORKS_API_KEY")
 		}
 	}()
 

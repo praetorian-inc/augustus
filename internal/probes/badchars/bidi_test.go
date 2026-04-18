@@ -22,7 +22,7 @@ func TestNewBidi(t *testing.T) {
 	}
 
 	// Verify it implements Prober interface
-	var _ probes.Prober = p
+	var _ = p
 }
 
 func TestBidi_Name(t *testing.T) {

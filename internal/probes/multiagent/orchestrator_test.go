@@ -44,7 +44,7 @@ func TestNewOrchestratorPoisonProbe(t *testing.T) {
 	}
 
 	// Verify probe implements Prober interface
-	var _ probes.Prober = probe
+	var _ = probe
 }
 
 func TestOrchestratorPoisonProbeDefaults(t *testing.T) {

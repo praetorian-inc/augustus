@@ -58,10 +58,10 @@ func TestAnthropicGenerator_RequiresModel(t *testing.T) {
 func TestAnthropicGenerator_RequiresAPIKey(t *testing.T) {
 	// Clear any env var that might be set
 	origKey := os.Getenv("ANTHROPIC_API_KEY")
-	os.Unsetenv("ANTHROPIC_API_KEY")
+	_ = os.Unsetenv("ANTHROPIC_API_KEY")
 	defer func() {
 		if origKey != "" {
-			os.Setenv("ANTHROPIC_API_KEY", origKey)
+			_ = os.Setenv("ANTHROPIC_API_KEY", origKey)
 		}
 	}()
 
@@ -85,15 +85,7 @@ func TestAnthropicGenerator_APIKeyFromEnv(t *testing.T) {
 	defer server.Close()
 
 	// Set env var
-	origKey := os.Getenv("ANTHROPIC_API_KEY")
-	os.Setenv("ANTHROPIC_API_KEY", "test-env-key")
-	defer func() {
-		if origKey != "" {
-			os.Setenv("ANTHROPIC_API_KEY", origKey)
-		} else {
-			os.Unsetenv("ANTHROPIC_API_KEY")
-		}
-	}()
+	t.Setenv("ANTHROPIC_API_KEY", "test-env-key")
 
 	g, err := NewAnthropic(registry.Config{
 		"model":    "claude-3-opus-20240229",

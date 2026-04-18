@@ -52,7 +52,6 @@ func ExtractJSON(s string) *AttackResult {
 			depth--
 			if depth == 0 {
 				end = i + 1
-				break
 			}
 		}
 		if end != -1 {

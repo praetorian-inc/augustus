@@ -25,7 +25,7 @@ func TestEscaped_ImplementsDetector(t *testing.T) {
 	detector, err := NewEscaped(nil)
 	require.NoError(t, err)
 
-	var _ detectors.Detector = detector
+	var _ = detector
 }
 
 func TestEscaped_Metadata(t *testing.T) {
@@ -114,7 +114,7 @@ func TestRaw_ImplementsDetector(t *testing.T) {
 	detector, err := NewRaw(nil)
 	require.NoError(t, err)
 
-	var _ detectors.Detector = detector
+	var _ = detector
 }
 
 func TestRaw_Metadata(t *testing.T) {

@@ -1766,7 +1766,7 @@ func TestRestGeneratorHookVarSubstitution(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		receivedBody = string(body)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"response": "ok"}`)
+		_, _ = fmt.Fprintf(w, `{"response": "ok"}`)
 	}))
 	defer ts.Close()
 
@@ -1801,7 +1801,7 @@ func TestRestGeneratorHookVarSubstitution_Headers(t *testing.T) {
 	var receivedHeader string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedHeader = r.Header.Get("X-Conversation-Id")
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 	defer ts.Close()
 
@@ -1869,7 +1869,7 @@ func TestRestGenerator_HookVarSubstitution_PrefixCollision(t *testing.T) {
 func TestRestGenerator_LastRawResponse(t *testing.T) {
 	expectedBody := `{"result":"hello world"}`
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(expectedBody))
+		_, _ = w.Write([]byte(expectedBody))
 	}))
 	defer ts.Close()
 
@@ -1893,7 +1893,7 @@ func TestRestGenerator_MessagesTemplate_SingleTurn(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		receivedBody = string(body)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"response": "ok"}`)
+		_, _ = fmt.Fprintf(w, `{"response": "ok"}`)
 	}))
 	defer ts.Close()
 
@@ -1934,7 +1934,7 @@ func TestRestGenerator_MessagesTemplate_MultiTurn(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		receivedBody = string(body)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"response": "turn 3 response"}`)
+		_, _ = fmt.Fprintf(w, `{"response": "turn 3 response"}`)
 	}))
 	defer ts.Close()
 
@@ -1984,7 +1984,7 @@ func TestRestGenerator_MessagesTemplate_WithSystem(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		receivedBody = string(body)
-		fmt.Fprintf(w, `{"response": "ok"}`)
+		_, _ = fmt.Fprintf(w, `{"response": "ok"}`)
 	}))
 	defer ts.Close()
 
@@ -2024,7 +2024,7 @@ func TestRestGenerator_MessagesTemplate_BackwardCompat(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		receivedBody = string(body)
-		fmt.Fprintf(w, "ok")
+		_, _ = fmt.Fprintf(w, "ok")
 	}))
 	defer ts.Close()
 

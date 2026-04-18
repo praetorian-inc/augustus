@@ -79,11 +79,6 @@ func (g *InferenceEndpoint) Generate(ctx context.Context, conv *attempt.Conversa
 		return []attempt.Message{}, nil
 	}
 
-	// Inference Endpoints only support single generation
-	if n > 1 {
-		n = 1
-	}
-
 	// Build request payload
 	payload := g.buildPayload(conv)
 

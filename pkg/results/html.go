@@ -70,7 +70,7 @@ func WriteHTML(outputPath string, attempts []*attempt.Attempt) error {
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	var sb strings.Builder
 
@@ -81,13 +81,13 @@ func WriteHTML(outputPath string, attempts []*attempt.Attempt) error {
 	sb.WriteString("        <div class=\"timestamp\">Generated: " + time.Now().Format(time.RFC3339) + "</div>\n")
 
 	// Summary section
-	sb.WriteString(fmt.Sprintf(`        <h2>Summary</h2>
+	fmt.Fprintf(&sb, `        <h2>Summary</h2>
         <div class="summary">
             <div class="summary-card total"><h3>Total Attempts</h3><div class="value">%d</div></div>
             <div class="summary-card passed"><h3>Passed</h3><div class="value">%d</div></div>
             <div class="summary-card failed"><h3>Failed</h3><div class="value">%d</div></div>
         </div>
-`, summary.TotalAttempts, summary.Passed, summary.Failed))
+`, summary.TotalAttempts, summary.Passed, summary.Failed)
 
 	if len(attempts) == 0 {
 		sb.WriteString("        <div class=\"no-attempts\"><h2>No attempts recorded</h2><p>Run a scan to generate results</p></div>\n")
@@ -99,8 +99,8 @@ func WriteHTML(outputPath string, attempts []*attempt.Attempt) error {
 
 		for probeName, probeAtts := range probeAttempts {
 			stats := summary.ByProbe[probeName]
-			sb.WriteString(fmt.Sprintf("        <div class=\"probe-section\">\n            <div class=\"probe-header\">\n                <h2>%s</h2>\n                <div class=\"probe-stats\">%d/%d passed</div>\n            </div>\n            <div class=\"probe-content\">\n",
-				html.EscapeString(probeName), stats.Passed, stats.Total))
+			fmt.Fprintf(&sb, "        <div class=\"probe-section\">\n            <div class=\"probe-header\">\n                <h2>%s</h2>\n                <div class=\"probe-stats\">%d/%d passed</div>\n            </div>\n            <div class=\"probe-content\">\n",
+				html.EscapeString(probeName), stats.Passed, stats.Total)
 
 			for _, att := range probeAtts {
 				writeAttemptHTML(&sb, att)
@@ -250,8 +250,8 @@ func writeAttemptHTML(sb *strings.Builder, att *attempt.Attempt) {
 
 	attackType, isMultiTurn := att.Metadata["attack_type"].(string)
 
-	sb.WriteString(fmt.Sprintf("                <div class=\"attempt\">\n                    <div class=\"attempt-header\">\n                        <span class=\"status-badge %s\">%s</span>\n                        <span class=\"scores\">%s</span>\n                    </div>\n",
-		statusClass, statusText, scoresStr))
+	fmt.Fprintf(sb, "                <div class=\"attempt\">\n                    <div class=\"attempt-header\">\n                        <span class=\"status-badge %s\">%s</span>\n                        <span class=\"scores\">%s</span>\n                    </div>\n",
+		statusClass, statusText, scoresStr)
 	sb.WriteString("                    <div class=\"attempt-detail\"><strong>Detector:</strong> " + html.EscapeString(att.Detector) + "</div>\n")
 
 	if !isMultiTurn {
@@ -384,10 +384,10 @@ func renderStandardMultiTurn(sb *strings.Builder, turns []turnData, attackType, 
 			barColor = "#ffc107"
 		}
 
-		sb.WriteString(fmt.Sprintf("\n                        <div class=\"%s\">\n                            <div class=\"turn-header\"><span>Turn %d%s%s</span><span class=\"turn-score\">Score: %.2f</span></div>\n                            <div class=\"turn-question\"><strong>Attacker:</strong> %s</div>\n                            <div class=\"turn-response\"><strong>Target:</strong> %s</div>\n                            <div class=\"score-bar\"><div class=\"score-bar-fill\" style=\"width: %.0f%%; background: %s;\"></div></div>\n                        </div>",
+		fmt.Fprintf(sb, "\n                        <div class=\"%s\">\n                            <div class=\"turn-header\"><span>Turn %d%s%s</span><span class=\"turn-score\">Score: %.2f</span></div>\n                            <div class=\"turn-question\"><strong>Attacker:</strong> %s</div>\n                            <div class=\"turn-response\"><strong>Target:</strong> %s</div>\n                            <div class=\"score-bar\"><div class=\"score-bar-fill\" style=\"width: %.0f%%; background: %s;\"></div></div>\n                        </div>",
 			turnClass, turn.TurnNumber, successTag, refusedTag, turn.JudgeScore,
 			html.EscapeString(turn.Question), html.EscapeString(turn.Response),
-			turn.JudgeScore*100, barColor))
+			turn.JudgeScore*100, barColor)
 	}
 
 	sb.WriteString("\n                    </div>")
@@ -419,15 +419,15 @@ func renderHydraAttack(sb *strings.Builder, turns []turnData, goal string, _ int
 	sb.WriteString("                    <div class=\"hydra-attack\">\n")
 
 	// Header
-	sb.WriteString(fmt.Sprintf("                        <div class=\"hydra-header\"><span>Hydra Attack</span><span class=\"hydra-result-tag %s\">%s</span></div>\n", resultTagClass, resultText))
+	fmt.Fprintf(sb, "                        <div class=\"hydra-header\"><span>Hydra Attack</span><span class=\"hydra-result-tag %s\">%s</span></div>\n", resultTagClass, resultText)
 
 	if goal != "" {
 		sb.WriteString("                        <div class=\"hydra-goal\"><strong>Goal:</strong> " + html.EscapeString(goal) + "</div>\n")
 	}
 
 	// Stats bar
-	sb.WriteString(fmt.Sprintf("                        <div class=\"hydra-stats-bar\">\n                            <span><span class=\"hydra-stat-label\">Accepted Turns:</span> <span class=\"hydra-stat-value\">%d</span></span>\n                            <span><span class=\"hydra-stat-label\">Backtracks:</span> <span class=\"hydra-stat-value\">%d</span></span>\n                            <span><span class=\"hydra-stat-label\">Total Events:</span> <span class=\"hydra-stat-value\">%d</span></span>\n                            <span><span class=\"hydra-stat-label\">Best Score:</span> <span class=\"hydra-stat-value\">%.2f</span></span>\n                        </div>\n",
-		acceptedCount, backtrackCount, len(turns), bestScore))
+	fmt.Fprintf(sb, "                        <div class=\"hydra-stats-bar\">\n                            <span><span class=\"hydra-stat-label\">Accepted Turns:</span> <span class=\"hydra-stat-value\">%d</span></span>\n                            <span><span class=\"hydra-stat-label\">Backtracks:</span> <span class=\"hydra-stat-value\">%d</span></span>\n                            <span><span class=\"hydra-stat-label\">Total Events:</span> <span class=\"hydra-stat-value\">%d</span></span>\n                            <span><span class=\"hydra-stat-label\">Best Score:</span> <span class=\"hydra-stat-value\">%.2f</span></span>\n                        </div>\n",
+		acceptedCount, backtrackCount, len(turns), bestScore)
 
 	// Score sparkline
 	if len(turns) >= 2 {
@@ -492,8 +492,8 @@ func renderHydraAcceptedEvent(sb *strings.Builder, turn turnData, displayNum int
 		successBadge = "<span class=\"hydra-badge hydra-badge-success\">goal progress!</span>"
 	}
 
-	sb.WriteString(fmt.Sprintf("                            <div class=\"hydra-event hydra-accepted\">\n                                <div class=\"hydra-dot\">%d</div>\n                                <div class=\"hydra-card\">\n                                    <div class=\"hydra-card-header\">\n                                        <span class=\"hydra-strategy-badge\" title=\"%s\" style=\"background:%s\">%s</span>\n                                        <span class=\"hydra-score-pill\" style=\"background:%s;color:%s\">%.2f</span>\n                                        %s%s\n                                    </div>\n",
-		displayNum, html.EscapeString(turn.Strategy), badgeColor, html.EscapeString(cat), scorePillBg, scorePillColor, turn.JudgeScore, refusalBadge, successBadge))
+	fmt.Fprintf(sb, "                            <div class=\"hydra-event hydra-accepted\">\n                                <div class=\"hydra-dot\">%d</div>\n                                <div class=\"hydra-card\">\n                                    <div class=\"hydra-card-header\">\n                                        <span class=\"hydra-strategy-badge\" title=\"%s\" style=\"background:%s\">%s</span>\n                                        <span class=\"hydra-score-pill\" style=\"background:%s;color:%s\">%.2f</span>\n                                        %s%s\n                                    </div>\n",
+		displayNum, html.EscapeString(turn.Strategy), badgeColor, html.EscapeString(cat), scorePillBg, scorePillColor, turn.JudgeScore, refusalBadge, successBadge)
 
 	sb.WriteString("                                    <details class=\"hydra-details\">\n                                        <summary>View attacker reasoning &amp; conversation</summary>\n")
 
@@ -536,8 +536,8 @@ func renderHydraBacktrackedEvent(sb *strings.Builder, turn turnData) {
 		scoreBadge = fmt.Sprintf(" <span class=\"hydra-score-pill\" style=\"background:#e1e4e8;color:#6a737d\">%.2f</span>", turn.JudgeScore)
 	}
 
-	sb.WriteString(fmt.Sprintf("                            <div class=\"hydra-event hydra-backtracked\">\n                                <div class=\"hydra-dot\">&#10005;</div>\n                                <div class=\"hydra-card\">\n                                    <div class=\"hydra-card-header\">\n                                        <span class=\"hydra-strategy-badge\" title=\"%s\" style=\"background:%s;opacity:0.7\">%s</span>\n                                        <span class=\"hydra-badge hydra-badge-backtrack\">rolled back</span>%s\n                                    </div>\n",
-		html.EscapeString(turn.Strategy), badgeColor, html.EscapeString(cat), scoreBadge))
+	fmt.Fprintf(sb, "                            <div class=\"hydra-event hydra-backtracked\">\n                                <div class=\"hydra-dot\">&#10005;</div>\n                                <div class=\"hydra-card\">\n                                    <div class=\"hydra-card-header\">\n                                        <span class=\"hydra-strategy-badge\" title=\"%s\" style=\"background:%s;opacity:0.7\">%s</span>\n                                        <span class=\"hydra-badge hydra-badge-backtrack\">rolled back</span>%s\n                                    </div>\n",
+		html.EscapeString(turn.Strategy), badgeColor, html.EscapeString(cat), scoreBadge)
 
 	sb.WriteString("                                    <details class=\"hydra-details\">\n                                        <summary>" + detailsSummary + "</summary>\n")
 
@@ -573,16 +573,16 @@ func renderHydraSparkline(sb *strings.Builder, turns []turnData) {
 		return
 	}
 
-	sb.WriteString(fmt.Sprintf("                                <svg viewBox=\"0 0 %.0f %.0f\" preserveAspectRatio=\"xMidYMid meet\">\n", svgW, svgH))
+	fmt.Fprintf(sb, "                                <svg viewBox=\"0 0 %.0f %.0f\" preserveAspectRatio=\"xMidYMid meet\">\n", svgW, svgH)
 
 	// Threshold line
 	threshY := pad + (1-0.8)*drawH
-	sb.WriteString(fmt.Sprintf("                                    <line x1=\"%.0f\" y1=\"%.1f\" x2=\"%.0f\" y2=\"%.1f\" stroke=\"#dc3545\" stroke-width=\"1\" stroke-dasharray=\"6,4\" opacity=\"0.4\"/>\n", pad, threshY, svgW-pad, threshY))
+	fmt.Fprintf(sb, "                                    <line x1=\"%.0f\" y1=\"%.1f\" x2=\"%.0f\" y2=\"%.1f\" stroke=\"#dc3545\" stroke-width=\"1\" stroke-dasharray=\"6,4\" opacity=\"0.4\"/>\n", pad, threshY, svgW-pad, threshY)
 
 	// Grid lines
 	for _, v := range []float64{0.0, 0.2, 0.4, 0.6} {
 		y := pad + (1-v)*drawH
-		sb.WriteString(fmt.Sprintf("                                    <line x1=\"%.0f\" y1=\"%.1f\" x2=\"%.0f\" y2=\"%.1f\" stroke=\"#e1e4e8\" stroke-width=\"0.5\"/>\n", pad, y, svgW-pad, y))
+		fmt.Fprintf(sb, "                                    <line x1=\"%.0f\" y1=\"%.1f\" x2=\"%.0f\" y2=\"%.1f\" stroke=\"#e1e4e8\" stroke-width=\"0.5\"/>\n", pad, y, svgW-pad, y)
 	}
 
 	type svgPt struct {
@@ -614,7 +614,7 @@ func renderHydraSparkline(sb *strings.Builder, turns []turnData) {
 			if i > 0 {
 				sb.WriteString(" ")
 			}
-			sb.WriteString(fmt.Sprintf("%.1f,%.1f", p.x, p.y))
+			fmt.Fprintf(sb, "%.1f,%.1f", p.x, p.y)
 		}
 		sb.WriteString("\" fill=\"none\" stroke=\"#0366d6\" stroke-width=\"2\" opacity=\"0.6\" stroke-linejoin=\"round\"/>\n")
 	}
@@ -622,22 +622,22 @@ func renderHydraSparkline(sb *strings.Builder, turns []turnData) {
 	// Area fill
 	if len(accepted) >= 2 {
 		baseY := pad + drawH
-		sb.WriteString(fmt.Sprintf("                                    <polygon points=\"%.1f,%.1f ", accepted[0].x, baseY))
+		fmt.Fprintf(sb, "                                    <polygon points=\"%.1f,%.1f ", accepted[0].x, baseY)
 		for _, p := range accepted {
-			sb.WriteString(fmt.Sprintf("%.1f,%.1f ", p.x, p.y))
+			fmt.Fprintf(sb, "%.1f,%.1f ", p.x, p.y)
 		}
-		sb.WriteString(fmt.Sprintf("%.1f,%.1f\" fill=\"#0366d6\" opacity=\"0.08\"/>\n", accepted[len(accepted)-1].x, baseY))
+		fmt.Fprintf(sb, "%.1f,%.1f\" fill=\"#0366d6\" opacity=\"0.08\"/>\n", accepted[len(accepted)-1].x, baseY)
 	}
 
 	// Draw points
 	for _, p := range pts {
 		if p.bt {
 			s := 3.5
-			sb.WriteString(fmt.Sprintf("                                    <line x1=\"%.1f\" y1=\"%.1f\" x2=\"%.1f\" y2=\"%.1f\" stroke=\"#cb2431\" stroke-width=\"2\" stroke-linecap=\"round\"/>\n", p.x-s, p.y-s, p.x+s, p.y+s))
-			sb.WriteString(fmt.Sprintf("                                    <line x1=\"%.1f\" y1=\"%.1f\" x2=\"%.1f\" y2=\"%.1f\" stroke=\"#cb2431\" stroke-width=\"2\" stroke-linecap=\"round\"/>\n", p.x+s, p.y-s, p.x-s, p.y+s))
+			fmt.Fprintf(sb, "                                    <line x1=\"%.1f\" y1=\"%.1f\" x2=\"%.1f\" y2=\"%.1f\" stroke=\"#cb2431\" stroke-width=\"2\" stroke-linecap=\"round\"/>\n", p.x-s, p.y-s, p.x+s, p.y+s)
+			fmt.Fprintf(sb, "                                    <line x1=\"%.1f\" y1=\"%.1f\" x2=\"%.1f\" y2=\"%.1f\" stroke=\"#cb2431\" stroke-width=\"2\" stroke-linecap=\"round\"/>\n", p.x+s, p.y-s, p.x-s, p.y+s)
 		} else {
 			color := scoreColor(p.score)
-			sb.WriteString(fmt.Sprintf("                                    <circle cx=\"%.1f\" cy=\"%.1f\" r=\"4\" fill=\"%s\" stroke=\"white\" stroke-width=\"1.5\"/>\n", p.x, p.y, color))
+			fmt.Fprintf(sb, "                                    <circle cx=\"%.1f\" cy=\"%.1f\" r=\"4\" fill=\"%s\" stroke=\"white\" stroke-width=\"1.5\"/>\n", p.x, p.y, color)
 		}
 	}
 

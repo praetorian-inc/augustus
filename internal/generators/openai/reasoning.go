@@ -16,16 +16,6 @@ func init() {
 	generators.Register("openai.OpenAIReasoning", NewOpenAIReasoning)
 }
 
-// reasoningModels is the set of models that use reasoning APIs (o1/o3 family).
-var reasoningModels = map[string]bool{
-	"o1-mini":              true,
-	"o1-mini-2024-09-12":   true,
-	"o1-preview":           true,
-	"o1-preview-2024-09-12": true,
-	"o3-mini":              true,
-	"o3-mini-2025-01-31":   true,
-}
-
 // OpenAIReasoning is a generator for OpenAI reasoning models (o1/o3 family).
 // These models have different API constraints:
 // - Use max_completion_tokens instead of max_tokens

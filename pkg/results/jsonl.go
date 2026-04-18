@@ -36,7 +36,7 @@ func WriteJSONL(outputPath string, attempts []*attempt.Attempt) error {
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// Convert attempts to simplified format
 	results := ToAttemptResults(attempts)

@@ -93,15 +93,15 @@ output:
 	require.NoError(t, err)
 
 	// Set environment variables (should override YAML)
-	os.Setenv("AUGUSTUS_RUN__MAX_ATTEMPTS", "10")
-	os.Setenv("AUGUSTUS_RUN__TIMEOUT", "1h")
-	os.Setenv("AUGUSTUS_OUTPUT__FORMAT", "jsonl")
-	os.Setenv("AUGUSTUS_OUTPUT__PATH", "/tmp/output")
+	_ = os.Setenv("AUGUSTUS_RUN__MAX_ATTEMPTS", "10")
+	_ = os.Setenv("AUGUSTUS_RUN__TIMEOUT", "1h")
+	_ = os.Setenv("AUGUSTUS_OUTPUT__FORMAT", "jsonl")
+	_ = os.Setenv("AUGUSTUS_OUTPUT__PATH", "/tmp/output")
 	defer func() {
-		os.Unsetenv("AUGUSTUS_RUN__MAX_ATTEMPTS")
-		os.Unsetenv("AUGUSTUS_RUN__TIMEOUT")
-		os.Unsetenv("AUGUSTUS_OUTPUT__FORMAT")
-		os.Unsetenv("AUGUSTUS_OUTPUT__PATH")
+		_ = os.Unsetenv("AUGUSTUS_RUN__MAX_ATTEMPTS")
+		_ = os.Unsetenv("AUGUSTUS_RUN__TIMEOUT")
+		_ = os.Unsetenv("AUGUSTUS_OUTPUT__FORMAT")
+		_ = os.Unsetenv("AUGUSTUS_OUTPUT__PATH")
 	}()
 
 	// Load config with env vars
@@ -123,11 +123,11 @@ output:
 // TestLoadConfigKoanf_EnvVarTransformation tests key transformation
 func TestLoadConfigKoanf_EnvVarTransformation(t *testing.T) {
 	// Test the transformation: AUGUSTUS_RUN__TIMEOUT -> run.timeout
-	os.Setenv("AUGUSTUS_RUN__MAX_ATTEMPTS", "7")
-	os.Setenv("AUGUSTUS_OUTPUT__FORMAT", "table")
+	_ = os.Setenv("AUGUSTUS_RUN__MAX_ATTEMPTS", "7")
+	_ = os.Setenv("AUGUSTUS_OUTPUT__FORMAT", "table")
 	defer func() {
-		os.Unsetenv("AUGUSTUS_RUN__MAX_ATTEMPTS")
-		os.Unsetenv("AUGUSTUS_OUTPUT__FORMAT")
+		_ = os.Unsetenv("AUGUSTUS_RUN__MAX_ATTEMPTS")
+		_ = os.Unsetenv("AUGUSTUS_OUTPUT__FORMAT")
 	}()
 
 	cfg, err := LoadConfigKoanf("")
@@ -158,11 +158,11 @@ output:
 	require.NoError(t, err)
 
 	// Set environment variables for some (not all) fields
-	os.Setenv("AUGUSTUS_RUN__MAX_ATTEMPTS", "8")
-	os.Setenv("AUGUSTUS_OUTPUT__FORMAT", "jsonl")
+	_ = os.Setenv("AUGUSTUS_RUN__MAX_ATTEMPTS", "8")
+	_ = os.Setenv("AUGUSTUS_OUTPUT__FORMAT", "jsonl")
 	defer func() {
-		os.Unsetenv("AUGUSTUS_RUN__MAX_ATTEMPTS")
-		os.Unsetenv("AUGUSTUS_OUTPUT__FORMAT")
+		_ = os.Unsetenv("AUGUSTUS_RUN__MAX_ATTEMPTS")
+		_ = os.Unsetenv("AUGUSTUS_OUTPUT__FORMAT")
 	}()
 
 	cfg, err := LoadConfigKoanf(configPath)
@@ -272,8 +272,8 @@ run:
 
 			// Set environment variables
 			for k, v := range tt.envVars {
-				os.Setenv(k, v)
-				defer os.Unsetenv(k)
+				_ = os.Setenv(k, v)
+				defer func() { _ = os.Unsetenv(k) }()
 			}
 
 			cfg, err := LoadConfigKoanf(configPath)
@@ -325,13 +325,13 @@ func TestLoadConfigKoanf_NonexistentFile(t *testing.T) {
 // TestLoadConfigKoanf_NestedEnvVars tests nested environment variable keys
 func TestLoadConfigKoanf_NestedEnvVars(t *testing.T) {
 	// Test nested keys: AUGUSTUS_GENERATORS__OPENAI__MODEL -> generators.openai.model
-	os.Setenv("AUGUSTUS_GENERATORS__OPENAI__MODEL", "gpt-4-turbo")
-	os.Setenv("AUGUSTUS_GENERATORS__OPENAI__TEMPERATURE", "0.9")
-	os.Setenv("AUGUSTUS_GENERATORS__OPENAI__API_KEY", "env-api-key")
+	_ = os.Setenv("AUGUSTUS_GENERATORS__OPENAI__MODEL", "gpt-4-turbo")
+	_ = os.Setenv("AUGUSTUS_GENERATORS__OPENAI__TEMPERATURE", "0.9")
+	_ = os.Setenv("AUGUSTUS_GENERATORS__OPENAI__API_KEY", "env-api-key")
 	defer func() {
-		os.Unsetenv("AUGUSTUS_GENERATORS__OPENAI__MODEL")
-		os.Unsetenv("AUGUSTUS_GENERATORS__OPENAI__TEMPERATURE")
-		os.Unsetenv("AUGUSTUS_GENERATORS__OPENAI__API_KEY")
+		_ = os.Unsetenv("AUGUSTUS_GENERATORS__OPENAI__MODEL")
+		_ = os.Unsetenv("AUGUSTUS_GENERATORS__OPENAI__TEMPERATURE")
+		_ = os.Unsetenv("AUGUSTUS_GENERATORS__OPENAI__API_KEY")
 	}()
 
 	cfg, err := LoadConfigKoanf("")
@@ -371,13 +371,13 @@ output:
 	require.NoError(t, err)
 
 	// Override only specific nested fields via env
-	os.Setenv("AUGUSTUS_RUN__TIMEOUT", "1h")
-	os.Setenv("AUGUSTUS_GENERATORS__OPENAI__TEMPERATURE", "0.8")
-	os.Setenv("AUGUSTUS_OUTPUT__FORMAT", "jsonl")
+	_ = os.Setenv("AUGUSTUS_RUN__TIMEOUT", "1h")
+	_ = os.Setenv("AUGUSTUS_GENERATORS__OPENAI__TEMPERATURE", "0.8")
+	_ = os.Setenv("AUGUSTUS_OUTPUT__FORMAT", "jsonl")
 	defer func() {
-		os.Unsetenv("AUGUSTUS_RUN__TIMEOUT")
-		os.Unsetenv("AUGUSTUS_GENERATORS__OPENAI__TEMPERATURE")
-		os.Unsetenv("AUGUSTUS_OUTPUT__FORMAT")
+		_ = os.Unsetenv("AUGUSTUS_RUN__TIMEOUT")
+		_ = os.Unsetenv("AUGUSTUS_GENERATORS__OPENAI__TEMPERATURE")
+		_ = os.Unsetenv("AUGUSTUS_OUTPUT__FORMAT")
 	}()
 
 	cfg, err := LoadConfigKoanf(configPath)

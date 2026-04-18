@@ -31,17 +31,6 @@ func mockWatsonXTextGenResponse(content string) map[string]any {
 	}
 }
 
-// mockWatsonXDeploymentResponse creates a mock Watson X deployment response.
-func mockWatsonXDeploymentResponse(content string) map[string]any {
-	return map[string]any{
-		"predictions": []map[string]any{
-			{
-				"values": []string{content},
-			},
-		},
-	}
-}
-
 func TestWatsonXGenerator_RequiresAPIKey(t *testing.T) {
 	// Should error without API key
 	_, err := NewWatsonX(registry.Config{

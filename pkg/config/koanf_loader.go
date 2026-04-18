@@ -29,7 +29,7 @@ func LoadConfigKoanf(configPath string) (*Config, error) {
 	// AUGUSTUS_OUTPUT__FORMAT -> output.format
 	err := k.Load(env.Provider("AUGUSTUS_", ".", func(s string) string {
 		s = strings.TrimPrefix(s, "AUGUSTUS_")
-		s = strings.Replace(s, "__", ".", -1) // Only double underscores become dots
+		s = strings.ReplaceAll(s, "__", ".") // Only double underscores become dots
 		s = strings.ToLower(s)
 		return s
 	}), nil)

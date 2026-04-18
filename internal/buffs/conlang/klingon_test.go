@@ -3,7 +3,6 @@ package conlang
 import (
 	"context"
 	"errors"
-	"iter"
 	"testing"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -281,7 +280,7 @@ func TestKlingonBuffIterSeqConformance(t *testing.T) {
 	input := attempt.New("Hello")
 
 	// Verify Transform returns iter.Seq[*attempt.Attempt]
-	var seq iter.Seq[*attempt.Attempt] = buff.Transform(input)
+	seq := buff.Transform(input)
 
 	// Should be usable in range
 	count := 0

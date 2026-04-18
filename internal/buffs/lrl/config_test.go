@@ -22,8 +22,7 @@ func TestLRLConfigFromMap(t *testing.T) {
 
 func TestLRLConfigFromMapEnvAPIKey(t *testing.T) {
 	// Set env var for test
-	os.Setenv("DEEPL_API_KEY", "env-deepl-key")
-	defer os.Unsetenv("DEEPL_API_KEY")
+	t.Setenv("DEEPL_API_KEY", "env-deepl-key")
 
 	m := registry.Config{}
 
@@ -34,7 +33,7 @@ func TestLRLConfigFromMapEnvAPIKey(t *testing.T) {
 
 func TestLRLConfigFromMapMissingAPIKey(t *testing.T) {
 	// Ensure no env var
-	os.Unsetenv("DEEPL_API_KEY")
+	_ = os.Unsetenv("DEEPL_API_KEY")
 
 	m := registry.Config{}
 

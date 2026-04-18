@@ -301,7 +301,7 @@ func TestAdvPatchProbe_ImplementsProber(t *testing.T) {
 	require.NoError(t, err)
 
 	// This will fail to compile if AdvPatchProbe doesn't implement probes.Prober
-	var _ probes.Prober = p
+	var _ = p
 }
 
 // TestGeneratePatch_ReturnsImage verifies GeneratePatch returns an image.

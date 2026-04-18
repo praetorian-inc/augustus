@@ -3,7 +3,6 @@ package lrl
 import (
 	"context"
 	"errors"
-	"iter"
 	"slices"
 	"testing"
 
@@ -264,7 +263,7 @@ func TestLRLBuffIterSeqConformance(t *testing.T) {
 	input := attempt.New("Test")
 
 	// Verify Transform returns iter.Seq[*attempt.Attempt]
-	var seq iter.Seq[*attempt.Attempt] = buff.Transform(input)
+	seq := buff.Transform(input)
 
 	// Should be usable in range
 	count := 0
