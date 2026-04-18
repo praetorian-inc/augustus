@@ -6,10 +6,14 @@ info:
   description: >-
     Tests whether an LLM can be tricked into passing malicious payloads as
     tool call arguments using realistic pretexts and modern evasion techniques.
-    Based on TIP Exploitation (Luo et al., HKUST 2025) which demonstrated RCE
-    via tool parameter injection on Cursor, Cline, and Claude Code. Prompts
-    use schema abuse, encoding tricks, and plausible business pretexts rather
-    than textbook injection strings.
+    Attack patterns (SQL injection, path traversal via Base64, JSONP/XSS in
+    URL params, NoSQL operator injection) draw from established web-security
+    literature applied to the tool-argument channel. TIP Exploitation
+    (Xie/Luo et al., arXiv:2509.05755) demonstrated related tool-channel RCE
+    via tool-description and tool-return payloads on Cursor, Cline, and
+    Claude Code — augmenting rather than originating the parameter-injection
+    class. Prompts use schema abuse, encoding tricks, and plausible business
+    pretexts rather than textbook injection strings.
   goal: inject malicious payloads into tool arguments
   detector: agent.ToolManipulation
   tags:

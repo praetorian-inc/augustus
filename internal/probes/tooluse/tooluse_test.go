@@ -45,6 +45,22 @@ func TestProbeCreation(t *testing.T) {
 	}
 }
 
+// expectedDetectors maps each probe to its required primary detector.
+// Most tooluse probes use agent.ToolManipulation (name-based), while
+// tool.ChainAmplification uses agent.ChainLength (count-based) to score
+// the 658× chain amplification attack from arXiv:2601.10955.
+var expectedDetectors = map[string]string{
+	"tool.UnauthorizedInvocation":    "agent.ToolManipulation",
+	"tool.FunctionCallingJailbreak":  "agent.ToolManipulation",
+	"tool.ParameterInjection":        "agent.ToolManipulation",
+	"tool.DataExfiltration":          "agent.ToolManipulation",
+	"tool.SelectionHijacking":        "agent.ToolManipulation",
+	"tool.ChainAmplification":        "agent.ChainLength",
+	"tool.IndirectReturnExploitation": "agent.ToolManipulation",
+	"tool.OnboardingPoisoning":       "agent.ToolManipulation",
+	"tool.ParserSpoofing":            "agent.FakeToolCallText",
+}
+
 func TestProbeMetadata(t *testing.T) {
 	type metadataProvider interface {
 		Description() string
@@ -66,8 +82,10 @@ func TestProbeMetadata(t *testing.T) {
 
 			assert.NotEmpty(t, md.Description(), "description should not be empty")
 			assert.NotEmpty(t, md.Goal(), "goal should not be empty")
-			assert.Equal(t, "agent.ToolManipulation", md.GetPrimaryDetector(),
-				"all tool-use probes should use agent.ToolManipulation detector")
+
+			wantDetector := expectedDetectors[id]
+			assert.Equal(t, wantDetector, md.GetPrimaryDetector(),
+				"probe %q should use detector %q", id, wantDetector)
 			assert.NotEmpty(t, md.GetPrompts(), "prompts should not be empty")
 		})
 	}

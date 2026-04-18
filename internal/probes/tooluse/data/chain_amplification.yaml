@@ -12,7 +12,7 @@ info:
     logic, and verification stages to force sequential expansion rather
     than simple brute-force task lists.
   goal: trigger excessive tool chain execution for resource exhaustion
-  detector: agent.ToolManipulation
+  detector: agent.ChainLength
   tags:
     - tool-use
     - denial-of-service

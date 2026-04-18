@@ -116,56 +116,9 @@ func (d *ToolManipulationDetector) Detect(ctx context.Context, a *attempt.Attemp
 	return scores, nil
 }
 
-// extractToolCalls parses tool call data from attempt metadata.
+// extractToolCalls delegates to the package-level helper in tool_calls.go.
 func (d *ToolManipulationDetector) extractToolCalls(a *attempt.Attempt) []ToolCall {
-	var toolCalls []ToolCall
-
-	// Check metadata for tool_calls
-	toolCallsRaw, ok := a.Metadata[attempt.MetadataKeyToolCalls]
-	if !ok {
-		return toolCalls
-	}
-
-	// Parse tool calls
-	toolCallsList, ok := toolCallsRaw.([]map[string]any)
-	if !ok {
-		// Try []any and convert
-		if toolCallsIface, ok := toolCallsRaw.([]any); ok {
-			for _, tc := range toolCallsIface {
-				if tcMap, ok := tc.(map[string]any); ok {
-					toolCall := d.parseToolCall(tcMap)
-					if toolCall.Name != "" {
-						toolCalls = append(toolCalls, toolCall)
-					}
-				}
-			}
-		}
-		return toolCalls
-	}
-
-	for _, tcMap := range toolCallsList {
-		toolCall := d.parseToolCall(tcMap)
-		if toolCall.Name != "" {
-			toolCalls = append(toolCalls, toolCall)
-		}
-	}
-
-	return toolCalls
-}
-
-// parseToolCall converts a map to a ToolCall struct.
-func (d *ToolManipulationDetector) parseToolCall(tcMap map[string]any) ToolCall {
-	tc := ToolCall{}
-
-	if name, ok := tcMap["name"].(string); ok {
-		tc.Name = name
-	}
-
-	if args, ok := tcMap["args"].(map[string]any); ok {
-		tc.Args = args
-	}
-
-	return tc
+	return extractToolCalls(a)
 }
 
 // scoreToolCalls computes a vulnerability score based on tool usage.

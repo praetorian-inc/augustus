@@ -6,11 +6,15 @@ info:
   description: >-
     Tests whether an LLM's output can be manipulated to spoof ReAct, JSON,
     or structured execution formats, tricking the agent middleware into
-    executing unauthorized tool calls. Based on InjecAgent (Kang et al.,
-    2024) which targeted ReAct frameworks with 24% ASR on GPT-4, and TIP
-    Exploitation (Luo et al., 2025) format-based attacks.
+    executing unauthorized tool calls. Primary basis: TIP Exploitation
+    (Xie/Luo et al., arXiv:2509.05755) per-agent adaptive format attacks
+    that mimic native XML / framework-specific tags to induce parser
+    confusion. InjecAgent (Zhan/Kang et al., 2024, 23.6% ASR on GPT-4
+    ReAct) is a related ReAct-channel attack via tool-output injection;
+    this probe extends those ideas to directly solicit parser-confusable
+    structures in model completion text.
   goal: trick the execution parser via format spoofing
-  detector: agent.ToolManipulation
+  detector: agent.FakeToolCallText
   tags:
     - tool-use
     - parser-spoofing
