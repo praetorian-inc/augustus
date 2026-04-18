@@ -13,7 +13,6 @@ func TestDefaultConfig(t *testing.T) {
 	cfg := DefaultConfig()
 
 	assert.Equal(t, "", cfg.JudgeGeneratorType)
-	assert.Equal(t, "", cfg.JudgeModel)
 	assert.Equal(t, 7, cfg.ConfidenceCutoff)
 	assert.True(t, cfg.CacheEnabled)
 	assert.Empty(t, cfg.DetectorGoal)
@@ -22,17 +21,19 @@ func TestDefaultConfig(t *testing.T) {
 func TestConfigFromMap(t *testing.T) {
 	m := registry.Config{
 		"judge_generator_type": "anthropic.Anthropic",
-		"judge_model":          "claude-3-haiku-20240307",
-		"confidence_cutoff":    8,
-		"cache_enabled":        false,
-		"detector_goal":        "bypass safety",
+		"judge_config": map[string]any{
+			"model": "claude-3-haiku-20240307",
+		},
+		"confidence_cutoff": 8,
+		"cache_enabled":     false,
+		"detector_goal":     "bypass safety",
 	}
 
 	cfg, err := ConfigFromMap(m)
 	require.NoError(t, err)
 
 	assert.Equal(t, "anthropic.Anthropic", cfg.JudgeGeneratorType)
-	assert.Equal(t, "claude-3-haiku-20240307", cfg.JudgeModel)
+	assert.Equal(t, "claude-3-haiku-20240307", cfg.JudgeConfig["model"])
 	assert.Equal(t, 8, cfg.ConfidenceCutoff)
 	assert.False(t, cfg.CacheEnabled)
 	assert.Equal(t, "bypass safety", cfg.DetectorGoal)
@@ -55,7 +56,7 @@ func TestConfigFromMapRequiresGeneratorType(t *testing.T) {
 
 func TestConfigFromMapWithGeneratorConfig(t *testing.T) {
 	m := registry.Config{
-		"judge_generator_config": map[string]any{
+		"judge_config": map[string]any{
 			"api_key":     "sk-test",
 			"temperature": 0.0,
 		},
@@ -64,5 +65,5 @@ func TestConfigFromMapWithGeneratorConfig(t *testing.T) {
 	cfg, err := ConfigFromMap(m)
 	require.NoError(t, err)
 
-	assert.Equal(t, "sk-test", cfg.JudgeGeneratorConfig["api_key"])
+	assert.Equal(t, "sk-test", cfg.JudgeConfig["api_key"])
 }

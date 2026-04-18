@@ -227,6 +227,102 @@ func TestConfigFromMap_SSEFilterValueWithoutField(t *testing.T) {
 	assert.Contains(t, err.Error(), "sse_filter_field and sse_filter_value must both be set")
 }
 
+// TestConfigFromMap_EndpointAlias verifies that "endpoint" works as an alias for "uri".
+func TestConfigFromMap_EndpointAlias(t *testing.T) {
+	m := registry.Config{
+		"endpoint": "https://api.example.com/chat",
+	}
+
+	cfg, err := ConfigFromMap(m)
+	require.NoError(t, err, "ConfigFromMap with 'endpoint' key should succeed")
+	assert.Equal(t, "https://api.example.com/chat", cfg.URI)
+}
+
+// TestConfigFromMap_BodyAlias verifies that "body" works as an alias for "req_template".
+func TestConfigFromMap_BodyAlias(t *testing.T) {
+	m := registry.Config{
+		"uri":  "https://api.example.com",
+		"body": `{"prompt":"$INPUT"}`,
+	}
+
+	cfg, err := ConfigFromMap(m)
+	require.NoError(t, err, "ConfigFromMap with 'body' key should succeed")
+	assert.Equal(t, `{"prompt":"$INPUT"}`, cfg.ReqTemplate)
+}
+
+// TestConfigFromMap_ResponsePathAlias verifies that "response_path" works as an
+// alias for "response_json_field" and implicitly enables ResponseJSON.
+func TestConfigFromMap_ResponsePathAlias(t *testing.T) {
+	m := registry.Config{
+		"uri":           "https://api.example.com",
+		"response_path": "choices[0].text",
+	}
+
+	cfg, err := ConfigFromMap(m)
+	require.NoError(t, err, "ConfigFromMap with 'response_path' key should succeed")
+	assert.Equal(t, "choices[0].text", cfg.ResponseJSONField)
+	assert.True(t, cfg.ResponseJSON, "response_path alias should enable ResponseJSON")
+}
+
+// TestConfigFromMap_URITakesPrecedenceOverEndpoint verifies that when both "uri"
+// and "endpoint" keys are present, "uri" wins.
+func TestConfigFromMap_URITakesPrecedenceOverEndpoint(t *testing.T) {
+	m := registry.Config{
+		"uri":      "https://canonical.example.com",
+		"endpoint": "https://alias.example.com",
+	}
+
+	cfg, err := ConfigFromMap(m)
+	require.NoError(t, err)
+	assert.Equal(t, "https://canonical.example.com", cfg.URI, "uri should take precedence over endpoint")
+}
+
+// TestConfigFromMap_ReqTemplateTakesPrecedenceOverBody verifies that when both
+// "req_template" and "body" are present, "req_template" wins.
+func TestConfigFromMap_ReqTemplateTakesPrecedenceOverBody(t *testing.T) {
+	m := registry.Config{
+		"uri":          "https://api.example.com",
+		"req_template": `{"from":"req_template"}`,
+		"body":         `{"from":"body"}`,
+	}
+
+	cfg, err := ConfigFromMap(m)
+	require.NoError(t, err)
+	assert.Equal(t, `{"from":"req_template"}`, cfg.ReqTemplate, "req_template should take precedence over body")
+}
+
+// TestConfigFromMap_ResponseJSONFieldTakesPrecedenceOverResponsePath verifies
+// that when both "response_json_field" and "response_path" are present,
+// "response_json_field" wins.
+func TestConfigFromMap_ResponseJSONFieldTakesPrecedenceOverResponsePath(t *testing.T) {
+	m := registry.Config{
+		"uri":                 "https://api.example.com",
+		"response_json":       true,
+		"response_json_field": "canonical_field",
+		"response_path":       "alias_field",
+	}
+
+	cfg, err := ConfigFromMap(m)
+	require.NoError(t, err)
+	assert.Equal(t, "canonical_field", cfg.ResponseJSONField, "response_json_field should take precedence over response_path")
+}
+
+// TestConfigFromMap_ResponsePathRespectsExplicitResponseJSONFalse verifies that
+// when "response_path" is used alongside an explicit "response_json": false,
+// the explicit false is respected (ResponseJSON stays false).
+func TestConfigFromMap_ResponsePathRespectsExplicitResponseJSONFalse(t *testing.T) {
+	m := registry.Config{
+		"uri":           "https://api.example.com",
+		"response_json": false,
+		"response_path": "choices[0].text",
+	}
+
+	cfg, err := ConfigFromMap(m)
+	require.NoError(t, err, "ConfigFromMap should succeed")
+	assert.Equal(t, "choices[0].text", cfg.ResponseJSONField, "response_path should still set the field")
+	assert.False(t, cfg.ResponseJSON, "explicit response_json: false should be respected despite response_path alias")
+}
+
 func TestFunctionalOptions_SSE(t *testing.T) {
 	cfg := ApplyOptions(DefaultConfig(),
 		WithURI("https://test.com/api"),
