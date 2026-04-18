@@ -259,7 +259,7 @@ func (g *Vertex) generateOne(ctx context.Context, conv *attempt.Conversation) (a
 	if err != nil {
 		return attempt.Message{}, fmt.Errorf("vertex: request failed: %w", err)
 	}
-	defer httpResp.Body.Close()
+	defer func() { _ = httpResp.Body.Close() }()
 
 	// Read response body
 	respBody, err := io.ReadAll(httpResp.Body)

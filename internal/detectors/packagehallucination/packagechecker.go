@@ -63,7 +63,7 @@ func (c *PyPIChecker) Exists(ctx context.Context, pkg string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("pypi request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// 200 = exists, 404 = doesn't exist, other = error
 	switch resp.StatusCode {

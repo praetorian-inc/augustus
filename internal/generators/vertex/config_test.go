@@ -67,8 +67,8 @@ func TestVertexConfigFromMapMissingProjectID(t *testing.T) {
 
 func TestVertexConfigFromMapEnvAPIKey(t *testing.T) {
 	// Set env var for test
-	os.Setenv("GOOGLE_API_KEY", "env-api-key")
-	defer os.Unsetenv("GOOGLE_API_KEY")
+	_ = os.Setenv("GOOGLE_API_KEY", "env-api-key")
+	defer func() { _ = os.Unsetenv("GOOGLE_API_KEY") }()
 
 	m := registry.Config{
 		"model":      "gemini-pro",

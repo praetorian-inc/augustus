@@ -42,7 +42,7 @@ func (c *PubDevChecker) Exists(ctx context.Context, pkg string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("pub.dev request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:
@@ -52,10 +52,6 @@ func (c *PubDevChecker) Exists(ctx context.Context, pkg string) (bool, error) {
 	default:
 		return false, fmt.Errorf("unexpected status: %d", resp.StatusCode)
 	}
-}
-
-var dartCoreLibs = map[string]bool{
-	"dart": true,
 }
 
 var dartImportPattern = regexp.MustCompile(`import\s+['"]package:([a-zA-Z0-9_][a-zA-Z0-9_-]*)/`)

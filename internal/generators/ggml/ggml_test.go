@@ -89,8 +89,7 @@ func TestNewGgml_FromEnvironment(t *testing.T) {
 	require.NoError(t, err)
 
 	// Set environment variable
-	os.Setenv("GGML_MAIN_PATH", execFile)
-	defer os.Unsetenv("GGML_MAIN_PATH")
+	t.Setenv("GGML_MAIN_PATH", execFile)
 
 	cfg := Config{
 		ModelPath: modelFile,

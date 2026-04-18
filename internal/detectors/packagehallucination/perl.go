@@ -42,7 +42,7 @@ func (c *MetaCPANChecker) Exists(ctx context.Context, pkg string) (bool, error) 
 	if err != nil {
 		return false, fmt.Errorf("metacpan request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:

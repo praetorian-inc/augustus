@@ -172,7 +172,7 @@ func (g *Cohere) callChatAPI(ctx context.Context, conv *attempt.Conversation) (a
 	if err != nil {
 		return attempt.Message{}, fmt.Errorf("cohere: request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if err := g.checkResponseError(resp); err != nil {
 		return attempt.Message{}, err
@@ -337,7 +337,7 @@ func (g *Cohere) callGenerateAPI(ctx context.Context, conv *attempt.Conversation
 	if err != nil {
 		return nil, fmt.Errorf("cohere: request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if err := g.checkResponseError(resp); err != nil {
 		return nil, err

@@ -17,9 +17,11 @@ func TestPrefixProbeImplementsProber(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPrefixProbe() error = %v", err)
 	}
+	if p == nil {
+		t.Fatal("NewPrefixProbe() returned nil")
+	}
 
-	// Verify it implements Prober interface
-	var _ probes.Prober = p
+	var _ probes.Prober = (*prefix.PrefixProbe)(nil) // compile-time interface assertion
 }
 
 // TestPrefixProbeMetadata verifies the probe returns correct metadata.

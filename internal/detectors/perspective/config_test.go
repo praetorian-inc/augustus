@@ -46,8 +46,8 @@ func TestPerspectiveConfigFromMapMissingAPIKey(t *testing.T) {
 
 func TestPerspectiveConfigFromMapEnvAPIKey(t *testing.T) {
 	// Set env var for test
-	os.Setenv("PERSPECTIVE_API_KEY", "sk-env-test")
-	defer os.Unsetenv("PERSPECTIVE_API_KEY")
+	_ = os.Setenv("PERSPECTIVE_API_KEY", "sk-env-test")
+	defer func() { _ = os.Unsetenv("PERSPECTIVE_API_KEY") }()
 
 	m := registry.Config{}
 

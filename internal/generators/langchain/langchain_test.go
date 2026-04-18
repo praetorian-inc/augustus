@@ -59,7 +59,7 @@ func TestLangChain_Generate(t *testing.T) {
 		// LangChain invoke returns {"content": "response text"}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"content": "test response"}`))
+		_, _ = w.Write([]byte(`{"content": "test response"}`))
 	}))
 	defer server.Close()
 
@@ -85,7 +85,7 @@ func TestLangChain_GenerateMultiple(t *testing.T) {
 		callCount++
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"content": "response"}`))
+		_, _ = w.Write([]byte(`{"content": "response"}`))
 	}))
 	defer server.Close()
 

@@ -6,6 +6,9 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -61,7 +64,8 @@ func (l *Lipsum) generateSentence() string {
 
 	// Capitalize first word
 	if len(words) > 0 {
-		words[0] = strings.Title(words[0])
+		titleCaser := cases.Title(language.English, cases.NoLower)
+		words[0] = titleCaser.String(words[0])
 	}
 
 	return strings.Join(words, " ") + "."

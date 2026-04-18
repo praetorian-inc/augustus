@@ -51,8 +51,10 @@ func (b *Ascii85) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt] {
 		// Ascii85 encode the prompt text
 		var buf bytes.Buffer
 		encoder := ascii85.NewEncoder(&buf)
-		encoder.Write([]byte(a.Prompt))
-		encoder.Close()
+		_, _ = encoder.Write([]byte(a.Prompt))
+		// ascii85.Close failure would truncate encoded output; buff interface does not
+		// propagate errors from Transform — partial transforms may still exercise the probe.
+		_ = encoder.Close()
 		encoded := buf.String()
 
 		// Wrap with instruction prefix

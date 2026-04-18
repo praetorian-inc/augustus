@@ -1,7 +1,6 @@
 package litellm
 
 import (
-	"os"
 	"testing"
 
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -40,15 +39,7 @@ func TestConfigFromMap_ValidConfig(t *testing.T) {
 }
 
 func TestConfigFromMap_APIKeyFromEnv(t *testing.T) {
-	origKey := os.Getenv("LITELLM_API_KEY")
-	os.Setenv("LITELLM_API_KEY", "test-env-key")
-	defer func() {
-		if origKey != "" {
-			os.Setenv("LITELLM_API_KEY", origKey)
-		} else {
-			os.Unsetenv("LITELLM_API_KEY")
-		}
-	}()
+	t.Setenv("LITELLM_API_KEY", "test-env-key")
 
 	cfg, err := ConfigFromMap(registry.Config{
 		"proxy_url": "http://localhost:4000",

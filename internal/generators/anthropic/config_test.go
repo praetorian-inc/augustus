@@ -1,7 +1,6 @@
 package anthropic
 
 import (
-	"os"
 	"testing"
 
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -57,8 +56,7 @@ func TestAnthropicConfigFromMapMissingModel(t *testing.T) {
 
 func TestAnthropicConfigFromMapEnvAPIKey(t *testing.T) {
 	// Set env var for test
-	os.Setenv("ANTHROPIC_API_KEY", "sk-ant-env-test")
-	defer os.Unsetenv("ANTHROPIC_API_KEY")
+	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-env-test")
 
 	m := registry.Config{"model": "claude-3-sonnet-20240229"}
 

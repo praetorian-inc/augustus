@@ -19,12 +19,12 @@ func TestDefaultConfig(t *testing.T) {
 
 func TestConfigFromMap_RequiresModel(t *testing.T) {
 	origKey := os.Getenv("TOGETHER_API_KEY")
-	os.Setenv("TOGETHER_API_KEY", "test-key")
+	_ = os.Setenv("TOGETHER_API_KEY", "test-key")
 	defer func() {
 		if origKey != "" {
-			os.Setenv("TOGETHER_API_KEY", origKey)
+			_ = os.Setenv("TOGETHER_API_KEY", origKey)
 		} else {
-			os.Unsetenv("TOGETHER_API_KEY")
+			_ = os.Unsetenv("TOGETHER_API_KEY")
 		}
 	}()
 
@@ -37,10 +37,10 @@ func TestConfigFromMap_RequiresModel(t *testing.T) {
 
 func TestConfigFromMap_RequiresAPIKey(t *testing.T) {
 	origKey := os.Getenv("TOGETHER_API_KEY")
-	os.Unsetenv("TOGETHER_API_KEY")
+	_ = os.Unsetenv("TOGETHER_API_KEY")
 	defer func() {
 		if origKey != "" {
-			os.Setenv("TOGETHER_API_KEY", origKey)
+			_ = os.Setenv("TOGETHER_API_KEY", origKey)
 		}
 	}()
 

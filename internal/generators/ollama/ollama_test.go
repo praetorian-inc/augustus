@@ -85,12 +85,12 @@ func TestOllama_HostFromEnv(t *testing.T) {
 
 	// Set env var
 	origHost := os.Getenv("OLLAMA_HOST")
-	os.Setenv("OLLAMA_HOST", server.URL)
+	_ = os.Setenv("OLLAMA_HOST", server.URL)
 	defer func() {
 		if origHost != "" {
-			os.Setenv("OLLAMA_HOST", origHost)
+			_ = os.Setenv("OLLAMA_HOST", origHost)
 		} else {
-			os.Unsetenv("OLLAMA_HOST")
+			_ = os.Unsetenv("OLLAMA_HOST")
 		}
 	}()
 

@@ -85,7 +85,7 @@ func (s *ScanCmd) execute() error {
 		if err != nil {
 			return fmt.Errorf("failed to create stream writer: %w", err)
 		}
-		defer streamWriter.Close()
+		defer func() { _ = streamWriter.Close() }()
 		onAttemptProcessed = streamWriter.Append
 		collectJSONLPath = "" // Streaming handles JSONL; don't double-write
 	}

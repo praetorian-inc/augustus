@@ -158,21 +158,6 @@ func (m *MetaPromptBuff) Buff(ctx context.Context, attempts []*attempt.Attempt) 
 	return buffs.DefaultBuff(ctx, attempts, m)
 }
 
-// transformToPoetry converts text to poetry format.
-func (m *MetaPromptBuff) transformToPoetry(ctx context.Context, text string) (string, error) {
-	return m.transformToPoetryWithFormat(ctx, text, m.format)
-}
-
-// transformToPoetryWithFormat converts text to poetry using a specific format.
-func (m *MetaPromptBuff) transformToPoetryWithFormat(ctx context.Context, text, format string) (string, error) {
-	// Default to metaphorical if strategy is empty (for backward compatibility)
-	strategy := m.strategy
-	if strategy == "" {
-		strategy = "metaphorical"
-	}
-	return m.transformToPoetryWithFormatAndStrategy(ctx, text, format, strategy)
-}
-
 // transformToPoetryWithFormatAndStrategy converts text to poetry using specific format and strategy.
 func (m *MetaPromptBuff) transformToPoetryWithFormatAndStrategy(ctx context.Context, text, format, strategy string) (string, error) {
 	// If no generator, use simple template-based transformation

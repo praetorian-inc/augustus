@@ -466,7 +466,7 @@ func TestHelpCmdRun(t *testing.T) {
 
 	// Capture help output
 	var buf bytes.Buffer
-	ctx.Kong.Stdout = &buf
+	ctx.Stdout = &buf
 
 	err = cli.Help.Run(ctx)
 	assert.NoError(t, err)

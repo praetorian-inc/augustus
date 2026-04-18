@@ -154,7 +154,7 @@ func (d *PerspectiveDetector) analyzeText(ctx context.Context, text string) (flo
 	if err != nil {
 		return 0, fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Read response
 	body, err := io.ReadAll(resp.Body)

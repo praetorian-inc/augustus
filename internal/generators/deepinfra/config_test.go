@@ -1,7 +1,6 @@
 package deepinfra
 
 import (
-	"os"
 	"testing"
 
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -15,15 +14,7 @@ func TestDefaultConfig(t *testing.T) {
 }
 
 func TestConfigFromMap_RequiresModel(t *testing.T) {
-	origKey := os.Getenv("DEEPINFRA_API_KEY")
-	os.Setenv("DEEPINFRA_API_KEY", "test-key")
-	defer func() {
-		if origKey != "" {
-			os.Setenv("DEEPINFRA_API_KEY", origKey)
-		} else {
-			os.Unsetenv("DEEPINFRA_API_KEY")
-		}
-	}()
+	t.Setenv("DEEPINFRA_API_KEY", "test-key")
 
 	_, err := ConfigFromMap(registry.Config{})
 	require.Error(t, err)

@@ -83,7 +83,7 @@ func TestLangChainServe_Generate(t *testing.T) {
 		// LangChain Serve returns {"output": ["response text"]}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"output": ["test response from langchain serve"]}`))
+		_, _ = w.Write([]byte(`{"output": ["test response from langchain serve"]}`))
 	}))
 	defer server.Close()
 
@@ -109,7 +109,7 @@ func TestLangChainServe_GenerateMultiple(t *testing.T) {
 		callCount++
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"output": ["response"]}`))
+		_, _ = w.Write([]byte(`{"output": ["response"]}`))
 	}))
 	defer server.Close()
 
@@ -169,7 +169,7 @@ func TestLangChainServe_ErrorHandling(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.WriteHeader(tt.statusCode)
-				w.Write([]byte(tt.response))
+				_, _ = w.Write([]byte(tt.response))
 			}))
 			defer server.Close()
 
@@ -197,7 +197,7 @@ func TestLangChainServe_CustomHeaders(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"output": ["response"]}`))
+		_, _ = w.Write([]byte(`{"output": ["response"]}`))
 	}))
 	defer server.Close()
 
@@ -226,7 +226,7 @@ func TestLangChainServe_ConfigHash(t *testing.T) {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"output": ["response"]}`))
+		_, _ = w.Write([]byte(`{"output": ["response"]}`))
 	}))
 	defer server.Close()
 

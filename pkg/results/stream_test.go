@@ -50,7 +50,7 @@ func TestStreamWriter_Basic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open output: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	lineCount := 0
@@ -77,7 +77,7 @@ func TestStreamWriter_CreatesParentDirs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStreamWriter failed for nested path: %v", err)
 	}
-	sw.Close()
+	_ = sw.Close()
 
 	if _, err := os.Stat(outputPath); os.IsNotExist(err) {
 		t.Fatal("File not created at nested path")
@@ -121,7 +121,7 @@ func TestStreamWriter_ConcurrentAppend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to open: %v", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	scanner := bufio.NewScanner(file)
 	lineCount := 0

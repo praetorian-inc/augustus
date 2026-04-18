@@ -60,7 +60,7 @@ func defaultTransport(proxyURL *url.URL, insecureSkipVerify bool) *http.Transpor
 	}
 
 	// Enable HTTP/2 support
-	http2.ConfigureTransport(transport)
+	_ = http2.ConfigureTransport(transport)
 
 	return transport
 }
@@ -377,7 +377,7 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 	if err != nil {
 		return attempt.Message{}, fmt.Errorf("rest: request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Handle skip codes
 	if r.skipCodes[resp.StatusCode] {
