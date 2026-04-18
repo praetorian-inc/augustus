@@ -154,4 +154,3 @@ func (d *FakeToolCallTextDetector) Description() string {
 		d.requireEmptyToolCalls,
 	)
 }
-
