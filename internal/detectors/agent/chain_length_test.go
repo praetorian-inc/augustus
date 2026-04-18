@@ -23,8 +23,8 @@ func TestChainLengthDetector_NewWithDefaults(t *testing.T) {
 		t.Fatalf("NewChainLength() returned unexpected type %T", d)
 	}
 
-	if cld.maxCalls != 10 {
-		t.Errorf("default maxCalls = %d, want 10", cld.maxCalls)
+	if cld.maxCalls != 20 {
+		t.Errorf("default maxCalls = %d, want 20", cld.maxCalls)
 	}
 	if cld.maxDepth != 0 {
 		t.Errorf("default maxDepth = %d, want 0", cld.maxDepth)

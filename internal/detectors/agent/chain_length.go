@@ -35,13 +35,28 @@ type ChainLengthDetector struct {
 // Configuration format:
 //
 //	{
-//	  "max_calls": 10,   // Total tool calls before flagging (default 10)
+//	  "max_calls": 20,   // Total tool calls before flagging (default 20)
 //	  "max_depth": 0,    // Consecutive same-tool calls before flagging (0 = disabled)
 //	  "threshold": 0.5   // Detection threshold
 //	}
+//
+// TUNING REQUIRED: The default max_calls=20 is a conservative starting point.
+// Operators MUST tune this value based on their deployment's normal tool-use
+// baseline. Well-behaved agents making multi-step research or file-processing
+// tasks may legitimately exceed 20 calls; conversely, agents that typically
+// make 2-5 calls may be attacked by chains far below 20.
+//
+// The "Beyond Max Tokens" attack (Zhou et al., 2026) achieves 658× cost
+// amplification through extended tool-call chains. However, the amplification
+// materializes in token cost, not always in raw call count — a 5-call loop
+// repeated by the orchestration layer still causes amplification. For maximum
+// detection sensitivity, set max_calls to 1.5× the 99th-percentile call count
+// from normal agent traffic. Set max_depth to detect monotonic same-tool
+// loops (e.g., max_depth=3 for agents that should never need the same tool
+// more than 3 times in a row).
 func NewChainLength(cfg registry.Config) (detectors.Detector, error) {
 	d := &ChainLengthDetector{
-		maxCalls:  10,
+		maxCalls:  20,
 		maxDepth:  0,
 		threshold: 0.5,
 	}
