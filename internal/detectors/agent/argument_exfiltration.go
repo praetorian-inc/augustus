@@ -140,9 +140,7 @@ func NewArgumentExfiltration(cfg registry.Config) (detectors.Detector, error) {
 			}
 			d.forbiddenPatterns = append(d.forbiddenPatterns, re)
 		}
-		for _, k := range defaultForbiddenArgumentKeys {
-			d.forbiddenKeys = append(d.forbiddenKeys, k)
-		}
+		d.forbiddenKeys = append(d.forbiddenKeys, defaultForbiddenArgumentKeys...)
 	}
 
 	return d, nil
