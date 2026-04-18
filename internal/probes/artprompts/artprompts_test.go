@@ -138,7 +138,7 @@ func TestArtPromptsProbe_Structure(t *testing.T) {
 	}
 
 	// Verify it implements Prober interface
-	var _ = probe
+	var _ probes.Prober = (*ArtPromptsProbe)(nil) // compile-time interface assertion
 	pm, ok := probe.(probes.ProbeMetadata)
 	if !ok {
 		t.Fatal("probe should implement ProbeMetadata")

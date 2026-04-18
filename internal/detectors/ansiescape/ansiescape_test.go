@@ -24,8 +24,9 @@ func TestEscaped_ImplementsDetector(t *testing.T) {
 	// Verify Escaped implements Detector interface
 	detector, err := NewEscaped(nil)
 	require.NoError(t, err)
+	require.NotNil(t, detector)
 
-	var _ = detector
+	var _ detectors.Detector = (*Escaped)(nil) // compile-time interface assertion
 }
 
 func TestEscaped_Metadata(t *testing.T) {
@@ -113,8 +114,9 @@ func TestRaw_ImplementsDetector(t *testing.T) {
 	// Verify Raw implements Detector interface
 	detector, err := NewRaw(nil)
 	require.NoError(t, err)
+	require.NotNil(t, detector)
 
-	var _ = detector
+	var _ detectors.Detector = (*Raw)(nil) // compile-time interface assertion
 }
 
 func TestRaw_Metadata(t *testing.T) {

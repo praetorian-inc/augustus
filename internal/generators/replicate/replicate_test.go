@@ -269,9 +269,9 @@ func TestImplementsGeneratorInterface(t *testing.T) {
 
 	gen, err := NewReplicate(cfg)
 	require.NoError(t, err)
+	require.NotNil(t, gen)
 
-	// Verify it implements Generator interface
-	var _ = gen
+	var _ generators.Generator = (*Replicate)(nil) // compile-time interface assertion
 }
 
 func TestName(t *testing.T) {

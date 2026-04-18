@@ -2,6 +2,7 @@ package results
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"os"
@@ -59,7 +60,7 @@ func scoreColor(score float64) string {
 }
 
 // WriteHTML generates a self-contained HTML report from scan attempts.
-func WriteHTML(outputPath string, attempts []*attempt.Attempt) error {
+func WriteHTML(outputPath string, attempts []*attempt.Attempt) (err error) {
 	summary := ComputeSummary(attempts)
 
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
@@ -70,7 +71,11 @@ func WriteHTML(outputPath string, attempts []*attempt.Attempt) error {
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
 	}
-	defer func() { _ = file.Close() }()
+	defer func() {
+		if cerr := file.Close(); cerr != nil {
+			err = errors.Join(err, cerr)
+		}
+	}()
 
 	var sb strings.Builder
 

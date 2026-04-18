@@ -2,6 +2,7 @@ package results
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,7 +26,7 @@ import (
 //   - attempts: Slice of attempts to write
 //
 // Returns an error if file creation or writing fails.
-func WriteJSONL(outputPath string, attempts []*attempt.Attempt) error {
+func WriteJSONL(outputPath string, attempts []*attempt.Attempt) (err error) {
 	// Create parent directories if they don't exist
 	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
 		return fmt.Errorf("failed to create parent directories: %w", err)
@@ -36,7 +37,11 @@ func WriteJSONL(outputPath string, attempts []*attempt.Attempt) error {
 	if err != nil {
 		return fmt.Errorf("failed to create output file: %w", err)
 	}
-	defer func() { _ = file.Close() }()
+	defer func() {
+		if cerr := file.Close(); cerr != nil {
+			err = errors.Join(err, cerr)
+		}
+	}()
 
 	// Convert attempts to simplified format
 	results := ToAttemptResults(attempts)

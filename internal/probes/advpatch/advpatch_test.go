@@ -299,9 +299,9 @@ func TestNewAdvPatchProbe_WithEmptyConfig(t *testing.T) {
 func TestAdvPatchProbe_ImplementsProber(t *testing.T) {
 	p, err := NewUniversalPatch(nil)
 	require.NoError(t, err)
+	require.NotNil(t, p)
 
-	// This will fail to compile if AdvPatchProbe doesn't implement probes.Prober
-	var _ = p
+	var _ probes.Prober = (*AdvPatchProbe)(nil) // compile-time interface assertion
 }
 
 // TestGeneratePatch_ReturnsImage verifies GeneratePatch returns an image.

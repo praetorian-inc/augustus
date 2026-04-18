@@ -74,6 +74,10 @@ func NewInferenceEndpoint(cfg registry.Config) (generators.Generator, error) {
 }
 
 // Generate sends the conversation to the custom endpoint and returns responses.
+//
+// Note: HuggingFace Inference Endpoints return a single generation per request.
+// The n parameter is accepted for interface compatibility but not propagated
+// into the request payload. Callers needing n > 1 must issue multiple requests.
 func (g *InferenceEndpoint) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
 	if n <= 0 {
 		return []attempt.Message{}, nil
