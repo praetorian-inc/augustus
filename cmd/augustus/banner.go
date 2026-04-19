@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"golang.org/x/term"
 )
 
 const banner = `
@@ -17,7 +19,7 @@ const banner = `
 `
 
 const (
-	colorRed = "\033[31m"
+	colorRed   = "\033[31m"
 	colorBold  = "\033[1m"
 	colorReset = "\033[0m"
 )
@@ -38,17 +40,16 @@ func isColorEnabled() bool {
 }
 
 func isStderrTerminal() bool {
-	fi, err := os.Stderr.Stat()
-	if err != nil {
-		return false
-	}
-	return fi.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(int(os.Stderr.Fd()))
 }
 
 func shouldShowBanner(command string) bool {
 	if !isStderrTerminal() {
 		return false
 	}
-	cmd := strings.Split(command, " ")[0]
-	return cmd == "scan" || cmd == "list"
+	fields := strings.Fields(command)
+	if len(fields) == 0 {
+		return false
+	}
+	return fields[0] == "scan" || fields[0] == "list"
 }
