@@ -18,5 +18,4 @@ jobs:
     with:
       build-cmd-path: ./cmd/augustus
       build-binary-name: augustus
-      golangci-lint-only-new-issues: true
     secrets: inherit
