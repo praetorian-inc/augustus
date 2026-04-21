@@ -760,21 +760,34 @@ func (t *tableEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 							refusedMarker = "  [REFUSED]"
 						}
 
-						fmt.Printf("  Turn %d%s%s          Score: %.2f\n", ti.turnNum, successMarker, refusedMarker, ti.score)
-						fmt.Printf("  Attacker: %s\n", truncate(ti.question, 80))
-						fmt.Printf("  Target:   %s\n\n", truncate(ti.response, 80))
+						w := terminalWidth()
+						fmt.Printf("  │  Turn %d%s%s  (score: %.2f)\n", ti.turnNum, successMarker, refusedMarker, ti.score)
+						fmt.Println("  │  Attacker:")
+						fmt.Println(wordWrap(ti.question, "  │    ", w))
+						fmt.Println("  │  Target:")
+						fmt.Println(wordWrap(ti.response, "  │    ", w))
+						fmt.Println("  │")
 					}
 				} else {
 					fmt.Printf("  %s Attack (%d turns) - %s (score: %.2f)\n", attackLabel, totalTurns, status, maxScore)
 				}
 			} else if t.verbose {
-				fmt.Printf("  Attempt %d: %s (score: %.2f)\n", i+1, status, maxScore)
+				w := terminalWidth()
+				statusIcon := "✓"
+				if status == "FAIL" {
+					statusIcon = "✗"
+				}
+				fmt.Printf("  ┌─ Attempt %d: %s %s (score: %.2f)\n", i+1, statusIcon, status, maxScore)
+				fmt.Printf("  │  Probe: %s\n", a.Probe)
 				if len(a.Prompts) > 0 {
-					fmt.Printf("    Prompt: %s\n", truncate(a.Prompts[0], 60))
+					fmt.Println("  │  Prompt:")
+					fmt.Println(wordWrap(a.Prompts[0], "  │    ", w))
 				}
 				if len(a.Outputs) > 0 {
-					fmt.Printf("    Response: %s\n", truncate(a.Outputs[0], 60))
+					fmt.Println("  │  Response:")
+					fmt.Println(wordWrap(a.Outputs[0], "  │    ", w))
 				}
+				fmt.Printf("  └%s\n", strings.Repeat("─", 50))
 			}
 		}
 	}
@@ -860,4 +873,40 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// wordWrap wraps text to the given width, prefixing each line with the given prefix.
+func wordWrap(text, prefix string, width int) string {
+	// Replace newlines with spaces for uniform wrapping
+	text = strings.ReplaceAll(text, "\n", " ")
+	text = strings.TrimSpace(text)
+
+	maxLine := width - len(prefix)
+	if maxLine < 20 {
+		maxLine = 20
+	}
+
+	var lines []string
+	for len(text) > 0 {
+		if len(text) <= maxLine {
+			lines = append(lines, prefix+text)
+			break
+		}
+		// Find last space within maxLine
+		cut := maxLine
+		for cut > 0 && text[cut] != ' ' {
+			cut--
+		}
+		if cut == 0 {
+			cut = maxLine // No space found, hard break
+		}
+		lines = append(lines, prefix+text[:cut])
+		text = strings.TrimSpace(text[cut:])
+	}
+	return strings.Join(lines, "\n")
+}
+
+// terminalWidth returns the terminal width, defaulting to 90 columns.
+func terminalWidth() int {
+	return 90
 }
