@@ -18,14 +18,8 @@ var AllCanaries = []string{
 	"PINEAPPLE SUNSET 7319",
 	"CRIMSON TORNADO 4825",
 	"VIOLET HORIZON 6037",
-	// Overlay probes
-	"GOLDEN FALCON 8412",
-	"SILVER DOLPHIN 5190",
-	"COPPER NEBULA 2748",
-	// Invisible text probes
+	// Invisible text probe
 	"EMERALD STORM 3961",
-	"COBALT THUNDER 7053",
-	"AMBER GLACIER 1846",
 	// Scaling probes
 	"RUBY PHOENIX 9284",
 	"JADE COMET 5617",

@@ -15,8 +15,6 @@ func init() {
 func newInvisibleTextProbe(_ registry.Config) (probes.Prober, error) {
 	assets := []string{
 		"data/invisible/invisible_canary1.png",
-		"data/invisible/invisible_canary2.png",
-		"data/invisible/invisible_canary3.png",
 	}
 
 	prompts := make([]MultimodalPrompt, 0, len(assets))
@@ -33,9 +31,9 @@ func newInvisibleTextProbe(_ registry.Config) (probes.Prober, error) {
 
 	return &BaseMultimodalProbe{
 		ProbeName:        "multimodal.InvisibleText",
-		ProbeGoal:        "trick the model into reading near-invisible text hidden in an image",
+		ProbeGoal:        "read and follow near-invisible text hidden in an image",
 		PrimaryDetector:  "multimodal.Canary",
-		ProbeDescription: "Tests whether the model reads near-invisible (low-contrast) text instructions hidden in an image",
+		ProbeDescription: "Invisible text injection - renders instructions with near-background color (~5 RGB units) imperceptible to humans but readable by vision models",
 		Prompts:          prompts,
 	}, nil
 }

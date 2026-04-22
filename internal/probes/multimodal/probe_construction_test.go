@@ -17,8 +17,7 @@ func TestProbeConstruction(t *testing.T) {
 		promptCount  int
 	}{
 		{"InstructionImage", newInstructionImageProbe, "multimodal.InstructionImage", 3},
-		{"InvisibleText", newInvisibleTextProbe, "multimodal.InvisibleText", 3},
-		{"TextOverlay", newTextOverlayProbe, "multimodal.TextOverlay", 3},
+		{"InvisibleText", newInvisibleTextProbe, "multimodal.InvisibleText", 1},
 		{"ScalingNearestNeighbor", newScalingNearestNeighborProbe, "multimodal.ScalingNearestNeighbor", 1},
 		{"ScalingBicubic", newScalingBicubicProbe, "multimodal.ScalingBicubic", 1},
 		{"ScalingBilinear", newScalingBilinearProbe, "multimodal.ScalingBilinear", 1},
@@ -68,7 +67,6 @@ func TestProbeRegistration(t *testing.T) {
 	names := []string{
 		"multimodal.InstructionImage",
 		"multimodal.InvisibleText",
-		"multimodal.TextOverlay",
 		"multimodal.ScalingNearestNeighbor",
 		"multimodal.ScalingBicubic",
 		"multimodal.ScalingBilinear",

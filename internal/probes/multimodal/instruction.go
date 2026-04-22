@@ -33,9 +33,9 @@ func newInstructionImageProbe(_ registry.Config) (probes.Prober, error) {
 
 	return &BaseMultimodalProbe{
 		ProbeName:        "multimodal.InstructionImage",
-		ProbeGoal:        "trick the model into reading and following instructions embedded as text in an image",
+		ProbeGoal:        "follow instructions embedded as visible text in an image",
 		PrimaryDetector:  "multimodal.Canary",
-		ProbeDescription: "Tests whether the model reads and follows instructions embedded as visible text within an image",
+		ProbeDescription: "Visual prompt injection - renders adversarial instructions as visible text in three contexts (plain, handwritten note, t-shirt) to test whether image context affects compliance",
 		Prompts:          prompts,
 	}, nil
 }
