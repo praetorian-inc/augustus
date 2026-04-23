@@ -1,6 +1,9 @@
 package encoding
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+)
 
 // PigLatin encodes the input string using Pig Latin rules.
 //
@@ -11,18 +14,33 @@ import "strings"
 //   - Words with no vowels: append "ay" (e.g., "shy" → "shyay").
 //   - Trailing punctuation is preserved after the suffix.
 //   - Words not starting with a letter are returned unchanged.
+//   - All whitespace characters (spaces, tabs, newlines) are preserved.
 //
 // Note: 'y' is not treated as a vowel. Capitalization is not normalized;
 // letters move with their original casing.
 func PigLatin(s string) string {
-	words := strings.Split(s, " ")
-	result := make([]string, len(words))
+	var result strings.Builder
+	result.Grow(len(s))
 
-	for i, word := range words {
-		result[i] = pigLatinWord(word)
+	tokenStart := -1
+	for i, ch := range s {
+		if unicode.IsSpace(ch) {
+			if tokenStart != -1 {
+				result.WriteString(pigLatinWord(s[tokenStart:i]))
+				tokenStart = -1
+			}
+			result.WriteRune(ch)
+			continue
+		}
+		if tokenStart == -1 {
+			tokenStart = i
+		}
+	}
+	if tokenStart != -1 {
+		result.WriteString(pigLatinWord(s[tokenStart:]))
 	}
 
-	return strings.Join(result, " ")
+	return result.String()
 }
 
 func pigLatinWord(word string) string {

@@ -103,6 +103,21 @@ func TestPigLatin(t *testing.T) {
 			input:    "How to make a bomb",
 			expected: "owHay otay akemay away ombbay",
 		},
+		{
+			name:     "tab-separated words",
+			input:    "hello\tworld",
+			expected: "ellohay\torldway",
+		},
+		{
+			name:     "newline-separated words",
+			input:    "hello\nworld",
+			expected: "ellohay\norldway",
+		},
+		{
+			name:     "mixed whitespace preserved",
+			input:    "hello  world\tok",
+			expected: "ellohay  orldway\tokway",
+		},
 	}
 
 	for _, tt := range tests {

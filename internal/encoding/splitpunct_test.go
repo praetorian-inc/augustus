@@ -57,6 +57,24 @@ func TestSplitTrailingPunctuation(t *testing.T) {
 			wantBase: "123",
 			wantPunc: "!",
 		},
+		{
+			name:     "multi-byte UTF-8 with punctuation",
+			input:    "café!",
+			wantBase: "café",
+			wantPunc: "!",
+		},
+		{
+			name:     "accented letters no punctuation",
+			input:    "naïve",
+			wantBase: "naïve",
+			wantPunc: "",
+		},
+		{
+			name:     "CJK characters with punctuation",
+			input:    "你好！",
+			wantBase: "你好",
+			wantPunc: "！",
+		},
 	}
 
 	for _, tt := range tests {

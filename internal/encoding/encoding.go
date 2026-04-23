@@ -4,22 +4,28 @@
 // This package centralizes common encoding logic used by internal/buffs/encoding/.
 package encoding
 
+import (
+	"unicode"
+	"unicode/utf8"
+)
+
 // SplitTrailingPunctuation separates a word into its alphanumeric base
 // and any trailing non-alphanumeric characters.
-// For example: "hello!" → ("hello", "!"), "world..." → ("world", "...").
+// For example: "hello!" → ("hello", "!"), "world..." → ("world", "..."),
+// "café!" → ("café", "!").
 func SplitTrailingPunctuation(word string) (string, string) {
-	lastAlnum := -1
-	for i := len(word) - 1; i >= 0; i-- {
-		ch := rune(word[i])
-		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') {
-			lastAlnum = i
+	end := len(word)
+	for end > 0 {
+		ch, size := utf8.DecodeLastRuneInString(word[:end])
+		if unicode.IsLetter(ch) || unicode.IsDigit(ch) {
 			break
 		}
+		end -= size
 	}
 
-	if lastAlnum == -1 {
+	if end == 0 {
 		return "", word
 	}
 
-	return word[:lastAlnum+1], word[lastAlnum+1:]
+	return word[:end], word[end:]
 }
