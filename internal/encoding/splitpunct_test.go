@@ -75,6 +75,18 @@ func TestSplitTrailingPunctuation(t *testing.T) {
 			wantBase: "你好",
 			wantPunc: "！",
 		},
+		{
+			name:     "decomposed accent with punctuation",
+			input:    "cafe\u0301!",
+			wantBase: "cafe\u0301",
+			wantPunc: "!",
+		},
+		{
+			name:     "decomposed accent no punctuation",
+			input:    "cafe\u0301",
+			wantBase: "cafe\u0301",
+			wantPunc: "",
+		},
 	}
 
 	for _, tt := range tests {
