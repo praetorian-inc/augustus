@@ -867,14 +867,6 @@ func (c *collectingEvaluator) Evaluate(ctx context.Context, attempts []*attempt.
 	return nil
 }
 
-// truncate shortens a string to maxLen, adding "..." if truncated.
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen-3] + "..."
-}
-
 // wordWrap wraps text to the given width, prefixing each line with the given prefix.
 func wordWrap(text, prefix string, width int) string {
 	// Replace newlines with spaces for uniform wrapping
