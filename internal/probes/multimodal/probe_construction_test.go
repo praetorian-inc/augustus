@@ -16,13 +16,18 @@ func TestProbeConstruction(t *testing.T) {
 		expectedName string
 		promptCount  int
 	}{
-		{"InstructionImage", newInstructionImageProbe, "multimodal.InstructionImage", 3},
+		{"InstructionImage", newInstructionImageProbe, "multimodal.InstructionImage", 1},
+		{"SceneTAPTypographic", newSceneTAPTypographicProbe, "multimodal.SceneTAPTypographic", 2},
 		{"InvisibleText", newInvisibleTextProbe, "multimodal.InvisibleText", 1},
 		{"ScalingNearestNeighbor", newScalingNearestNeighborProbe, "multimodal.ScalingNearestNeighbor", 1},
 		{"ScalingBicubic", newScalingBicubicProbe, "multimodal.ScalingBicubic", 1},
 		{"ScalingBilinear", newScalingBilinearProbe, "multimodal.ScalingBilinear", 1},
 		{"SteganographicLSB", newSteganographicLSBProbe, "multimodal.SteganographicLSB", 1},
+		{"SteganographicLSBAdaptive", newSteganographicLSBAdaptiveProbe, "multimodal.SteganographicLSBAdaptive", 1},
+		{"SteganographicDCT", newSteganographicDCTProbe, "multimodal.SteganographicDCT", 1},
+		{"SteganographicNeural", newSteganographicNeuralProbe, "multimodal.SteganographicNeural", 1},
 		{"MetadataInjection", newMetadataInjectionProbe, "multimodal.MetadataInjection", 1},
+		{"MetadataEXIF", newMetadataEXIFProbe, "multimodal.MetadataEXIF", 1},
 	}
 
 	for _, tt := range tests {
@@ -53,7 +58,8 @@ func TestProbeConstruction(t *testing.T) {
 			images := bp.GetImages()
 			assert.Len(t, images, tt.promptCount, "should have one image per prompt")
 			for i, img := range images {
-				assert.Equal(t, "image/png", img.MimeType, "image %d should be PNG", i)
+				assert.Contains(t, []string{"image/png", "image/jpeg"}, img.MimeType,
+					"image %d should be PNG or JPEG", i)
 				assert.NotEmpty(t, img.Data, "image %d should have non-empty data", i)
 			}
 
@@ -66,12 +72,17 @@ func TestProbeConstruction(t *testing.T) {
 func TestProbeRegistration(t *testing.T) {
 	names := []string{
 		"multimodal.InstructionImage",
+		"multimodal.SceneTAPTypographic",
 		"multimodal.InvisibleText",
 		"multimodal.ScalingNearestNeighbor",
 		"multimodal.ScalingBicubic",
 		"multimodal.ScalingBilinear",
 		"multimodal.SteganographicLSB",
+		"multimodal.SteganographicLSBAdaptive",
+		"multimodal.SteganographicDCT",
+		"multimodal.SteganographicNeural",
 		"multimodal.MetadataInjection",
+		"multimodal.MetadataEXIF",
 	}
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
