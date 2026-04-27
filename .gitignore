@@ -113,3 +113,6 @@ benchmark-results/
 # Scan reports and config (may contain sensitive target/engagement data)
 *.html
 
+
+# Local Claude Code agent state, hook outputs, workflows
+.claude/
