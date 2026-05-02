@@ -28,6 +28,7 @@ func TestProbeConstruction(t *testing.T) {
 		{"SteganographicNeural", newSteganographicNeuralProbe, "multimodal.SteganographicNeural", 1},
 		{"MetadataInjection", newMetadataInjectionProbe, "multimodal.MetadataInjection", 1},
 		{"MetadataEXIF", newMetadataEXIFProbe, "multimodal.MetadataEXIF", 1},
+		{"TinyFontInjection", newTinyFontInjectionProbe, "multimodal.TinyFontInjection", 1},
 	}
 
 	for _, tt := range tests {
@@ -83,6 +84,7 @@ func TestProbeRegistration(t *testing.T) {
 		"multimodal.SteganographicNeural",
 		"multimodal.MetadataInjection",
 		"multimodal.MetadataEXIF",
+		"multimodal.TinyFontInjection",
 	}
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
