@@ -103,7 +103,7 @@ func (g *NeMoGuardrails) callAPI(ctx context.Context, conv *attempt.Conversation
 	if err != nil {
 		return attempt.Message{}, fmt.Errorf("nemo guardrails: request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if err := g.checkResponseError(resp); err != nil {
 		return attempt.Message{}, err

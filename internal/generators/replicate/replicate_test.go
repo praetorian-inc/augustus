@@ -159,10 +159,10 @@ func TestNewReplicate_RequiresModel(t *testing.T) {
 func TestNewReplicate_RequiresAPIKey(t *testing.T) {
 	// Clear env var if set
 	oldVal := os.Getenv("REPLICATE_API_TOKEN")
-	os.Unsetenv("REPLICATE_API_TOKEN")
+	_ = os.Unsetenv("REPLICATE_API_TOKEN")
 	defer func() {
 		if oldVal != "" {
-			os.Setenv("REPLICATE_API_TOKEN", oldVal)
+			_ = os.Setenv("REPLICATE_API_TOKEN", oldVal)
 		}
 	}()
 
@@ -190,8 +190,8 @@ func TestNewReplicate_AcceptsAPIKeyFromConfig(t *testing.T) {
 }
 
 func TestNewReplicate_AcceptsAPIKeyFromEnv(t *testing.T) {
-	os.Setenv("REPLICATE_API_TOKEN", "test-key-from-env")
-	defer os.Unsetenv("REPLICATE_API_TOKEN")
+	_ = os.Setenv("REPLICATE_API_TOKEN", "test-key-from-env")
+	defer func() { _ = os.Unsetenv("REPLICATE_API_TOKEN") }()
 
 	cfg := registry.Config{
 		"model": "meta/llama-2-7b-chat",
@@ -269,9 +269,9 @@ func TestImplementsGeneratorInterface(t *testing.T) {
 
 	gen, err := NewReplicate(cfg)
 	require.NoError(t, err)
+	require.NotNil(t, gen)
 
-	// Verify it implements Generator interface
-	var _ generators.Generator = gen
+	var _ generators.Generator = (*Replicate)(nil) // compile-time interface assertion
 }
 
 func TestName(t *testing.T) {

@@ -102,9 +102,9 @@ func TestFullAttack_GetPrompts_RawPayloads(t *testing.T) {
 	// Prompts should be short raw payloads
 	for i, prompt := range prompts {
 		lower := strings.ToLower(prompt)
-		if !(strings.Contains(lower, "hack") || strings.Contains(lower, "steal") ||
-			strings.Contains(lower, "explosive") || strings.Contains(lower, "virus") ||
-			strings.Contains(lower, "exploit") || strings.Contains(lower, "break")) {
+		if !strings.Contains(lower, "hack") && !strings.Contains(lower, "steal") &&
+			!strings.Contains(lower, "explosive") && !strings.Contains(lower, "virus") &&
+			!strings.Contains(lower, "exploit") && !strings.Contains(lower, "break") {
 			t.Errorf("prompt[%d] should contain a payload keyword (hack/steal/explosive/virus/exploit/break)", i)
 		}
 

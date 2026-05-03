@@ -14,11 +14,6 @@ func Zalgo(s string) string {
 	return zalgoWithIntensity(s, 5)
 }
 
-const (
-	// zalgoIntensity controls how many diacritics to add per character.
-	zalgoIntensity = 5
-)
-
 // Unicode combining diacritical marks
 var (
 	combiningAbove = []rune{

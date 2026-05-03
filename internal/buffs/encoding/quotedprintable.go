@@ -59,7 +59,7 @@ func (b *QuotedPrintable) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attemp
 			)
 			return
 		}
-		writer.Close()
+		_ = writer.Close()
 		encoded := buf.String()
 
 		// Wrap with instruction prefix

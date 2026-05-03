@@ -64,8 +64,8 @@ func TestOllamaConfigFromMapMissingModel(t *testing.T) {
 
 func TestOllamaConfigFromMapEnvHost(t *testing.T) {
 	// Set env var for test
-	os.Setenv("OLLAMA_HOST", "http://192.168.1.100:11434")
-	defer os.Unsetenv("OLLAMA_HOST")
+	_ = os.Setenv("OLLAMA_HOST", "http://192.168.1.100:11434")
+	defer func() { _ = os.Unsetenv("OLLAMA_HOST") }()
 
 	m := registry.Config{"model": "gemma:7b"}
 

@@ -199,7 +199,7 @@ func (g *NvcfChat) makeRequest(ctx context.Context, url string, payload map[stri
 	if err != nil {
 		return nil, fmt.Errorf("nvcf: request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {

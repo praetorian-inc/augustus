@@ -221,7 +221,7 @@ func (g *Ollama) callGenerate(ctx context.Context, prompt string) (attempt.Messa
 	if err != nil {
 		return attempt.Message{}, fmt.Errorf("ollama: failed to connect to server: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -376,7 +376,7 @@ func (g *OllamaChat) callChat(ctx context.Context, messages []chatMessage) (atte
 	if err != nil {
 		return attempt.Message{}, fmt.Errorf("ollama: failed to connect to server: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

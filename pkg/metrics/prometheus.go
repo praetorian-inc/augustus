@@ -94,7 +94,7 @@ func (e *PrometheusExporter) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, e.Export())
+		_, _ = fmt.Fprint(w, e.Export())
 	})
 }
 

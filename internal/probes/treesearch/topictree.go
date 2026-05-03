@@ -184,7 +184,7 @@ func (p *TopicTreeProbe) Probe(ctx context.Context, gen probes.Generator) ([]*at
 	det := &simpleDetector{name: p.primaryDetector}
 	
 	// Execute tree search
-	attempts, err := p.TreeSearcher.Search(ctx, gen, det, p)
+	attempts, err := p.Search(ctx, gen, det, p)
 	if err != nil {
 		return nil, err
 	}

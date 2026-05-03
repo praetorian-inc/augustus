@@ -43,7 +43,7 @@ func (c *RakuLandChecker) Exists(ctx context.Context, pkg string) (bool, error) 
 	if err != nil {
 		return false, fmt.Errorf("raku.land request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	switch resp.StatusCode {
 	case http.StatusOK:

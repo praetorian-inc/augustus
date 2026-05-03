@@ -130,7 +130,7 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*Response, error) {
 	if err != nil {
 		return nil, fmt.Errorf("http request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Read body
 	body, err := io.ReadAll(resp.Body)

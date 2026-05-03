@@ -68,10 +68,10 @@ func mockGenerateResponse(content string, n int) map[string]any {
 func TestCohereGenerator_RequiresAPIKey(t *testing.T) {
 	// Clear any env var that might be set
 	origKey := os.Getenv("COHERE_API_KEY")
-	os.Unsetenv("COHERE_API_KEY")
+	_ = os.Unsetenv("COHERE_API_KEY")
 	defer func() {
 		if origKey != "" {
-			os.Setenv("COHERE_API_KEY", origKey)
+			_ = os.Setenv("COHERE_API_KEY", origKey)
 		}
 	}()
 
@@ -97,12 +97,12 @@ func TestCohereGenerator_APIKeyFromEnv(t *testing.T) {
 
 	// Set env var
 	origKey := os.Getenv("COHERE_API_KEY")
-	os.Setenv("COHERE_API_KEY", "test-env-key")
+	_ = os.Setenv("COHERE_API_KEY", "test-env-key")
 	defer func() {
 		if origKey != "" {
-			os.Setenv("COHERE_API_KEY", origKey)
+			_ = os.Setenv("COHERE_API_KEY", origKey)
 		} else {
-			os.Unsetenv("COHERE_API_KEY")
+			_ = os.Unsetenv("COHERE_API_KEY")
 		}
 	}()
 
@@ -129,10 +129,10 @@ func TestCohereGenerator_APIKeyFromConfig(t *testing.T) {
 
 	// Clear env var to ensure config is used
 	origKey := os.Getenv("COHERE_API_KEY")
-	os.Unsetenv("COHERE_API_KEY")
+	_ = os.Unsetenv("COHERE_API_KEY")
 	defer func() {
 		if origKey != "" {
-			os.Setenv("COHERE_API_KEY", origKey)
+			_ = os.Setenv("COHERE_API_KEY", origKey)
 		}
 	}()
 

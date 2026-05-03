@@ -17,7 +17,7 @@ func TestFastRateLimiting(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`[{"generated_text": "paraphrased text"}]`))
+		_, _ = w.Write([]byte(`[{"generated_text": "paraphrased text"}]`))
 	}))
 	defer server.Close()
 

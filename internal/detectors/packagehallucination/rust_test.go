@@ -24,7 +24,7 @@ func TestRustDetector_Detect(t *testing.T) {
 		}
 		if realCrates[r.URL.Path] {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"crate": {"name": "test"}}`))
+			_, _ = w.Write([]byte(`{"crate": {"name": "test"}}`))
 		} else {
 			w.WriteHeader(http.StatusNotFound)
 		}

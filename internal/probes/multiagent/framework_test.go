@@ -121,7 +121,7 @@ func TestNewMultiAgentProbe(t *testing.T) {
 	}
 
 	// Verify probe implements Prober interface
-	var _ probes.Prober = probe
+	var _ probes.Prober = (*MultiAgentProbe)(nil) // compile-time interface assertion
 }
 
 func TestMultiAgentProbeDefaults(t *testing.T) {

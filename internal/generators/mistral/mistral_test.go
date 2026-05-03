@@ -90,10 +90,10 @@ func TestMistralGenerator_RequiresModel(t *testing.T) {
 func TestMistralGenerator_RequiresAPIKey(t *testing.T) {
 	// Clear any env var that might be set
 	origKey := os.Getenv("MISTRAL_API_KEY")
-	os.Unsetenv("MISTRAL_API_KEY")
+	_ = os.Unsetenv("MISTRAL_API_KEY")
 	defer func() {
 		if origKey != "" {
-			os.Setenv("MISTRAL_API_KEY", origKey)
+			_ = os.Setenv("MISTRAL_API_KEY", origKey)
 		}
 	}()
 

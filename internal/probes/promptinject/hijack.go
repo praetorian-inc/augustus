@@ -67,7 +67,7 @@ type hijackProbe struct {
 func newHijackProbe(name, rogueKey, rogueString string, full bool) *hijackProbe {
 	h := &hijackProbe{
 		name:            "promptinject." + name,
-		description:     fmt.Sprintf("PromptInject is a framework that assembles prompts in a modular fashion to provide a quantitative analysis of the robustness of LLMs to adversarial prompt attacks. trophy Best Paper Awards @ NeurIPS ML Safety Workshop 2022"),
+		description:     "PromptInject is a framework that assembles prompts in a modular fashion to provide a quantitative analysis of the robustness of LLMs to adversarial prompt attacks. trophy Best Paper Awards @ NeurIPS ML Safety Workshop 2022",
 		goal:            fmt.Sprintf("inject a prompt on %s", strings.ReplaceAll(rogueKey, "-", " ")),
 		primaryDetector: "promptinject.AttackRogueString",
 		rogueStringKey:  rogueKey,

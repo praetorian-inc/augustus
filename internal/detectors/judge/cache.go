@@ -26,10 +26,10 @@ func NewCache() *Cache {
 func cacheKey(prompt, output, goal string) string {
 	h := sha256.New()
 	// Use length-prefixed encoding to prevent collisions
-	h.Write([]byte(fmt.Sprintf("%d:%s|%d:%s|%d:%s",
+	_, _ = fmt.Fprintf(h, "%d:%s|%d:%s|%d:%s",
 		len(prompt), prompt,
 		len(output), output,
-		len(goal), goal)))
+		len(goal), goal)
 	return hex.EncodeToString(h.Sum(nil))
 }
 

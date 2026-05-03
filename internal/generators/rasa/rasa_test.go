@@ -64,7 +64,7 @@ func TestRasaRestGenerator_Generate_SingleMessage(t *testing.T) {
 			{"text": "Hello from Rasa!"},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -103,7 +103,7 @@ func TestRasaRestGenerator_Generate_MultipleMessages(t *testing.T) {
 			{"text": "Response 3"},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
@@ -151,7 +151,7 @@ func TestRasaRestGenerator_EmptyResponse(t *testing.T) {
 		// Send empty array
 		resp := []map[string]any{}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 

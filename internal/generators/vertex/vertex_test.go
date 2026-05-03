@@ -521,12 +521,12 @@ func TestVertexGenerator_APIKeyFromEnv(t *testing.T) {
 
 	// Set env var
 	origKey := os.Getenv("GOOGLE_API_KEY")
-	os.Setenv("GOOGLE_API_KEY", "test-env-key")
+	_ = os.Setenv("GOOGLE_API_KEY", "test-env-key")
 	defer func() {
 		if origKey != "" {
-			os.Setenv("GOOGLE_API_KEY", origKey)
+			_ = os.Setenv("GOOGLE_API_KEY", origKey)
 		} else {
-			os.Unsetenv("GOOGLE_API_KEY")
+			_ = os.Unsetenv("GOOGLE_API_KEY")
 		}
 	}()
 

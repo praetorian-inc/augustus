@@ -132,7 +132,7 @@ func (r *RasaRest) Generate(ctx context.Context, conv *attempt.Conversation, n i
 	if err != nil {
 		return nil, fmt.Errorf("rasa: request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check status code
 	if resp.StatusCode != http.StatusOK {

@@ -7,7 +7,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/buffs"
 )
 
-// TestNewBuffsRegistration verifies all 7 new encoding buffs are properly registered.
+// TestNewBuffsRegistration verifies all new encoding buffs are properly registered.
 func TestNewBuffsRegistration(t *testing.T) {
 	newBuffs := []struct {
 		name        string
@@ -20,6 +20,7 @@ func TestNewBuffsRegistration(t *testing.T) {
 		{"encoding.UUencode", false},
 		{"encoding.Zalgo", false},
 		{"encoding.Braille", false},
+		{"encoding.PigLatin", false},
 	}
 
 	for _, tc := range newBuffs {
@@ -56,6 +57,7 @@ func TestNewBuffsBasicTransform(t *testing.T) {
 		"encoding.UUencode",
 		"encoding.Zalgo",
 		"encoding.Braille",
+		"encoding.PigLatin",
 	}
 
 	testPrompt := "test"

@@ -21,7 +21,7 @@ func TestDartDetector_Detect(t *testing.T) {
 		}
 		if realPackages[r.URL.Path] {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"name": "test"}`))
+			_, _ = w.Write([]byte(`{"name": "test"}`))
 		} else {
 			w.WriteHeader(http.StatusNotFound)
 		}
