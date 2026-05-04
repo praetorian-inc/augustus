@@ -61,6 +61,9 @@ type mockProbe struct {
 	primaryDetector string
 	goal            string
 	err             error
+	// metadata is copied into each attempt's Metadata before returning.
+	// Lets a test give probes distinct, observable per-attempt fingerprints.
+	metadata map[string]any
 }
 
 func (m *mockProbe) Probe(ctx context.Context, gen probes.Generator) ([]*attempt.Attempt, error) {
@@ -73,6 +76,11 @@ func (m *mockProbe) Probe(ctx context.Context, gen probes.Generator) ([]*attempt
 		a.Probe = m.name
 		// Set primary detector (simulates real probe behavior)
 		a.Detector = m.primaryDetector
+		// Copy any per-probe metadata fingerprints (e.g. tool_calls) into the attempt.
+		// attempt.New initialises Metadata as a non-nil map, so this is always safe.
+		for k, v := range m.metadata {
+			a.Metadata[k] = v
+		}
 		// Simulate generator response
 		conv := attempt.NewConversation()
 		conv.AddPrompt(prompt)
@@ -906,7 +914,7 @@ func TestProbewise_Run_PerProbeOverrideRouting(t *testing.T) {
 	const patternB = "(?i)canary-probe-b-only"
 
 	// Create two real agent.ArgumentExfiltration detectors with distinct patterns.
-	// overrideDetA fires on patternA; sharedDetB fires on patternB.
+	// overrideDetA fires only on patternA; sharedDetB fires only on patternB.
 	overrideDetA, err := detectors.Create("agent.ArgumentExfiltration", registry.Config{
 		"forbidden_patterns": []any{patternA},
 	})
@@ -917,18 +925,30 @@ func TestProbewise_Run_PerProbeOverrideRouting(t *testing.T) {
 	})
 	require.NoError(t, err, "failed to create shared detector for probe B")
 
-	// Two stub probes. Probe A gets the per-probe override; probe B uses the shared detector.
+	// Two stub probes, each carrying distinct tool_calls metadata so that the
+	// detectors above produce different scores on each probe's attempts.
+	// Probe A embeds a patternA-only canary URL; probe B embeds a patternB-only canary URL.
 	probeA := &mockProbe{
 		name:            "test.ProbeA",
 		prompts:         []string{"probe-a prompt"},
 		primaryDetector: "agent.ArgumentExfiltration",
 		goal:            "test probe A",
+		metadata: map[string]any{
+			attempt.MetadataKeyToolCalls: []map[string]any{
+				{"name": "data_fetch", "args": map[string]any{"url": "https://canary-probe-a-only.test"}},
+			},
+		},
 	}
 	probeB := &mockProbe{
 		name:            "test.ProbeB",
 		prompts:         []string{"probe-b prompt"},
 		primaryDetector: "agent.ArgumentExfiltration",
 		goal:            "test probe B",
+		metadata: map[string]any{
+			attempt.MetadataKeyToolCalls: []map[string]any{
+				{"name": "data_fetch", "args": map[string]any{"url": "https://canary-probe-b-only.test"}},
+			},
+		},
 	}
 
 	gen := &mockGenerator{
@@ -939,7 +959,7 @@ func TestProbewise_Run_PerProbeOverrideRouting(t *testing.T) {
 	// Capture evaluator.
 	eval := &mockEvaluator{}
 
-	// Build probewise harness with probe_detector_overrides for probe A.
+	// Build probewise harness with probe_detector_overrides for probe A only.
 	h := New()
 	h.probeDetectorOverrides = map[string][]detectors.Detector{
 		"test.ProbeA": {overrideDetA},
@@ -963,55 +983,39 @@ func TestProbewise_Run_PerProbeOverrideRouting(t *testing.T) {
 	require.NotNil(t, attA, "attempt for probe A must be present")
 	require.NotNil(t, attB, "attempt for probe B must be present")
 
-	// Probe A was scored by overrideDetA (patternA detector).
-	// The mock generator outputs plain text with no tool calls → score 0.0 for both.
-	// We inject tool_calls metadata after-the-fact to score the attempts explicitly,
-	// using the real detector's Detect() method for behavioral verification.
-	ctx2 := context.Background()
+	// --- Core routing assertions: scores from the REAL harness output ---
+	//
+	// Probe A was routed to overrideDetA (patternA detector).
+	// attA's tool_calls URL contains "canary-probe-a-only" → overrideDetA fires → score 1.0.
+	// If routing regressed and attA used sharedDetB instead, sharedDetB would NOT match
+	// "canary-probe-a-only" → score 0.0, and the assertion below would fail.
+	attAScores, attAHasResults := attA.DetectorResults["agent.ArgumentExfiltration"]
+	require.True(t, attAHasResults, "attA must have DetectorResults for agent.ArgumentExfiltration")
+	require.Len(t, attAScores, 1, "attA should have exactly one score (one output)")
+	assert.Equal(t, 1.0, attAScores[0],
+		"attA routed to overrideDetA: patternA canary must score 1.0; "+
+			"if this fails, probewise routing regressed and both probes used sharedDetB")
 
-	// Inject patternA token into a synthetic attempt and run overrideDetA.
-	syntheticA := attempt.New("test")
-	syntheticA.AddOutput("calling tool")
-	syntheticA.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
-		{"name": "data_fetch", "args": map[string]any{"url": "https://canary-probe-a-only.test"}},
-	}
-	scoresA, err := overrideDetA.Detect(ctx2, syntheticA)
-	require.NoError(t, err)
-	assert.Equal(t, 1.0, scoresA[0], "overrideDetA should score 1.0 for patternA token")
+	// Probe B was routed to sharedDetB (patternB detector).
+	// attB's tool_calls URL contains "canary-probe-b-only" → sharedDetB fires → score 1.0.
+	// If routing regressed and attB used overrideDetA instead, overrideDetA would NOT match
+	// "canary-probe-b-only" → score 0.0.
+	attBScores, attBHasResults := attB.DetectorResults["agent.ArgumentExfiltration"]
+	require.True(t, attBHasResults, "attB must have DetectorResults for agent.ArgumentExfiltration")
+	require.Len(t, attBScores, 1, "attB should have exactly one score (one output)")
+	assert.Equal(t, 1.0, attBScores[0],
+		"attB routed to sharedDetB: patternB canary must score 1.0")
 
-	// overrideDetA must NOT fire on patternB token.
-	syntheticNotA := attempt.New("test")
-	syntheticNotA.AddOutput("calling tool")
-	syntheticNotA.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
-		{"name": "data_fetch", "args": map[string]any{"url": "https://canary-probe-b-only.test"}},
-	}
-	scoresNotA, err := overrideDetA.Detect(ctx2, syntheticNotA)
-	require.NoError(t, err)
-	assert.Equal(t, 0.0, scoresNotA[0], "overrideDetA must NOT fire on patternB token (routing isolation)")
+	// Discriminating cross-check: overrideDetA (patternA) must NOT have matched attB's
+	// patternB canary URL. We verify this by running overrideDetA directly on attB.
+	// If the routing were reversed (attB mistakenly used overrideDetA), the canary
+	// URL in attB would produce 0.0 from overrideDetA — confirming no false positive.
+	crossScores, err := overrideDetA.Detect(ctx, attB)
+	require.NoError(t, err, "overrideDetA.Detect on attB must not error")
+	assert.Equal(t, 0.0, crossScores[0],
+		"overrideDetA (patternA) must NOT fire on attB's patternB canary URL (routing isolation)")
 
-	// sharedDetB fires on patternB but NOT on patternA.
-	syntheticB := attempt.New("test")
-	syntheticB.AddOutput("calling tool")
-	syntheticB.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
-		{"name": "data_fetch", "args": map[string]any{"url": "https://canary-probe-b-only.test"}},
-	}
-	scoresB, err := sharedDetB.Detect(ctx2, syntheticB)
-	require.NoError(t, err)
-	assert.Equal(t, 1.0, scoresB[0], "sharedDetB should score 1.0 for patternB token")
-
-	syntheticNotB := attempt.New("test")
-	syntheticNotB.AddOutput("calling tool")
-	syntheticNotB.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
-		{"name": "data_fetch", "args": map[string]any{"url": "https://canary-probe-a-only.test"}},
-	}
-	scoresNotB, err := sharedDetB.Detect(ctx2, syntheticNotB)
-	require.NoError(t, err)
-	assert.Equal(t, 0.0, scoresNotB[0], "sharedDetB must NOT fire on patternA token (routing isolation)")
-
-	// Verify that the harness wired probe A to its override detector.
-	// Since the mock generator returns plain text (no tool calls), both attempts
-	// have score 0.0 under either detector — but the override map entry for probe A
-	// must be present and isolated from probe B.
+	// Structural override-map assertions: confirm the harness wired exactly probe A.
 	assert.Contains(t, h.probeDetectorOverrides, "test.ProbeA",
 		"probe A must have an entry in probeDetectorOverrides")
 	assert.NotContains(t, h.probeDetectorOverrides, "test.ProbeB",
