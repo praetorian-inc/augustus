@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"encoding/json"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 )
 
@@ -54,8 +56,15 @@ func parseToolCall(tcMap map[string]any) ToolCall {
 		tc.Name = name
 	}
 
-	if args, ok := tcMap["args"].(map[string]any); ok {
-		tc.Args = args
+	switch v := tcMap["args"].(type) {
+	case map[string]any:
+		tc.Args = v
+	case string:
+		var parsed map[string]any
+		if err := json.Unmarshal([]byte(v), &parsed); err == nil {
+			tc.Args = parsed
+		}
+		// intentionally swallow malformed JSON — tc.Args stays nil and detectors will skip
 	}
 
 	return tc
