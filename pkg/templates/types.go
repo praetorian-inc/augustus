@@ -77,18 +77,20 @@ func (t *ProbeTemplate) Validate() error {
 		}
 	}
 	// Validate secondary_detectors entries.
+	primary := strings.TrimSpace(t.Info.Detector)
 	seen := make(map[string]bool, len(t.Info.SecondaryDetectors))
 	for _, sd := range t.Info.SecondaryDetectors {
-		if strings.TrimSpace(sd.Name) == "" {
+		name := strings.TrimSpace(sd.Name)
+		if name == "" {
 			return fmt.Errorf("%w for template '%s'", ErrEmptySecondaryDetectorName, t.ID)
 		}
-		if sd.Name == t.Info.Detector {
-			return fmt.Errorf("%w: '%s' for template '%s'", ErrSecondaryDetectorSelfReference, sd.Name, t.ID)
+		if name == primary {
+			return fmt.Errorf("%w: '%s' for template '%s'", ErrSecondaryDetectorSelfReference, name, t.ID)
 		}
-		if seen[sd.Name] {
-			return fmt.Errorf("%w: '%s' for template '%s'", ErrDuplicateSecondaryDetectorName, sd.Name, t.ID)
+		if seen[name] {
+			return fmt.Errorf("%w: '%s' for template '%s'", ErrDuplicateSecondaryDetectorName, name, t.ID)
 		}
-		seen[sd.Name] = true
+		seen[name] = true
 	}
 	return nil
 }

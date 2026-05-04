@@ -241,6 +241,53 @@ func TestProbeTemplateValidate_RejectsEmptySecondaryName(t *testing.T) {
 	assert.ErrorIs(t, err, ErrEmptySecondaryDetectorName)
 }
 
+// TestProbeTemplateValidate_WhitespacePaddedDuplicate verifies that Validate()
+// returns ErrDuplicateSecondaryDetectorName when two secondary entries have names
+// that are equal after trimming whitespace (e.g. "foo" and " foo ").
+func TestProbeTemplateValidate_WhitespacePaddedDuplicate(t *testing.T) {
+	tmpl := ProbeTemplate{
+		ID: "test.WhitespaceDuplicate",
+		Info: ProbeInfo{
+			Name:     "Whitespace Duplicate",
+			Goal:     "test",
+			Detector: "agent.ToolManipulation",
+			Severity: "high",
+			SecondaryDetectors: []SecondaryDetectorYAML{
+				{Name: "foo"},
+				{Name: " foo "},
+			},
+		},
+		Prompts: []string{"Hello."},
+	}
+	err := tmpl.Validate()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrDuplicateSecondaryDetectorName,
+		"whitespace-padded duplicate secondary detector name should fail validation")
+}
+
+// TestProbeTemplateValidate_WhitespacePaddedSelfReference verifies that Validate()
+// returns ErrSecondaryDetectorSelfReference when a secondary entry name matches
+// the primary detector after trimming whitespace (e.g. " detectorName " == "detectorName").
+func TestProbeTemplateValidate_WhitespacePaddedSelfReference(t *testing.T) {
+	tmpl := ProbeTemplate{
+		ID: "test.WhitespaceSelfRef",
+		Info: ProbeInfo{
+			Name:     "Whitespace Self Reference",
+			Goal:     "test",
+			Detector: "detectorName",
+			Severity: "high",
+			SecondaryDetectors: []SecondaryDetectorYAML{
+				{Name: " detectorName "},
+			},
+		},
+		Prompts: []string{"Hello."},
+	}
+	err := tmpl.Validate()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrSecondaryDetectorSelfReference,
+		"whitespace-padded self-reference secondary detector name should fail validation")
+}
+
 // TestProbeTemplateUnmarshal_SecondaryDetectors verifies that secondary_detectors
 // round-trips through YAML correctly (field names, config map content).
 func TestProbeTemplateUnmarshal_SecondaryDetectors(t *testing.T) {
