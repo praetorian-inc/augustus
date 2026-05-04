@@ -412,15 +412,22 @@ func buildProbeDetectorMap(probeList []probes.Prober, detectorList []detectors.D
 
 		// --- Primary detector (only when detector_config is non-empty) ---
 		if len(probeCfg) > 0 {
-			// Determine which detector this probe wants.
-			// Use GetPrimaryDetector() if probe also implements ProbeMetadata;
-			// otherwise iterate over detectorList names.
+			// Always start from the user-selected detectorList so other selected
+			// detectors are not silently dropped. If the probe also implements
+			// ProbeMetadata and declares a non-empty primary, hoist that name to
+			// the front (and add it if not already present).
+			seen := make(map[string]bool, len(detectorList))
 			var primaryNames []string
 			if pm, ok := probe.(types.ProbeMetadata); ok {
-				primaryNames = []string{pm.GetPrimaryDetector()}
-			} else {
-				for _, d := range detectorList {
+				if primary := pm.GetPrimaryDetector(); primary != "" {
+					primaryNames = append(primaryNames, primary)
+					seen[primary] = true
+				}
+			}
+			for _, d := range detectorList {
+				if !seen[d.Name()] {
 					primaryNames = append(primaryNames, d.Name())
+					seen[d.Name()] = true
 				}
 			}
 

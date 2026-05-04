@@ -1253,6 +1253,106 @@ prompts:
 	assert.Equal(t, 1.0, scores[0], "H3 compound: ArgumentExfiltration should score 1.0 on telemetry URL")
 }
 
+// TestBuildProbeDetectorMap_PreservesOtherSelectedDetectors_WithMetadata is a
+// regression test for the per-probe override fix: when a probe implements BOTH
+// ProbeDetectorConfig (non-empty detector_config) AND ProbeMetadata (non-empty
+// primary detector), the override list must contain ALL detectors from
+// detectorList (not just the primary), with the primary hoisted to position [0].
+//
+// Before the fix, the override list contained ONLY pm.GetPrimaryDetector(),
+// silently dropping the other user-selected detectors.
+func TestBuildProbeDetectorMap_PreservesOtherSelectedDetectors_WithMetadata(t *testing.T) {
+	// Probe implements ProbeDetectorConfig (non-empty detector_config) and
+	// ProbeMetadata (detector: agent.ArgumentExfiltration → GetPrimaryDetector()).
+	const probeYAML = `
+id: test.MetadataPrimaryProbe
+info:
+  name: Metadata Primary Probe
+  author: test
+  description: Probe with both detector_config and a primary via ProbeMetadata
+  goal: test
+  detector: agent.ArgumentExfiltration
+  severity: high
+  detector_config:
+    threshold: 0.9
+prompts:
+  - "Test prompt."
+`
+	probe := newTemplateProbeFromYAML(t, probeYAML)
+
+	// detectorList has 3 entries; the primary ("agent.ArgumentExfiltration") is last.
+	detA, err := detectors.Create("agent.ToolManipulation", registry.Config{})
+	require.NoError(t, err)
+	detB, err := detectors.Create("agent.ChainLength", registry.Config{})
+	require.NoError(t, err)
+	detC, err := detectors.Create("agent.ArgumentExfiltration", registry.Config{})
+	require.NoError(t, err)
+	detectorList := []detectors.Detector{detA, detB, detC}
+
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, detectorList, nil)
+	require.NoError(t, err)
+
+	detList, ok := overrides["test.MetadataPrimaryProbe"]
+	require.True(t, ok, "probe with non-empty detector_config must appear in override map")
+
+	// All 3 user-selected detectors must be preserved (regression: old code dropped detA and detB).
+	require.Len(t, detList, 3, "override slice must contain all 3 user-selected detectors, not just the primary")
+
+	// Primary ("agent.ArgumentExfiltration") must be hoisted to position [0].
+	assert.Equal(t, "agent.ArgumentExfiltration", detList[0].Name(), "primary detector must be at position [0]")
+
+	// Collect the full set of names and verify all three are present.
+	names := make(map[string]struct{}, len(detList))
+	for _, d := range detList {
+		names[d.Name()] = struct{}{}
+	}
+	assert.Contains(t, names, "agent.ArgumentExfiltration", "primary detector must be in override list")
+	assert.Contains(t, names, "agent.ToolManipulation", "other selected detector must not be dropped")
+	assert.Contains(t, names, "agent.ChainLength", "other selected detector must not be dropped")
+}
+
+// TestBuildProbeDetectorMap_PrimaryHoistedToFront is a narrower regression test
+// for the hoist-primary fix: when the probe's GetPrimaryDetector() names a
+// detector that appears last in detectorList, it must appear at position [0] in
+// the resulting override slice.
+func TestBuildProbeDetectorMap_PrimaryHoistedToFront(t *testing.T) {
+	// Same probe shape as above: detector_config non-empty, primary = "agent.ArgumentExfiltration".
+	const probeYAML = `
+id: test.HoistPrimaryProbe
+info:
+  name: Hoist Primary Probe
+  author: test
+  description: Primary detector is last in detectorList; must be hoisted to front
+  goal: test
+  detector: agent.ArgumentExfiltration
+  severity: high
+  detector_config:
+    forbidden_patterns:
+      - "(?i)primary\\.A"
+prompts:
+  - "Test prompt."
+`
+	probe := newTemplateProbeFromYAML(t, probeYAML)
+
+	// Primary ("agent.ArgumentExfiltration") is intentionally placed last in the list.
+	detFirst, err := detectors.Create("agent.ToolManipulation", registry.Config{})
+	require.NoError(t, err)
+	detPrimary, err := detectors.Create("agent.ArgumentExfiltration", registry.Config{})
+	require.NoError(t, err)
+	detectorList := []detectors.Detector{detFirst, detPrimary}
+
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, detectorList, nil)
+	require.NoError(t, err)
+
+	detList, ok := overrides["test.HoistPrimaryProbe"]
+	require.True(t, ok, "probe with non-empty detector_config must appear in override map")
+	require.Len(t, detList, 2, "both detectors must be present")
+
+	// Primary must be at position [0] even though it was last in detectorList.
+	assert.Equal(t, "agent.ArgumentExfiltration", detList[0].Name(), "primary must be hoisted to position [0]")
+	assert.Equal(t, "agent.ToolManipulation", detList[1].Name(), "non-primary detector must follow primary")
+}
+
 // TestScan_CompoundDetector_E2E_UnauthorizedInvocation verifies H4 end-to-end:
 // mode=exec in tool args fires agent.ArgumentExfiltration via compound detection.
 func TestScan_CompoundDetector_E2E_UnauthorizedInvocation(t *testing.T) {
