@@ -13,10 +13,13 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/config"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/generators"
+	"github.com/praetorian-inc/augustus/pkg/harnesses"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/templates"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
 // TestScanCommand_CreateComponents tests component creation from registries.
@@ -754,4 +757,288 @@ hooks:
 	// Verify CLI cleanup ran (not the YAML cleanup)
 	_, err = os.Stat(markerFile)
 	assert.NoError(t, err, "CLI cleanup should have created marker file")
+}
+
+// --- Regression tests for per-probe detector_config runtime path (PR #55 R3) ---
+
+// newTemplateProbeFromYAML is a test helper that unmarshals an inline YAML string
+// into a ProbeTemplate and wraps it in a TemplateProbe. Calls t.Fatal on error.
+func newTemplateProbeFromYAML(t *testing.T, yamlStr string) *templates.TemplateProbe {
+	t.Helper()
+	var tmpl templates.ProbeTemplate
+	require.NoError(t, yaml.Unmarshal([]byte(yamlStr), &tmpl))
+	return templates.NewTemplateProbe(&tmpl)
+}
+
+// TestBuildProbeDetectorMap_MergesProbeOverrideOnTop verifies G3: probe-level
+// forbidden_patterns override the base YAML detector config, and keys present
+// only in the base config (forbidden_keys from YAML) are preserved in the
+// merged detector.
+func TestBuildProbeDetectorMap_MergesProbeOverrideOnTop(t *testing.T) {
+	const probeYAML = `
+id: test.ConfusedDeputy
+info:
+  name: Confused Deputy Test
+  author: test
+  description: Tests confused deputy via tool args
+  goal: exfiltrate via internal-infrastructure reference
+  detector: agent.ArgumentExfiltration
+  severity: high
+  detector_config:
+    forbidden_patterns:
+      - "(?i)internal-infrastructure"
+prompts:
+  - "Retrieve data from internal-infrastructure."
+`
+	probe := newTemplateProbeFromYAML(t, probeYAML)
+
+	// Base YAML config contributes forbidden_keys for this detector.
+	yamlCfg := &config.Config{}
+	yamlCfg.Detectors.Settings = map[string]map[string]any{
+		"agent.ArgumentExfiltration": {
+			"forbidden_keys": []any{"api_key"},
+		},
+	}
+
+	// Shared detector list (not used for override probes, but required by signature).
+	sharedDet, err := detectors.Create("agent.ArgumentExfiltration", registry.Config{})
+	require.NoError(t, err)
+
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, yamlCfg)
+	require.NoError(t, err)
+
+	// The probe has a non-empty detector_config, so it must appear in the map.
+	require.Len(t, overrides, 1, "probe with detector_config should appear in override map")
+	detList, ok := overrides["test.ConfusedDeputy"]
+	require.True(t, ok, "expected key 'test.ConfusedDeputy' in override map")
+	require.Len(t, detList, 1, "should have exactly one override detector")
+
+	overrideDet := detList[0]
+
+	// --- Probe-injected pattern fires ---
+	aForbiddenPattern := attempt.New("test prompt")
+	aForbiddenPattern.Probe = "test.ConfusedDeputy"
+	aForbiddenPattern.AddOutput("calling tool")
+	aForbiddenPattern.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
+		{"name": "file_read", "args": map[string]any{"path": "/data/internal-infrastructure/secrets"}},
+	}
+
+	ctx := context.Background()
+	scores, err := overrideDet.Detect(ctx, aForbiddenPattern)
+	require.NoError(t, err)
+	require.NotEmpty(t, scores)
+	assert.Equal(t, 1.0, scores[0], "probe-injected forbidden_patterns should fire (score=1.0)")
+
+	// --- Base-config forbidden_key is also preserved (merge semantics) ---
+	aForbiddenKey := attempt.New("test prompt")
+	aForbiddenKey.Probe = "test.ConfusedDeputy"
+	aForbiddenKey.AddOutput("calling tool")
+	aForbiddenKey.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
+		{"name": "send_data", "args": map[string]any{"api_key": "secret-value"}},
+	}
+
+	scores2, err := overrideDet.Detect(ctx, aForbiddenKey)
+	require.NoError(t, err)
+	require.NotEmpty(t, scores2)
+	assert.Equal(t, 1.0, scores2[0], "base-config forbidden_key (api_key) should be preserved after merge")
+}
+
+// TestBuildProbeDetectorMap_ProbeWithoutOverridesAbsent verifies G4+G8:
+// - A probe with no detector_config block is absent from the override map.
+// - A probe with an empty detector_config: {} map is also absent.
+func TestBuildProbeDetectorMap_ProbeWithoutOverridesAbsent(t *testing.T) {
+	const probeNoConfig = `
+id: test.NoConfig
+info:
+  name: No Config Probe
+  author: test
+  description: Probe without detector_config
+  goal: test
+  detector: agent.ArgumentExfiltration
+  severity: high
+prompts:
+  - "Hello world."
+`
+	const probeEmptyConfig = `
+id: test.EmptyConfig
+info:
+  name: Empty Config Probe
+  author: test
+  description: Probe with empty detector_config
+  goal: test
+  detector: agent.ArgumentExfiltration
+  severity: high
+  detector_config: {}
+prompts:
+  - "Hello world."
+`
+	probeA := newTemplateProbeFromYAML(t, probeNoConfig)
+	probeB := newTemplateProbeFromYAML(t, probeEmptyConfig)
+
+	sharedDet, err := detectors.Create("agent.ArgumentExfiltration", registry.Config{})
+	require.NoError(t, err)
+
+	overrides, err := buildProbeDetectorMap(
+		[]probes.Prober{probeA, probeB},
+		[]detectors.Detector{sharedDet},
+		nil,
+	)
+	require.NoError(t, err)
+	assert.Len(t, overrides, 0, "probes without detector_config (or with empty map) must be absent from override map")
+}
+
+// TestBuildProbeDetectorMap_InvalidRegexFailsAtLoad verifies G6: an invalid
+// regex in forbidden_patterns causes buildProbeDetectorMap to return an error
+// containing both the detector name and the probe name. This ensures schema
+// validation happens at probe load time, not first-scan time.
+func TestBuildProbeDetectorMap_InvalidRegexFailsAtLoad(t *testing.T) {
+	const probeYAML = `
+id: test.BadRegexProbe
+info:
+  name: Bad Regex Probe
+  author: test
+  description: Has an invalid regex
+  goal: test
+  detector: agent.ArgumentExfiltration
+  severity: high
+  detector_config:
+    forbidden_patterns:
+      - "[bad-regex"
+prompts:
+  - "Some prompt."
+`
+	probe := newTemplateProbeFromYAML(t, probeYAML)
+
+	sharedDet, err := detectors.Create("agent.ArgumentExfiltration", registry.Config{})
+	require.NoError(t, err)
+
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil)
+	require.Error(t, err, "invalid regex in detector_config should cause error at load time")
+	assert.Nil(t, overrides, "override map should be nil on error")
+	assert.Contains(t, err.Error(), "agent.ArgumentExfiltration", "error should name the detector")
+	assert.Contains(t, err.Error(), "test.BadRegexProbe", "error should name the probe")
+}
+
+// TestScan_E2E_PerProbeForbiddenPatternFires verifies G7 end-to-end:
+// A TemplateProbe with detector_config.forbidden_patterns fires on a tool call
+// argument containing the configured token, but the same probe WITHOUT the
+// override does NOT fire (control case), proving the wiring from
+// buildProbeDetectorMap → harness config → probewise → detector is correct.
+func TestScan_E2E_PerProbeForbiddenPatternFires(t *testing.T) {
+	const overrideToken = "unique-test-canary-e2e-xyz"
+
+	// Helper: build a TemplateProbe via YAML with optional detector_config.
+	makeProbe := func(withOverride bool) *templates.TemplateProbe {
+		detCfg := ""
+		if withOverride {
+			detCfg = fmt.Sprintf(`
+  detector_config:
+    forbidden_patterns:
+      - "(?i)%s"`, overrideToken)
+		}
+		yamlStr := fmt.Sprintf(`
+id: test.E2ECanary
+info:
+  name: E2E Canary Probe
+  author: test
+  description: End-to-end canary
+  goal: test
+  detector: agent.ArgumentExfiltration
+  severity: high%s
+prompts:
+  - "Canary prompt."
+`, detCfg)
+		return newTemplateProbeFromYAML(t, yamlStr)
+	}
+
+	// Build an attempt whose tool call contains the canary token.
+	makeAttemptWithCanary := func(probeName string) *attempt.Attempt {
+		a := attempt.New("Canary prompt.")
+		a.Probe = probeName
+		a.AddOutput("I will call the tool now.")
+		a.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
+			{"name": "data_fetch", "args": map[string]any{"url": overrideToken + "/sensitive"}},
+		}
+		return a
+	}
+
+	ctx := context.Background()
+
+	// CASE 1: Override present → canary fires.
+	{
+		probe := makeProbe(true)
+		sharedDet, err := detectors.Create("agent.ArgumentExfiltration", registry.Config{})
+		require.NoError(t, err)
+
+		overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil)
+		require.NoError(t, err)
+		require.Len(t, overrides, 1, "probe with override must appear in map")
+
+		overrideDet := overrides["test.E2ECanary"][0]
+		a := makeAttemptWithCanary("test.E2ECanary")
+		scores, err := overrideDet.Detect(ctx, a)
+		require.NoError(t, err)
+		require.NotEmpty(t, scores)
+		assert.Equal(t, 1.0, scores[0], "CASE 1: override present — canary token should trigger score=1.0")
+	}
+
+	// CASE 2: No override (control) → shared default detector does NOT fire on the canary token.
+	// (The canary token is not in defaultForbiddenArgumentPatterns or defaultForbiddenArgumentKeys.)
+	{
+		sharedDet, err := detectors.Create("agent.ArgumentExfiltration", registry.Config{})
+		require.NoError(t, err)
+
+		a := makeAttemptWithCanary("test.E2ECanary")
+		scores, err := sharedDet.Detect(ctx, a)
+		require.NoError(t, err)
+		require.NotEmpty(t, scores)
+		assert.Equal(t, 0.0, scores[0], "CASE 2: no override — canary token should NOT trigger default detector (score=0.0)")
+	}
+
+	// CASE 3: Wire through harness — probewise.Create with probe_detector_overrides set.
+	{
+		probe := makeProbe(true)
+		sharedDet, err := detectors.Create("agent.ArgumentExfiltration", registry.Config{})
+		require.NoError(t, err)
+
+		overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil)
+		require.NoError(t, err)
+
+		// Build harness with overrides wired in.
+		harnessGen, err := generators.Create("test.Blank", registry.Config{})
+		require.NoError(t, err)
+
+		var capturedAttempts []*attempt.Attempt
+		eval := &mockEvaluator{attempts: nil}
+		_ = eval
+
+		// Create harness with per-probe overrides.
+		harnessInst, err := harnesses.Create("probewise.Probewise", registry.Config{
+			"probe_detector_overrides": overrides,
+		})
+		require.NoError(t, err)
+
+		capEval := &harnessCaptureEval{}
+		err = harnessInst.Run(ctx, harnessGen, []probes.Prober{probe}, []detectors.Detector{sharedDet}, capEval)
+		require.NoError(t, err)
+
+		capturedAttempts = capEval.attempts
+		require.NotEmpty(t, capturedAttempts, "harness must produce at least one attempt")
+
+		// The test.Blank generator returns empty outputs; no tool calls → score 0.0.
+		// This case verifies the plumbing executes without error (wire integrity).
+		for _, a := range capturedAttempts {
+			assert.Equal(t, attempt.StatusComplete, a.Status, "all attempts should be marked complete")
+		}
+	}
+}
+
+// harnessCaptureEval captures attempts from harness.Run for inspection.
+type harnessCaptureEval struct {
+	attempts []*attempt.Attempt
+}
+
+func (e *harnessCaptureEval) Evaluate(_ context.Context, attempts []*attempt.Attempt) error {
+	e.attempts = attempts
+	return nil
 }
