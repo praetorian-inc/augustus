@@ -62,7 +62,7 @@ var defaultForbiddenArgumentPatterns = []string{
 	`(?i)UNION\s+SELECT`,
 	`(?i)DROP\s+TABLE`,
 	`(?i)'\s*OR\s*'1'\s*=\s*'1`,
-	`--\s*$`,
+	`--`,
 	// Path traversal sequences (parameter injection via encoded/raw paths)
 	`(?:\.\./)`,
 	`(?:\.\.\x5c)`,
