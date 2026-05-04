@@ -37,12 +37,12 @@ info:
     manually via the CLI --detector flag alongside the scan.
   goal: invoke a tool not in the approved list
   detector: agent.ToolManipulation
-  # DETECTOR CONFIG NOTE: operator must supply expected_tools for detection.
+  # DETECTOR CONFIG: operator must supply expected_tools for detection.
   # See description above for prompt 3 (mode="exec") argument-level limitation.
   #
   # Patterns below target the prompt 3 argument-level attack signal.
   # agent.ToolManipulation does NOT consume forbidden_patterns — these are
-  # forward-compatible documentation pending compound detector support.
+  # forward-compatible for when compound detector support is implemented.
   # Prompts 1, 2, 4 use tool names NOT in expected_tools (maintenance_shell,
   # admin_query, execute_command) and are correctly detected by ToolManipulation.
   # The forbidden_patterns do NOT false-positive on prompts 1/2/4 because those

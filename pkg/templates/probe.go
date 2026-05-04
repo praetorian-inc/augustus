@@ -48,3 +48,9 @@ func (t *TemplateProbe) GetPrimaryDetector() string {
 func (t *TemplateProbe) GetPrompts() []string {
 	return t.template.Prompts
 }
+
+// GetDetectorConfig returns per-probe detector configuration overrides.
+// Returns nil when the template has no detector_config block.
+func (t *TemplateProbe) GetDetectorConfig() map[string]any {
+	return t.template.Info.DetectorConfig
+}

@@ -368,6 +368,71 @@ func createDetectors(detectorNames []string, probeList []probes.Prober, yamlCfg 
 	return detectorList, nil
 }
 
+// buildProbeDetectorMap builds a map of probe name → per-probe detector list
+// for probes that implement ProbeDetectorConfig and carry a non-empty
+// detector_config block. The per-probe config is merged on top of the global
+// detector config (probe config wins on key conflicts). Probes without
+// detector_config are not represented in the returned map; their callers
+// should fall back to the shared detectorList.
+func buildProbeDetectorMap(probeList []probes.Prober, detectorList []detectors.Detector, yamlCfg *config.Config) (map[string][]detectors.Detector, error) {
+	overrides := make(map[string][]detectors.Detector)
+
+	for _, probe := range probeList {
+		pdc, ok := probe.(types.ProbeDetectorConfig)
+		if !ok {
+			continue
+		}
+		probeCfg := pdc.GetDetectorConfig()
+		if len(probeCfg) == 0 {
+			continue
+		}
+
+		// Determine which detector this probe wants.
+		// Use GetPrimaryDetector() if probe also implements ProbeMetadata;
+		// otherwise iterate over detectorList names.
+		var detectorNames []string
+		if pm, ok := probe.(types.ProbeMetadata); ok {
+			detectorNames = []string{pm.GetPrimaryDetector()}
+		} else {
+			for _, d := range detectorList {
+				detectorNames = append(detectorNames, d.Name())
+			}
+		}
+
+		probeDetectors := make([]detectors.Detector, 0, len(detectorNames))
+		for _, detectorName := range detectorNames {
+			// Base config: global YAML settings for this detector
+			var baseCfg registry.Config
+			if yamlCfg != nil {
+				baseCfg = yamlCfg.ResolveDetectorConfig(detectorName)
+			} else {
+				baseCfg = make(registry.Config)
+			}
+
+			// Merge: probe config overrides base config
+			mergedCfg := make(registry.Config, len(baseCfg)+len(probeCfg))
+			for k, v := range baseCfg {
+				mergedCfg[k] = v
+			}
+			for k, v := range probeCfg {
+				mergedCfg[k] = v
+			}
+
+			d, err := detectors.Create(detectorName, mergedCfg)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create per-probe detector %s for probe %s: %w", detectorName, probe.Name(), err)
+			}
+			probeDetectors = append(probeDetectors, d)
+		}
+
+		if len(probeDetectors) > 0 {
+			overrides[probe.Name()] = probeDetectors
+		}
+	}
+
+	return overrides, nil
+}
+
 // createAndApplyBuffs creates buff instances and applies them to probes.
 func createAndApplyBuffs(probeList []probes.Prober, buffNames []string, yamlCfg *config.Config) ([]probes.Prober, error) {
 	if len(buffNames) == 0 {
@@ -513,6 +578,14 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 		return err
 	}
 
+	// Build per-probe detector overrides for probes with detector_config blocks.
+	// Called before buff wrapping so that the raw probes' ProbeDetectorConfig
+	// interface is accessible; BuffedProber wrappers do not forward the interface.
+	probeDetectorOverrides, err := buildProbeDetectorMap(probeList, detectorList, yamlCfg)
+	if err != nil {
+		return fmt.Errorf("building per-probe detector map: %w", err)
+	}
+
 	// Create and apply buffs
 	buffNames := cfg.buffNames
 	if len(buffNames) == 0 && yamlCfg != nil && len(yamlCfg.Buffs.Names) > 0 {
@@ -531,6 +604,9 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	}
 	if onAttemptProcessed != nil {
 		harnessConfig["on_attempt_processed"] = onAttemptProcessed
+	}
+	if len(probeDetectorOverrides) > 0 {
+		harnessConfig["probe_detector_overrides"] = probeDetectorOverrides
 	}
 	harness, err := harnesses.Create(cfg.harnessName, harnessConfig)
 	if err != nil {

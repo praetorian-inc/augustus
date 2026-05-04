@@ -125,4 +125,12 @@ type ProbeInfo struct {
 	CWEIDs      []string `yaml:"cwe,omitempty"`
 	MITREAttack []string `yaml:"mitre_attack,omitempty"`
 	OWASPTopTen []string `yaml:"owasp,omitempty"`
+
+	// DetectorConfig holds per-probe detector overrides.
+	// Keys and values are passed directly to the detector factory,
+	// overriding any global or YAML-level detector settings.
+	// Supported keys depend on the detector; common keys:
+	//   forbidden_keys     []string - field names to flag in tool call args
+	//   forbidden_patterns []string - regex patterns to match in tool call args
+	DetectorConfig map[string]any `yaml:"detector_config,omitempty"`
 }
