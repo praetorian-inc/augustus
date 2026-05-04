@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/praetorian-inc/augustus/internal/attackengine"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -137,9 +138,15 @@ type messageResponse struct {
 }
 
 // contentBlock represents a content block in the response.
+// For text blocks, Type is "text" and Text carries the content.
+// For tool_use blocks, Type is "tool_use", Name is the function name,
+// Input is the arguments object, and ID is the tool call identifier.
 type contentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type  string          `json:"type"`
+	Text  string          `json:"text"`
+	Name  string          `json:"name"`
+	Input json.RawMessage `json:"input"`
+	ID    string          `json:"id"`
 }
 
 // usageStats represents token usage statistics.
@@ -249,15 +256,28 @@ func (g *Anthropic) generateOne(ctx context.Context, conv *attempt.Conversation)
 		return attempt.Message{}, fmt.Errorf("anthropic: failed to parse response: %w", err)
 	}
 
-	// Extract text from content blocks
+	// Extract text and tool_use blocks from content.
 	var text string
+	toolUseBlocks := make([]attackengine.AnthropicToolUseBlock, 0, len(resp.Content))
 	for _, block := range resp.Content {
-		if block.Type == "text" {
+		switch block.Type {
+		case "text":
 			text += block.Text
+		case "tool_use":
+			toolUseBlocks = append(toolUseBlocks, attackengine.AnthropicToolUseBlock{
+				Type:  block.Type,
+				ID:    block.ID,
+				Name:  block.Name,
+				Input: block.Input,
+			})
 		}
 	}
 
-	return attempt.NewAssistantMessage(text), nil
+	msg := attempt.NewAssistantMessage(text)
+	if toolCalls := attackengine.NormalizeAnthropicToolUseBlocks(toolUseBlocks); toolCalls != nil {
+		msg.ToolCalls = toolCalls
+	}
+	return msg, nil
 }
 
 // conversationToMessages converts an Augustus Conversation to Anthropic messages.

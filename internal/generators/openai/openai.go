@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/praetorian-inc/augustus/internal/attackengine"
 	"github.com/praetorian-inc/augustus/internal/generators/openaicompat"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
@@ -150,10 +151,14 @@ func (g *OpenAI) generateChat(ctx context.Context, conv *attempt.Conversation, n
 		return nil, openaicompat.WrapError("openai", err)
 	}
 
-	// Extract responses from choices
+	// Extract responses from choices, capturing any tool calls alongside text.
 	responses := make([]attempt.Message, 0, len(resp.Choices))
 	for _, choice := range resp.Choices {
-		responses = append(responses, attempt.NewAssistantMessage(choice.Message.Content))
+		msg := attempt.NewAssistantMessage(choice.Message.Content)
+		if toolCalls := attackengine.NormalizeOpenAIToolCalls(choice.Message.ToolCalls); toolCalls != nil {
+			msg.ToolCalls = toolCalls
+		}
+		responses = append(responses, msg)
 	}
 
 	return responses, nil

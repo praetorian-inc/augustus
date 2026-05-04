@@ -23,6 +23,16 @@ type Message struct {
 	Role Role `json:"role"`
 	// Content is the text content of the message.
 	Content string `json:"content"`
+	// ToolCalls holds any tool/function calls made by the model in this
+	// message, in the canonical detector shape:
+	//
+	//   []map[string]any{{"name": string, "args": map[string]any}, ...}
+	//
+	// Generators populate this field when the model returns tool calls.
+	// It is nil for text-only responses. Callers (e.g. RunPrompts) copy
+	// this into the corresponding attempt's metadata under
+	// attempt.MetadataKeyToolCalls.
+	ToolCalls []map[string]any `json:"tool_calls,omitempty"`
 }
 
 // NewMessage creates a new message with the given role and content.

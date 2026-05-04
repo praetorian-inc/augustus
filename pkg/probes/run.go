@@ -7,6 +7,17 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
+// collectToolCalls gathers all non-nil ToolCalls slices from a set of
+// messages and merges them into a single slice for attempt metadata.
+// Returns nil when no messages carry tool calls.
+func collectToolCalls(responses []attempt.Message) []map[string]any {
+	var merged []map[string]any
+	for _, resp := range responses {
+		merged = append(merged, resp.ToolCalls...)
+	}
+	return merged
+}
+
 // RunPrompts executes multiple prompts sequentially against a generator.
 //
 // For each prompt it creates a conversation, sends it to the generator, and
@@ -80,6 +91,11 @@ func RunPrompts(
 		} else {
 			for _, resp := range responses {
 				a.AddOutput(resp.Content)
+			}
+			// Propagate tool calls from generator responses to attempt metadata
+			// so detectors (e.g. agent.ToolManipulation) can score them.
+			if toolCalls := collectToolCalls(responses); len(toolCalls) > 0 {
+				a.WithMetadata(attempt.MetadataKeyToolCalls, toolCalls)
 			}
 			a.Complete()
 		}
