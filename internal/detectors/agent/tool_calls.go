@@ -48,12 +48,24 @@ func extractToolCalls(a *attempt.Attempt) []ToolCall {
 	return toolCalls
 }
 
-// parseStringList accepts both []any (YAML/JSON-decoded config) and []string
-// (programmatic callers). Returns nil for unknown types or empty input.
+// parseStringList accepts []any (YAML/JSON-decoded config), []string
+// (programmatic callers), and a bare string scalar (YAML single-value
+// shorthand). Returns nil for unknown types or empty input.
+//
+// The bare-string case is required because gopkg.in/yaml.v3 decodes a YAML
+// scalar (e.g. `scoped_tools: "edit_tool"`) as Go type string, not []any.
+// Without this branch, a bare-scalar config value silently produces nil,
+// causing the caller to fall back to defaults instead of honouring the
+// operator's explicit single-item list.
 func parseStringList(raw any) []string {
 	switch v := raw.(type) {
 	case []string:
 		return v
+	case string:
+		if v == "" {
+			return nil
+		}
+		return []string{v}
 	case []any:
 		out := make([]string, 0, len(v))
 		for _, item := range v {
