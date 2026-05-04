@@ -161,3 +161,115 @@ prompts:
 		})
 	}
 }
+
+// TestProbeTemplateValidate_RejectsDuplicateSecondary verifies that Validate()
+// returns ErrDuplicateSecondaryDetectorName when two secondary_detectors entries
+// share the same name.
+func TestProbeTemplateValidate_RejectsDuplicateSecondary(t *testing.T) {
+	const yamlData = `
+id: test.DupSecondary
+info:
+  name: Dup Secondary
+  author: test
+  description: test
+  goal: test
+  detector: agent.ToolManipulation
+  severity: high
+  secondary_detectors:
+    - name: agent.ArgumentExfiltration
+      config:
+        forbidden_patterns:
+          - '(?i)evil'
+    - name: agent.ArgumentExfiltration
+      config:
+        forbidden_patterns:
+          - '(?i)other'
+prompts:
+  - "Hello."
+`
+	var tmpl ProbeTemplate
+	require.NoError(t, yaml.Unmarshal([]byte(yamlData), &tmpl))
+	err := tmpl.Validate()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrDuplicateSecondaryDetectorName,
+		"duplicate secondary detector name should fail validation")
+}
+
+// TestProbeTemplateValidate_RejectsSelfReference verifies that Validate() returns
+// ErrSecondaryDetectorSelfReference when a secondary entry name equals the primary.
+func TestProbeTemplateValidate_RejectsSelfReference(t *testing.T) {
+	const yamlData = `
+id: test.SelfRef
+info:
+  name: Self Ref
+  author: test
+  description: test
+  goal: test
+  detector: agent.ToolManipulation
+  severity: high
+  secondary_detectors:
+    - name: agent.ToolManipulation
+prompts:
+  - "Hello."
+`
+	var tmpl ProbeTemplate
+	require.NoError(t, yaml.Unmarshal([]byte(yamlData), &tmpl))
+	err := tmpl.Validate()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrSecondaryDetectorSelfReference,
+		"secondary entry equal to primary should fail validation")
+}
+
+// TestProbeTemplateValidate_RejectsEmptySecondaryName verifies that Validate()
+// returns ErrEmptySecondaryDetectorName when a secondary entry has a blank name.
+func TestProbeTemplateValidate_RejectsEmptySecondaryName(t *testing.T) {
+	tmpl := ProbeTemplate{
+		ID: "test.EmptyName",
+		Info: ProbeInfo{
+			Name:     "Empty Name",
+			Goal:     "test",
+			Detector: "agent.ToolManipulation",
+			Severity: "high",
+			SecondaryDetectors: []SecondaryDetectorYAML{
+				{Name: ""},
+			},
+		},
+		Prompts: []string{"Hello."},
+	}
+	err := tmpl.Validate()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrEmptySecondaryDetectorName)
+}
+
+// TestProbeTemplateUnmarshal_SecondaryDetectors verifies that secondary_detectors
+// round-trips through YAML correctly (field names, config map content).
+func TestProbeTemplateUnmarshal_SecondaryDetectors(t *testing.T) {
+	const yamlData = `
+id: test.SecondaryRoundTrip
+info:
+  name: Secondary Round Trip
+  author: test
+  description: test
+  goal: test
+  detector: agent.ToolManipulation
+  severity: high
+  secondary_detectors:
+    - name: agent.ArgumentExfiltration
+      config:
+        forbidden_patterns:
+          - '(?i)telemetry\.example\.com'
+prompts:
+  - "Hello."
+`
+	var tmpl ProbeTemplate
+	require.NoError(t, yaml.Unmarshal([]byte(yamlData), &tmpl))
+	require.Len(t, tmpl.Info.SecondaryDetectors, 1)
+
+	sec := tmpl.Info.SecondaryDetectors[0]
+	assert.Equal(t, "agent.ArgumentExfiltration", sec.Name)
+	require.NotNil(t, sec.Config)
+
+	patterns, ok := sec.Config["forbidden_patterns"]
+	require.True(t, ok, "expected forbidden_patterns in secondary config")
+	assert.Equal(t, []any{"(?i)telemetry\\.example\\.com"}, patterns)
+}
