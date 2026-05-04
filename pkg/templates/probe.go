@@ -54,3 +54,20 @@ func (t *TemplateProbe) GetPrompts() []string {
 func (t *TemplateProbe) GetDetectorConfig() map[string]any {
 	return t.template.Info.DetectorConfig
 }
+
+// GetSecondaryDetectors returns additional detectors to run alongside the primary.
+// Implements types.ProbeSecondaryDetectors. Returns nil when the template has
+// no secondary_detectors block, preserving single-detector behavior unchanged.
+func (t *TemplateProbe) GetSecondaryDetectors() []types.SecondaryDetector {
+	if len(t.template.Info.SecondaryDetectors) == 0 {
+		return nil
+	}
+	out := make([]types.SecondaryDetector, len(t.template.Info.SecondaryDetectors))
+	for i, s := range t.template.Info.SecondaryDetectors {
+		out[i] = types.SecondaryDetector{
+			Name:   s.Name,
+			Config: s.Config,
+		}
+	}
+	return out
+}

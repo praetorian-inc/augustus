@@ -47,3 +47,33 @@ type ProbeDetectorConfig interface {
 	// Returns nil or an empty map when the probe has no per-probe overrides.
 	GetDetectorConfig() map[string]any
 }
+
+// SecondaryDetector describes an additional detector to run alongside the
+// primary detector for a probe. Each entry carries the detector name and an
+// optional per-detector config override map that is merged on top of any
+// global YAML config for that detector.
+type SecondaryDetector struct {
+	// Name is the fully qualified detector name (e.g., "agent.ArgumentExfiltration").
+	Name string
+	// Config holds optional per-detector configuration overrides.
+	// Merged on top of the global/YAML detector config; may be nil.
+	Config map[string]any
+}
+
+// ProbeSecondaryDetectors is an optional interface for probes that declare
+// additional detectors to run alongside the primary detector.
+// When a probe implements this interface, the scanner appends one detector
+// instance per secondary entry to the per-probe detector slice, enabling
+// compound detection (e.g., name-level + argument-level checks).
+//
+// Empty or nil return value → probe behaves as single-detector (current behavior).
+//
+// Check for support via type assertion:
+//
+//	if psd, ok := prober.(ProbeSecondaryDetectors); ok { ... }
+type ProbeSecondaryDetectors interface {
+	// GetSecondaryDetectors returns additional detectors to run alongside the primary.
+	// Each entry is a (detector name, optional per-detector config-override) pair.
+	// Empty/nil result → probe is single-detector (current behavior).
+	GetSecondaryDetectors() []SecondaryDetector
+}

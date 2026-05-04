@@ -369,58 +369,81 @@ func createDetectors(detectorNames []string, probeList []probes.Prober, yamlCfg 
 }
 
 // buildProbeDetectorMap builds a map of probe name → per-probe detector list
-// for probes that implement ProbeDetectorConfig and carry a non-empty
-// detector_config block. The per-probe config is merged on top of the global
-// detector config (probe config wins on key conflicts). Probes without
-// detector_config are not represented in the returned map; their callers
-// should fall back to the shared detectorList.
+// for probes that implement ProbeDetectorConfig (non-empty detector_config) or
+// ProbeSecondaryDetectors (non-empty secondary_detectors list), or both.
+//
+// Primary detector logic (ProbeDetectorConfig): the probe's detector_config is
+// merged on top of the global YAML config for the primary detector, and the
+// resulting instance is placed first in the slice.
+//
+// Secondary detector logic (ProbeSecondaryDetectors): for each secondary entry,
+// a fresh detector instance is created by merging the secondary's Config on top
+// of the global YAML config for that detector name, and appended to the slice.
+//
+// Probes with neither interface (or with empty configs and no secondaries) are
+// absent from the returned map; their callers fall back to the shared detectorList.
 func buildProbeDetectorMap(probeList []probes.Prober, detectorList []detectors.Detector, yamlCfg *config.Config) (map[string][]detectors.Detector, error) {
 	overrides := make(map[string][]detectors.Detector)
 
 	for _, probe := range probeList {
-		pdc, ok := probe.(types.ProbeDetectorConfig)
-		if !ok {
-			continue
-		}
-		probeCfg := pdc.GetDetectorConfig()
-		if len(probeCfg) == 0 {
+		pdc, hasPrimary := probe.(types.ProbeDetectorConfig)
+		psd, hasSecondary := probe.(types.ProbeSecondaryDetectors)
+
+		// Neither interface implemented → no override needed.
+		if !hasPrimary && !hasSecondary {
 			continue
 		}
 
-		// Determine which detector this probe wants.
-		// Use GetPrimaryDetector() if probe also implements ProbeMetadata;
-		// otherwise iterate over detectorList names.
-		var detectorNames []string
-		if pm, ok := probe.(types.ProbeMetadata); ok {
-			detectorNames = []string{pm.GetPrimaryDetector()}
-		} else {
-			for _, d := range detectorList {
-				detectorNames = append(detectorNames, d.Name())
-			}
+		// ProbeDetectorConfig present but empty config AND no secondaries → skip
+		// (same early-exit as before, but now gated on both being absent/empty).
+		var probeCfg map[string]any
+		if hasPrimary {
+			probeCfg = pdc.GetDetectorConfig()
+		}
+		var secondaries []types.SecondaryDetector
+		if hasSecondary {
+			secondaries = psd.GetSecondaryDetectors()
+		}
+		if len(probeCfg) == 0 && len(secondaries) == 0 {
+			continue
 		}
 
-		probeDetectors := make([]detectors.Detector, 0, len(detectorNames))
-		for _, detectorName := range detectorNames {
-			// Base config: global YAML settings for this detector
-			var baseCfg registry.Config
-			if yamlCfg != nil {
-				baseCfg = yamlCfg.ResolveDetectorConfig(detectorName)
+		probeDetectors := make([]detectors.Detector, 0, 1+len(secondaries))
+
+		// --- Primary detector (only when detector_config is non-empty) ---
+		if len(probeCfg) > 0 {
+			// Determine which detector this probe wants.
+			// Use GetPrimaryDetector() if probe also implements ProbeMetadata;
+			// otherwise iterate over detectorList names.
+			var primaryNames []string
+			if pm, ok := probe.(types.ProbeMetadata); ok {
+				primaryNames = []string{pm.GetPrimaryDetector()}
 			} else {
-				baseCfg = make(registry.Config)
+				for _, d := range detectorList {
+					primaryNames = append(primaryNames, d.Name())
+				}
 			}
 
-			// Merge: probe config overrides base config
-			mergedCfg := make(registry.Config, len(baseCfg)+len(probeCfg))
-			for k, v := range baseCfg {
-				mergedCfg[k] = v
-			}
-			for k, v := range probeCfg {
-				mergedCfg[k] = v
-			}
+			for _, detectorName := range primaryNames {
+				baseCfg := resolveDetectorBaseCfg(yamlCfg, detectorName)
+				mergedCfg := mergeCfgs(baseCfg, probeCfg)
 
-			d, err := detectors.Create(detectorName, mergedCfg)
+				d, err := detectors.Create(detectorName, mergedCfg)
+				if err != nil {
+					return nil, fmt.Errorf("failed to create per-probe detector %s for probe %s: %w", detectorName, probe.Name(), err)
+				}
+				probeDetectors = append(probeDetectors, d)
+			}
+		}
+
+		// --- Secondary detectors ---
+		for _, sec := range secondaries {
+			baseCfg := resolveDetectorBaseCfg(yamlCfg, sec.Name)
+			mergedCfg := mergeCfgs(baseCfg, sec.Config)
+
+			d, err := detectors.Create(sec.Name, mergedCfg)
 			if err != nil {
-				return nil, fmt.Errorf("failed to create per-probe detector %s for probe %s: %w", detectorName, probe.Name(), err)
+				return nil, fmt.Errorf("failed to create secondary detector %s for probe %s: %w", sec.Name, probe.Name(), err)
 			}
 			probeDetectors = append(probeDetectors, d)
 		}
@@ -431,6 +454,28 @@ func buildProbeDetectorMap(probeList []probes.Prober, detectorList []detectors.D
 	}
 
 	return overrides, nil
+}
+
+// resolveDetectorBaseCfg returns the global YAML config for a detector, or an
+// empty Config when yamlCfg is nil.
+func resolveDetectorBaseCfg(yamlCfg *config.Config, detectorName string) registry.Config {
+	if yamlCfg != nil {
+		return yamlCfg.ResolveDetectorConfig(detectorName)
+	}
+	return make(registry.Config)
+}
+
+// mergeCfgs returns a new Config that is the union of base and override, with
+// override winning on key conflicts. Either argument may be nil.
+func mergeCfgs(base, override map[string]any) registry.Config {
+	merged := make(registry.Config, len(base)+len(override))
+	for k, v := range base {
+		merged[k] = v
+	}
+	for k, v := range override {
+		merged[k] = v
+	}
+	return merged
 }
 
 // createAndApplyBuffs creates buff instances and applies them to probes.
