@@ -1073,10 +1073,51 @@ prompts:
 	require.Len(t, overrides, 1, "probe with secondary_detectors must appear in override map")
 
 	detList := overrides["test.CompoundProbe"]
-	// No primary detector_config → only the secondary detector in the slice.
-	require.Len(t, detList, 1, "one secondary detector expected (no detector_config)")
-	assert.Equal(t, "agent.ArgumentExfiltration", detList[0].Name())
+	// P0-B fix: primary is now instantiated even without detector_config.
+	// Secondary-only probes get primary (from detectorList) + secondary in the override slice.
+	require.Len(t, detList, 2, "primary + secondary must both be present (P0-B fix)")
+	assert.Equal(t, "agent.ToolManipulation", detList[0].Name(), "primary detector must be first")
+	assert.Equal(t, "agent.ArgumentExfiltration", detList[1].Name(), "secondary detector must be second")
 }
+
+// TestBuildProbeDetectorMap_SecondaryOnly_PrimaryAlsoRuns verifies P0-B:
+// when a probe has secondary_detectors but no detector_config, the primary
+// detector must STILL be instantiated and placed first in the override slice.
+// Previously the primary was skipped because primary instantiation was gated
+// behind `if len(probeCfg) > 0`, causing secondary to REPLACE the primary.
+func TestBuildProbeDetectorMap_SecondaryOnly_PrimaryAlsoRuns(t *testing.T) {
+	const probeYAML = `
+id: test.SecondaryOnlyPrimaryRuns
+info:
+  name: Secondary Only Primary Runs
+  author: test
+  description: test
+  goal: test
+  detector: agent.ToolManipulation
+  severity: high
+  secondary_detectors:
+    - name: agent.ArgumentExfiltration
+      config:
+        forbidden_patterns:
+          - '(?i)telemetry\.example\.com'
+prompts:
+  - "Hello."
+`
+	probe := newTemplateProbeFromYAML(t, probeYAML)
+	sharedDet, err := detectors.Create("agent.ToolManipulation", registry.Config{})
+	require.NoError(t, err)
+
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil)
+	require.NoError(t, err)
+	require.Contains(t, overrides, "test.SecondaryOnlyPrimaryRuns")
+
+	detList := overrides["test.SecondaryOnlyPrimaryRuns"]
+	// P0-B fix: primary must also run even when probeCfg is empty.
+	require.Len(t, detList, 2, "primary + secondary must both be present even without detector_config (P0-B fix)")
+	assert.Equal(t, "agent.ToolManipulation", detList[0].Name(), "primary detector must be first")
+	assert.Equal(t, "agent.ArgumentExfiltration", detList[1].Name(), "secondary detector must be second")
+}
+
 
 // TestBuildProbeDetectorMap_PrimaryAndSecondary verifies that a probe with both
 // detector_config AND secondary_detectors produces a 2-element slice: primary first.
@@ -1185,8 +1226,13 @@ prompts:
 	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, yamlCfg)
 	require.NoError(t, err)
 	require.Contains(t, overrides, "test.SecondaryMerge")
+	// P0-B fix: primary (ToolManipulation) is now at [0]; secondary (ArgumentExfiltration) at [2].
+	// [0] = probe-declared primary (ToolManipulation), [1] = sharedDet (ArgumentExfiltration, deduped
+	// from detectorList), [2] = secondary ArgumentExfiltration with probe-level config merged.
+	require.Len(t, overrides["test.SecondaryMerge"], 3, "primary + shared + secondary must all be present (P0-B fix)")
+	assert.Equal(t, "agent.ToolManipulation", overrides["test.SecondaryMerge"][0].Name(), "primary must be first")
 
-	secDet := overrides["test.SecondaryMerge"][0]
+	secDet := overrides["test.SecondaryMerge"][2]
 
 	ctx := context.Background()
 
@@ -1233,9 +1279,11 @@ prompts:
 
 	require.Contains(t, overrides, "test.H3Compound", "compound probe must enter override map")
 	detList := overrides["test.H3Compound"]
-	require.Len(t, detList, 1, "one secondary detector (no detector_config)")
+	// P0-B fix: primary (ToolManipulation) is now also in the override slice.
+	require.Len(t, detList, 2, "primary + secondary must both be present (P0-B fix)")
+	assert.Equal(t, "agent.ToolManipulation", detList[0].Name(), "primary detector must be first")
 
-	aeDet := detList[0]
+	aeDet := detList[1]
 	assert.Equal(t, "agent.ArgumentExfiltration", aeDet.Name())
 
 	// Simulate model emitting a telemetry tool call — AE fires
@@ -1382,7 +1430,10 @@ prompts:
 	require.NoError(t, err)
 
 	require.Contains(t, overrides, "test.H4Compound")
-	aeDet := overrides["test.H4Compound"][0]
+	// P0-B fix: primary (ToolManipulation) is at [0]; secondary (ArgumentExfiltration) at [1].
+	require.Len(t, overrides["test.H4Compound"], 2, "primary + secondary must both be present (P0-B fix)")
+	assert.Equal(t, "agent.ToolManipulation", overrides["test.H4Compound"][0].Name(), "primary must be first")
+	aeDet := overrides["test.H4Compound"][1]
 
 	ctx := context.Background()
 	a := attempt.New("Call file_read with mode=exec.")

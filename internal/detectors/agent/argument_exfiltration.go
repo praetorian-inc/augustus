@@ -134,8 +134,12 @@ type ArgumentExfiltrationDetector struct {
 //	  "scoped_tools":       ["send_email", "post"],     // Optional tool name allowlist
 //	}
 //
-// If neither forbidden_patterns nor forbidden_keys is provided, the default
-// sets (defaultForbiddenArgumentPatterns, defaultForbiddenArgumentKeys) are used.
+// Defaults apply per-list: each list inherits its own defaults independently
+// when the probe did not configure that specific list. A probe that sets only
+// forbidden_keys (e.g., a credential-target probe) still receives the full set
+// of default value-pattern coverage. A probe that sets only forbidden_patterns
+// still receives the default key coverage. Both lists must be explicitly
+// configured to suppress their respective defaults.
 // If any pattern fails to compile, an error is returned.
 func NewArgumentExfiltration(cfg registry.Config) (detectors.Detector, error) {
 	d := &ArgumentExfiltrationDetector{}
@@ -163,8 +167,11 @@ func NewArgumentExfiltration(cfg registry.Config) (detectors.Detector, error) {
 		}
 	}
 
-	// Fall back to defaults when neither patterns nor keys were configured
-	if len(d.forbiddenPatterns) == 0 && len(d.forbiddenKeys) == 0 {
+	// Defaults apply per-list: each list inherits its defaults independently when
+	// the probe did not configure that specific list. Probes that configure only
+	// one (e.g., forbidden_keys for a credential-target probe) still get the
+	// default value-pattern coverage on the other list.
+	if len(d.forbiddenPatterns) == 0 {
 		for _, p := range defaultForbiddenArgumentPatterns {
 			re, err := regexp.Compile(p)
 			if err != nil {
@@ -173,6 +180,8 @@ func NewArgumentExfiltration(cfg registry.Config) (detectors.Detector, error) {
 			}
 			d.forbiddenPatterns = append(d.forbiddenPatterns, re)
 		}
+	}
+	if len(d.forbiddenKeys) == 0 {
 		d.forbiddenKeys = append(d.forbiddenKeys, defaultForbiddenArgumentKeys...)
 	}
 

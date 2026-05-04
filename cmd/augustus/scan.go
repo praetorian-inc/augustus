@@ -408,14 +408,15 @@ func buildProbeDetectorMap(probeList []probes.Prober, detectorList []detectors.D
 			continue
 		}
 
-		probeDetectors := make([]detectors.Detector, 0, 1+len(secondaries))
+		probeDetectors := make([]detectors.Detector, 0, len(detectorList)+len(secondaries))
 
-		// --- Primary detector (only when detector_config is non-empty) ---
-		if len(probeCfg) > 0 {
-			// Always start from the user-selected detectorList so other selected
-			// detectors are not silently dropped. If the probe also implements
-			// ProbeMetadata and declares a non-empty primary, hoist that name to
-			// the front (and add it if not already present).
+		// --- Primary detectors ---
+		// Build primary list unconditionally: probe's declared primary first (hoisted),
+		// then any user-selected detectors deduped. Always run primaries — even when
+		// probeCfg is empty, the secondary must NOT replace the primary detector list.
+		// When probeCfg is empty, mergeCfgs(baseCfg, probeCfg) returns baseCfg unchanged,
+		// so the primary gets the global YAML config as if it were not in the override map.
+		{
 			seen := make(map[string]bool, len(detectorList))
 			var primaryNames []string
 			if pm, ok := probe.(types.ProbeMetadata); ok {
