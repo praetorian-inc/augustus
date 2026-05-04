@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -253,6 +254,54 @@ func TestChainLengthDetector_DetectManipulation(t *testing.T) {
 				t.Errorf("DetectChain() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestChainLengthDetector_NegativeMaxCalls_ReturnsError is a regression test for
+// commit a878c8a which added validation rejecting negative max_calls. Before the
+// fix, max_calls: -1 was silently accepted and the scoring guard (d.maxCalls > 0)
+// permanently disabled the call-count check, neutering the detector.
+func TestChainLengthDetector_NegativeMaxCalls_ReturnsError(t *testing.T) {
+	_, err := NewChainLength(registry.Config{
+		"max_calls": int(-1),
+	})
+	if err == nil {
+		t.Fatal("NewChainLength() expected error for max_calls=-1, got nil")
+	}
+	if want := "must be >= 0"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), want)
+	}
+}
+
+// TestChainLengthDetector_NegativeMaxDepth_ReturnsError is a regression test for
+// commit a878c8a which added validation rejecting negative max_depth. Before the
+// fix, max_depth: -1 was silently accepted and the depth check was permanently
+// disabled, neutering repetition-loop detection.
+func TestChainLengthDetector_NegativeMaxDepth_ReturnsError(t *testing.T) {
+	_, err := NewChainLength(registry.Config{
+		"max_depth": int(-1),
+	})
+	if err == nil {
+		t.Fatal("NewChainLength() expected error for max_depth=-1, got nil")
+	}
+	if want := "must be >= 0"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), want)
+	}
+}
+
+// TestChainLengthDetector_NegativeFloat_ReturnsError verifies that a negative
+// float64 value (the JSON-decoded form) also triggers the validation. gopkg.in/yaml.v3
+// decodes numeric config values as float64; this test ensures the float64 branch
+// conversion + validation path also rejects negative values.
+func TestChainLengthDetector_NegativeFloat_ReturnsError(t *testing.T) {
+	_, err := NewChainLength(registry.Config{
+		"max_calls": float64(-5),
+	})
+	if err == nil {
+		t.Fatal("NewChainLength() expected error for max_calls=float64(-5), got nil")
+	}
+	if want := "must be >= 0"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), want)
 	}
 }
 
