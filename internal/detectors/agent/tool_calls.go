@@ -48,6 +48,25 @@ func extractToolCalls(a *attempt.Attempt) []ToolCall {
 	return toolCalls
 }
 
+// parseStringList accepts both []any (YAML/JSON-decoded config) and []string
+// (programmatic callers). Returns nil for unknown types or empty input.
+func parseStringList(raw any) []string {
+	switch v := raw.(type) {
+	case []string:
+		return v
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
 // parseToolCall converts a map to a ToolCall struct.
 func parseToolCall(tcMap map[string]any) ToolCall {
 	tc := ToolCall{}

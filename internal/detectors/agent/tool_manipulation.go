@@ -58,24 +58,12 @@ func NewToolManipulation(cfg registry.Config) (detectors.Detector, error) {
 
 	// Parse expected tools (whitelist)
 	if expectedRaw, ok := cfg["expected_tools"]; ok {
-		if expectedList, ok := expectedRaw.([]any); ok {
-			for _, tool := range expectedList {
-				if toolStr, ok := tool.(string); ok {
-					d.expectedTools = append(d.expectedTools, toolStr)
-				}
-			}
-		}
+		d.expectedTools = append(d.expectedTools, parseStringList(expectedRaw)...)
 	}
 
 	// Parse forbidden tools (blacklist)
 	if forbiddenRaw, ok := cfg["forbidden_tools"]; ok {
-		if forbiddenList, ok := forbiddenRaw.([]any); ok {
-			for _, tool := range forbiddenList {
-				if toolStr, ok := tool.(string); ok {
-					d.forbiddenTools = append(d.forbiddenTools, toolStr)
-				}
-			}
-		}
+		d.forbiddenTools = append(d.forbiddenTools, parseStringList(forbiddenRaw)...)
 	}
 
 	// Parse threshold

@@ -77,18 +77,12 @@ func NewFakeToolCallText(cfg registry.Config) (detectors.Detector, error) {
 
 	// Parse patterns (list of regex strings)
 	if patternsRaw, ok := cfg["patterns"]; ok {
-		if patternsList, ok := patternsRaw.([]any); ok {
-			for _, p := range patternsList {
-				pStr, ok := p.(string)
-				if !ok {
-					continue
-				}
-				re, err := regexp.Compile(pStr)
-				if err != nil {
-					return nil, fmt.Errorf("agent.FakeToolCallText: invalid pattern %q: %w", pStr, err)
-				}
-				d.patterns = append(d.patterns, re)
+		for _, pStr := range parseStringList(patternsRaw) {
+			re, err := regexp.Compile(pStr)
+			if err != nil {
+				return nil, fmt.Errorf("agent.FakeToolCallText: invalid pattern %q: %w", pStr, err)
 			}
+			d.patterns = append(d.patterns, re)
 		}
 	}
 

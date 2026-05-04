@@ -87,6 +87,12 @@ var defaultForbiddenArgumentKeys = []string{
 // This detector closes the InjecAgent data-stealing detection gap where
 // send_email(to=attacker@evil) and send_email(to=legit@user) score
 // identically with name-only detectors.
+//
+// Default forbidden_keys (token, password, secret, api_key, credentials) are
+// common in LEGITIMATE tool parameters — the defaults assume attack-context use
+// where their presence in a tool argument is anomalous. For non-attack-context
+// deployments: use scoped_tools to limit which tools are scanned, or override
+// forbidden_keys with attack-specific values to reduce false positives.
 type ArgumentExfiltrationDetector struct {
 	// forbiddenPatterns are compiled regexes matched against serialized argument values.
 	forbiddenPatterns []*regexp.Regexp
@@ -114,40 +120,24 @@ func NewArgumentExfiltration(cfg registry.Config) (detectors.Detector, error) {
 
 	// Parse scoped_tools
 	if raw, ok := cfg["scoped_tools"]; ok {
-		if list, ok := raw.([]any); ok {
-			for _, v := range list {
-				if s, ok := v.(string); ok {
-					d.scopedTools = append(d.scopedTools, s)
-				}
-			}
-		}
+		d.scopedTools = append(d.scopedTools, parseStringList(raw)...)
 	}
 
 	// Parse forbidden_patterns
 	if raw, ok := cfg["forbidden_patterns"]; ok {
-		if list, ok := raw.([]any); ok {
-			for _, v := range list {
-				s, ok := v.(string)
-				if !ok {
-					continue
-				}
-				re, err := regexp.Compile(s)
-				if err != nil {
-					return nil, fmt.Errorf("agent.ArgumentExfiltration: invalid pattern %q: %w", s, err)
-				}
-				d.forbiddenPatterns = append(d.forbiddenPatterns, re)
+		for _, s := range parseStringList(raw) {
+			re, err := regexp.Compile(s)
+			if err != nil {
+				return nil, fmt.Errorf("agent.ArgumentExfiltration: invalid pattern %q: %w", s, err)
 			}
+			d.forbiddenPatterns = append(d.forbiddenPatterns, re)
 		}
 	}
 
 	// Parse forbidden_keys (lowercased)
 	if raw, ok := cfg["forbidden_keys"]; ok {
-		if list, ok := raw.([]any); ok {
-			for _, v := range list {
-				if s, ok := v.(string); ok {
-					d.forbiddenKeys = append(d.forbiddenKeys, strings.ToLower(s))
-				}
-			}
+		for _, s := range parseStringList(raw) {
+			d.forbiddenKeys = append(d.forbiddenKeys, strings.ToLower(s))
 		}
 	}
 
