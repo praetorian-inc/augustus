@@ -68,6 +68,9 @@ func NewChainLength(cfg registry.Config) (detectors.Detector, error) {
 		case float64:
 			d.maxCalls = int(val)
 		}
+		if d.maxCalls < 0 {
+			return nil, fmt.Errorf("agent.ChainLength: max_calls must be >= 0, got %d", d.maxCalls)
+		}
 	}
 
 	if v, ok := cfg["max_depth"]; ok {
@@ -76,6 +79,9 @@ func NewChainLength(cfg registry.Config) (detectors.Detector, error) {
 			d.maxDepth = val
 		case float64:
 			d.maxDepth = int(val)
+		}
+		if d.maxDepth < 0 {
+			return nil, fmt.Errorf("agent.ChainLength: max_depth must be >= 0, got %d", d.maxDepth)
 		}
 	}
 
