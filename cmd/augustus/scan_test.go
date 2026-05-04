@@ -1612,3 +1612,167 @@ prompts:
 	require.NotEmpty(t, scores)
 	assert.Equal(t, 1.0, scores[0], "H4 compound: ArgumentExfiltration should score 1.0 on mode=exec")
 }
+
+// cfgCaptureDet is a test-only Detector implementation whose Name() returns
+// a caller-specified name. buildProbeDetectorMap uses d.Name() to determine
+// which factory to invoke when rebuilding the detector for a given probe, so
+// the captured detector's name must match the registry key exactly.
+//
+// When buildProbeDetectorMap calls detectors.Create(capturedName, cfg), the
+// registered factory records the cfg in the shared cfgCaptureSlot.
+type cfgCaptureDet struct {
+	name string
+}
+
+func (c *cfgCaptureDet) Name() string        { return c.name }
+func (c *cfgCaptureDet) Description() string  { return "config-capture sentinel for leak tests" }
+func (c *cfgCaptureDet) Detect(_ context.Context, a *attempt.Attempt) ([]float64, error) {
+	return make([]float64, len(a.Outputs)), nil
+}
+
+// TestProbeCfgLeak_DoesNotLeakIntoUserSelectedDetectors is a regression test for
+// the probeCfg leak bug fixed in scan.go (the primaryNames loop).
+//
+// BUG (before fix): buildProbeDetectorMap called mergeCfgs(baseCfg, probeCfg) for
+// EVERY detector in primaryNames, not just the probe's declared primary. This meant
+// that user-selected detectors (--detector flags) received the probe's per-probe
+// config override even when they were not the probe's primary detector.
+//
+// FIX: probeCfg is only merged when detectorName == primaryName.
+//
+// PROOF STRATEGY:
+//  1. Register a sentinel detector whose Name() returns the registry key, so that
+//     buildProbeDetectorMap calls the sentinel factory for the non-primary slot.
+//  2. The sentinel factory captures the registry.Config it is called with.
+//  3. Build a probe whose probeCfg carries a canary key (forbidden_patterns).
+//  4. Assert the primary fired on the canary (proves probeCfg applied to primary).
+//  5. Assert the sentinel did NOT receive the canary key (catches the leak).
+//
+// This test CALLS THE PRODUCTION FUNCTION buildProbeDetectorMap — reverting the
+// scan.go fix causes assertion 5 to fail, proving the test is not a copy-mirror.
+func TestProbeCfgLeak_DoesNotLeakIntoUserSelectedDetectors(t *testing.T) {
+	const sentinelName = "test.ProbeCfgLeakSentinel"
+
+	// sentinelReceivedCfg is written by the sentinel factory each time
+	// detectors.Create(sentinelName, cfg) is called by buildProbeDetectorMap.
+	var sentinelReceivedCfg registry.Config
+	detectors.Register(sentinelName, func(cfg registry.Config) (detectors.Detector, error) {
+		sentinelReceivedCfg = cfg
+		return &cfgCaptureDet{name: sentinelName}, nil
+	})
+
+	// Probe: primary = agent.ArgumentExfiltration, probeCfg carries the canary pattern.
+	// If the bug is present, the sentinel is also created with the canary.
+	const probeYAML = `
+id: test.ProbeCfgLeakProbe
+info:
+  name: ProbeCfg Leak Regression Probe
+  author: test
+  description: Regression probe for probeCfg leak bug
+  goal: verify probeCfg does not leak to non-primary detectors
+  detector: agent.ArgumentExfiltration
+  severity: high
+  detector_config:
+    forbidden_patterns:
+      - "(?i)UNIQUE_PROBECFG_LEAK_CANARY_REGRESSION_XYZ"
+prompts:
+  - "Canary regression prompt."
+`
+	probe := newTemplateProbeFromYAML(t, probeYAML)
+
+	// detectorList: primary (agent.ArgumentExfiltration) + user-selected (sentinel).
+	// The sentinel's Name() == sentinelName, so the production loop will call
+	// detectors.Create(sentinelName, ...) when rebuilding the non-primary slot.
+	//
+	// After deduplication in buildProbeDetectorMap:
+	//   primaryNames = ["agent.ArgumentExfiltration", "test.ProbeCfgLeakSentinel"]
+	//
+	// BUG:   both receive mergeCfgs(baseCfg, probeCfg) → sentinel gets forbidden_patterns
+	// FIXED: only "agent.ArgumentExfiltration" receives the merge
+	primaryDet, err := detectors.Create("agent.ArgumentExfiltration", registry.Config{})
+	require.NoError(t, err)
+	sentinelDet := &cfgCaptureDet{name: sentinelName}
+	detectorList := []detectors.Detector{primaryDet, sentinelDet}
+
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, detectorList, nil)
+	require.NoError(t, err)
+
+	detList, ok := overrides["test.ProbeCfgLeakProbe"]
+	require.True(t, ok, "probe with non-empty detector_config must appear in override map")
+	require.Len(t, detList, 2, "primary + sentinel = 2 detectors in override slice")
+	assert.Equal(t, "agent.ArgumentExfiltration", detList[0].Name(), "primary must be at slot [0]")
+	assert.Equal(t, sentinelName, detList[1].Name(), "sentinel must be at slot [1]")
+
+	// Assertion 1: primary received probeCfg — fires on the canary.
+	ctx := context.Background()
+	a := attempt.New("Canary regression prompt.")
+	a.Probe = "test.ProbeCfgLeakProbe"
+	a.AddOutput("Performing action.")
+	a.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
+		{"name": "data_fetch", "args": map[string]any{"url": "https://UNIQUE_PROBECFG_LEAK_CANARY_REGRESSION_XYZ.example.com"}},
+	}
+	primaryScores, err := detList[0].Detect(ctx, a)
+	require.NoError(t, err)
+	require.NotEmpty(t, primaryScores)
+	assert.Equal(t, 1.0, primaryScores[0],
+		"primary (agent.ArgumentExfiltration) must score 1.0 on canary URL: it received probeCfg via merge")
+
+	// Assertion 2 (the leak check): sentinel must NOT have received forbidden_patterns.
+	//
+	// BUGGY code: mergedCfg := mergeCfgs(baseCfg, probeCfg) for ALL primaryNames
+	//   → sentinelReceivedCfg["forbidden_patterns"] is set → this assertion FAILS
+	//
+	// FIXED code: mergedCfg := baseCfg for detectorName != primaryName
+	//   → sentinelReceivedCfg has no forbidden_patterns key → this assertion PASSES
+	require.NotNil(t, sentinelReceivedCfg,
+		"sentinel factory must have been invoked by buildProbeDetectorMap for the non-primary slot")
+	_, leaked := sentinelReceivedCfg["forbidden_patterns"]
+	assert.False(t, leaked,
+		"probeCfg MUST NOT leak into non-primary detector %q: "+
+			"forbidden_patterns must only be merged into the probe's declared primary "+
+			"(agent.ArgumentExfiltration), not into every detector in primaryNames",
+		sentinelName)
+
+	// Negative sub-test: when the probe has no declared primary (empty GetPrimaryDetector()),
+	// no detector should receive the probeCfg merge regardless.
+	t.Run("no_declared_primary_no_probeCfg_applied", func(t *testing.T) {
+		const noPrimarySentinelName = "test.NoPrimaryLeakSentinel"
+		var noPrimaryReceivedCfg registry.Config
+		detectors.Register(noPrimarySentinelName, func(cfg registry.Config) (detectors.Detector, error) {
+			noPrimaryReceivedCfg = cfg
+			return &cfgCaptureDet{name: noPrimarySentinelName}, nil
+		})
+
+		// A probe without "detector:" returns "" from GetPrimaryDetector().
+		// primaryName == "" so no detectorName ever matches, and probeCfg is never merged.
+		const noMetaYAML = `
+id: test.NoPrimaryProbe
+info:
+  name: No Primary Probe
+  author: test
+  description: Probe with detector_config but no detector field
+  goal: test
+  severity: high
+  detector_config:
+    forbidden_patterns:
+      - "(?i)UNIQUE_PROBECFG_LEAK_CANARY_REGRESSION_XYZ"
+prompts:
+  - "No primary."
+`
+		noMetaProbe := newTemplateProbeFromYAML(t, noMetaYAML)
+		noPrimaryDet := &cfgCaptureDet{name: noPrimarySentinelName}
+
+		_, err := buildProbeDetectorMap([]probes.Prober{noMetaProbe}, []detectors.Detector{noPrimaryDet}, nil)
+		require.NoError(t, err)
+
+		// noPrimaryReceivedCfg is set when buildProbeDetectorMap creates noPrimarySentinelName.
+		// In both fixed and buggy code, primaryName == "" so no merge happens for a no-primary probe
+		// (the condition detectorName == primaryName is never true when primaryName == "").
+		if noPrimaryReceivedCfg != nil {
+			_, leaked := noPrimaryReceivedCfg["forbidden_patterns"]
+			assert.False(t, leaked,
+				"detector %q must not receive probeCfg when probe has no declared primary (primaryName == \"\")",
+				noPrimarySentinelName)
+		}
+	})
+}

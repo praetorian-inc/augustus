@@ -418,9 +418,11 @@ func buildProbeDetectorMap(probeList []probes.Prober, detectorList []detectors.D
 		// so the primary gets the global YAML config as if it were not in the override map.
 		{
 			seen := make(map[string]bool, len(detectorList))
+			var primaryName string
 			var primaryNames []string
 			if pm, ok := probe.(types.ProbeMetadata); ok {
 				if primary := pm.GetPrimaryDetector(); primary != "" {
+					primaryName = primary
 					primaryNames = append(primaryNames, primary)
 					seen[primary] = true
 				}
@@ -434,7 +436,10 @@ func buildProbeDetectorMap(probeList []probes.Prober, detectorList []detectors.D
 
 			for _, detectorName := range primaryNames {
 				baseCfg := resolveDetectorBaseCfg(yamlCfg, detectorName)
-				mergedCfg := mergeCfgs(baseCfg, probeCfg)
+				mergedCfg := baseCfg
+				if detectorName == primaryName {
+					mergedCfg = mergeCfgs(baseCfg, probeCfg)
+				}
 
 				d, err := detectors.Create(detectorName, mergedCfg)
 				if err != nil {
