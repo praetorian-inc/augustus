@@ -1401,6 +1401,170 @@ prompts:
 	assert.Equal(t, "agent.ToolManipulation", detList[1].Name(), "non-primary detector must follow primary")
 }
 
+// TestBuildProbeDetectorMap_BothInterfacesEmpty_AbsentFromOverride locks in the
+// early-continue branch at scan.go:407:
+//
+//	if len(probeCfg) == 0 && len(secondaries) == 0 { continue }
+//
+// A probe that implements BOTH ProbeDetectorConfig AND ProbeSecondaryDetectors
+// but returns empty for both must NOT appear in the override map. If the condition
+// were changed from && to ||, this test would catch the regression.
+func TestBuildProbeDetectorMap_BothInterfacesEmpty_AbsentFromOverride(t *testing.T) {
+	// Probe declares detector_config: {} (empty map) and secondary_detectors: []
+	// (explicit empty list). Both GetDetectorConfig() and GetSecondaryDetectors()
+	// return zero-length results, triggering the early-continue.
+	const probeYAML = `
+id: test.BothEmpty
+info:
+  name: Both Interfaces Empty
+  author: test
+  description: Probe with empty detector_config and empty secondary_detectors
+  goal: test
+  detector: agent.ToolManipulation
+  severity: high
+  detector_config: {}
+  secondary_detectors: []
+prompts:
+  - "Hello."
+`
+	probe := newTemplateProbeFromYAML(t, probeYAML)
+	sharedDet, err := detectors.Create("agent.ToolManipulation", registry.Config{})
+	require.NoError(t, err)
+
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil)
+	require.NoError(t, err)
+
+	// The override map must be empty: both interfaces present but both return empty
+	// triggers the early-continue at scan.go:407.
+	assert.Len(t, overrides, 0, "probe with both interfaces empty must be absent from override map")
+	_, exists := overrides["test.BothEmpty"]
+	assert.False(t, exists, "test.BothEmpty must not appear in override map when both GetDetectorConfig() and GetSecondaryDetectors() return empty")
+}
+
+// TestBuildProbeDetectorMap_PrimaryNotInDetectorList_StillInstantiated verifies
+// that when the operator's detectorList does NOT contain the probe-declared primary,
+// the secondary-only fix still instantiates the probe-declared primary at slot [0].
+//
+// The existing TestBuildProbeDetectorMap_SecondaryOnly_PrimaryAlsoRuns passes
+// agent.ToolManipulation in BOTH detectorList AND as GetPrimaryDetector(), so
+// the dedupe at scan.go:425 (seen[primary]=true) makes it impossible to tell
+// whether the primary came from detectorList or from GetPrimaryDetector().
+// This test isolates the GetPrimaryDetector() path by passing a DIFFERENT
+// detector in detectorList.
+func TestBuildProbeDetectorMap_PrimaryNotInDetectorList_StillInstantiated(t *testing.T) {
+	// Probe declares primary = agent.ToolManipulation (via info.detector) and
+	// one secondary (agent.ArgumentExfiltration). No detector_config.
+	const probeYAML = `
+id: test.PrimaryNotInDetectorList
+info:
+  name: Primary Not In DetectorList
+  author: test
+  description: Primary from ProbeMetadata; detectorList contains a different detector
+  goal: test
+  detector: agent.ToolManipulation
+  severity: high
+  secondary_detectors:
+    - name: agent.ArgumentExfiltration
+      config:
+        forbidden_patterns:
+          - '(?i)exfil\.example\.com'
+prompts:
+  - "Hello."
+`
+	probe := newTemplateProbeFromYAML(t, probeYAML)
+
+	// Operator selected agent.ChainLength — NOT agent.ToolManipulation.
+	// The fix must still instantiate agent.ToolManipulation at slot [0] via
+	// GetPrimaryDetector(), then append agent.ChainLength, then the secondary.
+	chainLengthDet, err := detectors.Create("agent.ChainLength", registry.Config{})
+	require.NoError(t, err)
+
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{chainLengthDet}, nil)
+	require.NoError(t, err)
+	require.Contains(t, overrides, "test.PrimaryNotInDetectorList")
+
+	detList := overrides["test.PrimaryNotInDetectorList"]
+	// Expected: [ToolManipulation (primary via GetPrimaryDetector), ChainLength (from detectorList), ArgumentExfiltration (secondary)]
+	require.Len(t, detList, 3, "primary via GetPrimaryDetector() + ChainLength from detectorList + secondary = 3 detectors")
+	assert.Equal(t, "agent.ToolManipulation", detList[0].Name(),
+		"primary from GetPrimaryDetector() must be at slot [0] even when absent from detectorList")
+	assert.Equal(t, "agent.ChainLength", detList[1].Name(),
+		"detectorList entry must follow the primary")
+	assert.Equal(t, "agent.ArgumentExfiltration", detList[2].Name(),
+		"secondary detector must be last")
+}
+
+// TestBuildProbeDetectorMap_SecondaryOnly_PrimaryReceivesGlobalYAMLConfig is the
+// headline P0-B integration test: when an operator supplies global YAML config for
+// agent.ToolManipulation (e.g., forbidden_tools: ["evil_tool"]) AND a probe has
+// secondary_detectors but no detector_config, the primary agent.ToolManipulation
+// instance in the override slice MUST be configured with the operator's
+// forbidden_tools list.
+//
+// This is the behavior described in the reviewer's verdict: "even when an operator
+// DOES supply a global YAML config for agent.ToolManipulation, the override map
+// replaces the shared detector list entirely — the operator-configured primary is
+// dropped." The fix routes through resolveDetectorBaseCfg(yamlCfg, detectorName)
+// for the primary, so mergedCfg carries the global YAML settings.
+func TestBuildProbeDetectorMap_SecondaryOnly_PrimaryReceivesGlobalYAMLConfig(t *testing.T) {
+	// Probe has secondary_detectors but no detector_config (P0-B path).
+	const probeYAML = `
+id: test.OperatorConfigFlows
+info:
+  name: Operator Config Flows To Primary
+  author: test
+  description: Secondary-only probe; primary must receive operator YAML config
+  goal: test
+  detector: agent.ToolManipulation
+  severity: high
+  secondary_detectors:
+    - name: agent.ArgumentExfiltration
+      config:
+        forbidden_patterns:
+          - '(?i)exfil\.example\.com'
+prompts:
+  - "Hello."
+`
+	probe := newTemplateProbeFromYAML(t, probeYAML)
+
+	// Operator supplies global YAML config: ToolManipulation must treat "evil_tool" as forbidden.
+	yamlCfg := &config.Config{}
+	yamlCfg.Detectors.Settings = map[string]map[string]any{
+		"agent.ToolManipulation": {
+			"forbidden_tools": []any{"evil_tool"},
+		},
+	}
+
+	sharedDet, err := detectors.Create("agent.ToolManipulation", registry.Config{})
+	require.NoError(t, err)
+
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, yamlCfg)
+	require.NoError(t, err)
+	require.Contains(t, overrides, "test.OperatorConfigFlows")
+
+	detList := overrides["test.OperatorConfigFlows"]
+	// [0] = primary ToolManipulation (must carry operator's forbidden_tools)
+	// [1] = secondary ArgumentExfiltration
+	require.Len(t, detList, 2, "primary + secondary = 2 detectors")
+	primary := detList[0]
+	require.Equal(t, "agent.ToolManipulation", primary.Name(), "primary must be at slot [0]")
+
+	// End-to-end: primary scores 1.0 when the forbidden tool "evil_tool" is called.
+	ctx := context.Background()
+	a := attempt.New("test prompt")
+	a.Probe = "test.OperatorConfigFlows"
+	a.AddOutput("Calling evil_tool.")
+	a.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
+		{"name": "evil_tool", "args": map[string]any{}},
+	}
+
+	scores, err := primary.Detect(ctx, a)
+	require.NoError(t, err)
+	require.NotEmpty(t, scores, "Detect must return scores for an attempt with tool calls")
+	assert.Equal(t, 1.0, scores[0],
+		"operator-supplied forbidden_tools must flow into primary instance for secondary-only probes (P0-B headline integration)")
+}
+
 // TestScan_CompoundDetector_E2E_UnauthorizedInvocation verifies H4 end-to-end:
 // mode=exec in tool args fires agent.ArgumentExfiltration via compound detection.
 func TestScan_CompoundDetector_E2E_UnauthorizedInvocation(t *testing.T) {
