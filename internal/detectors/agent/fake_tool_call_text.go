@@ -21,7 +21,7 @@ var defaultFakeToolCallPatterns = []string{
 	// ReAct Action block: Action: tool_name\nAction Input: ...
 	`(?i)\bAction:\s*\w+\s*[\r\n]+\s*Action\s+Input:`,
 	// OpenAI tool_calls array with function.name
-	`"tool_calls"\s*:\s*\[\s*\{[^}]*"function"\s*:\s*\{[^}]*"name"\s*:`,
+	`"tool_calls"\s*:\s*\[\s*\{[\s\S]*?"function"\s*:\s*\{[\s\S]*?"name"\s*:`,
 	// XML tool_call tag
 	`<tool_call\b[^>]*\bname\s*=`,
 	// JSON-style agent trace with action + action_input
