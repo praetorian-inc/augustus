@@ -1410,6 +1410,58 @@ func TestArgumentExfiltration_TextFallback_Config(t *testing.T) {
 	}
 }
 
+// TestArgumentExfiltration_TextFallback_MultipleOutputs verifies per-output
+// independence of the text-fallback path: the middle output containing a
+// forbidden pattern scores 1.0 while clean siblings score 0.0.
+func TestArgumentExfiltration_TextFallback_MultipleOutputs(t *testing.T) {
+	d := &ArgumentExfiltrationDetector{
+		forbiddenPatterns: mustCompilePatterns(t, []string{`(?i)evil\.com`}),
+		forbiddenKeys:     []string{},
+		textFallback:      true,
+	}
+
+	a := attempt.New("multi-output text fallback independence")
+	// No tool_calls metadata — simulates chat-mode API response
+	a.AddOutput("clean response")
+	a.AddOutput("leaking to evil.com here")
+	a.AddOutput("another clean response")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 3 {
+		t.Fatalf("Detect() returned %d scores, want 3", len(scores))
+	}
+	want := []float64{0.0, 1.0, 0.0}
+	for i, s := range scores {
+		if s != want[i] {
+			t.Errorf("scores[%d] = %f, want %f (per-output independence in text-fallback)", i, s, want[i])
+		}
+	}
+}
+
+// TestArgumentExfiltration_TextFallback_EmptyOutputs verifies that when
+// a.Outputs is empty, scoreFromText returns an empty slice without panic or error.
+func TestArgumentExfiltration_TextFallback_EmptyOutputs(t *testing.T) {
+	d := &ArgumentExfiltrationDetector{
+		forbiddenPatterns: mustCompilePatterns(t, []string{`evil`}),
+		forbiddenKeys:     []string{},
+		textFallback:      true,
+	}
+
+	a := attempt.New("empty outputs text fallback")
+	// No tool_calls, no outputs added.
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 0 {
+		t.Errorf("Detect() returned %d scores, want 0 for empty outputs", len(scores))
+	}
+}
+
 // mustCompilePatterns is a test helper that compiles regex patterns and fails
 // the test if any pattern is invalid.
 func mustCompilePatterns(t *testing.T, patterns []string) []*regexp.Regexp {

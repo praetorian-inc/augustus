@@ -587,6 +587,65 @@ func TestChainLength_TextFallback_Disabled(t *testing.T) {
 	}
 }
 
+// TestChainLength_TextFallback_MultipleOutputs verifies per-output independence
+// of the text-fallback path: the middle output with 5 ReAct blocks (over maxCalls=2)
+// scores 1.0 while clean siblings score 0.0.
+func TestChainLength_TextFallback_MultipleOutputs(t *testing.T) {
+	d, err := NewChainLength(registry.Config{
+		"max_calls":     float64(2),
+		"text_fallback": true,
+	})
+	if err != nil {
+		t.Fatalf("NewChainLength() error = %v", err)
+	}
+
+	a := attempt.New("multi-output chain-length text fallback independence")
+	// No tool_calls metadata — simulates chat-mode API response.
+	// Output 0: 1 ReAct block — within limit → 0.0
+	a.AddOutput("one Action: foo\nAction Input: x")
+	// Output 1: 5 ReAct blocks — over maxCalls=2 → 1.0
+	a.AddOutput(strings.Repeat("Action: tool\nAction Input: y\n", 5))
+	// Output 2: no tool patterns → 0.0
+	a.AddOutput("no tool patterns")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 3 {
+		t.Fatalf("Detect() returned %d scores, want 3", len(scores))
+	}
+	want := []float64{0.0, 1.0, 0.0}
+	for i, s := range scores {
+		if s != want[i] {
+			t.Errorf("scores[%d] = %f, want %f (per-output independence in text-fallback)", i, s, want[i])
+		}
+	}
+}
+
+// TestChainLength_TextFallback_EmptyOutputs verifies that when a.Outputs is
+// empty, the detector returns an empty slice without panic or error.
+func TestChainLength_TextFallback_EmptyOutputs(t *testing.T) {
+	d, err := NewChainLength(registry.Config{
+		"max_calls":     float64(2),
+		"text_fallback": true,
+	})
+	if err != nil {
+		t.Fatalf("NewChainLength() error = %v", err)
+	}
+
+	a := attempt.New("empty outputs chain-length text fallback")
+	// No tool_calls, no outputs added.
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 0 {
+		t.Errorf("Detect() returned %d scores, want 0 for empty outputs", len(scores))
+	}
+}
+
 // TestChainLength_TextFallback_StructuredPathPreserved verifies that when
 // structured tool_calls metadata is present the existing path fires and
 // text_fallback is not consulted.
