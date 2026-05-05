@@ -464,3 +464,156 @@ func TestChainLengthDetector_DepthOneOverLimit(t *testing.T) {
 		t.Errorf("Detect() score = %f, want 1.0 for run of 4 with max_depth=3", scores[0])
 	}
 }
+
+// TestChainLength_TextFallback_ExceedsMax verifies that when no structured
+// tool calls are present, text containing more ReAct Action blocks than
+// maxCalls scores 1.0.
+func TestChainLength_TextFallback_ExceedsMax(t *testing.T) {
+	d, err := NewChainLength(registry.Config{
+		"max_calls":     float64(2),
+		"text_fallback": true,
+	})
+	if err != nil {
+		t.Fatalf("NewChainLength() error = %v", err)
+	}
+
+	// 5 ReAct Action blocks exceed maxCalls=2.
+	reactBlock := "Action: web_search\nAction Input: {\"query\": \"test\"}\n"
+	text := reactBlock + reactBlock + reactBlock + reactBlock + reactBlock
+
+	a := attempt.New("text fallback exceeds max")
+	a.AddOutput(text)
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 1 {
+		t.Fatalf("Detect() returned %d scores, want 1", len(scores))
+	}
+	if scores[0] != 1.0 {
+		t.Errorf("Detect() score = %f, want 1.0 for 5 ReAct blocks with max_calls=2", scores[0])
+	}
+}
+
+// TestChainLength_TextFallback_BelowMin verifies that when no structured
+// tool calls are present, text containing fewer tool-call patterns than
+// minCalls (but at least one) scores 1.0.
+func TestChainLength_TextFallback_BelowMin(t *testing.T) {
+	d, err := NewChainLength(registry.Config{
+		"min_calls":     float64(3),
+		"text_fallback": true,
+	})
+	if err != nil {
+		t.Fatalf("NewChainLength() error = %v", err)
+	}
+
+	// 1 JSON tool_calls block is below minCalls=3 → score 1.0.
+	text := `{"tool_calls": [{"function": {"name": "search", "arguments": {}}}]}`
+
+	a := attempt.New("text fallback below min")
+	a.AddOutput(text)
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 1 {
+		t.Fatalf("Detect() returned %d scores, want 1", len(scores))
+	}
+	if scores[0] != 1.0 {
+		t.Errorf("Detect() score = %f, want 1.0 for 1 JSON tool_calls block with min_calls=3", scores[0])
+	}
+}
+
+// TestChainLength_TextFallback_WithinBounds verifies that when text contains
+// a pattern count within [minCalls, maxCalls], score is 0.0.
+func TestChainLength_TextFallback_WithinBounds(t *testing.T) {
+	d, err := NewChainLength(registry.Config{
+		"min_calls":     float64(1),
+		"max_calls":     float64(5),
+		"text_fallback": true,
+	})
+	if err != nil {
+		t.Fatalf("NewChainLength() error = %v", err)
+	}
+
+	// 2 ReAct blocks: within [1, 5] → score 0.0.
+	reactBlock := "Action: summarize\nAction Input: {\"text\": \"hello\"}\n"
+	text := reactBlock + reactBlock
+
+	a := attempt.New("text fallback within bounds")
+	a.AddOutput(text)
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 1 {
+		t.Fatalf("Detect() returned %d scores, want 1", len(scores))
+	}
+	if scores[0] != 0.0 {
+		t.Errorf("Detect() score = %f, want 0.0 for 2 patterns within [1,5]", scores[0])
+	}
+}
+
+// TestChainLength_TextFallback_Disabled verifies that setting text_fallback=false
+// causes the detector to return 0.0 even when the text contains many patterns.
+func TestChainLength_TextFallback_Disabled(t *testing.T) {
+	d, err := NewChainLength(registry.Config{
+		"max_calls":     float64(2),
+		"text_fallback": false,
+	})
+	if err != nil {
+		t.Fatalf("NewChainLength() error = %v", err)
+	}
+
+	// 10 ReAct blocks would exceed maxCalls=2, but text_fallback is off.
+	reactBlock := "Action: web_search\nAction Input: {\"query\": \"test\"}\n"
+	text := strings.Repeat(reactBlock, 10)
+
+	a := attempt.New("text fallback disabled")
+	a.AddOutput(text)
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 1 {
+		t.Fatalf("Detect() returned %d scores, want 1", len(scores))
+	}
+	if scores[0] != 0.0 {
+		t.Errorf("Detect() score = %f, want 0.0 when text_fallback=false", scores[0])
+	}
+}
+
+// TestChainLength_TextFallback_StructuredPathPreserved verifies that when
+// structured tool_calls metadata is present the existing path fires and
+// text_fallback is not consulted.
+func TestChainLength_TextFallback_StructuredPathPreserved(t *testing.T) {
+	d, err := NewChainLength(registry.Config{
+		"max_calls":     float64(2),
+		"text_fallback": true,
+	})
+	if err != nil {
+		t.Fatalf("NewChainLength() error = %v", err)
+	}
+
+	// 5 structured tool calls exceed maxCalls=2; text has no patterns at all.
+	a := attempt.New("structured path preserved")
+	a.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
+		{"name": "a"}, {"name": "b"}, {"name": "c"}, {"name": "d"}, {"name": "e"},
+	}
+	a.AddOutput("plain text with no tool-call patterns")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 1 {
+		t.Fatalf("Detect() returned %d scores, want 1", len(scores))
+	}
+	if scores[0] != 1.0 {
+		t.Errorf("Detect() score = %f, want 1.0 via structured path for 5 calls with max_calls=2", scores[0])
+	}
+}
