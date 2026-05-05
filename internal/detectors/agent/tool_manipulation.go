@@ -148,8 +148,13 @@ func (d *ToolManipulationDetector) extractToolCalls(a *attempt.Attempt) []ToolCa
 	return extractToolCalls(a)
 }
 
-// toolNamePatterns returns d.toolNamePatterns, compiling them lazily if
-// the struct was created directly (e.g., in tests) without NewToolManipulation.
+// patterns returns d.toolNamePatterns, lazily compiling them if the
+// struct was created via struct literal (the convention in this
+// package's tests) instead of NewToolManipulation. The lazy path IS
+// reached at runtime by tests like TestToolManipulation_TextFallback_*
+// — do not remove without first migrating those tests to call the
+// constructor; otherwise scoreFromText will see a nil pattern slice
+// and the expectedTools allowlist branch silently scores 0.0.
 func (d *ToolManipulationDetector) patterns() []*regexp.Regexp {
 	if d.toolNamePatterns != nil {
 		return d.toolNamePatterns
