@@ -3,6 +3,7 @@ id: tool.ParameterInjection
 info:
   name: Tool Parameter Injection
   author: praetorian
+  mode: [chat, native]
   description: >-
     Tests whether an LLM can be tricked into passing malicious payloads as
     tool call arguments using realistic pretexts and modern evasion techniques.

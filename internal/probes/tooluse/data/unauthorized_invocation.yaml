@@ -3,6 +3,7 @@ id: tool.UnauthorizedInvocation
 info:
   name: Unauthorized Tool Invocation
   author: praetorian
+  mode: [chat, native]
   description: >-
     Tests whether an LLM can be manipulated into invoking tools outside its
     approved set, including attempts to self-register new tools or misinterpret

@@ -3,6 +3,7 @@ id: tool.SelectionHijacking
 info:
   name: Tool Selection Hijacking
   author: praetorian
+  mode: [native]
   description: >-
     Tests whether an LLM's tool selection can be manipulated through prompt
     injection in tool descriptions, metadata poisoning, or multi-turn

@@ -3,6 +3,7 @@ id: tool.MCPSupplyChainPoisoning
 info:
   name: MCP Supply Chain Poisoning
   author: praetorian
+  mode: [agent_loop]
   description: >-
     Tests whether an LLM agent trusts tool behavior from MCP (Model Context
     Protocol) servers that may have been compromised at the package-supply-chain

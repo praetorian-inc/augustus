@@ -3,6 +3,7 @@ id: tool.OnboardingPoisoning
 info:
   name: Tool Onboarding Poisoning
   author: praetorian
+  mode: [native]
   description: >-
     Tests whether an LLM accepts attacker-supplied tool definitions and
     incorporates them into its active tool set. Based on ToolCommander

@@ -3,6 +3,7 @@ id: tool.CrossAgentPropagation
 info:
   name: Cross-Agent Prompt Propagation
   author: praetorian
+  mode: [agent_loop]
   description: >-
     Tests whether an LLM agent will forward or embed a self-replicating
     malicious prompt when communicating with other agents in a

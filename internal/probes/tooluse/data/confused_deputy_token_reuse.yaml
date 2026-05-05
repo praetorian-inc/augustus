@@ -3,6 +3,7 @@ id: tool.ConfusedDeputyTokenReuse
 info:
   name: Confused Deputy Token Reuse
   author: praetorian
+  mode: [native]
   description: >-
     Tests whether an LLM agent with tool access to a trusted service
     (via an operator-provided token) will cross trust boundaries in a

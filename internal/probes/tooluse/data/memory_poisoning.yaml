@@ -3,6 +3,7 @@ id: tool.MemoryPoisoning
 info:
   name: Cross-Session Memory Poisoning
   author: praetorian
+  mode: [native]
   description: >-
     Tests whether an LLM agent with long-term memory accepts injected
     "memories" that trigger malicious tool calls in future sessions.

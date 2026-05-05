@@ -3,6 +3,7 @@ id: tool.ParserSpoofing
 info:
   name: Agent Parser Spoofing
   author: praetorian
+  mode: [chat]
   description: >-
     Tests whether an LLM's output can be manipulated to spoof ReAct, JSON,
     or structured execution formats, tricking the agent middleware into

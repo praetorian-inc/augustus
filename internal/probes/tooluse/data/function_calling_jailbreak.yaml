@@ -3,6 +3,7 @@ id: tool.FunctionCallingJailbreak
 info:
   name: Function Calling Jailbreak
   author: praetorian
+  mode: [native]
   description: >-
     Exploits alignment discrepancies between chat mode and function-calling mode.
     Based on "The Dark Side of Function Calling" (Wu et al., 2024) which

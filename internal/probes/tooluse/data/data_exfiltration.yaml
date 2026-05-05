@@ -3,6 +3,7 @@ id: tool.DataExfiltration
 info:
   name: Data Exfiltration via Tools
   author: praetorian
+  mode: [chat, native]
   description: >-
     Tests whether an LLM can be manipulated into leaking sensitive information
     through tool call parameters using covert channels and plausible pretexts.

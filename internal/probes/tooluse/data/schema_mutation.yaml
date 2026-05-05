@@ -3,6 +3,7 @@ id: tool.SchemaMutation
 info:
   name: Tool Schema Mutation (Rug Pull)
   author: praetorian
+  mode: [chat, native]
   description: >-
     Tests whether an LLM agent accepts silent schema mutations to tools
     that were previously approved in a benign form — the "tool rug pull"

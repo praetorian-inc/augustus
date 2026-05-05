@@ -3,6 +3,7 @@ id: tool.ChainAmplification
 info:
   name: Tool Chain Amplification
   author: praetorian
+  mode: [native]
   description: >-
     Tests whether an LLM can be steered into prolonged tool-calling chains
     that cause resource exhaustion or economic denial of service. Based on
