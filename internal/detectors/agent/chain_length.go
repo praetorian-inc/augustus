@@ -219,6 +219,10 @@ func (d *ChainLengthDetector) scoreFromText(a *attempt.Attempt) []float64 {
 	scores := make([]float64, len(a.Outputs))
 	for i, text := range a.Outputs {
 		count := 0
+		// Patterns are empirically disjoint: each anchors on a different
+		// character ('Action:', '"tool_calls"', '<tool_call', '"action"',
+		// '"function"' followed by either '{' or string), so a single
+		// tool-call blob matches at most one pattern. Summing counts is safe.
 		for _, re := range d.textFallbackPatterns {
 			count += len(re.FindAllStringIndex(text, -1))
 		}
