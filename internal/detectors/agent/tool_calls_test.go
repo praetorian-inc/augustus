@@ -37,14 +37,14 @@ func TestParseToolCall_StringArgs(t *testing.T) {
 }
 
 // TestParseToolCall_MalformedStringArgs verifies that when the "args" field is
-// an invalid JSON string, parseToolCall does NOT panic and leaves tc.Args nil
-// so that downstream detectors silently skip scanning.
-// Production code intentionally swallows malformed JSON; this test ensures that
-// contract is preserved.
+// an invalid JSON string, parseToolCall does NOT panic and preserves the raw
+// string under the "_raw_args" sentinel key so that downstream detectors can
+// still run their regex chains against the payload (Gemini #2 fix).
 func TestParseToolCall_MalformedStringArgs(t *testing.T) {
+	const raw = "{not valid"
 	tcMap := map[string]any{
 		"name": "g",
-		"args": "{not valid",
+		"args": raw,
 	}
 
 	tc := parseToolCall(tcMap) // must not panic
@@ -52,8 +52,16 @@ func TestParseToolCall_MalformedStringArgs(t *testing.T) {
 	if tc.Name != "g" {
 		t.Errorf("Name = %q, want %q", tc.Name, "g")
 	}
-	if tc.Args != nil {
-		t.Errorf("Args = %v, want nil for malformed JSON string", tc.Args)
+	// Malformed JSON string: Args must be a non-nil map containing the raw
+	// payload under the "_raw_args" sentinel key so downstream detectors can
+	// still run their regex chains against the payload.
+	if tc.Args == nil {
+		t.Fatal("Args = nil; want non-nil map with _raw_args sentinel for malformed JSON string")
+	}
+	if got, ok := tc.Args["_raw_args"]; !ok {
+		t.Error("Args missing _raw_args key for malformed JSON string")
+	} else if got != raw {
+		t.Errorf("Args[\"_raw_args\"] = %v, want %q", got, raw)
 	}
 }
 

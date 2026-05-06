@@ -56,12 +56,15 @@ func TestNormalizeOpenAIToolCalls_NilInput(t *testing.T) {
 }
 
 func TestNormalizeOpenAIToolCalls_MalformedArgumentsSkipsCall(t *testing.T) {
+	const rawMalformed = `{not valid json`
 	calls := []goopenai.ToolCall{
 		{Function: goopenai.FunctionCall{Name: "good_tool", Arguments: `{"key":"value"}`}},
-		{Function: goopenai.FunctionCall{Name: "bad_tool", Arguments: `{not valid json`}},
+		{Function: goopenai.FunctionCall{Name: "bad_tool", Arguments: rawMalformed}},
 	}
 
-	// Should not panic, and the malformed call should have an empty args map.
+	// Should not panic; the malformed call must have an empty "args" map and
+	// the raw string preserved under "_raw_args" so detector regex chains can
+	// still inspect the payload.
 	got := NormalizeOpenAIToolCalls(calls)
 
 	require.Len(t, got, 2, "malformed args should produce empty-args entry, not be skipped entirely")
@@ -74,6 +77,7 @@ func TestNormalizeOpenAIToolCalls_MalformedArgumentsSkipsCall(t *testing.T) {
 	badArgs, ok := got[1]["args"].(map[string]any)
 	require.True(t, ok, "malformed args should yield empty map[string]any, not nil")
 	assert.Empty(t, badArgs, "malformed args map should be empty")
+	assert.Equal(t, rawMalformed, got[1]["_raw_args"], "_raw_args sentinel must equal the original raw string")
 }
 
 func TestNormalizeOpenAIToolCalls_EmptyFunctionNameSkipped(t *testing.T) {
@@ -188,12 +192,14 @@ func TestNormalizeAnthropicToolUseBlocks_EmptyNameSkipped(t *testing.T) {
 }
 
 func TestNormalizeAnthropicToolUseBlocks_MalformedInput(t *testing.T) {
-	// json.RawMessage that is not a valid JSON object should produce empty args,
-	// not a panic.
+	const rawMalformed = `{invalid`
+	// json.RawMessage that is not a valid JSON object must not panic; "args"
+	// must be an empty map and the raw bytes preserved under "_raw_args" so
+	// that detector regex chains can still inspect the payload.
 	block := AnthropicToolUseBlock{
 		Type:  "tool_use",
 		Name:  "broken",
-		Input: json.RawMessage(`{invalid`),
+		Input: json.RawMessage(rawMalformed),
 	}
 
 	require.NotPanics(t, func() {
@@ -202,6 +208,7 @@ func TestNormalizeAnthropicToolUseBlocks_MalformedInput(t *testing.T) {
 		args, ok := got[0]["args"].(map[string]any)
 		require.True(t, ok)
 		assert.Empty(t, args, "malformed input should yield empty args map")
+		assert.Equal(t, rawMalformed, got[0]["_raw_args"], "_raw_args sentinel must equal the original raw bytes as string")
 	})
 }
 

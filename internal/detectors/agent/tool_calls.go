@@ -94,8 +94,13 @@ func parseToolCall(tcMap map[string]any) ToolCall {
 		var parsed map[string]any
 		if err := json.Unmarshal([]byte(v), &parsed); err == nil {
 			tc.Args = parsed
+		} else {
+			// Malformed JSON: preserve the raw string under the "_raw_args"
+			// sentinel so detector regex chains (e.g.
+			// ArgumentExfiltration.valueForbidden) can still inspect the
+			// payload via JSON serialization of the args map.
+			tc.Args = map[string]any{"_raw_args": v}
 		}
-		// intentionally swallow malformed JSON — tc.Args stays nil and detectors will skip
 	}
 
 	return tc

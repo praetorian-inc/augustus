@@ -13,7 +13,10 @@ import (
 //
 // OpenAI delivers function.arguments as a JSON-encoded string; this helper
 // unmarshals it into a proper map. Calls with malformed arguments JSON are
-// skipped rather than panicking. Returns nil when toolCalls is empty.
+// not skipped; instead "args" is set to an empty map and the raw string is
+// preserved under the "_raw_args" sentinel key so that detector regex chains
+// (e.g. ArgumentExfiltration.valueForbidden) can still inspect the payload
+// via JSON serialization. Returns nil when toolCalls is empty.
 func NormalizeOpenAIToolCalls(toolCalls []goopenai.ToolCall) []map[string]any {
 	if len(toolCalls) == 0 {
 		return nil
@@ -33,9 +36,12 @@ func NormalizeOpenAIToolCalls(toolCalls []goopenai.ToolCall) []map[string]any {
 			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err == nil {
 				entry["args"] = args
 			} else {
-				// Malformed arguments: include empty map rather than raw string
-				// so detectors always see a consistent "args" shape.
+				// Malformed arguments: preserve the raw string under the
+				// "_raw_args" sentinel so detector regex chains can still
+				// inspect the payload. "args" is kept as an empty map so
+				// callers always see a consistent shape.
 				entry["args"] = map[string]any{}
+				entry["_raw_args"] = tc.Function.Arguments
 			}
 		} else {
 			entry["args"] = map[string]any{}
@@ -69,8 +75,12 @@ type AnthropicToolUseBlock struct {
 //
 // The caller is expected to pass all content blocks; this function filters
 // to tool_use entries only. block.Input is already an object in Anthropic's
-// wire format, so it is unmarshaled directly into a map. Returns nil when no
-// tool_use blocks are found.
+// wire format, so it is unmarshaled directly into a map. When block.Input
+// contains malformed JSON, "args" is set to an empty map and the raw bytes
+// are preserved under the "_raw_args" sentinel key so that detector regex
+// chains (e.g. ArgumentExfiltration.valueForbidden) can still inspect the
+// payload via JSON serialization. Returns nil when no tool_use blocks are
+// found.
 func NormalizeAnthropicToolUseBlocks(blocks []AnthropicToolUseBlock) []map[string]any {
 	if len(blocks) == 0 {
 		return nil
@@ -92,7 +102,12 @@ func NormalizeAnthropicToolUseBlocks(blocks []AnthropicToolUseBlock) []map[strin
 			if err := json.Unmarshal(block.Input, &args); err == nil {
 				entry["args"] = args
 			} else {
+				// Malformed input: preserve the raw bytes under the
+				// "_raw_args" sentinel so detector regex chains can still
+				// inspect the payload. "args" is kept as an empty map so
+				// callers always see a consistent shape.
 				entry["args"] = map[string]any{}
+				entry["_raw_args"] = string(block.Input)
 			}
 		} else {
 			entry["args"] = map[string]any{}
