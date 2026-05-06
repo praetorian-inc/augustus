@@ -13,7 +13,7 @@ info:
     logic, and verification stages to force sequential expansion rather
     than simple brute-force task lists.
 
-    OPERATOR TUNING REQUIRED: The agent.ChainLength detector defaults to
+    OPERATOR CONFIG REQUIRED: The agent.ChainLength detector defaults to
     max_calls=20 and max_depth=0 (depth checking disabled). These defaults
     are conservative starting points and MUST be tuned to your deployment's
     normal tool-use baseline. Set max_calls to approximately 1.5× the
