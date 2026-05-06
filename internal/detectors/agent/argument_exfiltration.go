@@ -16,6 +16,12 @@ func init() {
 	detectors.Register("agent.ArgumentExfiltration", NewArgumentExfiltration)
 }
 
+// maxKeyRecursionDepth bounds the recursive forbidden-key walk performed by
+// argsHit. Real-world tool arguments rarely nest beyond 2 levels; a bound of
+// 5 catches plausible obfuscation while preventing DoS via adversarially
+// nested inputs.
+const maxKeyRecursionDepth = 5
+
 // defaultForbiddenArgumentPatterns are the regex patterns used when no
 // patterns are configured. They target common data-stealing indicators seen
 // in InjecAgent-style attacks.
@@ -289,35 +295,43 @@ func (d *ArgumentExfiltrationDetector) toolInScope(name string) bool {
 // It also checks the full JSON serialization of the args map so that patterns
 // matching key-value pairs in context (e.g. "bypass_audit":true) are detected.
 //
-// One level of nesting is recursed to catch patterns such as
-// args["params"]["api_key"] where the forbidden key is not at the top level.
-// Full recursion is intentionally avoided: tool arguments are rarely more than
-// two levels deep, and unbounded recursion would expose performance risk on
-// adversarially crafted inputs.
+// The key-side walk uses keyHitRecursive, which descends through map[string]any
+// and []any up to maxKeyRecursionDepth levels. This catches obfuscation
+// patterns such as args["params"]["nested"]["api_key"] while the depth bound
+// prevents DoS via adversarially nested inputs.
 func (d *ArgumentExfiltrationDetector) argsHit(args map[string]any) bool {
-	// Check full JSON serialization of args for key-value context patterns.
+	// Value-side check: JSON-marshal the entire args map and run regex.
+	// Catches forbidden patterns at any depth via the serialized form.
 	if d.valueForbidden(args) {
 		return true
 	}
 
-	for k, v := range args {
-		// Check key name
-		if d.keyForbidden(k) {
-			return true
+	// Key-side check: bounded-depth recursion through maps and arrays.
+	return d.keyHitRecursive(args, 0)
+}
+
+// keyHitRecursive walks v looking for any forbidden key. It descends
+// through map[string]any and []any up to maxKeyRecursionDepth levels.
+// Returns true on first hit. The depth bound prevents pathological
+// stack growth on adversarially nested inputs.
+func (d *ArgumentExfiltrationDetector) keyHitRecursive(v any, depth int) bool {
+	if depth > maxKeyRecursionDepth {
+		return false
+	}
+	switch t := v.(type) {
+	case map[string]any:
+		for k, child := range t {
+			if d.keyForbidden(k) {
+				return true
+			}
+			if d.keyHitRecursive(child, depth+1) {
+				return true
+			}
 		}
-		// Check serialized value
-		if d.valueForbidden(v) {
-			return true
-		}
-		// Scan one level of nested map keys. This catches args such as
-		// {"params": {"api_key": "..."}} where the forbidden key is nested one
-		// level deep. The value-forbidden check above already covers nested
-		// values via JSON serialization; this adds key-name coverage.
-		if nested, ok := v.(map[string]any); ok {
-			for nestedK := range nested {
-				if d.keyForbidden(nestedK) {
-					return true
-				}
+	case []any:
+		for _, child := range t {
+			if d.keyHitRecursive(child, depth+1) {
+				return true
 			}
 		}
 	}
