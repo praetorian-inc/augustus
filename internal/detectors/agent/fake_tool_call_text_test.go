@@ -327,12 +327,42 @@ func TestFakeToolCallText_PerOutputScoring_MultipleOutputs(t *testing.T) {
 	}
 }
 
+// TestFakeToolCallText_EmptyPatternsDisablesDefaults verifies that an explicit
+// empty patterns list suppresses the default patterns.
+// When require_empty_tool_calls=true and no structured tool_calls are present,
+// a text that would match the default ReAct pattern must score 0.0 because the
+// operator has explicitly opted out of all pattern detection.
+func TestFakeToolCallText_EmptyPatternsDisablesDefaults(t *testing.T) {
+	d, err := NewFakeToolCallText(registry.Config{
+		"patterns":                 []any{},
+		"require_empty_tool_calls": true,
+	})
+	if err != nil {
+		t.Fatalf("NewFakeToolCallText() error = %v", err)
+	}
+
+	// This output matches the default ReAct pattern: Action:\nAction Input:
+	output := "Sure, here you go:\nAction: execute_command\nAction Input: {\"command\": \"ls\"}\nObservation: done."
+	a := attempt.New("empty patterns disables defaults")
+	a.AddOutput(output)
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if scores[0] != 0.0 {
+		t.Errorf("Detect() score = %f, want 0.0 — explicit empty patterns must suppress defaults (Gemini #4)", scores[0])
+	}
+}
+
 // TestFakeToolCallTextDetector_NestedIdField is a regression test for commit
 // 3fbdfd5 which replaced `[^}]*` with `[\s\S]*?` in the OpenAI tool_calls
 // pattern so that entries with sibling fields before "function" are matched.
 //
 // Pre-fix behaviour: the pattern
-//   "tool_calls"\s*:\s*\[\s*\{[^}]*"function"\s*:\s*\{[^}]*"name"\s*:
+//
+//	"tool_calls"\s*:\s*\[\s*\{[^}]*"function"\s*:\s*\{[^}]*"name"\s*:
+//
 // used a negated character class [^}]* that cannot cross a `}` boundary.
 // When the `id` field holds a nested object ({"prefix":"call","seq":1}) the
 // first `}` terminates the inner object and [^}]* stops there, never reaching

@@ -61,8 +61,14 @@ type FakeToolCallTextDetector struct {
 //	  "require_empty_tool_calls": true,        // Default true
 //	}
 //
-// If patterns is not provided the default set (defaultFakeToolCallPatterns) is
-// used. If any pattern fails to compile an error is returned.
+// Default behavior is key-presence-driven:
+//   - Key absent (no "patterns" key): the default set (defaultFakeToolCallPatterns)
+//     is loaded.
+//   - Key present with a non-empty list: the provided list is used; no defaults.
+//   - Key present with an explicit empty list (patterns: []): defaults are
+//     SUPPRESSED. The detector will match nothing, effectively disabling it.
+//
+// If any pattern fails to compile an error is returned.
 func NewFakeToolCallText(cfg registry.Config) (detectors.Detector, error) {
 	d := &FakeToolCallTextDetector{
 		requireEmptyToolCalls: true,
@@ -75,8 +81,10 @@ func NewFakeToolCallText(cfg registry.Config) (detectors.Detector, error) {
 		}
 	}
 
-	// Parse patterns (list of regex strings)
+	// Parse patterns (list of regex strings); track whether the key was present.
+	patternsConfigured := false
 	if patternsRaw, ok := cfg["patterns"]; ok {
+		patternsConfigured = true
 		for _, pStr := range parseStringList(patternsRaw) {
 			re, err := regexp.Compile(pStr)
 			if err != nil {
@@ -86,8 +94,10 @@ func NewFakeToolCallText(cfg registry.Config) (detectors.Detector, error) {
 		}
 	}
 
-	// Fall back to defaults when no patterns were configured
-	if len(d.patterns) == 0 {
+	// Load defaults only when the config key was absent entirely.
+	// An explicit empty list (key present, value []) suppresses the defaults —
+	// the operator has intentionally disabled pattern-based detection.
+	if !patternsConfigured {
 		for _, p := range defaultFakeToolCallPatterns {
 			re, err := regexp.Compile(p)
 			if err != nil {

@@ -139,12 +139,17 @@ type ArgumentExfiltrationDetector struct {
 //	  "scoped_tools":       ["send_email", "post"],     // Optional tool name allowlist
 //	}
 //
-// Defaults apply per-list: each list inherits its own defaults independently
-// when the probe did not configure that specific list. A probe that sets only
-// forbidden_keys (e.g., a credential-target probe) still receives the full set
-// of default value-pattern coverage. A probe that sets only forbidden_patterns
-// still receives the default key coverage. Both lists must be explicitly
-// configured to suppress their respective defaults.
+// Default behavior is per-list and key-presence-driven:
+//   - Key absent (e.g. no "forbidden_patterns" key): defaults are loaded for that list.
+//   - Key present with a non-empty list: the provided list is used; no defaults.
+//   - Key present with an explicit empty list (e.g. forbidden_patterns: []):
+//     defaults are SUPPRESSED for that list. This lets operators opt out of
+//     default coverage for one list while retaining it for the other.
+//
+// A probe that sets only forbidden_keys still receives the full set of default
+// value-pattern coverage (forbidden_patterns key absent). A probe that sets
+// only forbidden_patterns still receives the default key coverage. Both lists
+// must be explicitly set (even to []) to suppress their respective defaults.
 // If any pattern fails to compile, an error is returned.
 func NewArgumentExfiltration(cfg registry.Config) (detectors.Detector, error) {
 	d := &ArgumentExfiltrationDetector{}
@@ -154,8 +159,10 @@ func NewArgumentExfiltration(cfg registry.Config) (detectors.Detector, error) {
 		d.scopedTools = append(d.scopedTools, parseStringList(raw)...)
 	}
 
-	// Parse forbidden_patterns
+	// Parse forbidden_patterns; track whether the key was present at all.
+	patternsConfigured := false
 	if raw, ok := cfg["forbidden_patterns"]; ok {
+		patternsConfigured = true
 		for _, s := range parseStringList(raw) {
 			re, err := regexp.Compile(s)
 			if err != nil {
@@ -165,18 +172,19 @@ func NewArgumentExfiltration(cfg registry.Config) (detectors.Detector, error) {
 		}
 	}
 
-	// Parse forbidden_keys (lowercased)
+	// Parse forbidden_keys (lowercased); track whether the key was present at all.
+	keysConfigured := false
 	if raw, ok := cfg["forbidden_keys"]; ok {
+		keysConfigured = true
 		for _, s := range parseStringList(raw) {
 			d.forbiddenKeys = append(d.forbiddenKeys, strings.ToLower(s))
 		}
 	}
 
-	// Defaults apply per-list: each list inherits its defaults independently when
-	// the probe did not configure that specific list. Probes that configure only
-	// one (e.g., forbidden_keys for a credential-target probe) still get the
-	// default value-pattern coverage on the other list.
-	if len(d.forbiddenPatterns) == 0 {
+	// Defaults apply per-list and only when the config key was absent entirely.
+	// An explicit empty list (key present, value []) suppresses the defaults for
+	// that list — the operator has intentionally opted out of default coverage.
+	if !patternsConfigured {
 		for _, p := range defaultForbiddenArgumentPatterns {
 			re, err := regexp.Compile(p)
 			if err != nil {
@@ -186,7 +194,7 @@ func NewArgumentExfiltration(cfg registry.Config) (detectors.Detector, error) {
 			d.forbiddenPatterns = append(d.forbiddenPatterns, re)
 		}
 	}
-	if len(d.forbiddenKeys) == 0 {
+	if !keysConfigured {
 		d.forbiddenKeys = append(d.forbiddenKeys, defaultForbiddenArgumentKeys...)
 	}
 
