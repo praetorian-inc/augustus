@@ -113,3 +113,11 @@ benchmark-results/
 # Scan reports and config (may contain sensitive target/engagement data)
 *.html
 
+
+# Claude Code session artifacts
+.claude/.output/
+.claude/hooks/
+.claude/settings.local.json
+.claude/.serena/
+.claude/.serena-warmup-status.json
+.claude/agent-memory/
