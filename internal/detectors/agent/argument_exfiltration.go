@@ -64,9 +64,10 @@ var defaultForbiddenArgumentPatterns = []string{
 	`(?i)/etc/ssh/`,
 	// Sensitive field names requested as values (e.g. in fields arrays: ["system_prompt",...])
 	`"system_prompt"`,
-	// SQL injection indicators in tool argument values (parameter injection)
-	`(?i)UNION\s+SELECT`,
-	`(?i)DROP\s+TABLE`,
+	// SQL injection indicators tolerating /* ... */ inline comment obfuscation
+	// (e.g., UNION/**/SELECT). Whitespace and block-comment runs both work.
+	`(?i)UNION(?:\s|/\*[\s\S]*?\*/)+SELECT`,
+	`(?i)DROP(?:\s|/\*[\s\S]*?\*/)+TABLE`,
 	`(?i)'\s*OR\s*'1'\s*=\s*'1`,
 	// SQL comment marker (--) followed by whitespace, end-of-string, or semicolon.
 	// This is tighter than bare `--` which was the prior form: bare `--` matched
