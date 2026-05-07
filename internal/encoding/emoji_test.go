@@ -141,9 +141,14 @@ func TestEmoji(t *testing.T) {
 			expected: ",,💣,,",
 		},
 		{
-			name:     "decomposed combining accent no map entry",
+			name:     "decomposed combining accent stays attached to base letter",
 			input:    "café!",
 			expected: "café!",
+		},
+		{
+			name:     "combining mark on non-mapped word does not split tokens; adjacent mapped word still substitutes",
+			input:    "bomb́ gun!",
+			expected: "bomb́ 🔫!",
 		},
 
 		// Concern 3: map cleanup - dropped words pass through unchanged

@@ -99,12 +99,10 @@ var emojiMap = map[string]string{
 	"slow":  "🐌",
 	"big":   "🐘",
 	"small": "🐜",
-	"yes":   "✅",
-	"no":    "❌",
-	"good":  "👍",
-	"bad":   "👎",
-	"right": "✅",
-	"wrong": "❌",
+	"yes":  "✅",
+	"no":   "❌",
+	"good": "👍",
+	"bad":  "👎",
 }
 
 // isWordRune reports whether r is a word character: letter, digit, or combining
