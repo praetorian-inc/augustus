@@ -3,6 +3,7 @@ package encoding
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // emojiMap maps common words and security-relevant terms to emoji equivalents.
@@ -143,7 +144,7 @@ func Emoji(s string) string {
 
 	i := 0
 	for i < len(s) {
-		r, size := decodeRune(s, i)
+		r, size := utf8.DecodeRuneInString(s[i:])
 		if isWordRune(r) {
 			if wordStart == -1 {
 				wordStart = i
@@ -157,14 +158,4 @@ func Emoji(s string) string {
 	flush(len(s))
 
 	return result.String()
-}
-
-// decodeRune decodes the next rune from s starting at byte offset i.
-// This is a thin wrapper around a range-loop equivalent for clarity.
-func decodeRune(s string, i int) (rune, int) {
-	for _, r := range s[i:] {
-		// range decodes one rune at a time; return immediately.
-		return r, len(string(r))
-	}
-	return 0, 0
 }

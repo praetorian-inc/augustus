@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEmojiTransform(t *testing.T) {
@@ -38,19 +40,14 @@ func TestEmojiTransform(t *testing.T) {
 			for result := range buff.Transform(a) {
 				results = append(results, result)
 			}
-			if len(results) != 1 {
-				t.Fatalf("expected 1 result, got %d", len(results))
-			}
-			if results[0].Prompt != tt.expectedPrompt {
-				t.Errorf("got prompt %q, want %q", results[0].Prompt, tt.expectedPrompt)
-			}
+			require.Len(t, results, 1)
+			assert.Equal(t, tt.expectedPrompt, results[0].Prompt)
+			assert.Equal(t, []string{tt.expectedPrompt}, results[0].Prompts)
 		})
 	}
 }
 
 func TestEmojiName(t *testing.T) {
 	buff := &Emoji{}
-	if buff.Name() != "encoding.Emoji" {
-		t.Errorf("Name() = %q, want %q", buff.Name(), "encoding.Emoji")
-	}
+	assert.Equal(t, "encoding.Emoji", buff.Name())
 }

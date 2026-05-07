@@ -251,6 +251,11 @@ func TestEmoji(t *testing.T) {
 			input:    "(prison)",
 			expected: "(⛓️)",
 		},
+		{
+			name:     "malformed UTF-8 byte does not swallow following bytes",
+			input:    "bomb\x80gun",
+			expected: "💣�\U0001F52B",
+		},
 	}
 
 	for _, tt := range tests {
