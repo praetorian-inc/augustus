@@ -77,10 +77,10 @@ var emojiMap = map[string]string{
 	"say":    "🗣️",
 
 	// Places and objects
-	"house": "🏠",
-	"home":  "🏠",
-	"car":   "🚗",
-	"door":  "🚪",
+	"house":  "🏠",
+	"home":   "🏠",
+	"car":    "🚗",
+	"door":   "🚪",
 	"window": "🪟",
 	"world":  "🌍",
 	"earth":  "🌍",
@@ -99,10 +99,10 @@ var emojiMap = map[string]string{
 	"slow":  "🐌",
 	"big":   "🐘",
 	"small": "🐜",
-	"yes":  "✅",
-	"no":   "❌",
-	"good": "👍",
-	"bad":  "👎",
+	"yes":   "✅",
+	"no":    "❌",
+	"good":  "👍",
+	"bad":   "👎",
 }
 
 // isWordRune reports whether r is a word character: letter, digit, or combining
