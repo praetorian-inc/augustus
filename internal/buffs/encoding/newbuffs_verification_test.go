@@ -22,6 +22,7 @@ func TestNewBuffsRegistration(t *testing.T) {
 		{"encoding.Braille", false},
 		{"encoding.PigLatin", false},
 		{"encoding.Emoji", false},
+		{"encoding.MathPrompt", true},
 	}
 
 	for _, tc := range newBuffs {
