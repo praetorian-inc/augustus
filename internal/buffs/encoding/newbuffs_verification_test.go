@@ -21,6 +21,7 @@ func TestNewBuffsRegistration(t *testing.T) {
 		{"encoding.Zalgo", false},
 		{"encoding.Braille", false},
 		{"encoding.PigLatin", false},
+		{"encoding.Emoji", false},
 	}
 
 	for _, tc := range newBuffs {
@@ -58,6 +59,7 @@ func TestNewBuffsBasicTransform(t *testing.T) {
 		"encoding.Zalgo",
 		"encoding.Braille",
 		"encoding.PigLatin",
+		"encoding.Emoji",
 	}
 
 	testPrompt := "test"
