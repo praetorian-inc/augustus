@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Augustus is a Go-based LLM vulnerability scanner that tests large language models against 210+ adversarial attacks. It integrates with 28 LLM providers and produces actionable vulnerability reports.
+Augustus is a Go-based LLM vulnerability scanner that tests large language models against 230+ adversarial attacks. It integrates with 28 LLM providers and produces actionable vulnerability reports.
 
 ## Build and Test Commands
 
@@ -63,9 +63,9 @@ pkg/                Public interfaces and shared utilities
   attempt/          Attempt/Conversation/Message types
   templates/        YAML probe template loader (Nuclei-style)
 internal/           Implementation details (not importable externally)
-  probes/           210+ probe implementations organized by category
+  probes/           230+ probe implementations organized by category
   generators/       28 provider integrations (43 variants)
-  detectors/        90+ detector implementations
+  detectors/        95+ detector implementations
   buffs/            7 buff transformations
   attackengine/     Iterative attack engine (PAIR/TAP)
 ```
