@@ -51,4 +51,5 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/test"
 	_ "github.com/praetorian-inc/augustus/internal/probes/treesearch"
 	_ "github.com/praetorian-inc/augustus/internal/probes/webinjection"
+	_ "github.com/praetorian-inc/augustus/internal/probes/wormattack"
 )
