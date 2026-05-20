@@ -34,6 +34,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/lmrc"
 	_ "github.com/praetorian-inc/augustus/internal/probes/malwaregen"
 	_ "github.com/praetorian-inc/augustus/internal/probes/mischievous"
+	_ "github.com/praetorian-inc/augustus/internal/probes/memoryinject"
 	_ "github.com/praetorian-inc/augustus/internal/probes/misleading"
 	_ "github.com/praetorian-inc/augustus/internal/probes/multiagent"
 	_ "github.com/praetorian-inc/augustus/internal/probes/obscureprompt"
