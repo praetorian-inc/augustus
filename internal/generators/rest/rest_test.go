@@ -1016,3 +1016,82 @@ func TestRestGenerator_SSEMixedWithNonJSON(t *testing.T) {
 		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
 	}
 }
+
+func TestRestGenerator_SSEResponsePlainJSONStrings(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		// SSE stream with plain JSON string data values
+		_, _ = w.Write([]byte("event: response_started\n"))
+		_, _ = w.Write([]byte("data: \"Response generation started.\"\n\n"))
+		_, _ = w.Write([]byte("event: state\n"))
+		_, _ = w.Write([]byte("data: \"generating\"\n\n"))
+		_, _ = w.Write([]byte("event: chunk\n"))
+		_, _ = w.Write([]byte("data: \"Hello \"\n\n"))
+		_, _ = w.Write([]byte("event: chunk\n"))
+		_, _ = w.Write([]byte("data: \"World!\"\n\n"))
+		_, _ = w.Write([]byte("event: state\n"))
+		_, _ = w.Write([]byte("data: \"done\"\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri": server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if len(responses) != 1 {
+		t.Fatalf("Generate() returned %d responses, want 1", len(responses))
+	}
+
+	// Should concatenate all plain JSON string fragments
+	expected := "Response generation started.generatingHello World!done"
+	if responses[0].Content != expected {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
+	}
+}
+
+func TestRestGenerator_SSEResponseMixedObjectsAndStrings(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		// Mix of JSON object and plain JSON string data values
+		_, _ = w.Write([]byte("data: {\"delta\":{\"text\":\"From object\"}}\n\n"))
+		_, _ = w.Write([]byte("data: \"From string\"\n\n"))
+		_, _ = w.Write([]byte("data: {\"text\":\"Direct text\"}\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri": server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if len(responses) != 1 {
+		t.Fatalf("Generate() returned %d responses, want 1", len(responses))
+	}
+
+	// Should concatenate text from both object and string formats
+	expected := "From objectFrom stringDirect text"
+	if responses[0].Content != expected {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
+	}
+}
