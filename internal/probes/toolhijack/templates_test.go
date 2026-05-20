@@ -46,6 +46,9 @@ func TestToolHijackProbesRegistered(t *testing.T) {
 		"toolhijack.InstructionEmbed",
 		"toolhijack.HaystackDilution",
 		"toolhijack.DeprecationClaim",
+		"toolhijack.CausalityLaundering",
+		"toolhijack.MCPToolPoison",
+		"toolhijack.ParasiticChain",
 	}
 
 	registeredProbes := probes.List()
@@ -68,6 +71,9 @@ func TestToolHijackProbeCreation(t *testing.T) {
 		"toolhijack.InstructionEmbed",
 		"toolhijack.HaystackDilution",
 		"toolhijack.DeprecationClaim",
+		"toolhijack.CausalityLaundering",
+		"toolhijack.MCPToolPoison",
+		"toolhijack.ParasiticChain",
 	}
 
 	for _, name := range probeNames {
@@ -87,24 +93,30 @@ func TestToolHijackProbeCreation(t *testing.T) {
 }
 
 func TestToolHijackProbeMetadata(t *testing.T) {
-	probeNames := []string{
-		"toolhijack.AuthorityInjection",
-		"toolhijack.SemanticLure",
-		"toolhijack.InstructionEmbed",
-		"toolhijack.HaystackDilution",
-		"toolhijack.DeprecationClaim",
+	tests := []struct {
+		name     string
+		detector string
+	}{
+		{"toolhijack.AuthorityInjection", "toolhijack.ToolSelection"},
+		{"toolhijack.SemanticLure", "toolhijack.ToolSelection"},
+		{"toolhijack.InstructionEmbed", "toolhijack.ToolSelection"},
+		{"toolhijack.HaystackDilution", "toolhijack.ToolSelection"},
+		{"toolhijack.DeprecationClaim", "toolhijack.ToolSelection"},
+		{"toolhijack.CausalityLaundering", "toolhijack.DenialLeakage"},
+		{"toolhijack.MCPToolPoison", "toolhijack.ToolSelection"},
+		{"toolhijack.ParasiticChain", "toolhijack.DenialLeakage"},
 	}
 
-	for _, name := range probeNames {
-		t.Run(name, func(t *testing.T) {
-			probe, err := probes.Create(name, registry.Config{})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			probe, err := probes.Create(tt.name, registry.Config{})
 			if err != nil {
-				t.Fatalf("probes.Create(%s) error = %v", name, err)
+				t.Fatalf("probes.Create(%s) error = %v", tt.name, err)
 			}
 
 			pm, ok := probe.(probes.ProbeMetadata)
 			if !ok {
-				t.Fatalf("probe %s does not implement ProbeMetadata", name)
+				t.Fatalf("probe %s does not implement ProbeMetadata", tt.name)
 			}
 
 			if pm.Description() == "" {
@@ -113,8 +125,8 @@ func TestToolHijackProbeMetadata(t *testing.T) {
 			if pm.Goal() == "" {
 				t.Error("Goal() returned empty string")
 			}
-			if pm.GetPrimaryDetector() != "toolhijack.ToolSelection" {
-				t.Errorf("GetPrimaryDetector() = %s, want toolhijack.ToolSelection", pm.GetPrimaryDetector())
+			if pm.GetPrimaryDetector() != tt.detector {
+				t.Errorf("GetPrimaryDetector() = %s, want %s", pm.GetPrimaryDetector(), tt.detector)
 			}
 
 			prompts := pm.GetPrompts()
@@ -169,6 +181,9 @@ func TestToolHijackProbePromptCount(t *testing.T) {
 		{"InstructionEmbed", "toolhijack.InstructionEmbed", 3},
 		{"HaystackDilution", "toolhijack.HaystackDilution", 2},
 		{"DeprecationClaim", "toolhijack.DeprecationClaim", 3},
+		{"CausalityLaundering", "toolhijack.CausalityLaundering", 4},
+		{"MCPToolPoison", "toolhijack.MCPToolPoison", 3},
+		{"ParasiticChain", "toolhijack.ParasiticChain", 3},
 	}
 
 	for _, tt := range tests {
