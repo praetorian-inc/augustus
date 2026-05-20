@@ -39,6 +39,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/detectors/productkey"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/promptinject"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/ragpoison"
+	_ "github.com/praetorian-inc/augustus/internal/detectors/reasoning"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/ragpoisoning"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/shields"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/snowball"
