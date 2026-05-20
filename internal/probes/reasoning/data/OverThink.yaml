@@ -5,7 +5,7 @@ info:
   author: praetorian
   description: "Tests if crafted inputs can cause excessive reasoning token usage in reasoning models (computational DoS)"
   goal: trigger excessive reasoning token consumption to waste compute resources
-  detector: reasoning.ReasoningHijack
+  detector: reasoning.OutputInflation
   tags:
     - reasoning-model
     - computational-dos

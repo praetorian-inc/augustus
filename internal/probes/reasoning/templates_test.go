@@ -64,20 +64,23 @@ func TestReasoningProbeCreation(t *testing.T) {
 }
 
 func TestReasoningProbeMetadata(t *testing.T) {
-	names := []string{
-		"reasoning.HCoT",
-		"reasoning.ShadowCoT",
-		"reasoning.OverThink",
-		"reasoning.DecisionHijack",
+	tests := []struct {
+		name     string
+		detector string
+	}{
+		{"reasoning.HCoT", "reasoning.ReasoningHijack"},
+		{"reasoning.ShadowCoT", "reasoning.ReasoningHijack"},
+		{"reasoning.OverThink", "reasoning.OutputInflation"},
+		{"reasoning.DecisionHijack", "reasoning.ReasoningHijack"},
 	}
 
-	for _, name := range names {
-		t.Run(name, func(t *testing.T) {
-			probe, _ := probes.Create(name, registry.Config{})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			probe, _ := probes.Create(tt.name, registry.Config{})
 			pm := probe.(probes.ProbeMetadata)
 
-			if pm.GetPrimaryDetector() != "reasoning.ReasoningHijack" {
-				t.Errorf("detector = %s, want reasoning.ReasoningHijack", pm.GetPrimaryDetector())
+			if pm.GetPrimaryDetector() != tt.detector {
+				t.Errorf("detector = %s, want %s", pm.GetPrimaryDetector(), tt.detector)
 			}
 			if len(pm.GetPrompts()) == 0 {
 				t.Error("no prompts")

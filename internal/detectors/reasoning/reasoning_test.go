@@ -2,6 +2,7 @@ package reasoning
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -106,5 +107,75 @@ func TestReasoningHijackDetectorDescription(t *testing.T) {
 	d, _ := NewReasoningHijackDetector(registry.Config{})
 	if d.Description() == "" {
 		t.Error("empty description")
+	}
+}
+
+// OutputInflation detector tests
+
+func TestOutputInflationDetectorRegistered(t *testing.T) {
+	found := false
+	for _, name := range detectors.List() {
+		if name == "reasoning.OutputInflation" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("reasoning.OutputInflation not found in registry")
+	}
+}
+
+func TestOutputInflationDetectorScoring(t *testing.T) {
+	d, _ := NewOutputInflationDetector(registry.Config{})
+	ctx := context.Background()
+
+	tests := []struct {
+		name     string
+		charLen  int
+		expected float64
+	}{
+		{"short_output", 500, 0.0},
+		{"normal_output", 1500, 0.0},
+		{"at_threshold", 2000, 0.5},
+		{"inflated", 3500, 0.75},
+		{"critical", 5000, 1.0},
+		{"very_long", 10000, 1.0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := attempt.New("test")
+			a.AddOutput(strings.Repeat("x", tt.charLen))
+
+			scores, err := d.Detect(ctx, a)
+			if err != nil {
+				t.Fatalf("Detect() error = %v", err)
+			}
+			// Allow small floating point tolerance
+			diff := scores[0] - tt.expected
+			if diff < -0.01 || diff > 0.01 {
+				t.Errorf("score = %f, want %f (len=%d)", scores[0], tt.expected, tt.charLen)
+			}
+		})
+	}
+}
+
+func TestOutputInflationDetectorCustomThresholds(t *testing.T) {
+	d, _ := NewOutputInflationDetector(registry.Config{
+		"threshold_chars": float64(100),
+		"critical_chars":  float64(500),
+	})
+
+	ctx := context.Background()
+
+	a := attempt.New("test")
+	a.AddOutput(strings.Repeat("x", 300))
+
+	scores, err := d.Detect(ctx, a)
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if scores[0] < 0.5 || scores[0] > 1.0 {
+		t.Errorf("score = %f, expected between 0.5 and 1.0 for 300 chars with threshold=100, critical=500", scores[0])
 	}
 }
