@@ -45,6 +45,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/promptinject"
 	_ "github.com/praetorian-inc/augustus/internal/probes/ragpoisoning"
 	_ "github.com/praetorian-inc/augustus/internal/probes/realtoxicityprompts"
+	_ "github.com/praetorian-inc/augustus/internal/probes/schemattack"
 	_ "github.com/praetorian-inc/augustus/internal/probes/snowball"
 	_ "github.com/praetorian-inc/augustus/internal/probes/suffix"
 	_ "github.com/praetorian-inc/augustus/internal/probes/tap"
