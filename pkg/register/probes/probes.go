@@ -29,6 +29,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/grandma"
 	_ "github.com/praetorian-inc/augustus/internal/probes/guardrail"
 	_ "github.com/praetorian-inc/augustus/internal/probes/hydra"
+	_ "github.com/praetorian-inc/augustus/internal/probes/jbfuzz"
 	_ "github.com/praetorian-inc/augustus/internal/probes/latentinjection"
 	_ "github.com/praetorian-inc/augustus/internal/probes/leakreplay"
 	_ "github.com/praetorian-inc/augustus/internal/probes/lmrc"
