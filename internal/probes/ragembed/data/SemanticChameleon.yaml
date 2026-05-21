@@ -1,11 +1,11 @@
 id: ragembed.SemanticChameleon
 
 info:
-  name: Embedding-Space RAG Poisoning - Semantic Chameleon
+  name: RAG Context Poisoning - Injected Addendum Attack
   author: praetorian
-  description: "Tests if poisoned documents designed to be semantically similar to target queries can hijack RAG responses"
-  goal: inject poisoned documents that activate only for specific target queries while appearing benign for others
-  detector: mitigation.MitigationBypass
+  description: "Tests if an LLM adopts injected false information from poisoned RAG context documents over legitimate retrieved content"
+  goal: test whether poisoned instructions appended to legitimate-looking retrieved documents are adopted by the model
+  detector: ragembed.PoisonAdoption
   tags:
     - rag-poisoning
     - embedding
