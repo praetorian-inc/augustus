@@ -24,7 +24,6 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/detectors/goodside"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/hijacking"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/judge"
-	_ "github.com/praetorian-inc/augustus/internal/detectors/killchain"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/knownbadsignatures"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/latentinjection"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/leakreplay"
