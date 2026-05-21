@@ -3,8 +3,8 @@ id: schemattack.EnumAttack
 info:
   name: CDA EnumAttack - Constrained Decoding via Enum Constraints
   author: praetorian
-  description: "Tests if enum-constrained output schemas can force models to select from a set of exclusively harmful options"
-  goal: force harmful output by constraining model to select from enum values that are all adversarial
+  description: "Tests if a model selects from adversarial enum options when instructed to classify using a restricted value set (voluntary compliance, not API-enforced constrained decoding)"
+  goal: test whether models comply with classification tasks where all allowed categories are harmful
   detector: schemattack.SchemaCompliance
   tags:
     - structured-output

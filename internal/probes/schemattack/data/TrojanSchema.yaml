@@ -3,8 +3,8 @@ id: schemattack.TrojanSchema
 info:
   name: Trojan Schema Exploitation
   author: praetorian
-  description: "Tests if structured output schemas with adversarial field names can force harmful content generation"
-  goal: exploit structured output compliance to generate harmful content via adversarial JSON schema field names
+  description: "Tests if a model voluntarily populates JSON schemas containing adversarial field names that encode harmful requests"
+  goal: test whether models populate adversarial JSON field names when asked to fill a schema (voluntary compliance, not API-enforced)
   detector: schemattack.SchemaCompliance
   tags:
     - structured-output

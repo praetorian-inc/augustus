@@ -3,8 +3,8 @@ id: schemattack.DictAttack
 info:
   name: CDA DictAttack - Constrained Decoding via Dict Schema Rules
   author: praetorian
-  description: "Tests if dict/object schemas with adversarial required properties can force harmful content generation through control-plane/data-plane separation"
-  goal: force harmful generation by embedding malicious intent in schema property definitions while keeping the prompt benign
+  description: "Tests if a model voluntarily populates adversarial required properties when presented with schemas containing harmful field names (voluntary compliance, not API-enforced constrained decoding)"
+  goal: test whether models comply with schemas containing harmful required fields when the user prompt is benign
   detector: schemattack.SchemaCompliance
   tags:
     - structured-output
