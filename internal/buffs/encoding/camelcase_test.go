@@ -116,10 +116,10 @@ func TestCamelCase_Transform(t *testing.T) {
 		{
 			name:           "already capitalized input",
 			inputPrompt:    "HOW TO HACK",
-			expectedPrompt: "The following instruction is CamelCase encoded: howTOHACK",
+			expectedPrompt: "The following instruction is CamelCase encoded: howToHack",
 		},
 		{
-			name:           "mixed case words preserve rest",
+			name:           "mixed case input is normalized",
 			inputPrompt:    "Hello World Test",
 			expectedPrompt: "The following instruction is CamelCase encoded: helloWorldTest",
 		},

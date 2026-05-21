@@ -8,7 +8,7 @@ import (
 
 // CamelCase encodes the input string using camelCase word joining.
 // The first word is lowercased entirely, and each subsequent word has its
-// first letter capitalized with the rest unchanged. All words are joined
+// first letter capitalized and the rest lowercased. All words are joined
 // with no separator.
 func CamelCase(s string) string {
 	words := strings.Fields(s)
@@ -17,14 +17,12 @@ func CamelCase(s string) string {
 	}
 
 	var b strings.Builder
-	// First word: lowercase entirely
 	b.WriteString(strings.ToLower(words[0]))
 
-	// Subsequent words: capitalize first rune, rest unchanged
 	for _, w := range words[1:] {
 		r, size := utf8.DecodeRuneInString(w)
 		b.WriteRune(unicode.ToUpper(r))
-		b.WriteString(w[size:])
+		b.WriteString(strings.ToLower(w[size:]))
 	}
 
 	return b.String()
