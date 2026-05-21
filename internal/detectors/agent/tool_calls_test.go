@@ -37,9 +37,12 @@ func TestParseToolCall_StringArgs(t *testing.T) {
 }
 
 // TestParseToolCall_MalformedStringArgs verifies that when the "args" field is
-// an invalid JSON string, parseToolCall does NOT panic and preserves the raw
-// string under the "_raw_args" sentinel key so that downstream detectors can
-// still run their regex chains against the payload (Gemini #2 fix).
+// an invalid JSON string, parseToolCall does NOT panic and returns an empty
+// args map — consistent with the normalizer in attackengine/toolcalls.go which
+// stores _raw_args at the entry level (not inside the args map). An empty map
+// is the correct sentinel shape: valueForbidden in ArgumentExfiltration
+// serializes the args map, and {} won't match any forbidden patterns, which is
+// correct behavior for truly malformed args that couldn't be parsed as JSON.
 func TestParseToolCall_MalformedStringArgs(t *testing.T) {
 	const raw = "{not valid"
 	tcMap := map[string]any{
@@ -52,16 +55,19 @@ func TestParseToolCall_MalformedStringArgs(t *testing.T) {
 	if tc.Name != "g" {
 		t.Errorf("Name = %q, want %q", tc.Name, "g")
 	}
-	// Malformed JSON string: Args must be a non-nil map containing the raw
-	// payload under the "_raw_args" sentinel key so downstream detectors can
-	// still run their regex chains against the payload.
+	// Malformed JSON string: Args must be a non-nil empty map — consistent with
+	// the normalizer convention in attackengine/toolcalls.go. The _raw_args
+	// sentinel is NOT placed inside Args (it sits at the entry level in the
+	// normalizer). An empty map produces "{}" when JSON-marshaled, which matches
+	// no forbidden patterns in ArgumentExfiltration.valueForbidden.
 	if tc.Args == nil {
-		t.Fatal("Args = nil; want non-nil map with _raw_args sentinel for malformed JSON string")
+		t.Fatal("Args = nil; want non-nil empty map for malformed JSON string")
 	}
-	if got, ok := tc.Args["_raw_args"]; !ok {
-		t.Error("Args missing _raw_args key for malformed JSON string")
-	} else if got != raw {
-		t.Errorf("Args[\"_raw_args\"] = %v, want %q", got, raw)
+	if len(tc.Args) != 0 {
+		t.Errorf("Args = %v, want empty map for malformed JSON string", tc.Args)
+	}
+	if _, ok := tc.Args["_raw_args"]; ok {
+		t.Error("Args must NOT contain _raw_args key: normalizer convention places it at entry level, not inside Args")
 	}
 }
 

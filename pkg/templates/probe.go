@@ -49,6 +49,11 @@ func (t *TemplateProbe) GetPrompts() []string {
 	return t.template.Prompts
 }
 
+// GetMode returns the deployment surfaces this probe targets.
+func (t *TemplateProbe) GetMode() []string {
+	return t.template.Info.Mode
+}
+
 // GetDetectorConfig returns per-probe detector configuration overrides.
 // Returns nil when the template has no detector_config block.
 func (t *TemplateProbe) GetDetectorConfig() map[string]any {

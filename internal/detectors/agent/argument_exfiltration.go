@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
@@ -134,6 +136,12 @@ type ArgumentExfiltrationDetector struct {
 	// Mirrors the agent.FakeToolCallText pattern in fake_tool_call_text.go.
 	// Default true.
 	textFallback bool
+	// textFallbackWarnOnce gates the one-time operator warning emitted when
+	// Detect falls back to text scanning because no structured tool calls were found.
+	textFallbackWarnOnce sync.Once
+	// scopedToolsWarnOnce gates the one-time operator warning emitted when
+	// scoped_tools is configured but the text-fallback path is taken.
+	scopedToolsWarnOnce sync.Once
 }
 
 // NewArgumentExfiltration creates a new ArgumentExfiltrationDetector from configuration.
@@ -224,6 +232,14 @@ func (d *ArgumentExfiltrationDetector) Detect(ctx context.Context, a *attempt.At
 	toolCalls := extractToolCalls(a)
 	if len(toolCalls) == 0 {
 		if d.textFallback {
+			d.textFallbackWarnOnce.Do(func() {
+				slog.Warn("agent.ArgumentExfiltration: no structured tool calls found, falling back to text pattern matching — detection quality may be reduced", "probe", a.Probe)
+			})
+			if len(d.scopedTools) > 0 {
+				d.scopedToolsWarnOnce.Do(func() {
+					slog.Warn("agent.ArgumentExfiltration: scoped_tools config is ignored in text-fallback mode (no structured tool calls found)", "scoped_tools", d.scopedTools, "probe", a.Probe)
+				})
+			}
 			return d.scoreFromText(a), nil
 		}
 		return scores, nil

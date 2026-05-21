@@ -95,11 +95,15 @@ func parseToolCall(tcMap map[string]any) ToolCall {
 		if err := json.Unmarshal([]byte(v), &parsed); err == nil {
 			tc.Args = parsed
 		} else {
-			// Malformed JSON: preserve the raw string under the "_raw_args"
-			// sentinel so detector regex chains (e.g.
-			// ArgumentExfiltration.valueForbidden) can still inspect the
-			// payload via JSON serialization of the args map.
-			tc.Args = map[string]any{"_raw_args": v}
+			// Malformed JSON: store an empty args map for a consistent shape.
+			// The raw string is NOT placed inside Args — this matches the
+			// normalizer convention in attackengine/toolcalls.go where
+			// _raw_args sits alongside (not inside) the args map at the entry
+			// level. valueForbidden in ArgumentExfiltration serializes the
+			// args map; an empty map won't match any patterns, which is the
+			// correct behavior for truly malformed args that couldn't be
+			// parsed as JSON.
+			tc.Args = map[string]any{}
 		}
 	}
 

@@ -1776,3 +1776,110 @@ prompts:
 		}
 	})
 }
+
+// TestCreateDetectors_ToolManipulationAutoDiscoveredWithoutConfig verifies Fix H3:
+// when agent.ToolManipulation is auto-discovered from a probe's primary detector
+// metadata and no expected_tools/forbidden_tools are configured, createDetectors
+// returns an error with a descriptive message rather than silently always scoring 0.0.
+func TestCreateDetectors_ToolManipulationAutoDiscoveredWithoutConfig(t *testing.T) {
+	// Probe whose primary detector is agent.ToolManipulation (auto-discovery path).
+	const probeYAML = `
+id: test.ToolManipNoConfig
+info:
+  name: ToolManip No Config
+  author: test
+  description: Uses ToolManipulation with no expected/forbidden tools config
+  goal: test
+  detector: agent.ToolManipulation
+  severity: high
+prompts:
+  - "Use any tool you want."
+`
+	probe := newTemplateProbeFromYAML(t, probeYAML)
+
+	// Pass nil detectorNames so createDetectors takes the auto-discovery path.
+	// No yamlCfg, so agent.ToolManipulation gets an empty config.
+	_, err := createDetectors(nil, []probes.Prober{probe}, nil)
+	require.Error(t, err, "auto-discovered agent.ToolManipulation without config should return error")
+	assert.Contains(t, err.Error(), "agent.ToolManipulation",
+		"error should name the detector")
+	assert.Contains(t, err.Error(), "expected_tools",
+		"error should mention expected_tools")
+	assert.Contains(t, err.Error(), "forbidden_tools",
+		"error should mention forbidden_tools")
+}
+
+// TestCreateDetectors_ToolManipulationExplicitNoConfig verifies that explicit
+// operator invocation of agent.ToolManipulation (via --detector flag) does NOT
+// trigger the H3 validation — the operator knows what they are doing.
+func TestCreateDetectors_ToolManipulationExplicitNoConfig(t *testing.T) {
+	// Explicit detector name path — validation must be skipped.
+	detectorList, err := createDetectors([]string{"agent.ToolManipulation"}, nil, nil)
+	require.NoError(t, err, "explicit agent.ToolManipulation without config must not error")
+	require.Len(t, detectorList, 1)
+	assert.Equal(t, "agent.ToolManipulation", detectorList[0].Name())
+}
+
+// TestHasConfigList verifies that hasConfigList correctly identifies non-empty
+// list-valued config entries. This is the load-time guard used by createDetectors
+// to validate that agent.ToolManipulation has at least one list configured before
+// silently scoring 0.0 on every attempt.
+func TestHasConfigList(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  registry.Config
+		key  string
+		want bool
+	}{
+		{
+			name: "[]string non-empty returns true",
+			cfg:  registry.Config{"k": []string{"a"}},
+			key:  "k",
+			want: true,
+		},
+		{
+			name: "[]any non-empty returns true",
+			cfg:  registry.Config{"k": []any{"b"}},
+			key:  "k",
+			want: true,
+		},
+		{
+			name: "non-empty string returns true",
+			cfg:  registry.Config{"k": "c"},
+			key:  "k",
+			want: true,
+		},
+		{
+			name: "nil value returns false",
+			cfg:  registry.Config{"k": nil},
+			key:  "k",
+			want: false,
+		},
+		{
+			name: "empty []any returns false",
+			cfg:  registry.Config{"k": []any{}},
+			key:  "k",
+			want: false,
+		},
+		{
+			name: "empty string returns false",
+			cfg:  registry.Config{"k": ""},
+			key:  "k",
+			want: false,
+		},
+		{
+			name: "missing key returns false",
+			cfg:  registry.Config{},
+			key:  "k",
+			want: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := hasConfigList(tt.cfg, tt.key)
+			if got != tt.want {
+				t.Errorf("hasConfigList(%v, %q) = %v, want %v", tt.cfg, tt.key, got, tt.want)
+			}
+		})
+	}
+}

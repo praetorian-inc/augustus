@@ -358,6 +358,19 @@ func createDetectors(detectorNames []string, probeList []probes.Prober, yamlCfg 
 			if err != nil {
 				return nil, fmt.Errorf("failed to create detector %s: %w", detectorName, err)
 			}
+
+			// Validate ToolManipulation has required config when auto-discovered from probes.
+			// Without expected_tools or forbidden_tools the detector always scores 0.0.
+			if detectorName == "agent.ToolManipulation" {
+				if !hasConfigList(detCfg, "expected_tools") && !hasConfigList(detCfg, "forbidden_tools") {
+					return nil, fmt.Errorf(
+						"detector agent.ToolManipulation requires expected_tools or forbidden_tools in config — "+
+							"probes using this detector will always score 0.0 without configuration. "+
+							"Set via --config-file YAML or --detector-config flag",
+					)
+				}
+			}
+
 			detectorList = append(detectorList, detector)
 		}
 		if len(detectorList) == 0 {
@@ -489,6 +502,26 @@ func mergeCfgs(base, override map[string]any) registry.Config {
 		merged[k] = v
 	}
 	return merged
+}
+
+// hasConfigList returns true when cfg[key] is a non-empty string or non-empty
+// slice ([]string or []any). Used for load-time validation of detectors that
+// require at least one list-valued config key (e.g. expected_tools/forbidden_tools).
+func hasConfigList(cfg registry.Config, key string) bool {
+	v, ok := cfg[key]
+	if !ok {
+		return false
+	}
+	switch list := v.(type) {
+	case []string:
+		return len(list) > 0
+	case []any:
+		return len(list) > 0
+	case string:
+		return list != ""
+	default:
+		return false
+	}
 }
 
 // createAndApplyBuffs creates buff instances and applies them to probes.

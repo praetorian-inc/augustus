@@ -1,6 +1,8 @@
 package templates
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -319,4 +321,103 @@ prompts:
 	patterns, ok := sec.Config["forbidden_patterns"]
 	require.True(t, ok, "expected forbidden_patterns in secondary config")
 	assert.Equal(t, []any{"(?i)telemetry\\.example\\.com"}, patterns)
+}
+
+// TestProbeInfo_Mode_Parsed verifies that the mode field is decoded from YAML
+// into ProbeInfo.Mode and that GetMode() returns the same slice.
+func TestProbeInfo_Mode_Parsed(t *testing.T) {
+	const yamlData = `
+id: test.ModeProbe
+info:
+  name: Mode Probe
+  author: test
+  description: test
+  goal: test
+  detector: agent.ToolManipulation
+  severity: high
+  mode: [native, chat]
+prompts:
+  - "Hello."
+`
+	var tmpl ProbeTemplate
+	require.NoError(t, yaml.Unmarshal([]byte(yamlData), &tmpl))
+	assert.Equal(t, []string{"native", "chat"}, tmpl.Info.Mode)
+
+	probe := NewTemplateProbe(&tmpl)
+	assert.Equal(t, []string{"native", "chat"}, probe.GetMode())
+}
+
+// TestProbeInfo_Mode_Absent verifies that a template without a mode field
+// produces a nil/empty Mode slice.
+func TestProbeInfo_Mode_Absent(t *testing.T) {
+	const yamlData = `
+id: test.NoMode
+info:
+  name: No Mode
+  author: test
+  description: test
+  goal: test
+  detector: agent.ToolManipulation
+  severity: high
+prompts:
+  - "Hello."
+`
+	var tmpl ProbeTemplate
+	require.NoError(t, yaml.Unmarshal([]byte(yamlData), &tmpl))
+	assert.Empty(t, tmpl.Info.Mode)
+
+	probe := NewTemplateProbe(&tmpl)
+	assert.Empty(t, probe.GetMode())
+}
+
+// TestProbeTemplate_Validate_RejectsInvalidMode verifies that Validate()
+// returns an error when mode contains an unrecognized value.
+func TestProbeTemplate_Validate_RejectsInvalidMode(t *testing.T) {
+	const yamlData = `
+id: test.BadMode
+info:
+  name: Bad Mode
+  author: test
+  description: test
+  goal: test
+  detector: agent.ToolManipulation
+  severity: high
+  mode: [invalid]
+prompts:
+  - "Hello."
+`
+	var tmpl ProbeTemplate
+	require.NoError(t, yaml.Unmarshal([]byte(yamlData), &tmpl))
+	err := tmpl.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid mode")
+	assert.Contains(t, err.Error(), "invalid")
+}
+
+// TestToolUseProbes_ParseWithMode verifies that all 14 existing probe YAML
+// files in internal/probes/tooluse/data/ parse successfully with the new
+// Mode field — none should fail validation due to the Mode addition.
+func TestToolUseProbes_ParseWithMode(t *testing.T) {
+	dataDir := filepath.Join("..", "..", "internal", "probes", "tooluse", "data")
+	entries, err := os.ReadDir(dataDir)
+	require.NoError(t, err, "tooluse data directory must exist")
+
+	var yamlFiles []string
+	for _, e := range entries {
+		if !e.IsDir() && filepath.Ext(e.Name()) == ".yaml" {
+			yamlFiles = append(yamlFiles, e.Name())
+		}
+	}
+	require.NotEmpty(t, yamlFiles, "expected YAML probe files in tooluse/data/")
+
+	for _, name := range yamlFiles {
+		t.Run(name, func(t *testing.T) {
+			data, err := os.ReadFile(filepath.Join(dataDir, name))
+			require.NoError(t, err)
+
+			var tmpl ProbeTemplate
+			require.NoError(t, yaml.Unmarshal(data, &tmpl), "YAML parse failed")
+			require.NoError(t, tmpl.Validate(), "template validation failed")
+		})
+	}
 }

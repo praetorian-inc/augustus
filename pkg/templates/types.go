@@ -76,6 +76,13 @@ func (t *ProbeTemplate) Validate() error {
 			return fmt.Errorf("template validation failed: prompt %d is empty for template '%s'", i+1, t.ID)
 		}
 	}
+	// Validate mode values if present.
+	validModes := map[string]bool{"native": true, "chat": true, "agent_loop": true}
+	for _, m := range t.Info.Mode {
+		if !validModes[m] {
+			return fmt.Errorf("template validation failed: invalid mode '%s' for template '%s' (valid: native, chat, agent_loop)", m, t.ID)
+		}
+	}
 	// Validate secondary_detectors entries.
 	primary := strings.TrimSpace(t.Info.Detector)
 	seen := make(map[string]bool, len(t.Info.SecondaryDetectors))
@@ -130,6 +137,11 @@ type ProbeInfo struct {
 
 	// Author identifies who created the template
 	Author string `yaml:"author"`
+
+	// Mode declares which deployment surfaces this probe targets.
+	// Valid values: "native" (structured tool calls), "chat" (text-only),
+	// "agent_loop" (multi-turn with tool execution).
+	Mode []string `yaml:"mode,omitempty"`
 
 	// Description explains what the probe does
 	Description string `yaml:"description"`

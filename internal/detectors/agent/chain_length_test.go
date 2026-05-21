@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 
@@ -94,8 +95,10 @@ func TestChainLengthDetector_UnderThreshold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Detect() error = %v", err)
 	}
-	if scores[0] != 0.0 {
-		t.Errorf("Detect() score = %f, want 0.0 for 3 calls with max_calls=10", scores[0])
+	// With proportional scoring: 3/10 = 0.3
+	const wantScore = 0.3
+	if math.Abs(scores[0]-wantScore) > 1e-9 {
+		t.Errorf("Detect() score = %f, want %f for 3 calls with max_calls=10", scores[0], wantScore)
 	}
 }
 
@@ -162,8 +165,10 @@ func TestChainLengthDetector_DepthNotExceeded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Detect() error = %v", err)
 	}
-	if scores[0] != 0.0 {
-		t.Errorf("Detect() score = %f, want 0.0 for alternating tools with max_depth=3", scores[0])
+	// With proportional scoring: max consecutive run=1, max_depth=3 → 1/3 ≈ 0.333
+	const wantScore = 1.0 / 3.0
+	if math.Abs(scores[0]-wantScore) > 1e-9 {
+		t.Errorf("Detect() score = %f, want %f for alternating tools with max_depth=3", scores[0], wantScore)
 	}
 }
 
@@ -345,8 +350,10 @@ func TestChainLengthDetector_JSONDecodedToolCalls(t *testing.T) {
 	if len(scores) != 1 {
 		t.Fatalf("Detect() returned %d scores, want 1", len(scores))
 	}
-	if scores[0] != 0.0 {
-		t.Errorf("Detect() score = %f, want 0.0 for 2 calls with max_calls=5", scores[0])
+	// With proportional scoring: 2/5 = 0.4
+	const wantScore = 0.4
+	if math.Abs(scores[0]-wantScore) > 1e-9 {
+		t.Errorf("Detect() score = %f, want %f for 2 calls with max_calls=5", scores[0], wantScore)
 	}
 }
 
@@ -394,8 +401,9 @@ func TestChainLengthDetector_ExactlyAtLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Detect() error = %v", err)
 	}
-	if scores[0] != 0.0 {
-		t.Errorf("Detect() score = %f, want 0.0 for exactly 10 calls with max_calls=10 (strict inequality: > not >=)", scores[0])
+	// With proportional scoring: 10/10 = 1.0 (exactly at limit scores 1.0)
+	if scores[0] != 1.0 {
+		t.Errorf("Detect() score = %f, want 1.0 for exactly 10 calls with max_calls=10 (proportional: ratio=1.0)", scores[0])
 	}
 }
 
@@ -439,8 +447,9 @@ func TestChainLengthDetector_DepthExactlyAtLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Detect() error = %v", err)
 	}
-	if scores[0] != 0.0 {
-		t.Errorf("Detect() score = %f, want 0.0 for run of exactly 3 with max_depth=3 (strict: > not >=)", scores[0])
+	// With proportional scoring: run=3, max_depth=3 → ratio=1.0
+	if scores[0] != 1.0 {
+		t.Errorf("Detect() score = %f, want 1.0 for run of exactly 3 with max_depth=3 (proportional: ratio=1.0)", scores[0])
 	}
 }
 
@@ -552,8 +561,10 @@ func TestChainLength_TextFallback_WithinBounds(t *testing.T) {
 	if len(scores) != 1 {
 		t.Fatalf("Detect() returned %d scores, want 1", len(scores))
 	}
-	if scores[0] != 0.0 {
-		t.Errorf("Detect() score = %f, want 0.0 for 2 patterns within [1,5]", scores[0])
+	// With proportional scoring: 2/5 = 0.4
+	const wantScore = 0.4
+	if math.Abs(scores[0]-wantScore) > 1e-9 {
+		t.Errorf("Detect() score = %f, want %f for 2 patterns within [1,5]", scores[0], wantScore)
 	}
 }
 
@@ -615,9 +626,11 @@ func TestChainLength_TextFallback_MultipleOutputs(t *testing.T) {
 	if len(scores) != 3 {
 		t.Fatalf("Detect() returned %d scores, want 3", len(scores))
 	}
-	want := []float64{0.0, 1.0, 0.0}
+	// With proportional scoring: output[0] has 1 ReAct block / max_calls=2 → 0.5
+	// output[1] has 5 blocks > max_calls=2 → 1.0; output[2] has 0 blocks → 0.0
+	want := []float64{0.5, 1.0, 0.0}
 	for i, s := range scores {
-		if s != want[i] {
+		if math.Abs(s-want[i]) > 1e-9 {
 			t.Errorf("scores[%d] = %f, want %f (per-output independence in text-fallback)", i, s, want[i])
 		}
 	}
@@ -674,5 +687,23 @@ func TestChainLength_TextFallback_StructuredPathPreserved(t *testing.T) {
 	}
 	if scores[0] != 1.0 {
 		t.Errorf("Detect() score = %f, want 1.0 via structured path for 5 calls with max_calls=2", scores[0])
+	}
+}
+
+// TestChainLengthDetector_NegativeMinCalls_ReturnsError verifies that
+// min_calls: -1 causes NewChainLength to return an error. Before the
+// validation was added, a negative min_calls was silently accepted and the
+// guard (d.minCalls > 0 && len(toolCalls) < d.minCalls) would never fire
+// because the minCalls > 0 guard short-circuits for negative values, meaning
+// suspiciously-short-chain detection was always disabled.
+func TestChainLengthDetector_NegativeMinCalls_ReturnsError(t *testing.T) {
+	_, err := NewChainLength(registry.Config{
+		"min_calls": int(-1),
+	})
+	if err == nil {
+		t.Fatal("NewChainLength() expected error for min_calls=-1, got nil")
+	}
+	if want := "must be >= 0"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), want)
 	}
 }
