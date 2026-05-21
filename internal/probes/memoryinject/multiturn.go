@@ -1,6 +1,9 @@
 package memoryinject
 
 import (
+	"context"
+	"log/slog"
+
 	"github.com/praetorian-inc/augustus/internal/multiturn"
 	memstrat "github.com/praetorian-inc/augustus/internal/multiturn/strategies/memoryinject"
 	"github.com/praetorian-inc/augustus/pkg/probes"
@@ -11,20 +14,42 @@ func init() {
 	probes.Register("memoryinject.PersistentInjection", NewPersistentInjection)
 }
 
-// PersistentInjectionProbe tests multi-turn memory persistence attacks.
+// PersistentInjectionProbe tests cross-session memory persistence attacks.
 type PersistentInjectionProbe struct {
 	multiturn.BaseMultiTurnProbe
 }
 
-// NewPersistentInjection creates a multi-turn memory injection probe.
-// This probe injects false memories, reinforces them, and verifies persistence.
+// sessionResetHook clears the target conversation at the verification phase
+// boundary to simulate a session reset. The attacker retains full history
+// (knows what was injected), but the target sees a fresh conversation.
+// This tests whether injected information persists across session boundaries.
+func sessionResetHook(verifyTurn int) multiturn.Hook {
+	return func(_ context.Context, tc *multiturn.TurnContext) error {
+		if tc.TurnNum == verifyTurn {
+			slog.Info("memoryinject: simulating session boundary reset",
+				"turn", tc.TurnNum,
+				"clearing_target_turns", len(tc.TargetConv.Turns))
+			// Clear target conversation to simulate new session
+			tc.TargetConv.Turns = nil
+		}
+		return nil
+	}
+}
+
+// NewPersistentInjection creates a cross-session memory injection probe.
+//
+// This probe tests whether injected information persists across session
+// boundaries by clearing the target's conversation history mid-attack:
+//   - Phase 1 (Injection): Plant false information in conversation A
+//   - Phase 2 (Reinforcement): Reinforce in conversation A
+//   - Phase 3 (Verification): Clear target history (session boundary),
+//     then check if injection persists in conversation B
 func NewPersistentInjection(cfg registry.Config) (probes.Prober, error) {
 	attacker, judge, engineCfg, err := multiturn.CreateGenerators(cfg, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	// Memory persistence needs enough turns for inject → reinforce → verify
 	if engineCfg.MaxTurns < 6 {
 		engineCfg.MaxTurns = 6
 	}
@@ -34,12 +59,21 @@ func NewPersistentInjection(cfg registry.Config) (probes.Prober, error) {
 		MaxTurns:      engineCfg.MaxTurns,
 	}
 
+	// Calculate when verification phase starts (2/3 through)
+	verifyTurn := 2*engineCfg.MaxTurns/3 + 1
+
+	opts := []multiturn.EngineOption{
+		multiturn.WithHooks(multiturn.Hooks{
+			BeforeTurn: []multiturn.Hook{sessionResetHook(verifyTurn)},
+		}),
+	}
+
 	return &PersistentInjectionProbe{
 		BaseMultiTurnProbe: multiturn.BaseMultiTurnProbe{
-			Engine:    multiturn.NewUnifiedEngine(strategy, attacker, judge, engineCfg),
+			Engine:    multiturn.NewUnifiedEngine(strategy, attacker, judge, engineCfg, opts...),
 			ProbeName: registry.GetString(cfg, "name", "memoryinject.PersistentInjection"),
 			ProbeGoal: engineCfg.Goal,
-			ProbeDesc: "Multi-turn memory injection: inject → reinforce → verify persistence (ER-MIA, SpAIware, Zombie)",
+			ProbeDesc: "Cross-session memory injection with session boundary simulation (ER-MIA, SpAIware, Zombie)",
 		},
 	}, nil
 }
