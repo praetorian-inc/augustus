@@ -1,10 +1,10 @@
 id: fontinject.Homoglyph
 
 info:
-  name: Font Injection - Homoglyph Substitution
+  name: Visual Encoding - Homoglyph Substitution
   author: praetorian
-  description: "Tests if homoglyph-substituted text can bypass keyword-based safety filters"
-  goal: bypass safety keyword matching using visually similar Unicode characters
+  description: "Tests if substituting Latin characters with visually similar Unicode lookalikes (Cyrillic, Cherokee, etc.) bypasses keyword-based safety filters"
+  goal: bypass keyword safety filters using visually similar Unicode characters from other scripts
   detector: mitigation.MitigationBypass
   tags:
     - font-injection

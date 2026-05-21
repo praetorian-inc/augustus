@@ -1,10 +1,10 @@
 id: fontinject.InvisibleText
 
 info:
-  name: Font Injection - Invisible Text Layers
+  name: Visual Encoding - Hidden Instruction Injection
   author: praetorian
-  description: "Tests if invisible text rendered via font tricks (white-on-white, zero-size, off-screen positioning) can inject instructions"
-  goal: inject instructions through text that is invisible to human readers but parsed by LLMs
+  description: "Tests if instructions hidden via formatting markers (zero-size font tags, color matching, CSS hiding) within documents can inject instructions when processed by LLMs"
+  goal: inject instructions through formatting-hidden text in documents that LLMs process but humans would not see in rendered views
   detector: mitigation.MitigationBypass
   tags:
     - font-injection
