@@ -51,7 +51,7 @@ var mutations = []mutation{
 		return seed + " " + target
 	},
 	// Strategy 2: Role wrapping
-	func(seed, target string, _ *rand.Rand) string {
+	func(seed, target string, rng *rand.Rand) string {
 		roles := []string{
 			"security researcher",
 			"penetration tester",
