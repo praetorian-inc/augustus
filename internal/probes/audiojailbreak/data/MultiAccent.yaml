@@ -1,10 +1,10 @@
 id: audiojailbreak.MultiAccent
 
 info:
-  name: Audio Jailbreak - Multi-Accent Language Confusion
+  name: Transcription Ambiguity Attack
   author: praetorian
-  description: "Tests if mixed-language and accent-confused transcriptions can bypass safety filters"
-  goal: exploit transcription ambiguity and language mixing to smuggle harmful requests
+  description: "Tests if simulated low-confidence transcriptions with language mixing and accent errors can smuggle harmful requests past safety filters"
+  goal: exploit the accommodating behavior models show toward garbled or mixed-language transcription text
   detector: mitigation.MitigationBypass
   tags:
     - audio

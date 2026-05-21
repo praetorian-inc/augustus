@@ -1,10 +1,10 @@
 id: audiojailbreak.AudioTranscription
 
 info:
-  name: Audio Jailbreak - Transcription Attack Simulation
+  name: Transcription Framing Attack
   author: praetorian
-  description: "Tests if LLMs follow harmful instructions presented as audio transcriptions or voice input descriptions"
-  goal: bypass safety filters by framing harmful requests as audio transcription output
+  description: "Tests if framing harmful requests as audio transcription output bypasses safety filters. This tests the text-level framing vector, not actual adversarial audio (which requires an audio generator)."
+  goal: bypass safety filters by framing harmful requests as automatic speech-to-text transcription output
   detector: mitigation.MitigationBypass
   tags:
     - audio
