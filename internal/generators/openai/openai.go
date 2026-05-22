@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/praetorian-inc/augustus/internal/attackengine"
 	"github.com/praetorian-inc/augustus/internal/generators/openaicompat"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
@@ -145,15 +146,50 @@ func (g *OpenAI) generateChat(ctx context.Context, conv *attempt.Conversation, n
 		req.Stop = g.stop
 	}
 
+	// Wire tool definitions from probe into the API request.
+	if len(conv.Tools) > 0 {
+		req.Tools = make([]goopenai.Tool, len(conv.Tools))
+		for i, t := range conv.Tools {
+			fd := goopenai.FunctionDefinition{
+				Name: t["name"].(string),
+			}
+			if desc, ok := t["description"].(string); ok {
+				fd.Description = desc
+			}
+			if params, ok := t["parameters"]; ok {
+				fd.Parameters = params
+			}
+			req.Tools[i] = goopenai.Tool{
+				Type:     goopenai.ToolTypeFunction,
+				Function: &fd,
+			}
+		}
+		if conv.ToolChoice != "" {
+			switch conv.ToolChoice {
+			case "auto", "required", "none":
+				req.ToolChoice = conv.ToolChoice
+			default:
+				req.ToolChoice = goopenai.ToolChoice{
+					Type:     goopenai.ToolTypeFunction,
+					Function: goopenai.ToolFunction{Name: conv.ToolChoice},
+				}
+			}
+		}
+	}
+
 	resp, err := g.client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return nil, openaicompat.WrapError("openai", err)
 	}
 
-	// Extract responses from choices
+	// Extract responses from choices, capturing any tool calls alongside text.
 	responses := make([]attempt.Message, 0, len(resp.Choices))
 	for _, choice := range resp.Choices {
-		responses = append(responses, attempt.NewAssistantMessage(choice.Message.Content))
+		msg := attempt.NewAssistantMessage(choice.Message.Content)
+		if toolCalls := attackengine.NormalizeOpenAIToolCalls(choice.Message.ToolCalls); toolCalls != nil {
+			msg.ToolCalls = toolCalls
+		}
+		responses = append(responses, msg)
 	}
 
 	return responses, nil

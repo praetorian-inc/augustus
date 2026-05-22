@@ -37,9 +37,10 @@ var (
 // 3. Stores detector results in the attempt
 // 4. Marks the attempt as complete
 // 5. Calls the evaluator with all attempts
-type Probewise struct{
-	opts               *scanner.Options
-	onAttemptProcessed func(*attempt.Attempt)
+type Probewise struct {
+	opts                   *scanner.Options
+	onAttemptProcessed     func(*attempt.Attempt)
+	probeDetectorOverrides map[string][]detectors.Detector
 }
 
 // New creates a new probewise harness.
@@ -173,8 +174,16 @@ func (p *Probewise) Run(
 			a.Generator = gen.Name()
 		}
 
+		// Select detector list: per-probe override takes precedence when present.
+		activeDetectors := detectorList
+		if len(p.probeDetectorOverrides) > 0 {
+			if perProbe, ok := p.probeDetectorOverrides[a.Probe]; ok {
+				activeDetectors = perProbe
+			}
+		}
+
 		// Run detectors using shared logic (SkipOnError for partial results)
-		if err := harnesses.ApplyDetectors(evalCtx, a, detectorList, harnesses.SkipOnError); err != nil {
+		if err := harnesses.ApplyDetectors(evalCtx, a, activeDetectors, harnesses.SkipOnError); err != nil {
 			return err
 		}
 
@@ -208,6 +217,10 @@ func init() {
 		// Extract streaming callback if provided
 		if cb, ok := cfg["on_attempt_processed"].(func(*attempt.Attempt)); ok {
 			p.onAttemptProcessed = cb
+		}
+		// Extract per-probe detector overrides if provided
+		if overrides, ok := cfg["probe_detector_overrides"].(map[string][]detectors.Detector); ok {
+			p.probeDetectorOverrides = overrides
 		}
 		return p, nil
 	})
