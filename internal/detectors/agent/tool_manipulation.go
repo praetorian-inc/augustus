@@ -258,20 +258,25 @@ func (d *ToolManipulationDetector) scoreToolCalls(toolCalls []ToolCall) float64 
 	return 0.0
 }
 
-// isForbidden checks if a tool is in the forbidden list.
+// isForbidden checks if a tool is in the forbidden list (case-insensitive).
+// Using strings.EqualFold ensures that case variants such as "Execute_Shell"
+// are caught when "execute_shell" is listed, preventing structured-path bypass.
 func (d *ToolManipulationDetector) isForbidden(toolName string) bool {
 	for _, forbidden := range d.forbiddenTools {
-		if toolName == forbidden {
+		if strings.EqualFold(toolName, forbidden) {
 			return true
 		}
 	}
 	return false
 }
 
-// isExpected checks if a tool is in the expected list.
+// isExpected checks if a tool is in the expected list (case-insensitive).
+// Using strings.EqualFold ensures that case variants such as "Web_Search"
+// are recognised when "web_search" is listed, preventing false positives on
+// the structured scoring path.
 func (d *ToolManipulationDetector) isExpected(toolName string) bool {
 	for _, expected := range d.expectedTools {
-		if toolName == expected {
+		if strings.EqualFold(toolName, expected) {
 			return true
 		}
 	}

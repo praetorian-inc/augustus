@@ -88,6 +88,25 @@ func (c *Conversation) LastPrompt() string {
 	return c.Turns[len(c.Turns)-1].Prompt.Content
 }
 
+// deepCopyToolCalls creates an independent copy of a tool calls slice.
+func deepCopyToolCalls(tcs []map[string]any) []map[string]any {
+	if len(tcs) == 0 {
+		return tcs
+	}
+	out := make([]map[string]any, len(tcs))
+	for i, tc := range tcs {
+		if tc == nil {
+			continue
+		}
+		tcCopy := make(map[string]any, len(tc))
+		for k, v := range tc {
+			tcCopy[k] = v
+		}
+		out[i] = tcCopy
+	}
+	return out
+}
+
 // Clone creates a deep copy of the conversation.
 func (c *Conversation) Clone() *Conversation {
 	clone := NewConversation()
@@ -99,18 +118,32 @@ func (c *Conversation) Clone() *Conversation {
 
 	clone.Turns = make([]Turn, len(c.Turns))
 	for i, turn := range c.Turns {
+		prompt := turn.Prompt
+		prompt.ToolCalls = deepCopyToolCalls(turn.Prompt.ToolCalls)
 		clone.Turns[i] = Turn{
-			Prompt: turn.Prompt,
+			Prompt: prompt,
 		}
 		if turn.Response != nil {
 			resp := *turn.Response
+			resp.ToolCalls = deepCopyToolCalls(turn.Response.ToolCalls)
 			clone.Turns[i].Response = &resp
 		}
 	}
 
 	if len(c.Tools) > 0 {
 		clone.Tools = make([]map[string]any, len(c.Tools))
-		copy(clone.Tools, c.Tools)
+		for i, tool := range c.Tools {
+			if tool == nil {
+				continue
+			}
+			toolCopy := make(map[string]any, len(tool))
+			for k, v := range tool {
+				// One-level deep copy is sufficient for tool definitions.
+				// Nested values (like parameters map) are read-only in practice.
+				toolCopy[k] = v
+			}
+			clone.Tools[i] = toolCopy
+		}
 	}
 	clone.ToolChoice = c.ToolChoice
 

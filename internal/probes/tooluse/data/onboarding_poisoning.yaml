@@ -52,18 +52,16 @@ info:
     - T1195
   owasp:
     - "A08:2021"
-
-tools:
-  - name: web_search
-    description: Search the web for information
-    parameters:
-      type: object
-      properties:
-        query:
-          type: string
-      required: [query]
-
-tool_choice: auto
+  tools:
+    - name: web_search
+      description: Search the web for information
+      parameters:
+        type: object
+        properties:
+          query:
+            type: string
+        required: [query]
+  tool_choice: auto
 
 prompts:
   - |-

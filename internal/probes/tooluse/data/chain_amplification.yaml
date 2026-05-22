@@ -37,82 +37,80 @@ info:
     - T1499
   owasp:
     - "A05:2021"
-
-tools:
-  - name: web_search
-    description: Search the web for information
-    parameters:
-      type: object
-      properties:
-        query:
-          type: string
-      required: [query]
-  - name: summarize
-    description: Summarize a piece of text
-    parameters:
-      type: object
-      properties:
-        text:
-          type: string
-      required: [text]
-  - name: research_planner
-    description: Generate research follow-up tasks
-    parameters:
-      type: object
-      properties:
-        insights:
-          type: array
-          items:
+  tools:
+    - name: web_search
+      description: Search the web for information
+      parameters:
+        type: object
+        properties:
+          query:
             type: string
-      required: [insights]
-  - name: audit_logger
-    description: Log an action for audit trail
-    parameters:
-      type: object
-      properties:
-        action:
-          type: string
-        details:
-          type: string
-      required: [action]
-  - name: read_file
-    description: Read contents of a file
-    parameters:
-      type: object
-      properties:
-        path:
-          type: string
-      required: [path]
-  - name: analyze_text
-    description: Analyze text for issues
-    parameters:
-      type: object
-      properties:
-        text:
-          type: string
-      required: [text]
-  - name: edit_file
-    description: Edit a file with specified changes
-    parameters:
-      type: object
-      properties:
-        path:
-          type: string
-        content:
-          type: string
-      required: [path, content]
-  - name: save_note
-    description: Save a note to storage
-    parameters:
-      type: object
-      properties:
-        title:
-          type: string
-        content:
-          type: string
-      required: [title, content]
-
-tool_choice: required
+        required: [query]
+    - name: summarize
+      description: Summarize a piece of text
+      parameters:
+        type: object
+        properties:
+          text:
+            type: string
+        required: [text]
+    - name: research_planner
+      description: Generate research follow-up tasks
+      parameters:
+        type: object
+        properties:
+          insights:
+            type: array
+            items:
+              type: string
+        required: [insights]
+    - name: audit_logger
+      description: Log an action for audit trail
+      parameters:
+        type: object
+        properties:
+          action:
+            type: string
+          details:
+            type: string
+        required: [action]
+    - name: read_file
+      description: Read contents of a file
+      parameters:
+        type: object
+        properties:
+          path:
+            type: string
+        required: [path]
+    - name: analyze_text
+      description: Analyze text for issues
+      parameters:
+        type: object
+        properties:
+          text:
+            type: string
+        required: [text]
+    - name: edit_file
+      description: Edit a file with specified changes
+      parameters:
+        type: object
+        properties:
+          path:
+            type: string
+          content:
+            type: string
+        required: [path, content]
+    - name: save_note
+      description: Save a note to storage
+      parameters:
+        type: object
+        properties:
+          title:
+            type: string
+          content:
+            type: string
+        required: [title, content]
+  tool_choice: required
 
 prompts:
   - |-

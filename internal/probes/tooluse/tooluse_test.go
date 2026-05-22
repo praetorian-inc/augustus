@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/praetorian-inc/augustus/pkg/probes"
+	"github.com/praetorian-inc/augustus/pkg/templates"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -107,6 +108,34 @@ func TestProbeMetadata(t *testing.T) {
 			assert.Equal(t, wantDetector, md.GetPrimaryDetector(),
 				"probe %q should use detector %q", id, wantDetector)
 			assert.NotEmpty(t, md.GetPrompts(), "prompts should not be empty")
+		})
+	}
+}
+
+// TestProbeToolsNonNil verifies that all tool-use probes except ParserSpoofing
+// have non-nil, non-empty tools defined. This catches the silent-discard bug
+// where tools/tool_choice fields at the YAML top level are ignored by yaml.v3
+// because ProbeTemplate only maps id:, info:, and prompts:.
+func TestProbeToolsNonNil(t *testing.T) {
+	for _, id := range expectedProbes {
+		t.Run(id, func(t *testing.T) {
+			if id == "tool.ParserSpoofing" {
+				// ParserSpoofing deliberately has no tools (chat-mode text probe)
+				return
+			}
+
+			factory, ok := probes.Get(id)
+			require.True(t, ok)
+
+			probe, err := factory(nil)
+			require.NoError(t, err)
+
+			tp, ok := probe.(*templates.TemplateProbe)
+			require.True(t, ok, "probe %q must be a *templates.TemplateProbe", id)
+
+			tools := tp.GetTools()
+			assert.NotNil(t, tools, "probe %q: GetTools() must not return nil (tools: field is likely at YAML top level, not under info:)", id)
+			assert.Greater(t, len(tools), 0, "probe %q: GetTools() must return at least one tool definition", id)
 		})
 	}
 }

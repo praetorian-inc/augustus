@@ -170,23 +170,20 @@ func RunTwoTurnPrompts(
 		}
 		allToolCalls := collectToolCalls(turn1Responses)
 
-		// Check if Turn 1 produced tool calls that match a canned result.
-		var matchedCallID, matchedResult string
+		// Check if Turn 1 produced any tool calls that have a canned result.
+		// matchedResult is non-empty when at least one call name is in toolResults,
+		// which gates whether Turn 2 fires at all.
+		var matchedResult string
 		for _, tc := range allToolCalls {
 			name, _ := tc["name"].(string)
 			if result, ok := toolResults[name]; ok {
-				id, _ := tc["id"].(string)
-				if id == "" {
-					id = "call_" + name
-				}
-				matchedCallID = id
 				matchedResult = result
 				break
 			}
 		}
 
 		if matchedResult != "" {
-			// Turn 2: inject canned tool result, get follow-up.
+			// Turn 2: inject canned tool results, get follow-up.
 			// Add Turn 1 response to conversation history.
 			// turn1Responses[0] is safe: Generate is always called with n=1 (line 155),
 			// so exactly one response is returned on success.
@@ -196,9 +193,26 @@ func RunTwoTurnPrompts(
 				conv.Turns[lastTurnIdx].Response = &resp
 			}
 
-			// Add tool result as a new turn.
-			toolResultMsg := attempt.NewToolResultMessage(matchedCallID, matchedResult)
-			conv.AddTurn(attempt.Turn{Prompt: toolResultMsg})
+			// Inject a tool_result turn for EVERY tool call in allToolCalls.
+			// The Anthropic and OpenAI APIs require a result for each tool_use block
+			// returned in the assistant turn; omitting any causes HTTP 400.
+			// Calls with a canned result in toolResults get that result; all others
+			// get a generic stub so the conversation remains valid.
+			for _, tc := range allToolCalls {
+				callID, _ := tc["id"].(string)
+				callName, _ := tc["name"].(string)
+				if callID == "" {
+					callID = "call_" + callName
+				}
+
+				resultContent, ok := toolResults[callName]
+				if !ok {
+					resultContent = `{"status": "ok"}`
+				}
+
+				toolResultMsg := attempt.NewToolResultMessage(callID, resultContent)
+				conv.AddTurn(attempt.Turn{Prompt: toolResultMsg})
+			}
 
 			turn2Responses, err2 := gen.Generate(ctx, conv, 1)
 			if err2 != nil {

@@ -63,50 +63,48 @@ info:
     - T1550
   owasp:
     - "A01:2021"
-
-tools:
-  - name: github_read
-    description: Read file contents from a GitHub repository
-    parameters:
-      type: object
-      properties:
-        repo:
-          type: string
-        path:
-          type: string
-      required: [repo, path]
-  - name: slack_send
-    description: Send a message to a Slack channel
-    parameters:
-      type: object
-      properties:
-        channel:
-          type: string
-        message:
-          type: string
-      required: [channel, message]
-  - name: aws_s3_get
-    description: Get an object from S3
-    parameters:
-      type: object
-      properties:
-        bucket:
-          type: string
-        key:
-          type: string
-      required: [bucket, key]
-  - name: database_read
-    description: Read records from the database
-    parameters:
-      type: object
-      properties:
-        table:
-          type: string
-        account_id:
-          type: string
-      required: [table, account_id]
-
-tool_choice: auto
+  tools:
+    - name: github_read
+      description: Read file contents from a GitHub repository
+      parameters:
+        type: object
+        properties:
+          repo:
+            type: string
+          path:
+            type: string
+        required: [repo, path]
+    - name: slack_send
+      description: Send a message to a Slack channel
+      parameters:
+        type: object
+        properties:
+          channel:
+            type: string
+          message:
+            type: string
+        required: [channel, message]
+    - name: aws_s3_get
+      description: Get an object from S3
+      parameters:
+        type: object
+        properties:
+          bucket:
+            type: string
+          key:
+            type: string
+        required: [bucket, key]
+    - name: database_read
+      description: Read records from the database
+      parameters:
+        type: object
+        properties:
+          table:
+            type: string
+          account_id:
+            type: string
+        required: [table, account_id]
+  tool_choice: auto
 
 prompts:
   - |-

@@ -51,29 +51,27 @@ info:
     - T1059.006
   owasp:
     - "A01:2021"
-
-tools:
-  - name: web_search
-    description: Search the web for information
-    parameters:
-      type: object
-      properties:
-        query:
-          type: string
-      required: [query]
-  - name: file_read
-    description: Read contents of a file
-    parameters:
-      type: object
-      properties:
-        path:
-          type: string
-        mode:
-          type: string
-          description: Read mode (default "read")
-      required: [path]
-
-tool_choice: auto
+  tools:
+    - name: web_search
+      description: Search the web for information
+      parameters:
+        type: object
+        properties:
+          query:
+            type: string
+        required: [query]
+    - name: file_read
+      description: Read contents of a file
+      parameters:
+        type: object
+        properties:
+          path:
+            type: string
+          mode:
+            type: string
+            description: Read mode (default "read")
+        required: [path]
+  tool_choice: auto
 
 prompts:
   - |-

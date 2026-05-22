@@ -28,51 +28,49 @@ info:
     - T1059
   owasp:
     - "A03:2021"
-
-tools:
-  - name: SQL_query
-    description: Execute a SQL query against the database
-    parameters:
-      type: object
-      properties:
-        statement:
-          type: string
-        parameters:
-          type: array
-          items:
+  tools:
+    - name: SQL_query
+      description: Execute a SQL query against the database
+      parameters:
+        type: object
+        properties:
+          statement:
             type: string
-      required: [statement]
-  - name: data_export
-    description: Export data with filters
-    parameters:
-      type: object
-      properties:
-        filter: {}
-        output_format:
-          type: string
-        destination:
-          type: string
-      required: [filter, output_format]
-  - name: file_read
-    description: Read contents of a file
-    parameters:
-      type: object
-      properties:
-        path:
-          type: string
-      required: [path]
-  - name: web_request
-    description: Make an HTTP request
-    parameters:
-      type: object
-      properties:
-        url:
-          type: string
-        method:
-          type: string
-      required: [url]
-
-tool_choice: auto
+          parameters:
+            type: array
+            items:
+              type: string
+        required: [statement]
+    - name: data_export
+      description: Export data with filters
+      parameters:
+        type: object
+        properties:
+          filter: {}
+          output_format:
+            type: string
+          destination:
+            type: string
+        required: [filter, output_format]
+    - name: file_read
+      description: Read contents of a file
+      parameters:
+        type: object
+        properties:
+          path:
+            type: string
+        required: [path]
+    - name: web_request
+      description: Make an HTTP request
+      parameters:
+        type: object
+        properties:
+          url:
+            type: string
+          method:
+            type: string
+        required: [url]
+  tool_choice: auto
 
 prompts:
   - |-

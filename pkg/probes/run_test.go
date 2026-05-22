@@ -445,3 +445,130 @@ func TestRunTwoTurnPrompts_FallbackToolCallID(t *testing.T) {
 	require.Len(t, a.Outputs, 2, "Turn 2 must fire even when tool call id is empty (fallback id used)")
 	assert.Equal(t, "fallback id worked", a.Outputs[1])
 }
+
+// TestRunTwoTurnPrompts_MultipleToolCalls verifies that when Turn 1 returns two
+// tool calls, RunTwoTurnPrompts injects exactly one RoleTool turn per call:
+// the matched call (web_search, present in toolResults) gets its canned result
+// and the unmatched call (read_file, absent from toolResults) gets the generic stub.
+func TestRunTwoTurnPrompts_MultipleToolCalls(t *testing.T) {
+	_, probeName, detector, tools, toolChoice, _ := standardTwoTurnArgs()
+	prompts := []string{"test prompt"}
+	// toolResults only has web_search; read_file is unmatched.
+	toolResults := map[string]string{"web_search": "search result data"}
+
+	var turn2Conv *attempt.Conversation
+	callCount := 0
+	gen := &mockGen{
+		generateFunc: func(_ context.Context, conv *attempt.Conversation, _ int) ([]attempt.Message, error) {
+			callCount++
+			if callCount == 1 {
+				return []attempt.Message{
+					{
+						Role:    attempt.RoleAssistant,
+						Content: "",
+						ToolCalls: []map[string]any{
+							{"name": "web_search", "id": "call_ws", "args": map[string]any{"q": "test"}},
+							{"name": "read_file", "id": "call_rf", "args": map[string]any{"path": "/etc/passwd"}},
+						},
+					},
+				}, nil
+			}
+			turn2Conv = conv
+			return []attempt.Message{{Content: "got all tool results"}}, nil
+		},
+	}
+
+	attempts, err := probes.RunTwoTurnPrompts(context.Background(), gen, prompts, probeName, detector, tools, toolChoice, toolResults)
+
+	require.NoError(t, err)
+	require.Len(t, attempts, 1)
+
+	a := attempts[0]
+	assert.Equal(t, attempt.StatusComplete, a.Status)
+	require.Len(t, a.Outputs, 2, "Turn 2 must have fired: two outputs expected")
+	assert.Equal(t, "got all tool results", a.Outputs[1])
+
+	rawMeta, ok := a.Metadata[attempt.MetadataKeyToolCalls]
+	require.True(t, ok, "MetadataKeyToolCalls must be present after two tool calls")
+	metaSlice, ok := rawMeta.([]map[string]any)
+	require.True(t, ok, "tool_calls metadata must be []map[string]any")
+	assert.Len(t, metaSlice, 2, "MetadataKeyToolCalls must record both tool calls")
+
+	// Inspect the conversation presented to Turn 2 to verify one RoleTool turn per call.
+	require.NotNil(t, turn2Conv, "Turn 2 generate must have been called")
+	var roleToolTurns []attempt.Turn
+	for _, turn := range turn2Conv.Turns {
+		if turn.Prompt.Role == attempt.RoleTool {
+			roleToolTurns = append(roleToolTurns, turn)
+		}
+	}
+	assert.Len(t, roleToolTurns, 2, "turn2Conv must have exactly 2 RoleTool turns")
+
+	resultsByID := make(map[string]string)
+	for _, turn := range roleToolTurns {
+		resultsByID[turn.Prompt.ToolCallID] = turn.Prompt.Content
+	}
+	assert.Equal(t, "search result data", resultsByID["call_ws"], "matched call must get canned result")
+	assert.Equal(t, `{"status": "ok"}`, resultsByID["call_rf"], "unmatched call must get generic stub")
+}
+
+// TestRunTwoTurnPrompts_MultipleToolCalls_BothMatch verifies that when Turn 1
+// returns two tool calls and toolResults maps both names, each call receives
+// its own canned result rather than the generic stub.
+func TestRunTwoTurnPrompts_MultipleToolCalls_BothMatch(t *testing.T) {
+	_, probeName, detector, tools, toolChoice, _ := standardTwoTurnArgs()
+	prompts := []string{"test prompt"}
+	// Both tool calls have canned results.
+	toolResults := map[string]string{
+		"web_search": "search result data",
+		"read_file":  "file contents here",
+	}
+
+	var turn2Conv *attempt.Conversation
+	callCount := 0
+	gen := &mockGen{
+		generateFunc: func(_ context.Context, conv *attempt.Conversation, _ int) ([]attempt.Message, error) {
+			callCount++
+			if callCount == 1 {
+				return []attempt.Message{
+					{
+						Role:    attempt.RoleAssistant,
+						Content: "",
+						ToolCalls: []map[string]any{
+							{"name": "web_search", "id": "call_ws", "args": map[string]any{}},
+							{"name": "read_file", "id": "call_rf", "args": map[string]any{}},
+						},
+					},
+				}, nil
+			}
+			turn2Conv = conv
+			return []attempt.Message{{Content: "processed both tools"}}, nil
+		},
+	}
+
+	attempts, err := probes.RunTwoTurnPrompts(context.Background(), gen, prompts, probeName, detector, tools, toolChoice, toolResults)
+
+	require.NoError(t, err)
+	require.Len(t, attempts, 1)
+
+	a := attempts[0]
+	assert.Equal(t, attempt.StatusComplete, a.Status)
+	require.Len(t, a.Outputs, 2, "Turn 2 must have fired: two outputs expected")
+	assert.Equal(t, "processed both tools", a.Outputs[1])
+
+	require.NotNil(t, turn2Conv, "Turn 2 generate must have been called")
+	var roleToolTurns []attempt.Turn
+	for _, turn := range turn2Conv.Turns {
+		if turn.Prompt.Role == attempt.RoleTool {
+			roleToolTurns = append(roleToolTurns, turn)
+		}
+	}
+	assert.Len(t, roleToolTurns, 2, "turn2Conv must have exactly 2 RoleTool turns")
+
+	resultsByID := make(map[string]string)
+	for _, turn := range roleToolTurns {
+		resultsByID[turn.Prompt.ToolCallID] = turn.Prompt.Content
+	}
+	assert.Equal(t, "search result data", resultsByID["call_ws"])
+	assert.Equal(t, "file contents here", resultsByID["call_rf"])
+}

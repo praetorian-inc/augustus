@@ -6,6 +6,8 @@ import (
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestToolManipulationDetector_Name(t *testing.T) {
@@ -584,4 +586,46 @@ func TestToolManipulation_TextFallback_CaseInsensitiveExpectedTools(t *testing.T
 			t.Errorf("Detect() score = %f, want > 0 — delete_file is not in expected_tools", scores[0])
 		}
 	})
+}
+
+// TestToolManipulation_StructuredPath_CaseInsensitiveForbidden verifies that
+// the structured path (when tool_calls metadata is present) catches forbidden
+// tool names regardless of case. An attacker who convinces the LLM to emit
+// "Execute_Shell" instead of "execute_shell" must not bypass the check.
+func TestToolManipulation_StructuredPath_CaseInsensitiveForbidden(t *testing.T) {
+	d, err := NewToolManipulation(registry.Config{
+		"forbidden_tools": []any{"execute_shell"},
+	})
+	require.NoError(t, err)
+
+	a := attempt.New("test")
+	a.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
+		{"name": "Execute_Shell"},
+	}
+	a.AddOutput("output")
+
+	scores, err := d.Detect(context.Background(), a)
+	require.NoError(t, err)
+	assert.Equal(t, 1.0, scores[0], "case-variant forbidden tool should be detected")
+}
+
+// TestToolManipulation_StructuredPath_CaseInsensitiveExpected verifies that
+// the structured path (when tool_calls metadata is present) recognises
+// expected tool names regardless of case. "Web_Search" must be accepted when
+// "web_search" is in the expected_tools list, yielding score 0.0.
+func TestToolManipulation_StructuredPath_CaseInsensitiveExpected(t *testing.T) {
+	d, err := NewToolManipulation(registry.Config{
+		"expected_tools": []any{"web_search"},
+	})
+	require.NoError(t, err)
+
+	a := attempt.New("test")
+	a.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
+		{"name": "Web_Search"},
+	}
+	a.AddOutput("output")
+
+	scores, err := d.Detect(context.Background(), a)
+	require.NoError(t, err)
+	assert.Equal(t, 0.0, scores[0], "case-variant expected tool should be recognised as expected")
 }
