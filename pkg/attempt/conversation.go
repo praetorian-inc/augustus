@@ -30,6 +30,11 @@ type Conversation struct {
 	System *Message `json:"system,omitempty"`
 	// Turns contains the sequence of exchanges.
 	Turns []Turn `json:"turns"`
+	// Tools holds tool schemas for native function calling.
+	// Generators translate these to provider-specific wire formats.
+	Tools []map[string]any `json:"tools,omitempty"`
+	// ToolChoice controls tool selection behavior ("auto", "required", "none", or tool name).
+	ToolChoice string `json:"tool_choice,omitempty"`
 }
 
 // NewConversation creates an empty conversation.
@@ -102,6 +107,12 @@ func (c *Conversation) Clone() *Conversation {
 			clone.Turns[i].Response = &resp
 		}
 	}
+
+	if len(c.Tools) > 0 {
+		clone.Tools = make([]map[string]any, len(c.Tools))
+		copy(clone.Tools, c.Tools)
+	}
+	clone.ToolChoice = c.ToolChoice
 
 	return clone
 }

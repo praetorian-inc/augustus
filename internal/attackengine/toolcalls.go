@@ -31,6 +31,10 @@ func NormalizeOpenAIToolCalls(toolCalls []goopenai.ToolCall) []map[string]any {
 
 		entry := map[string]any{"name": name}
 
+		if tc.ID != "" {
+			entry["id"] = tc.ID
+		}
+
 		if tc.Function.Arguments != "" {
 			var args map[string]any
 			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err == nil {
@@ -96,6 +100,10 @@ func NormalizeAnthropicToolUseBlocks(blocks []AnthropicToolUseBlock) []map[strin
 		}
 
 		entry := map[string]any{"name": block.Name}
+
+		if block.ID != "" {
+			entry["id"] = block.ID
+		}
 
 		if len(block.Input) > 0 && string(block.Input) != "null" {
 			var args map[string]any

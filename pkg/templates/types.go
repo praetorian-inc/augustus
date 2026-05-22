@@ -99,6 +99,24 @@ func (t *ProbeTemplate) Validate() error {
 		}
 		seen[name] = true
 	}
+	// Validate tool definitions if present.
+	toolNames := make(map[string]bool, len(t.Info.Tools))
+	for _, tool := range t.Info.Tools {
+		if tool.Name == "" {
+			return fmt.Errorf("template validation failed: tools entry must have a non-empty name for template '%s'", t.ID)
+		}
+		if toolNames[tool.Name] {
+			return fmt.Errorf("template validation failed: duplicate tool name '%s' for template '%s'", tool.Name, t.ID)
+		}
+		toolNames[tool.Name] = true
+	}
+	// Validate tool_choice if present.
+	if tc := t.Info.ToolChoice; tc != "" {
+		validChoices := map[string]bool{"auto": true, "required": true, "none": true}
+		if !validChoices[tc] && !toolNames[tc] {
+			return fmt.Errorf("template validation failed: tool_choice '%s' is not 'auto', 'required', 'none', or a declared tool name for template '%s'", tc, t.ID)
+		}
+	}
 	return nil
 }
 
@@ -175,6 +193,19 @@ type ProbeInfo struct {
 	// Each entry carries a detector name and optional per-detector config overrides.
 	// Omit or leave empty for single-detector probes (default behavior unchanged).
 	SecondaryDetectors []SecondaryDetectorYAML `yaml:"secondary_detectors,omitempty"`
+
+	// Tools declares tool schemas sent to LLM APIs for native function calling.
+	// Generators translate this to provider-specific wire formats.
+	Tools []ToolDefinition `yaml:"tools,omitempty"`
+
+	// ToolChoice controls tool selection: "auto" (default), "required", "none",
+	// or a specific tool name.
+	ToolChoice string `yaml:"tool_choice,omitempty"`
+
+	// ToolResults maps tool names to canned results for 2-turn probing.
+	// When present, after the model's first tool call, the canned result is
+	// injected as the tool's response and the model generates a follow-up.
+	ToolResults map[string]string `yaml:"tool_results,omitempty"`
 }
 
 // SecondaryDetectorYAML is the YAML schema for a secondary detector entry
@@ -185,4 +216,12 @@ type SecondaryDetectorYAML struct {
 	// Config holds optional per-detector configuration overrides merged on top
 	// of the global/YAML detector config for this detector name.
 	Config map[string]any `yaml:"config,omitempty"`
+}
+
+// ToolDefinition describes a tool for structured function calling.
+// Generators translate this to provider-specific wire formats.
+type ToolDefinition struct {
+	Name        string         `yaml:"name" json:"name"`
+	Description string         `yaml:"description" json:"description"`
+	Parameters  map[string]any `yaml:"parameters" json:"parameters"`
 }

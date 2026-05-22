@@ -874,3 +874,152 @@ func TestNewOpenAIWithOptions(t *testing.T) {
 	assert.Equal(t, "gpt-4", g.model)
 	assert.Equal(t, 2048, g.maxTokens)
 }
+
+// ---------------------------------------------------------------------------
+// Group 3: OpenAI Generator Tool Wiring
+// ---------------------------------------------------------------------------
+
+func TestOpenAIGenerator_Generate_WithTools(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockOpenAIResponse("I will search", 1))
+	}))
+	defer server.Close()
+
+	g, err := NewOpenAI(registry.Config{
+		"model": "gpt-4", "api_key": "test-key", "base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Search for AI safety")
+	conv.Tools = []map[string]any{
+		{
+			"name":        "web_search",
+			"description": "Search the web",
+			"parameters":  map[string]any{"type": "object", "properties": map[string]any{"query": map[string]any{"type": "string"}}},
+		},
+	}
+	conv.ToolChoice = "required"
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	// Verify tools appear in request
+	tools, ok := receivedRequest["tools"].([]any)
+	require.True(t, ok, "request must contain tools array")
+	require.Len(t, tools, 1)
+
+	tool := tools[0].(map[string]any)
+	assert.Equal(t, "function", tool["type"])
+	fn := tool["function"].(map[string]any)
+	assert.Equal(t, "web_search", fn["name"])
+	assert.Equal(t, "Search the web", fn["description"])
+	assert.NotNil(t, fn["parameters"])
+
+	// Verify tool_choice
+	assert.Equal(t, "required", receivedRequest["tool_choice"])
+}
+
+func TestOpenAIGenerator_Generate_ToolChoiceByName(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockOpenAIResponse("Searching", 1))
+	}))
+	defer server.Close()
+
+	g, err := NewOpenAI(registry.Config{
+		"model": "gpt-4", "api_key": "test-key", "base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Search")
+	conv.Tools = []map[string]any{{"name": "web_search", "description": "Search"}}
+	conv.ToolChoice = "web_search" // specific tool name, not keyword
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	// Specific tool name produces structured tool_choice object
+	tc, ok := receivedRequest["tool_choice"].(map[string]any)
+	require.True(t, ok, "specific tool name should produce structured tool_choice")
+	assert.Equal(t, "function", tc["type"])
+	fn := tc["function"].(map[string]any)
+	assert.Equal(t, "web_search", fn["name"])
+}
+
+func TestOpenAIGenerator_Generate_NoToolsOmitted(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockOpenAIResponse("Hello", 1))
+	}))
+	defer server.Close()
+
+	g, err := NewOpenAI(registry.Config{
+		"model": "gpt-4", "api_key": "test-key", "base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Hello")
+	// No tools set
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	_, hasTools := receivedRequest["tools"]
+	assert.False(t, hasTools, "request should not contain tools when none set on conversation")
+}
+
+func TestOpenAIGenerator_Generate_ResponseToolCalls(t *testing.T) {
+	// Mock server returns a response with tool_calls
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]any{
+			"id": "chatcmpl-test", "object": "chat.completion",
+			"created": 1234567890, "model": "gpt-4",
+			"choices": []map[string]any{{
+				"index": 0,
+				"message": map[string]any{
+					"role":    "assistant",
+					"content": "",
+					"tool_calls": []map[string]any{{
+						"id":   "call_abc123",
+						"type": "function",
+						"function": map[string]any{
+							"name":      "web_search",
+							"arguments": `{"query":"AI safety"}`,
+						},
+					}},
+				},
+				"finish_reason": "tool_calls",
+			}},
+			"usage": map[string]any{"prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	g, err := NewOpenAI(registry.Config{
+		"model": "gpt-4", "api_key": "test-key", "base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Search for AI safety")
+	conv.Tools = []map[string]any{{"name": "web_search", "description": "Search"}}
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	require.Len(t, responses, 1)
+
+	require.NotNil(t, responses[0].ToolCalls, "response should carry tool calls")
+	require.Len(t, responses[0].ToolCalls, 1)
+	assert.Equal(t, "web_search", responses[0].ToolCalls[0]["name"])
+	assert.Equal(t, "call_abc123", responses[0].ToolCalls[0]["id"])
+	args := responses[0].ToolCalls[0]["args"].(map[string]any)
+	assert.Equal(t, "AI safety", args["query"])
+}

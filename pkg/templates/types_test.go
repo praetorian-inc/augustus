@@ -46,13 +46,13 @@ prompts:
 // Four cases are covered: scalar string list, nested map values, missing block, empty block.
 func TestProbeTemplateUnmarshal_DetectorConfig(t *testing.T) {
 	cases := []struct {
-		name           string
-		yamlData       string
-		wantNil        bool
-		wantEmpty      bool
-		wantPatterns   []any
-		wantNestedKey  string
-		wantNestedVal  any
+		name          string
+		yamlData      string
+		wantNil       bool
+		wantEmpty     bool
+		wantPatterns  []any
+		wantNestedKey string
+		wantNestedVal any
 	}{
 		{
 			name: "scalar string list",
@@ -392,6 +392,155 @@ prompts:
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid mode")
 	assert.Contains(t, err.Error(), "invalid")
+}
+
+// TestProbeTemplate_Validate_RejectsEmptyToolName verifies that Validate()
+// returns an error containing "non-empty name" when a ToolDefinition has an empty Name.
+func TestProbeTemplate_Validate_RejectsEmptyToolName(t *testing.T) {
+	tmpl := ProbeTemplate{
+		ID: "test.EmptyToolName",
+		Info: ProbeInfo{
+			Name:     "Empty Tool Name",
+			Goal:     "test",
+			Detector: "agent.ToolManipulation",
+			Severity: "high",
+			Tools:    []ToolDefinition{{Name: ""}},
+		},
+		Prompts: []string{"Hello."},
+	}
+	err := tmpl.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "non-empty name")
+}
+
+// TestProbeTemplate_Validate_RejectsDuplicateToolName verifies that Validate()
+// returns an error containing "duplicate tool name" when two ToolDefinitions share a name.
+func TestProbeTemplate_Validate_RejectsDuplicateToolName(t *testing.T) {
+	tmpl := ProbeTemplate{
+		ID: "test.DuplicateTool",
+		Info: ProbeInfo{
+			Name:     "Duplicate Tool",
+			Goal:     "test",
+			Detector: "agent.ToolManipulation",
+			Severity: "high",
+			Tools: []ToolDefinition{
+				{Name: "web_search"},
+				{Name: "web_search"},
+			},
+		},
+		Prompts: []string{"Hello."},
+	}
+	err := tmpl.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "duplicate tool name")
+}
+
+// TestProbeTemplate_Validate_RejectsInvalidToolChoice verifies that Validate()
+// returns an error containing "tool_choice" and the invalid name when tool_choice
+// references a tool name that is not declared and not a standard keyword.
+func TestProbeTemplate_Validate_RejectsInvalidToolChoice(t *testing.T) {
+	tmpl := ProbeTemplate{
+		ID: "test.BadToolChoice",
+		Info: ProbeInfo{
+			Name:       "Bad Tool Choice",
+			Goal:       "test",
+			Detector:   "agent.ToolManipulation",
+			Severity:   "high",
+			Tools:      []ToolDefinition{{Name: "web_search"}},
+			ToolChoice: "nonexistent_tool",
+		},
+		Prompts: []string{"Hello."},
+	}
+	err := tmpl.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tool_choice")
+	assert.Contains(t, err.Error(), "nonexistent_tool")
+}
+
+// TestProbeTemplate_Validate_AcceptsToolChoiceByName verifies that Validate()
+// returns nil when tool_choice is set to a declared tool name.
+func TestProbeTemplate_Validate_AcceptsToolChoiceByName(t *testing.T) {
+	tmpl := ProbeTemplate{
+		ID: "test.ToolChoiceByName",
+		Info: ProbeInfo{
+			Name:       "Tool Choice By Name",
+			Goal:       "test",
+			Detector:   "agent.ToolManipulation",
+			Severity:   "high",
+			Tools:      []ToolDefinition{{Name: "web_search"}},
+			ToolChoice: "web_search",
+		},
+		Prompts: []string{"Hello."},
+	}
+	assert.NoError(t, tmpl.Validate())
+}
+
+// TestProbeTemplate_Validate_AcceptsStandardToolChoiceKeywords verifies that
+// Validate() returns nil for each of the standard tool_choice keywords.
+func TestProbeTemplate_Validate_AcceptsStandardToolChoiceKeywords(t *testing.T) {
+	for _, kw := range []string{"auto", "required", "none"} {
+		t.Run(kw, func(t *testing.T) {
+			tmpl := ProbeTemplate{
+				ID: "test.Standard_" + kw,
+				Info: ProbeInfo{
+					Name:       "Standard " + kw,
+					Goal:       "test",
+					Detector:   "agent.ToolManipulation",
+					Severity:   "high",
+					Tools:      []ToolDefinition{{Name: "web_search"}},
+					ToolChoice: kw,
+				},
+				Prompts: []string{"Hello."},
+			}
+			assert.NoError(t, tmpl.Validate())
+		})
+	}
+}
+
+// TestProbeTemplate_Validate_AcceptsEmptyToolChoice verifies that Validate()
+// returns nil when tools are declared but tool_choice is empty (optional field).
+func TestProbeTemplate_Validate_AcceptsEmptyToolChoice(t *testing.T) {
+	tmpl := ProbeTemplate{
+		ID: "test.EmptyToolChoice",
+		Info: ProbeInfo{
+			Name:     "Empty Tool Choice",
+			Goal:     "test",
+			Detector: "agent.ToolManipulation",
+			Severity: "high",
+			Tools:    []ToolDefinition{{Name: "web_search"}},
+		},
+		Prompts: []string{"Hello."},
+	}
+	assert.NoError(t, tmpl.Validate())
+}
+
+// TestProbeTemplate_Validate_AcceptsValidTools verifies that Validate() returns
+// nil for a template with two uniquely named tools, parameters set, and a valid tool_choice.
+func TestProbeTemplate_Validate_AcceptsValidTools(t *testing.T) {
+	tmpl := ProbeTemplate{
+		ID: "test.ValidTools",
+		Info: ProbeInfo{
+			Name:     "Valid Tools",
+			Goal:     "test",
+			Detector: "agent.ToolManipulation",
+			Severity: "high",
+			Tools: []ToolDefinition{
+				{
+					Name:        "web_search",
+					Description: "Search the web",
+					Parameters:  map[string]any{"type": "object"},
+				},
+				{
+					Name:        "read_file",
+					Description: "Read a file",
+					Parameters:  map[string]any{"type": "object"},
+				},
+			},
+			ToolChoice: "auto",
+		},
+		Prompts: []string{"Hello."},
+	}
+	assert.NoError(t, tmpl.Validate())
 }
 
 // TestToolUseProbes_ParseWithMode verifies that all 14 existing probe YAML

@@ -41,7 +41,7 @@ func NewSimpleProbe(name, goal, detector, description string, prompts []string) 
 // Probe executes the probe against the generator by iterating over all prompts.
 // It checks for context cancellation between iterations.
 func (s *SimpleProbe) Probe(ctx context.Context, gen Generator) ([]*attempt.Attempt, error) {
-	return RunPrompts(ctx, gen, s.Prompts, s.Name(), s.GetPrimaryDetector(), s.MetadataFn)
+	return RunPrompts(ctx, gen, s.Prompts, s.Name(), s.GetPrimaryDetector(), s.MetadataFn, nil)
 }
 
 // Name returns the probe's fully qualified name.

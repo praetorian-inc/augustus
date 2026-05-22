@@ -146,6 +146,37 @@ func (g *OpenAI) generateChat(ctx context.Context, conv *attempt.Conversation, n
 		req.Stop = g.stop
 	}
 
+	// Wire tool definitions from probe into the API request.
+	if len(conv.Tools) > 0 {
+		req.Tools = make([]goopenai.Tool, len(conv.Tools))
+		for i, t := range conv.Tools {
+			fd := goopenai.FunctionDefinition{
+				Name: t["name"].(string),
+			}
+			if desc, ok := t["description"].(string); ok {
+				fd.Description = desc
+			}
+			if params, ok := t["parameters"]; ok {
+				fd.Parameters = params
+			}
+			req.Tools[i] = goopenai.Tool{
+				Type:     goopenai.ToolTypeFunction,
+				Function: &fd,
+			}
+		}
+		if conv.ToolChoice != "" {
+			switch conv.ToolChoice {
+			case "auto", "required", "none":
+				req.ToolChoice = conv.ToolChoice
+			default:
+				req.ToolChoice = goopenai.ToolChoice{
+					Type:     goopenai.ToolTypeFunction,
+					Function: goopenai.ToolFunction{Name: conv.ToolChoice},
+				}
+			}
+		}
+	}
+
 	resp, err := g.client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return nil, openaicompat.WrapError("openai", err)

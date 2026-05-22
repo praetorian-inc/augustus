@@ -235,3 +235,68 @@ func TestNormalizeAnthropicToolUseBlocks_NullInput(t *testing.T) {
 	require.True(t, ok)
 	assert.Empty(t, args, "null Input should yield empty args map")
 }
+
+// ---------------------------------------------------------------------------
+// Group 8: ID Preservation in Normalizers
+// ---------------------------------------------------------------------------
+
+func TestNormalizeOpenAIToolCalls_PreservesID(t *testing.T) {
+	tc := goopenai.ToolCall{
+		ID:   "call_abc123",
+		Type: goopenai.ToolTypeFunction,
+		Function: goopenai.FunctionCall{
+			Name:      "web_search",
+			Arguments: `{"query":"test"}`,
+		},
+	}
+
+	got := NormalizeOpenAIToolCalls([]goopenai.ToolCall{tc})
+
+	require.Len(t, got, 1)
+	assert.Equal(t, "call_abc123", got[0]["id"])
+}
+
+func TestNormalizeOpenAIToolCalls_OmitsEmptyID(t *testing.T) {
+	tc := goopenai.ToolCall{
+		// ID is empty string
+		Function: goopenai.FunctionCall{
+			Name:      "web_search",
+			Arguments: `{"query":"test"}`,
+		},
+	}
+
+	got := NormalizeOpenAIToolCalls([]goopenai.ToolCall{tc})
+
+	require.Len(t, got, 1)
+	_, hasID := got[0]["id"]
+	assert.False(t, hasID, "empty ID should not be present in canonical form")
+}
+
+func TestNormalizeAnthropicToolUseBlocks_PreservesID(t *testing.T) {
+	block := AnthropicToolUseBlock{
+		Type:  "tool_use",
+		ID:    "toolu_xyz789",
+		Name:  "web_search",
+		Input: json.RawMessage(`{"query":"test"}`),
+	}
+
+	got := NormalizeAnthropicToolUseBlocks([]AnthropicToolUseBlock{block})
+
+	require.Len(t, got, 1)
+	assert.Equal(t, "toolu_xyz789", got[0]["id"])
+}
+
+func TestNormalizeAnthropicToolUseBlocks_OmitsEmptyID(t *testing.T) {
+	block := AnthropicToolUseBlock{
+		Type: "tool_use",
+		// ID empty
+		Name:  "web_search",
+		Input: json.RawMessage(`{}`),
+	}
+
+	got := NormalizeAnthropicToolUseBlocks([]AnthropicToolUseBlock{block})
+
+	require.Len(t, got, 1)
+	_, hasID := got[0]["id"]
+	assert.False(t, hasID, "empty ID should not be present")
+}

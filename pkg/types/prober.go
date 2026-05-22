@@ -77,3 +77,11 @@ type ProbeSecondaryDetectors interface {
 	// Empty/nil result → probe is single-detector (current behavior).
 	GetSecondaryDetectors() []SecondaryDetector
 }
+
+// ProbeTools is an optional interface for probes that declare tool schemas
+// for native function calling. When implemented, the prompt runner sends
+// these tools to the generator so the LLM API receives tool definitions.
+type ProbeTools interface {
+	GetTools() []map[string]any
+	GetToolChoice() string
+}

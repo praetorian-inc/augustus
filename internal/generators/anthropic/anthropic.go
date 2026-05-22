@@ -110,20 +110,37 @@ func NewAnthropicWithOptions(opts ...Option) (*Anthropic, error) {
 
 // messageRequest represents the Anthropic Messages API request format.
 type messageRequest struct {
-	Model         string            `json:"model"`
-	MaxTokens     int               `json:"max_tokens"`
-	Messages      []anthropicMsg    `json:"messages"`
-	System        string            `json:"system,omitempty"`
-	Temperature   float64           `json:"temperature,omitempty"`
-	TopP          float64           `json:"top_p,omitempty"`
-	TopK          int               `json:"top_k,omitempty"`
-	StopSequences []string          `json:"stop_sequences,omitempty"`
+	Model         string               `json:"model"`
+	MaxTokens     int                  `json:"max_tokens"`
+	Messages      []anthropicMsg       `json:"messages"`
+	System        string               `json:"system,omitempty"`
+	Temperature   float64              `json:"temperature,omitempty"`
+	TopP          float64              `json:"top_p,omitempty"`
+	TopK          int                  `json:"top_k,omitempty"`
+	StopSequences []string             `json:"stop_sequences,omitempty"`
+	Tools         []anthropicTool      `json:"tools,omitempty"`
+	ToolChoice    *anthropicToolChoice `json:"tool_choice,omitempty"`
 }
 
 // anthropicMsg represents a message in the Anthropic format.
+// Content is any to support both plain string and structured content blocks
+// (required for assistant tool_use and user tool_result messages).
 type anthropicMsg struct {
 	Role    string `json:"role"`
-	Content string `json:"content"`
+	Content any    `json:"content"`
+}
+
+// anthropicTool is the Anthropic API tool definition format.
+type anthropicTool struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	InputSchema map[string]any `json:"input_schema"`
+}
+
+// anthropicToolChoice controls how Claude selects tools.
+type anthropicToolChoice struct {
+	Type string `json:"type"`           // "auto", "any", or "tool"
+	Name string `json:"name,omitempty"` // only when type="tool"
 }
 
 // messageResponse represents the Anthropic Messages API response format.
@@ -214,6 +231,39 @@ func (g *Anthropic) generateOne(ctx context.Context, conv *attempt.Conversation)
 		req.StopSequences = g.stopSequences
 	}
 
+	// Wire tool definitions from probe into the API request.
+	if len(conv.Tools) > 0 {
+		req.Tools = make([]anthropicTool, len(conv.Tools))
+		for i, t := range conv.Tools {
+			at := anthropicTool{
+				Name: t["name"].(string),
+			}
+			if desc, ok := t["description"].(string); ok {
+				at.Description = desc
+			}
+			if params, ok := t["parameters"].(map[string]any); ok {
+				at.InputSchema = params
+			} else {
+				at.InputSchema = map[string]any{"type": "object"}
+			}
+			req.Tools[i] = at
+		}
+		if conv.ToolChoice != "" {
+			switch conv.ToolChoice {
+			case "auto":
+				req.ToolChoice = &anthropicToolChoice{Type: "auto"}
+			case "required":
+				req.ToolChoice = &anthropicToolChoice{Type: "any"}
+			case "none":
+				// Anthropic doesn't have "none" — omit tools instead.
+				req.Tools = nil
+				req.ToolChoice = nil
+			default:
+				req.ToolChoice = &anthropicToolChoice{Type: "tool", Name: conv.ToolChoice}
+			}
+		}
+	}
+
 	// Serialize request
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -289,18 +339,62 @@ func (g *Anthropic) conversationToMessages(conv *attempt.Conversation) []anthrop
 	// It's passed as a separate parameter
 
 	for _, turn := range conv.Turns {
-		// Add user message
-		messages = append(messages, anthropicMsg{
-			Role:    "user",
-			Content: turn.Prompt.Content,
-		})
-
-		// Add assistant response if present
-		if turn.Response != nil {
+		switch turn.Prompt.Role {
+		case attempt.RoleTool:
+			// Tool result: user message with tool_result content blocks.
+			block := map[string]any{
+				"type":        "tool_result",
+				"tool_use_id": turn.Prompt.ToolCallID,
+				"content":     turn.Prompt.Content,
+			}
 			messages = append(messages, anthropicMsg{
-				Role:    "assistant",
-				Content: turn.Response.Content,
+				Role:    "user",
+				Content: []any{block},
 			})
+		default:
+			messages = append(messages, anthropicMsg{
+				Role:    "user",
+				Content: turn.Prompt.Content,
+			})
+		}
+
+		if turn.Response != nil {
+			if len(turn.Response.ToolCalls) > 0 {
+				// Assistant with tool_use blocks: structured content.
+				content := make([]any, 0)
+				if turn.Response.Content != "" {
+					content = append(content, map[string]any{
+						"type": "text",
+						"text": turn.Response.Content,
+					})
+				}
+				for _, tc := range turn.Response.ToolCalls {
+					name, _ := tc["name"].(string)
+					id, _ := tc["id"].(string)
+					if id == "" {
+						id = "toolu_" + name
+					}
+					args, _ := tc["args"].(map[string]any)
+					if args == nil {
+						args = map[string]any{}
+					}
+					content = append(content, map[string]any{
+						"type":  "tool_use",
+						"id":    id,
+						"name":  name,
+						"input": args,
+					})
+				}
+				messages = append(messages, anthropicMsg{
+					Role:    "assistant",
+					Content: content,
+				})
+			} else {
+				messages = append(messages, anthropicMsg{
+					Role:    "assistant",
+					Content: turn.Response.Content,
+				})
+			}
 		}
 	}
 

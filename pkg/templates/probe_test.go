@@ -123,3 +123,104 @@ func TestTemplateProbe_GetSecondaryDetectors_MapsYAMLToTypes(t *testing.T) {
 	require.NotNil(t, secs[0].Config)
 	assert.Equal(t, []any{"(?i)evil"}, secs[0].Config["forbidden_patterns"])
 }
+
+// TestTemplateProbe_Probe_ToolsOnly_SingleTurn verifies that a TemplateProbe
+// with tools but no ToolResults routes to RunPrompts (single-turn path).
+// The attempt should have the probe name, detector, and the generator output.
+func TestTemplateProbe_Probe_ToolsOnly_SingleTurn(t *testing.T) {
+	tmpl := &ProbeTemplate{
+		ID: "test.ToolsOnly",
+		Info: ProbeInfo{
+			Name:     "Tools Only",
+			Goal:     "test",
+			Detector: "agent.ToolManipulation",
+			Severity: "high",
+			Tools: []ToolDefinition{
+				{Name: "web_search", Description: "search"},
+			},
+			ToolChoice: "auto",
+		},
+		Prompts: []string{"test prompt"},
+	}
+
+	probe := NewTemplateProbe(tmpl)
+	gen := &mockGenerator{responses: []string{"tool response"}}
+
+	attempts, err := probe.Probe(context.Background(), gen)
+	require.NoError(t, err)
+	require.Len(t, attempts, 1)
+
+	assert.Equal(t, "test.ToolsOnly", attempts[0].Probe)
+	assert.Equal(t, "agent.ToolManipulation", attempts[0].Detector)
+}
+
+// mockGeneratorWithToolCalls implements types.Generator for 2-turn testing.
+// The first Generate call returns a message with ToolCalls; subsequent calls
+// return plain text responses.
+type mockGeneratorWithToolCalls struct {
+	callCount  int
+	toolCalls  []map[string]any
+	textResp   string
+}
+
+func (m *mockGeneratorWithToolCalls) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
+	m.callCount++
+	if m.callCount == 1 {
+		msg := attempt.NewAssistantMessage("")
+		msg.ToolCalls = m.toolCalls
+		return []attempt.Message{msg}, nil
+	}
+	return []attempt.Message{attempt.NewAssistantMessage(m.textResp)}, nil
+}
+
+func (m *mockGeneratorWithToolCalls) ClearHistory() {}
+func (m *mockGeneratorWithToolCalls) Name() string  { return "mock-tool-calls" }
+func (m *mockGeneratorWithToolCalls) Description() string {
+	return "Mock generator that returns tool calls on first call"
+}
+
+// TestTemplateProbe_Probe_ToolsAndResults_TwoTurn verifies that a TemplateProbe
+// with both tools and ToolResults routes to RunTwoTurnPrompts (2-turn path).
+// The attempt should have outputs from both turns and "tool_calls" in metadata.
+func TestTemplateProbe_Probe_ToolsAndResults_TwoTurn(t *testing.T) {
+	tmpl := &ProbeTemplate{
+		ID: "test.TwoTurn",
+		Info: ProbeInfo{
+			Name:     "Two Turn",
+			Goal:     "test",
+			Detector: "agent.ToolManipulation",
+			Severity: "high",
+			Tools: []ToolDefinition{
+				{Name: "web_search", Description: "search"},
+			},
+			ToolChoice: "auto",
+			ToolResults: map[string]string{
+				"web_search": "search result data",
+			},
+		},
+		Prompts: []string{"test prompt"},
+	}
+
+	probe := NewTemplateProbe(tmpl)
+	gen := &mockGeneratorWithToolCalls{
+		toolCalls: []map[string]any{
+			{"name": "web_search", "id": "call_1", "args": map[string]any{"q": "test"}},
+		},
+		textResp: "turn 2 response",
+	}
+
+	attempts, err := probe.Probe(context.Background(), gen)
+	require.NoError(t, err)
+	require.Len(t, attempts, 1)
+
+	a := attempts[0]
+	assert.Equal(t, "test.TwoTurn", a.Probe)
+	assert.Equal(t, "agent.ToolManipulation", a.Detector)
+
+	// Both turns should produce outputs.
+	assert.NotEmpty(t, a.Outputs, "expected outputs from 2-turn probe")
+
+	// Metadata must contain "tool_calls" key because Turn 1 returned tool calls.
+	_, hasToolCalls := a.GetMetadata("tool_calls")
+	assert.True(t, hasToolCalls, "expected 'tool_calls' key in attempt metadata")
+}
