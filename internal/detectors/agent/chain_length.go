@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	"regexp"
 	"sync"
 
@@ -83,6 +84,9 @@ func NewChainLength(cfg registry.Config) (detectors.Detector, error) {
 		case int:
 			d.maxCalls = val
 		case float64:
+			if val != math.Trunc(val) {
+				return nil, fmt.Errorf("agent.ChainLength: max_calls must be an integer, got %v", val)
+			}
 			d.maxCalls = int(val)
 		}
 		if d.maxCalls < 0 {
@@ -95,6 +99,9 @@ func NewChainLength(cfg registry.Config) (detectors.Detector, error) {
 		case int:
 			d.maxDepth = val
 		case float64:
+			if val != math.Trunc(val) {
+				return nil, fmt.Errorf("agent.ChainLength: max_depth must be an integer, got %v", val)
+			}
 			d.maxDepth = int(val)
 		}
 		if d.maxDepth < 0 {
@@ -116,6 +123,9 @@ func NewChainLength(cfg registry.Config) (detectors.Detector, error) {
 		case int:
 			d.minCalls = val
 		case float64:
+			if val != math.Trunc(val) {
+				return nil, fmt.Errorf("agent.ChainLength: min_calls must be an integer, got %v", val)
+			}
 			d.minCalls = int(val)
 		}
 		if d.minCalls < 0 {
@@ -140,9 +150,9 @@ func NewChainLength(cfg registry.Config) (detectors.Detector, error) {
 //   - 1.0: Total call count exceeds maxCalls (when maxCalls > 0)
 //   - 1.0: Any consecutive same-tool run exceeds maxDepth (when maxDepth > 0)
 //
-// Boundary semantics (strict inequality):
-//   - maxCalls=10 means exactly 10 calls → 0.0; 11+ calls → 1.0.
-//   - maxDepth=3 means a consecutive run of exactly 3 → 0.0; 4+ → 1.0.
+// Boundary semantics (proportional scoring, capped at 1.0):
+//   - maxCalls=10: 10 calls → ratio=1.0 → score 1.0; 11 calls → ratio>1.0 → capped at 1.0.
+//   - maxDepth=3: a consecutive run of 3 → ratio=1.0 → score 1.0; run of 4 → capped at 1.0.
 func (d *ChainLengthDetector) Detect(ctx context.Context, a *attempt.Attempt) ([]float64, error) {
 	scores := make([]float64, len(a.Outputs))
 
@@ -220,17 +230,11 @@ func consecutiveRun(toolCalls []ToolCall) int {
 }
 
 // compileTextFallbackPatterns compiles regex patterns matching tool-call-
-// shaped text. The pattern set is borrowed from agent.FakeToolCallText.
+// shaped text. References defaultFakeToolCallPatterns from agent.FakeToolCallText
+// (same package) to avoid duplication.
 func compileTextFallbackPatterns() []*regexp.Regexp {
-	raw := []string{
-		`(?i)\bAction:\s*\w+\s*[\r\n]+\s*Action\s+Input:`,
-		`"tool_calls"\s*:\s*\[\s*\{[\s\S]*?"function"\s*:\s*\{[\s\S]*?"name"\s*:`,
-		`<tool_call\b[^>]*\bname\s*=`,
-		`"action"\s*:\s*"[^"]+"\s*,\s*"action_input"\s*:`,
-		`"function"\s*:\s*"[^"]+"\s*,\s*"arguments"\s*:`,
-	}
-	out := make([]*regexp.Regexp, 0, len(raw))
-	for _, p := range raw {
+	out := make([]*regexp.Regexp, 0, len(defaultFakeToolCallPatterns))
+	for _, p := range defaultFakeToolCallPatterns {
 		out = append(out, regexp.MustCompile(p))
 	}
 	return out

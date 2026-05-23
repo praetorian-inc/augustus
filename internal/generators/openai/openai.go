@@ -150,8 +150,12 @@ func (g *OpenAI) generateChat(ctx context.Context, conv *attempt.Conversation, n
 	if len(conv.Tools) > 0 {
 		req.Tools = make([]goopenai.Tool, len(conv.Tools))
 		for i, t := range conv.Tools {
+			name, ok := t["name"].(string)
+			if !ok || name == "" {
+				return nil, fmt.Errorf("openai: tool at index %d missing valid string name", i)
+			}
 			fd := goopenai.FunctionDefinition{
-				Name: t["name"].(string),
+				Name: name,
 			}
 			if desc, ok := t["description"].(string); ok {
 				fd.Description = desc

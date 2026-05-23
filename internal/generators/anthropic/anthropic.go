@@ -235,8 +235,12 @@ func (g *Anthropic) generateOne(ctx context.Context, conv *attempt.Conversation)
 	if len(conv.Tools) > 0 {
 		req.Tools = make([]anthropicTool, len(conv.Tools))
 		for i, t := range conv.Tools {
+			name, ok := t["name"].(string)
+			if !ok || name == "" {
+				return attempt.Message{}, fmt.Errorf("anthropic: tool at index %d missing valid string name", i)
+			}
 			at := anthropicTool{
-				Name: t["name"].(string),
+				Name: name,
 			}
 			if desc, ok := t["description"].(string); ok {
 				at.Description = desc

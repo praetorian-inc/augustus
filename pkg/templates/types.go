@@ -117,6 +117,17 @@ func (t *ProbeTemplate) Validate() error {
 			return fmt.Errorf("template validation failed: tool_choice '%s' is not 'auto', 'required', 'none', or a declared tool name for template '%s'", tc, t.ID)
 		}
 	}
+	// Validate tool_results cross-references if present.
+	if len(t.Info.ToolResults) > 0 {
+		if len(toolNames) == 0 {
+			return fmt.Errorf("template validation failed: tool_results requires at least one declared tool for template '%s'", t.ID)
+		}
+		for resultTool := range t.Info.ToolResults {
+			if !toolNames[resultTool] {
+				return fmt.Errorf("template validation failed: tool_results references undeclared tool '%s' for template '%s'", resultTool, t.ID)
+			}
+		}
+	}
 	return nil
 }
 

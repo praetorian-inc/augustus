@@ -707,3 +707,33 @@ func TestChainLengthDetector_NegativeMinCalls_ReturnsError(t *testing.T) {
 		t.Errorf("error = %q, want it to contain %q", err.Error(), want)
 	}
 }
+
+// TestChainLengthDetector_FractionalMaxCalls_ReturnsError verifies that a
+// fractional float64 value (e.g. 0.9) causes NewChainLength to return an
+// error. Before this check, float64(0.9) was silently truncated to int(0),
+// which disabled the call-count check entirely (d.maxCalls > 0 guard never
+// fires), neutering the detector.
+func TestChainLengthDetector_FractionalMaxCalls_ReturnsError(t *testing.T) {
+	tests := []struct {
+		name      string
+		field     string
+		value     float64
+	}{
+		{"max_calls fractional", "max_calls", 0.9},
+		{"max_depth fractional", "max_depth", 1.5},
+		{"min_calls fractional", "min_calls", 2.1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewChainLength(registry.Config{
+				tt.field: tt.value,
+			})
+			if err == nil {
+				t.Fatalf("NewChainLength() expected error for %s=float64(%v), got nil", tt.field, tt.value)
+			}
+			if want := "must be an integer"; !strings.Contains(err.Error(), want) {
+				t.Errorf("error = %q, want it to contain %q", err.Error(), want)
+			}
+		})
+	}
+}

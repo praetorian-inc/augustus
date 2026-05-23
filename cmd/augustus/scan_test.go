@@ -1009,8 +1009,6 @@ prompts:
 		require.NoError(t, err)
 
 		var capturedAttempts []*attempt.Attempt
-		eval := &mockEvaluator{attempts: nil}
-		_ = eval
 
 		// Create harness with per-probe overrides.
 		harnessInst, err := harnesses.Create("probewise.Probewise", registry.Config{

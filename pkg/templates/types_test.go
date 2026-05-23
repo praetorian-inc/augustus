@@ -570,3 +570,74 @@ func TestToolUseProbes_ParseWithMode(t *testing.T) {
 		})
 	}
 }
+
+// TestProbeTemplate_Validate_RejectsToolResultsWithoutTools verifies that Validate()
+// returns an error containing "requires at least one declared tool" when ToolResults
+// is set but no Tools are declared.
+func TestProbeTemplate_Validate_RejectsToolResultsWithoutTools(t *testing.T) {
+	tmpl := ProbeTemplate{
+		ID: "test.ToolResultsNoTools",
+		Info: ProbeInfo{
+			Name:     "Tool Results No Tools",
+			Goal:     "test",
+			Detector: "agent.ToolManipulation",
+			Severity: "high",
+			ToolResults: map[string]string{
+				"web_search": "some result",
+			},
+		},
+		Prompts: []string{"Hello."},
+	}
+	err := tmpl.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requires at least one declared tool")
+}
+
+// TestProbeTemplate_Validate_RejectsUndeclaredToolResult verifies that Validate()
+// returns an error containing "undeclared tool" when ToolResults references a tool
+// name that is not in Tools.
+func TestProbeTemplate_Validate_RejectsUndeclaredToolResult(t *testing.T) {
+	tmpl := ProbeTemplate{
+		ID: "test.UndeclaredToolResult",
+		Info: ProbeInfo{
+			Name:     "Undeclared Tool Result",
+			Goal:     "test",
+			Detector: "agent.ToolManipulation",
+			Severity: "high",
+			Tools: []ToolDefinition{
+				{Name: "web_search"},
+			},
+			ToolResults: map[string]string{
+				"nonexistent_tool": "some result",
+			},
+		},
+		Prompts: []string{"Hello."},
+	}
+	err := tmpl.Validate()
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "undeclared tool")
+}
+
+// TestProbeTemplate_Validate_AcceptsValidToolResults verifies that Validate()
+// returns nil when ToolResults references only tool names that are declared in Tools.
+func TestProbeTemplate_Validate_AcceptsValidToolResults(t *testing.T) {
+	tmpl := ProbeTemplate{
+		ID: "test.ValidToolResults",
+		Info: ProbeInfo{
+			Name:     "Valid Tool Results",
+			Goal:     "test",
+			Detector: "agent.ToolManipulation",
+			Severity: "high",
+			Tools: []ToolDefinition{
+				{Name: "web_search"},
+				{Name: "read_file"},
+			},
+			ToolResults: map[string]string{
+				"web_search": "search results here",
+				"read_file":  "file contents here",
+			},
+		},
+		Prompts: []string{"Hello."},
+	}
+	assert.NoError(t, tmpl.Validate())
+}

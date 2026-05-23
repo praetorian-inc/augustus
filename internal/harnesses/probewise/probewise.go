@@ -213,14 +213,20 @@ func init() {
 		// Extract scanner options if provided
 		if scannerOpts, ok := cfg["scanner_opts"].(*scanner.Options); ok {
 			p.opts = scannerOpts
+		} else if _, exists := cfg["scanner_opts"]; exists {
+			slog.Warn("probewise: key has unexpected type, ignoring", "key", "scanner_opts", "type", fmt.Sprintf("%T", cfg["scanner_opts"]))
 		}
 		// Extract streaming callback if provided
 		if cb, ok := cfg["on_attempt_processed"].(func(*attempt.Attempt)); ok {
 			p.onAttemptProcessed = cb
+		} else if _, exists := cfg["on_attempt_processed"]; exists {
+			slog.Warn("probewise: key has unexpected type, ignoring", "key", "on_attempt_processed", "type", fmt.Sprintf("%T", cfg["on_attempt_processed"]))
 		}
 		// Extract per-probe detector overrides if provided
 		if overrides, ok := cfg["probe_detector_overrides"].(map[string][]detectors.Detector); ok {
 			p.probeDetectorOverrides = overrides
+		} else if _, exists := cfg["probe_detector_overrides"]; exists {
+			slog.Warn("probewise: key has unexpected type, ignoring", "key", "probe_detector_overrides", "type", fmt.Sprintf("%T", cfg["probe_detector_overrides"]))
 		}
 		return p, nil
 	})
