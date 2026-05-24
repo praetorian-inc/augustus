@@ -19,6 +19,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/praetorian-inc/augustus/internal/attackengine"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -184,9 +185,29 @@ func (g *Cohere) callChatAPI(ctx context.Context, conv *attempt.Conversation) (a
 		return attempt.Message{}, fmt.Errorf("cohere: failed to decode response: %w", err)
 	}
 
-	// Extract text content
-	content := g.extractChatContent(chatResp)
-	return attempt.NewAssistantMessage(content), nil
+	// Extract text content and tool calls
+	text := g.extractChatContent(chatResp)
+	msg := attempt.NewAssistantMessage(text)
+
+	// Extract tool calls if present
+	if len(chatResp.Message.ToolCalls) > 0 {
+		normalized := make([]attackengine.CohereToolCall, len(chatResp.Message.ToolCalls))
+		for i, tc := range chatResp.Message.ToolCalls {
+			normalized[i] = attackengine.CohereToolCall{
+				ID:   tc.ID,
+				Type: tc.Type,
+				Function: attackengine.CohereToolFunction{
+					Name:      tc.Function.Name,
+					Arguments: tc.Function.Arguments,
+				},
+			}
+		}
+		if toolCalls := attackengine.NormalizeCohereToolCalls(normalized); toolCalls != nil {
+			msg.ToolCalls = toolCalls
+		}
+	}
+
+	return msg, nil
 }
 
 // buildChatRequest constructs the v2 chat API request body.
@@ -211,6 +232,41 @@ func (g *Cohere) buildChatRequest(conv *attempt.Conversation) map[string]any {
 	}
 	if g.presencePenalty != 0 {
 		req["presence_penalty"] = g.presencePenalty
+	}
+
+	if len(conv.Tools) > 0 {
+		tools := make([]map[string]any, 0, len(conv.Tools))
+		for _, t := range conv.Tools {
+			name, ok := t["name"].(string)
+			if !ok || name == "" {
+				// skip invalid tools silently in request building
+				continue
+			}
+			fn := map[string]any{"name": name}
+			if desc, ok := t["description"].(string); ok {
+				fn["description"] = desc
+			}
+			if params, ok := t["parameters"]; ok {
+				fn["parameters"] = params
+			}
+			tools = append(tools, map[string]any{
+				"type":     "function",
+				"function": fn,
+			})
+		}
+		req["tools"] = tools
+
+		if conv.ToolChoice != "" {
+			switch conv.ToolChoice {
+			case "auto", "required", "none":
+				req["tool_choice"] = conv.ToolChoice
+			default:
+				req["tool_choice"] = map[string]any{
+					"type":     "function",
+					"function": map[string]any{"name": conv.ToolChoice},
+				}
+			}
+		}
 	}
 
 	return req
@@ -238,10 +294,30 @@ func (g *Cohere) conversationToMessages(conv *attempt.Conversation) []map[string
 
 		// Add assistant response if present
 		if turn.Response != nil {
-			messages = append(messages, map[string]any{
+			assistantMsg := map[string]any{
 				"role":    "assistant",
 				"content": turn.Response.Content,
-			})
+			}
+			if len(turn.Response.ToolCalls) > 0 {
+				toolCalls := make([]map[string]any, len(turn.Response.ToolCalls))
+				for i, tc := range turn.Response.ToolCalls {
+					args, _ := tc["args"].(map[string]any)
+					argsJSON, _ := json.Marshal(args)
+					tcMap := map[string]any{
+						"type": "function",
+						"function": map[string]any{
+							"name":      tc["name"],
+							"arguments": string(argsJSON),
+						},
+					}
+					if id, ok := tc["id"].(string); ok && id != "" {
+						tcMap["id"] = id
+					}
+					toolCalls[i] = tcMap
+				}
+				assistantMsg["tool_calls"] = toolCalls
+			}
+			messages = append(messages, assistantMsg)
 		}
 	}
 
@@ -404,14 +480,28 @@ type chatResponse struct {
 
 // messageContent represents message content in a chat response.
 type messageContent struct {
-	Role    string        `json:"role"`
-	Content []contentItem `json:"content"`
+	Role      string                   `json:"role"`
+	Content   []contentItem            `json:"content"`
+	ToolCalls []cohereResponseToolCall `json:"tool_calls,omitempty"`
 }
 
 // contentItem represents a content item in a message.
 type contentItem struct {
 	Type string `json:"type"`
-	Text string `json:"text"`
+	Text string `json:"text,omitempty"`
+}
+
+// cohereResponseToolCall represents a tool call in a v2 chat response.
+type cohereResponseToolCall struct {
+	ID       string                     `json:"id"`
+	Type     string                     `json:"type"`
+	Function cohereResponseToolFunction `json:"function"`
+}
+
+// cohereResponseToolFunction represents the function details in a tool call.
+type cohereResponseToolFunction struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
 }
 
 // generateResponse represents a v1 generate API response.

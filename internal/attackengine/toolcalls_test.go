@@ -300,3 +300,230 @@ func TestNormalizeAnthropicToolUseBlocks_OmitsEmptyID(t *testing.T) {
 	_, hasID := got[0]["id"]
 	assert.False(t, hasID, "empty ID should not be present")
 }
+
+// ---------------------------------------------------------------------------
+// NormalizeGeminiFunctionCalls
+// ---------------------------------------------------------------------------
+
+func TestNormalizeGeminiFunctionCalls_SingleValidCall(t *testing.T) {
+	fc := GeminiFunctionCall{
+		Name: "send_email",
+		Args: map[string]any{"to": "user@example.com", "subject": "hello"},
+	}
+
+	got := NormalizeGeminiFunctionCalls([]GeminiFunctionCall{fc})
+
+	require.Len(t, got, 1)
+	assert.Equal(t, "send_email", got[0]["name"])
+	args, ok := got[0]["args"].(map[string]any)
+	require.True(t, ok, "args should be map[string]any")
+	assert.Equal(t, "user@example.com", args["to"])
+	assert.Equal(t, "hello", args["subject"])
+}
+
+func TestNormalizeGeminiFunctionCalls_MultipleValidCalls(t *testing.T) {
+	calls := []GeminiFunctionCall{
+		{Name: "read_file", Args: map[string]any{"path": "/etc/hosts"}},
+		{Name: "write_file", Args: map[string]any{"path": "/tmp/out", "content": "data"}},
+	}
+
+	got := NormalizeGeminiFunctionCalls(calls)
+
+	require.Len(t, got, 2)
+	assert.Equal(t, "read_file", got[0]["name"])
+	assert.Equal(t, "write_file", got[1]["name"])
+}
+
+func TestNormalizeGeminiFunctionCalls_EmptyInput(t *testing.T) {
+	got := NormalizeGeminiFunctionCalls([]GeminiFunctionCall{})
+	assert.Nil(t, got, "empty input should return nil")
+}
+
+func TestNormalizeGeminiFunctionCalls_NilInput(t *testing.T) {
+	got := NormalizeGeminiFunctionCalls(nil)
+	assert.Nil(t, got, "nil input should return nil")
+}
+
+func TestNormalizeGeminiFunctionCalls_EmptyNameSkipped(t *testing.T) {
+	calls := []GeminiFunctionCall{
+		{Name: "", Args: map[string]any{"key": "value"}},
+		{Name: "legit_tool", Args: map[string]any{}},
+	}
+
+	got := NormalizeGeminiFunctionCalls(calls)
+
+	require.Len(t, got, 1, "call with empty name should be skipped")
+	assert.Equal(t, "legit_tool", got[0]["name"])
+}
+
+func TestNormalizeGeminiFunctionCalls_AllEmptyNamesReturnsNil(t *testing.T) {
+	calls := []GeminiFunctionCall{
+		{Name: "", Args: map[string]any{"key": "value"}},
+	}
+
+	got := NormalizeGeminiFunctionCalls(calls)
+	assert.Nil(t, got, "all-skipped slice should return nil")
+}
+
+func TestNormalizeGeminiFunctionCalls_NilArgs(t *testing.T) {
+	fc := GeminiFunctionCall{
+		Name: "noop",
+		Args: nil,
+	}
+
+	got := NormalizeGeminiFunctionCalls([]GeminiFunctionCall{fc})
+
+	require.Len(t, got, 1)
+	assert.Equal(t, "noop", got[0]["name"])
+	args, ok := got[0]["args"].(map[string]any)
+	require.True(t, ok, "nil args should yield map[string]any")
+	assert.Empty(t, args, "nil args should yield empty args map")
+}
+
+func TestNormalizeGeminiFunctionCalls_NoIDField(t *testing.T) {
+	// Gemini function calls have no "id" field — unlike OpenAI, Anthropic,
+	// and Cohere which do. Verify that "id" is never present in the output.
+	fc := GeminiFunctionCall{
+		Name: "search",
+		Args: map[string]any{"query": "exfil"},
+	}
+
+	got := NormalizeGeminiFunctionCalls([]GeminiFunctionCall{fc})
+
+	require.Len(t, got, 1)
+	_, hasID := got[0]["id"]
+	assert.False(t, hasID, "Gemini function calls should never have an id field in canonical form")
+}
+
+// ---------------------------------------------------------------------------
+// NormalizeCohereToolCalls
+// ---------------------------------------------------------------------------
+
+func TestNormalizeCohereToolCalls_SingleValidCall(t *testing.T) {
+	tc := CohereToolCall{
+		ID:   "call_abc123",
+		Type: "function",
+		Function: CohereToolFunction{
+			Name:      "send_email",
+			Arguments: `{"to":"user@example.com","subject":"hello"}`,
+		},
+	}
+
+	got := NormalizeCohereToolCalls([]CohereToolCall{tc})
+
+	require.Len(t, got, 1)
+	assert.Equal(t, "send_email", got[0]["name"])
+	args, ok := got[0]["args"].(map[string]any)
+	require.True(t, ok, "args should be map[string]any")
+	assert.Equal(t, "user@example.com", args["to"])
+	assert.Equal(t, "hello", args["subject"])
+}
+
+func TestNormalizeCohereToolCalls_MultipleValidCalls(t *testing.T) {
+	calls := []CohereToolCall{
+		{Function: CohereToolFunction{Name: "read_file", Arguments: `{"path":"/etc/hosts"}`}},
+		{Function: CohereToolFunction{Name: "write_file", Arguments: `{"path":"/tmp/out","content":"data"}`}},
+	}
+
+	got := NormalizeCohereToolCalls(calls)
+
+	require.Len(t, got, 2)
+	assert.Equal(t, "read_file", got[0]["name"])
+	assert.Equal(t, "write_file", got[1]["name"])
+}
+
+func TestNormalizeCohereToolCalls_EmptyInput(t *testing.T) {
+	got := NormalizeCohereToolCalls([]CohereToolCall{})
+	assert.Nil(t, got, "empty input should return nil")
+}
+
+func TestNormalizeCohereToolCalls_NilInput(t *testing.T) {
+	got := NormalizeCohereToolCalls(nil)
+	assert.Nil(t, got, "nil input should return nil")
+}
+
+func TestNormalizeCohereToolCalls_MalformedArguments(t *testing.T) {
+	const rawMalformed = `{not valid json`
+	calls := []CohereToolCall{
+		{Function: CohereToolFunction{Name: "good_tool", Arguments: `{"key":"value"}`}},
+		{Function: CohereToolFunction{Name: "bad_tool", Arguments: rawMalformed}},
+	}
+
+	// Should not panic; the malformed call must have an empty "args" map and
+	// the raw string preserved under "_raw_args" so detector regex chains can
+	// still inspect the payload.
+	got := NormalizeCohereToolCalls(calls)
+
+	require.Len(t, got, 2, "malformed args should produce empty-args entry, not be skipped entirely")
+	assert.Equal(t, "good_tool", got[0]["name"])
+	goodArgs, ok := got[0]["args"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "value", goodArgs["key"])
+
+	assert.Equal(t, "bad_tool", got[1]["name"])
+	badArgs, ok := got[1]["args"].(map[string]any)
+	require.True(t, ok, "malformed args should yield empty map[string]any, not nil")
+	assert.Empty(t, badArgs, "malformed args map should be empty")
+	assert.Equal(t, rawMalformed, got[1]["_raw_args"], "_raw_args sentinel must equal the original raw string")
+}
+
+func TestNormalizeCohereToolCalls_EmptyFunctionNameSkipped(t *testing.T) {
+	calls := []CohereToolCall{
+		{Function: CohereToolFunction{Name: "", Arguments: `{"key":"value"}`}},
+		{Function: CohereToolFunction{Name: "legit_tool", Arguments: `{}`}},
+	}
+
+	got := NormalizeCohereToolCalls(calls)
+
+	require.Len(t, got, 1, "call with empty name should be skipped")
+	assert.Equal(t, "legit_tool", got[0]["name"])
+}
+
+func TestNormalizeCohereToolCalls_EmptyArguments(t *testing.T) {
+	tc := CohereToolCall{
+		Function: CohereToolFunction{
+			Name:      "noop",
+			Arguments: "",
+		},
+	}
+
+	got := NormalizeCohereToolCalls([]CohereToolCall{tc})
+
+	require.Len(t, got, 1)
+	assert.Equal(t, "noop", got[0]["name"])
+	args, ok := got[0]["args"].(map[string]any)
+	require.True(t, ok)
+	assert.Empty(t, args, "empty arguments string should yield empty args map")
+}
+
+func TestNormalizeCohereToolCalls_PreservesID(t *testing.T) {
+	tc := CohereToolCall{
+		ID:   "call_xyz789",
+		Type: "function",
+		Function: CohereToolFunction{
+			Name:      "web_search",
+			Arguments: `{"query":"test"}`,
+		},
+	}
+
+	got := NormalizeCohereToolCalls([]CohereToolCall{tc})
+
+	require.Len(t, got, 1)
+	assert.Equal(t, "call_xyz789", got[0]["id"])
+}
+
+func TestNormalizeCohereToolCalls_OmitsEmptyID(t *testing.T) {
+	tc := CohereToolCall{
+		// ID is empty string
+		Function: CohereToolFunction{
+			Name:      "web_search",
+			Arguments: `{"query":"test"}`,
+		},
+	}
+
+	got := NormalizeCohereToolCalls([]CohereToolCall{tc})
+
+	require.Len(t, got, 1)
+	_, hasID := got[0]["id"]
+	assert.False(t, hasID, "empty ID should not be present in canonical form")
+}

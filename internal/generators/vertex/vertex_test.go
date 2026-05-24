@@ -508,6 +508,241 @@ func TestVertexGenerator_ZeroGenerations(t *testing.T) {
 	assert.Empty(t, responses)
 }
 
+// mockVertexFunctionCallResponse creates a mock Vertex AI API response containing
+// a function call part instead of text.
+func mockVertexFunctionCallResponse(name string, args map[string]any) map[string]any {
+	return map[string]any{
+		"candidates": []map[string]any{
+			{
+				"content": map[string]any{
+					"parts": []map[string]any{
+						{
+							"functionCall": map[string]any{
+								"name": name,
+								"args": args,
+							},
+						},
+					},
+					"role": "model",
+				},
+				"finishReason": "STOP",
+			},
+		},
+		"usageMetadata": map[string]any{
+			"promptTokenCount":     10,
+			"candidatesTokenCount": 5,
+			"totalTokenCount":      15,
+		},
+	}
+}
+
+func TestVertexGenerator_Generate_WithTools(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockVertexResponse("I will search"))
+	}))
+	defer server.Close()
+
+	g, err := NewVertex(registry.Config{
+		"model":      "gemini-pro",
+		"project_id": "test-project",
+		"api_key":    "test-key",
+		"base_url":   server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Search for AI safety")
+	conv.Tools = []map[string]any{
+		{
+			"name":        "web_search",
+			"description": "Search the web",
+			"parameters": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"query": map[string]any{"type": "string"},
+				},
+			},
+		},
+	}
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	// Vertex AI wraps function declarations inside a tools array element
+	tools, ok := receivedRequest["tools"].([]any)
+	require.True(t, ok, "request must contain tools array")
+	require.Len(t, tools, 1)
+
+	toolDecl := tools[0].(map[string]any)
+	funcDecls, ok := toolDecl["functionDeclarations"].([]any)
+	require.True(t, ok, "tool must contain functionDeclarations array")
+	require.Len(t, funcDecls, 1)
+
+	fd := funcDecls[0].(map[string]any)
+	assert.Equal(t, "web_search", fd["name"])
+	assert.Equal(t, "Search the web", fd["description"])
+	assert.NotNil(t, fd["parameters"])
+}
+
+func TestVertexGenerator_Generate_ToolChoiceAuto(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockVertexResponse("response"))
+	}))
+	defer server.Close()
+
+	g, err := NewVertex(registry.Config{
+		"model":      "gemini-pro",
+		"project_id": "test-project",
+		"api_key":    "test-key",
+		"base_url":   server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+	conv.Tools = []map[string]any{{"name": "web_search", "description": "Search"}}
+	conv.ToolChoice = "auto"
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	toolConfig, ok := receivedRequest["toolConfig"].(map[string]any)
+	require.True(t, ok, "request must contain toolConfig")
+	fcc, ok := toolConfig["functionCallingConfig"].(map[string]any)
+	require.True(t, ok, "toolConfig must contain functionCallingConfig")
+	assert.Equal(t, "AUTO", fcc["mode"])
+}
+
+func TestVertexGenerator_Generate_ToolChoiceRequired(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockVertexResponse("response"))
+	}))
+	defer server.Close()
+
+	g, err := NewVertex(registry.Config{
+		"model":      "gemini-pro",
+		"project_id": "test-project",
+		"api_key":    "test-key",
+		"base_url":   server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+	conv.Tools = []map[string]any{{"name": "web_search", "description": "Search"}}
+	conv.ToolChoice = "required"
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	toolConfig, ok := receivedRequest["toolConfig"].(map[string]any)
+	require.True(t, ok, "request must contain toolConfig")
+	fcc, ok := toolConfig["functionCallingConfig"].(map[string]any)
+	require.True(t, ok, "toolConfig must contain functionCallingConfig")
+	assert.Equal(t, "ANY", fcc["mode"])
+}
+
+func TestVertexGenerator_Generate_ToolChoiceByName(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockVertexResponse("response"))
+	}))
+	defer server.Close()
+
+	g, err := NewVertex(registry.Config{
+		"model":      "gemini-pro",
+		"project_id": "test-project",
+		"api_key":    "test-key",
+		"base_url":   server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+	conv.Tools = []map[string]any{{"name": "web_search", "description": "Search"}}
+	conv.ToolChoice = "web_search"
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	toolConfig, ok := receivedRequest["toolConfig"].(map[string]any)
+	require.True(t, ok, "request must contain toolConfig")
+	fcc, ok := toolConfig["functionCallingConfig"].(map[string]any)
+	require.True(t, ok, "toolConfig must contain functionCallingConfig")
+	assert.Equal(t, "ANY", fcc["mode"])
+
+	allowed, ok := fcc["allowedFunctionNames"].([]any)
+	require.True(t, ok, "functionCallingConfig must contain allowedFunctionNames")
+	require.Len(t, allowed, 1)
+	assert.Equal(t, "web_search", allowed[0])
+}
+
+func TestVertexGenerator_Generate_NoToolsOmitted(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockVertexResponse("Hello"))
+	}))
+	defer server.Close()
+
+	g, err := NewVertex(registry.Config{
+		"model":      "gemini-pro",
+		"project_id": "test-project",
+		"api_key":    "test-key",
+		"base_url":   server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Hello")
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	_, hasTools := receivedRequest["tools"]
+	assert.False(t, hasTools, "request should not contain tools when none set on conversation")
+}
+
+func TestVertexGenerator_Generate_ResponseFunctionCalls(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(mockVertexFunctionCallResponse(
+			"web_search",
+			map[string]any{"query": "AI safety"},
+		))
+	}))
+	defer server.Close()
+
+	g, err := NewVertex(registry.Config{
+		"model":      "gemini-pro",
+		"project_id": "test-project",
+		"api_key":    "test-key",
+		"base_url":   server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Search for AI safety")
+	conv.Tools = []map[string]any{{"name": "web_search", "description": "Search"}}
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	require.Len(t, responses, 1)
+
+	require.NotNil(t, responses[0].ToolCalls, "response should carry tool calls")
+	require.Len(t, responses[0].ToolCalls, 1)
+	assert.Equal(t, "web_search", responses[0].ToolCalls[0]["name"])
+	args, ok := responses[0].ToolCalls[0]["args"].(map[string]any)
+	require.True(t, ok, "tool call must have args map")
+	assert.Equal(t, "AI safety", args["query"])
+}
+
 func TestVertexGenerator_APIKeyFromEnv(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Verify Authorization header

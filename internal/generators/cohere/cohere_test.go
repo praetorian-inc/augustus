@@ -859,3 +859,248 @@ func TestCohereGenerator_InvalidAPIVersion(t *testing.T) {
 	_, err = g.Generate(context.Background(), conv, 1)
 	assert.NoError(t, err)
 }
+
+// ---------------------------------------------------------------------------
+// Tool-wiring tests
+// ---------------------------------------------------------------------------
+
+// mockChatResponseWithToolCalls creates a mock Cohere v2 chat response that
+// includes a tool_calls array in the message, used by TestCohereGenerator_Generate_ResponseToolCalls.
+func mockChatResponseWithToolCalls(toolCalls []map[string]any) map[string]any {
+	return map[string]any{
+		"id":            "chat-test-id",
+		"finish_reason": "COMPLETE",
+		"message": map[string]any{
+			"role":       "assistant",
+			"content":    []map[string]any{},
+			"tool_calls": toolCalls,
+		},
+		"usage": map[string]any{
+			"billed_units": map[string]any{
+				"input_tokens":  10,
+				"output_tokens": 5,
+			},
+			"tokens": map[string]any{
+				"input_tokens":  10,
+				"output_tokens": 5,
+			},
+		},
+	}
+}
+
+func TestCohereGenerator_Generate_WithTools(t *testing.T) {
+	// Unset env var so config api_key is the only source.
+	origKey := os.Getenv("COHERE_API_KEY")
+	_ = os.Unsetenv("COHERE_API_KEY")
+	defer func() {
+		if origKey != "" {
+			_ = os.Setenv("COHERE_API_KEY", origKey)
+		}
+	}()
+
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockChatResponse("I will search"))
+	}))
+	defer server.Close()
+
+	g, err := NewCohere(registry.Config{
+		"model":    "command-r",
+		"api_key":  "test-key",
+		"base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Search for AI safety")
+	conv.Tools = []map[string]any{
+		{
+			"name":        "web_search",
+			"description": "Search the web",
+			"parameters": map[string]any{
+				"type":       "object",
+				"properties": map[string]any{"query": map[string]any{"type": "string"}},
+			},
+		},
+	}
+	conv.ToolChoice = "required"
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	// Verify tools array is present in request body.
+	tools, ok := receivedRequest["tools"].([]any)
+	require.True(t, ok, "request must contain tools array")
+	require.Len(t, tools, 1)
+
+	tool := tools[0].(map[string]any)
+	assert.Equal(t, "function", tool["type"])
+	fn := tool["function"].(map[string]any)
+	assert.Equal(t, "web_search", fn["name"])
+	assert.Equal(t, "Search the web", fn["description"])
+	assert.NotNil(t, fn["parameters"])
+
+	// Verify tool_choice keyword passes through as a plain string.
+	assert.Equal(t, "required", receivedRequest["tool_choice"])
+}
+
+func TestCohereGenerator_Generate_ToolChoiceKeyword(t *testing.T) {
+	origKey := os.Getenv("COHERE_API_KEY")
+	_ = os.Unsetenv("COHERE_API_KEY")
+	defer func() {
+		if origKey != "" {
+			_ = os.Setenv("COHERE_API_KEY", origKey)
+		}
+	}()
+
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockChatResponse("response"))
+	}))
+	defer server.Close()
+
+	g, err := NewCohere(registry.Config{
+		"model":    "command-r",
+		"api_key":  "test-key",
+		"base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Search")
+	conv.Tools = []map[string]any{{"name": "web_search", "description": "Search"}}
+	conv.ToolChoice = "required"
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	// Keywords ("auto", "required", "none") are sent as plain strings.
+	assert.Equal(t, "required", receivedRequest["tool_choice"])
+}
+
+func TestCohereGenerator_Generate_ToolChoiceByName(t *testing.T) {
+	origKey := os.Getenv("COHERE_API_KEY")
+	_ = os.Unsetenv("COHERE_API_KEY")
+	defer func() {
+		if origKey != "" {
+			_ = os.Setenv("COHERE_API_KEY", origKey)
+		}
+	}()
+
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockChatResponse("response"))
+	}))
+	defer server.Close()
+
+	g, err := NewCohere(registry.Config{
+		"model":    "command-r",
+		"api_key":  "test-key",
+		"base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Search")
+	conv.Tools = []map[string]any{{"name": "web_search", "description": "Search"}}
+	conv.ToolChoice = "web_search" // specific tool name, not a keyword
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	// A specific tool name produces a structured tool_choice object.
+	tc, ok := receivedRequest["tool_choice"].(map[string]any)
+	require.True(t, ok, "specific tool name should produce structured tool_choice object")
+	assert.Equal(t, "function", tc["type"])
+	fn := tc["function"].(map[string]any)
+	assert.Equal(t, "web_search", fn["name"])
+}
+
+func TestCohereGenerator_Generate_NoToolsOmitted(t *testing.T) {
+	origKey := os.Getenv("COHERE_API_KEY")
+	_ = os.Unsetenv("COHERE_API_KEY")
+	defer func() {
+		if origKey != "" {
+			_ = os.Setenv("COHERE_API_KEY", origKey)
+		}
+	}()
+
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockChatResponse("Hello"))
+	}))
+	defer server.Close()
+
+	g, err := NewCohere(registry.Config{
+		"model":    "command-r",
+		"api_key":  "test-key",
+		"base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Hello")
+	// No tools set on conversation.
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	_, hasTools := receivedRequest["tools"]
+	assert.False(t, hasTools, "request should not contain tools key when no tools set")
+}
+
+func TestCohereGenerator_Generate_ResponseToolCalls(t *testing.T) {
+	origKey := os.Getenv("COHERE_API_KEY")
+	_ = os.Unsetenv("COHERE_API_KEY")
+	defer func() {
+		if origKey != "" {
+			_ = os.Setenv("COHERE_API_KEY", origKey)
+		}
+	}()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := mockChatResponseWithToolCalls([]map[string]any{
+			{
+				"id":   "call_123",
+				"type": "function",
+				"function": map[string]any{
+					"name":      "web_search",
+					"arguments": `{"query":"AI safety"}`,
+				},
+			},
+		})
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	g, err := NewCohere(registry.Config{
+		"model":    "command-r",
+		"api_key":  "test-key",
+		"base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Search for AI safety")
+	conv.Tools = []map[string]any{{"name": "web_search", "description": "Search"}}
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	require.Len(t, responses, 1)
+
+	// Verify ToolCalls is populated with the normalized canonical form.
+	require.NotNil(t, responses[0].ToolCalls, "response should carry tool calls")
+	require.Len(t, responses[0].ToolCalls, 1)
+
+	tc := responses[0].ToolCalls[0]
+	assert.Equal(t, "web_search", tc["name"])
+	assert.Equal(t, "call_123", tc["id"])
+
+	args, ok := tc["args"].(map[string]any)
+	require.True(t, ok, "args should be a decoded map")
+	assert.Equal(t, "AI safety", args["query"])
+}
