@@ -60,7 +60,6 @@ func NormalizeOpenAIToolCalls(toolCalls []goopenai.ToolCall) []map[string]any {
 	return result
 }
 
-
 // GeminiFunctionCall is the minimal shape of a Gemini functionCall content part
 // as returned by the Vertex AI / Gemini API. Only the fields relevant to
 // normalization are included here.
@@ -105,7 +104,6 @@ func NormalizeGeminiFunctionCalls(funcCalls []GeminiFunctionCall) []map[string]a
 	}
 	return result
 }
-
 
 // CohereToolFunction is the function portion of a Cohere tool call.
 type CohereToolFunction struct {

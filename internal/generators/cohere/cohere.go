@@ -254,9 +254,11 @@ func (g *Cohere) buildChatRequest(conv *attempt.Conversation) map[string]any {
 				"function": fn,
 			})
 		}
-		req["tools"] = tools
+		if len(tools) > 0 {
+			req["tools"] = tools
+		}
 
-		if conv.ToolChoice != "" {
+		if conv.ToolChoice != "" && len(tools) > 0 {
 			switch conv.ToolChoice {
 			case "auto", "required", "none":
 				req["tool_choice"] = conv.ToolChoice
@@ -286,11 +288,20 @@ func (g *Cohere) conversationToMessages(conv *attempt.Conversation) []map[string
 
 	// Add turns
 	for _, turn := range conv.Turns {
-		// Add user message
-		messages = append(messages, map[string]any{
-			"role":    "user",
-			"content": turn.Prompt.Content,
-		})
+		// Add user or tool-result message depending on role
+		switch turn.Prompt.Role {
+		case attempt.RoleTool:
+			messages = append(messages, map[string]any{
+				"role":         "tool",
+				"tool_call_id": turn.Prompt.ToolCallID,
+				"content":      turn.Prompt.Content,
+			})
+		default:
+			messages = append(messages, map[string]any{
+				"role":    "user",
+				"content": turn.Prompt.Content,
+			})
+		}
 
 		// Add assistant response if present
 		if turn.Response != nil {

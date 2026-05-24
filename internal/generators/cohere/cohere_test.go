@@ -20,7 +20,7 @@ import (
 // mockChatResponse creates a mock Cohere v2 chat response.
 func mockChatResponse(content string) map[string]any {
 	return map[string]any{
-		"id":           "chat-test-id",
+		"id":            "chat-test-id",
 		"finish_reason": "COMPLETE",
 		"message": map[string]any{
 			"role": "assistant",
@@ -1103,4 +1103,90 @@ func TestCohereGenerator_Generate_ResponseToolCalls(t *testing.T) {
 	args, ok := tc["args"].(map[string]any)
 	require.True(t, ok, "args should be a decoded map")
 	assert.Equal(t, "AI safety", args["query"])
+}
+
+func TestCohereGenerator_ConversationToMessages_ToolResultRole(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockChatResponse("Done"))
+	}))
+	defer server.Close()
+
+	g, err := NewCohere(registry.Config{
+		"model":    "command-r",
+		"api_key":  "test-key",
+		"base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	// Build a conversation with a tool-result turn (RoleTool).
+	conv := attempt.NewConversation()
+	// First turn: user prompt + assistant tool-call response
+	firstTurn := attempt.Turn{
+		Prompt: attempt.NewUserMessage("Search for AI safety"),
+	}
+	assistantResp := attempt.NewAssistantMessage("")
+	assistantResp.ToolCalls = []map[string]any{
+		{"name": "web_search", "id": "call_abc", "args": map[string]any{"query": "AI safety"}},
+	}
+	firstTurn.Response = &assistantResp
+	conv.AddTurn(firstTurn)
+
+	// Second turn: tool result
+	toolTurn := attempt.Turn{
+		Prompt: attempt.NewToolResultMessage("call_abc", `{"results":["result1"]}`),
+	}
+	conv.AddTurn(toolTurn)
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	messages, ok := receivedRequest["messages"].([]any)
+	require.True(t, ok, "messages must be present")
+	// Expected: [user, assistant, tool]
+	require.Len(t, messages, 3)
+
+	toolMsg := messages[2].(map[string]any)
+	assert.Equal(t, "tool", toolMsg["role"])
+	assert.Equal(t, "call_abc", toolMsg["tool_call_id"])
+	assert.Equal(t, `{"results":["result1"]}`, toolMsg["content"])
+}
+
+func TestCohereGenerator_BuildChatRequest_AllInvalidToolsOmitsToolsKey(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockChatResponse("Done"))
+	}))
+	defer server.Close()
+
+	origKey := os.Getenv("COHERE_API_KEY")
+	_ = os.Unsetenv("COHERE_API_KEY")
+	defer func() {
+		if origKey != "" {
+			_ = os.Setenv("COHERE_API_KEY", origKey)
+		}
+	}()
+
+	g, err := NewCohere(registry.Config{
+		"model":    "command-r",
+		"api_key":  "test-key",
+		"base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Hello")
+	// All tools have invalid (empty) names — should all be skipped.
+	conv.Tools = []map[string]any{
+		{"name": "", "description": "no name"},
+		{"description": "also no name"},
+	}
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	_, hasTools := receivedRequest["tools"]
+	assert.False(t, hasTools, "tools key must not be sent when all tool names are invalid")
 }

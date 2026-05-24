@@ -51,11 +51,11 @@ type Vertex struct {
 	model     string
 
 	// Configuration parameters
-	temperature      float64
-	maxOutputTokens  int
-	topP             float64
-	topK             int
-	stopSequences    []string
+	temperature     float64
+	maxOutputTokens int
+	topP            float64
+	topK            int
+	stopSequences   []string
 
 	// HTTP client for API calls
 	client *http.Client
@@ -123,9 +123,9 @@ func NewVertexWithOptions(opts ...Option) (*Vertex, error) {
 // contentPart represents a part in a content block.
 // Supports text, function call, and function response parts.
 type contentPart struct {
-	Text             string         `json:"text,omitempty"`
-	FunctionCall     *functionCall  `json:"functionCall,omitempty"`
-	FunctionResponse *functionResp  `json:"functionResponse,omitempty"`
+	Text             string        `json:"text,omitempty"`
+	FunctionCall     *functionCall `json:"functionCall,omitempty"`
+	FunctionResponse *functionResp `json:"functionResponse,omitempty"`
 }
 
 // functionCall represents a function call made by the model.
