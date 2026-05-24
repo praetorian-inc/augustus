@@ -527,3 +527,11 @@ func TestNormalizeCohereToolCalls_OmitsEmptyID(t *testing.T) {
 	_, hasID := got[0]["id"]
 	assert.False(t, hasID, "empty ID should not be present in canonical form")
 }
+
+func TestNormalizeCohereToolCalls_AllEmptyNamesReturnsNil(t *testing.T) {
+	calls := []CohereToolCall{
+		{Function: CohereToolFunction{Name: "", Arguments: `{"key":"value"}`}},
+	}
+	got := NormalizeCohereToolCalls(calls)
+	assert.Nil(t, got, "all-skipped slice should return nil")
+}

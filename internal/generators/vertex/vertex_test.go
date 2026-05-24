@@ -779,3 +779,192 @@ func TestVertexGenerator_APIKeyFromEnv(t *testing.T) {
 	_, err = g.Generate(context.Background(), conv, 1)
 	assert.NoError(t, err)
 }
+
+func TestVertexGenerator_Generate_ToolResultReplayJSON(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockVertexResponse("The temperature is 72 degrees."))
+	}))
+	defer server.Close()
+
+	g, err := NewVertex(registry.Config{
+		"model":      "gemini-pro",
+		"project_id": "test-project",
+		"location":   "us-central1",
+		"base_url":   server.URL,
+	})
+	require.NoError(t, err)
+
+	// Build a two-turn conversation: user question + simulated model tool call + tool result.
+	conv := attempt.NewConversation()
+	conv.AddPrompt("What's the weather?")
+
+	// First turn: simulate model's tool call response.
+	assistantMsg := attempt.NewAssistantMessage("")
+	assistantMsg.ToolCalls = []map[string]any{
+		{"name": "get_weather", "args": map[string]any{"location": "SF"}},
+	}
+	conv.Turns[0].Response = &assistantMsg
+
+	// Second turn: inject tool result with valid JSON content.
+	toolResult := attempt.NewToolResultMessage("get_weather", `{"temperature": 72}`)
+	conv.Turns = append(conv.Turns, attempt.Turn{Prompt: toolResult})
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	// Verify the request contains a "function" role content with the expected functionResponse.
+	contents, ok := receivedRequest["contents"].([]any)
+	require.True(t, ok, "request must contain contents array")
+
+	// Find the function-role content block.
+	var funcContent map[string]any
+	for _, c := range contents {
+		cb, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		if cb["role"] == "function" {
+			funcContent = cb
+			break
+		}
+	}
+	require.NotNil(t, funcContent, "contents must include a 'function' role entry for the tool result")
+
+	parts, ok := funcContent["parts"].([]any)
+	require.True(t, ok, "function content must have parts")
+	require.Len(t, parts, 1)
+
+	part, ok := parts[0].(map[string]any)
+	require.True(t, ok)
+	funcResp, ok := part["functionResponse"].(map[string]any)
+	require.True(t, ok, "part must contain functionResponse")
+	assert.Equal(t, "get_weather", funcResp["name"])
+
+	response, ok := funcResp["response"].(map[string]any)
+	require.True(t, ok, "functionResponse must have response map")
+	assert.Equal(t, float64(72), response["temperature"])
+}
+
+func TestVertexGenerator_Generate_ToolResultReplayNonJSON(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockVertexResponse("Got it."))
+	}))
+	defer server.Close()
+
+	g, err := NewVertex(registry.Config{
+		"model":      "gemini-pro",
+		"project_id": "test-project",
+		"location":   "us-central1",
+		"base_url":   server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("What's the weather?")
+
+	assistantMsg := attempt.NewAssistantMessage("")
+	assistantMsg.ToolCalls = []map[string]any{
+		{"name": "get_weather", "args": map[string]any{"location": "SF"}},
+	}
+	conv.Turns[0].Response = &assistantMsg
+
+	// Tool result with plain-text (non-JSON) content.
+	toolResult := attempt.NewToolResultMessage("get_weather", "The temperature is 72 degrees")
+	conv.Turns = append(conv.Turns, attempt.Turn{Prompt: toolResult})
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	contents, ok := receivedRequest["contents"].([]any)
+	require.True(t, ok, "request must contain contents array")
+
+	var funcContent map[string]any
+	for _, c := range contents {
+		cb, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		if cb["role"] == "function" {
+			funcContent = cb
+			break
+		}
+	}
+	require.NotNil(t, funcContent, "contents must include a 'function' role entry for the tool result")
+
+	parts, ok := funcContent["parts"].([]any)
+	require.True(t, ok)
+	require.Len(t, parts, 1)
+
+	part, ok := parts[0].(map[string]any)
+	require.True(t, ok)
+	funcResp, ok := part["functionResponse"].(map[string]any)
+	require.True(t, ok, "part must contain functionResponse")
+	assert.Equal(t, "get_weather", funcResp["name"])
+
+	// Non-JSON content must be wrapped under "result".
+	response, ok := funcResp["response"].(map[string]any)
+	require.True(t, ok, "functionResponse must have response map")
+	assert.Equal(t, "The temperature is 72 degrees", response["result"])
+}
+
+func TestVertexGenerator_Generate_ToolChoiceNone(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockVertexResponse("response"))
+	}))
+	defer server.Close()
+
+	g, err := NewVertex(registry.Config{
+		"model":      "gemini-pro",
+		"project_id": "test-project",
+		"location":   "us-central1",
+		"base_url":   server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+	conv.Tools = []map[string]any{{"name": "web_search", "description": "Search"}}
+	conv.ToolChoice = "none"
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	// tools key must be absent when ToolChoice == "none".
+	_, hasTools := receivedRequest["tools"]
+	assert.False(t, hasTools, "tools key must be absent when ToolChoice is none")
+
+	toolConfig, ok := receivedRequest["toolConfig"].(map[string]any)
+	require.True(t, ok, "request must contain toolConfig")
+	fcc, ok := toolConfig["functionCallingConfig"].(map[string]any)
+	require.True(t, ok, "toolConfig must contain functionCallingConfig")
+	assert.Equal(t, "NONE", fcc["mode"])
+}
+
+func TestVertexGenerator_Generate_InvalidToolNameError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(mockVertexResponse("response"))
+	}))
+	defer server.Close()
+
+	g, err := NewVertex(registry.Config{
+		"model":      "gemini-pro",
+		"project_id": "test-project",
+		"location":   "us-central1",
+		"base_url":   server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+	conv.Tools = []map[string]any{{"name": "", "description": "Bad tool"}}
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.Error(t, err, "empty tool name must return an error")
+	assert.Contains(t, err.Error(), "missing valid string name")
+}
