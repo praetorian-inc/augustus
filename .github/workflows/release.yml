@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   release:
-    uses: praetorian-inc/public-workflows/.github/workflows/go-release.yml@f2c1dd0  # v3.0.0
+    uses: praetorian-inc/public-workflows/.github/workflows/go-release.yml@f2c1dd0dc514e3eef1da72d96810fda16e7f4296  # v3.0.0
     permissions:
       contents: write
       id-token: write
