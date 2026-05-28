@@ -1,5 +1,10 @@
 version: 2
 
+before:
+  hooks:
+    - go mod tidy
+    - go mod verify
+
 builds:
   - main: ./cmd/augustus
     binary: augustus
@@ -22,7 +27,20 @@ checksum:
   name_template: checksums.txt
 
 changelog:
+  use: github
   sort: asc
+  groups:
+    - title: "Breaking Changes"
+      regexp: '^.*?!:.+$'
+      order: 0
+    - title: "Features"
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: "Bug Fixes"
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: "Other Changes"
+      order: 999
   filters:
     exclude:
       - "^docs:"
