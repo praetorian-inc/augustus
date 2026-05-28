@@ -2,7 +2,7 @@ version: 2
 
 before:
   hooks:
-    - go mod tidy
+    - go mod tidy -diff
     - go mod verify
 
 builds:
@@ -31,13 +31,13 @@ changelog:
   sort: asc
   groups:
     - title: "Breaking Changes"
-      regexp: '^.*?!:.+$'
+      regexp: '^[a-zA-Z]+(\([^)]+\))?!:.+$'
       order: 0
     - title: "Features"
-      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      regexp: '^.*?feat(\([^)]+\))?!?:.+$'
       order: 1
     - title: "Bug Fixes"
-      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      regexp: '^.*?fix(\([^)]+\))?!?:.+$'
       order: 2
     - title: "Other Changes"
       order: 999
