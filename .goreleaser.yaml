@@ -31,7 +31,7 @@ changelog:
   sort: asc
   groups:
     - title: "Breaking Changes"
-      regexp: '^[a-zA-Z]+(\([^)]+\))?!:.+$'
+      regexp: '^.*?[a-zA-Z]+(\([^)]+\))?!:.+$'
       order: 0
     - title: "Features"
       regexp: '^.*?feat(\([^)]+\))?!?:.+$'
