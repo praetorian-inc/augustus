@@ -12,6 +12,7 @@ jobs:
     uses: praetorian-inc/public-workflows/.github/workflows/go-release.yml@f7fb4810ccab4ab589499b632fb61983124ece79  # v2.4.0
     permissions:
       contents: write
+      packages: write
       id-token: write
       attestations: write
     with:
