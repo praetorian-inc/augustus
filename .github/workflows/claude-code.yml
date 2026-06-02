@@ -2,7 +2,7 @@ name: Claude PR Assistant
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, ready_for_review]
   pull_request_review_comment:
     types: [created]
 
@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   claude-code-action:
-    uses: praetorian-inc/public-workflows/.github/workflows/claude-code.yml@c4e898f83b9c4008cc3dbe295cc420e53ec6b16b  # v2.0.9
+    uses: praetorian-inc/public-workflows/.github/workflows/claude-code.yml@debcee1fd3a78e908b1f89d8f2bef0644c454cbc  # v2.1.0  # v2.0.12
     permissions:
       contents: read
       pull-requests: write

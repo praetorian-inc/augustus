@@ -5,18 +5,27 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - '.golangci*'
+      - 'Makefile'
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   ci:
-    uses: praetorian-inc/public-workflows/.github/workflows/go-ci.yml@7867fcf335716be84f807cf3d9c1eed44eb5d7c1  # v1.0.1
+    uses: praetorian-inc/public-workflows/.github/workflows/go-ci.yml@debcee1fd3a78e908b1f89d8f2bef0644c454cbc  # v2.2.0
     permissions:
       contents: read
     with:
       build-cmd-path: ./cmd/augustus
       build-binary-name: augustus
-      golangci-lint-only-new-issues: true
     secrets: inherit

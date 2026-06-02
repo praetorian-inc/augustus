@@ -503,7 +503,7 @@ internal/
   generators/         28 LLM provider integrations (43 variants)
   detectors/          90+ detector implementations (35 categories)
   harnesses/          3 harness strategies (probewise, batch, agentwise)
-  buffs/              7 buff transformations
+  buffs/              Buff interface for prompt transformations
   attackengine/       Iterative adversarial attack engine (PAIR/TAP backend)
   multiturn/          Multi-turn conversational attack engine (Crescendo/GOAT/Hydra/Mischievous)
   ahocorasick/        Internal Aho-Corasick keyword matching

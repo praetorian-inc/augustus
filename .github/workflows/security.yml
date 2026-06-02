@@ -5,17 +5,28 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - '.golangci*'
+      - 'Makefile'
   schedule:
     - cron: '0 6 * * 1'  # Mondays 06:00 UTC — weekly baseline
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   security:
-    uses: praetorian-inc/public-workflows/.github/workflows/go-security.yml@a2b8d84dbc6aa0136dabf4ce5dda0fe28b6bf407  # v1.1.2
+    uses: praetorian-inc/public-workflows/.github/workflows/go-sec.yml@debcee1fd3a78e908b1f89d8f2bef0644c454cbc  # v2.2.0
     permissions:
       contents: read
       security-events: write
+      actions: read           # required by codeql-action/upload-sarif for run metadata
     secrets: inherit

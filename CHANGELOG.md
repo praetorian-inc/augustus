@@ -11,6 +11,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Benchmark runner script with multi-provider comparison and executive summary modes
 - Interactive LLM provider setup script with validation
 - Ollama model pull script with GPU VRAM detection and tiered recommendations
+- `encoding.PigLatin` buff for Pig Latin word transformation evasion testing (LAB-155, PR #82)
+- `encoding.Emoji` buff for word-to-emoji semantic substitution evasion testing (LAB-157, PR #83)
 
 ### Changed
 - **BREAKING:** The `judge:` section in YAML config is now required when using `judge.Judge`, `judge.Refusal`, or multi-turn probes (PAIR, TAP, Crescendo, GOAT, Hydra, Mischievous). The judge no longer silently falls back to the target model.
