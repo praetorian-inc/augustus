@@ -97,13 +97,13 @@ Start with innocent questions to discover the target's capabilities, tools, and 
 	// Summarize intelligence gathered so far
 	var intel []string
 	for _, tr := range turnHistory {
-		resp := tr.Response
-		if len(resp) > budget {
-			resp = resp[:budget]
-		}
 		if tr.JudgeScore > 0.2 {
+			observation := tr.Observation
+			if len(observation) > budget {
+				observation = observation[:budget]
+			}
 			intel = append(intel, fmt.Sprintf("Turn %d [score %.1f]: Asked about %s, learned: %s",
-				tr.TurnNumber, tr.JudgeScore, tr.Strategy, tr.Observation))
+				tr.TurnNumber, tr.JudgeScore, tr.Strategy, observation))
 		}
 	}
 
