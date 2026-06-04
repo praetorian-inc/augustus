@@ -25,6 +25,14 @@ type Message struct {
 	Content string `json:"content"`
 	// Images contains optional image attachments for multimodal messages.
 	Images []Image `json:"images,omitempty"`
+	// Audio contains optional audio attachments for multimodal messages.
+	// Consumed by generators that support audio input (e.g. OpenAI
+	// gpt-4o-audio-preview, Gemini).
+	Audio []Audio `json:"audio,omitempty"`
+	// Documents contains optional document attachments (e.g. PDFs) for
+	// multimodal messages. Consumed by generators that support native
+	// document input (e.g. Anthropic Claude, Gemini).
+	Documents []Document `json:"documents,omitempty"`
 }
 
 // NewMessage creates a new message with the given role and content.
@@ -56,5 +64,23 @@ func NewUserMessageWithImages(content string, images []Image) Message {
 		Role:    RoleUser,
 		Content: content,
 		Images:  images,
+	}
+}
+
+// NewUserMessageWithAudio creates a new user message with audio attachments.
+func NewUserMessageWithAudio(content string, audio []Audio) Message {
+	return Message{
+		Role:    RoleUser,
+		Content: content,
+		Audio:   audio,
+	}
+}
+
+// NewUserMessageWithDocuments creates a new user message with document attachments.
+func NewUserMessageWithDocuments(content string, docs []Document) Message {
+	return Message{
+		Role:      RoleUser,
+		Content:   content,
+		Documents: docs,
 	}
 }

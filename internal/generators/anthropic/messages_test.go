@@ -228,6 +228,82 @@ func TestBuildMessages_EmptyTextWithImage(t *testing.T) {
 	}
 }
 
+func TestBuildMessages_WithDocument(t *testing.T) {
+	doc := attempt.Document{
+		Data:     []byte("%PDF-1.4 fake"),
+		MimeType: "application/pdf",
+	}
+	conv := &attempt.Conversation{
+		Turns: []attempt.Turn{
+			{Prompt: attempt.NewUserMessageWithDocuments("summarize this", []attempt.Document{doc})},
+		},
+	}
+
+	msgs, _, err := BuildMessages(conv)
+	if err != nil {
+		t.Fatalf("BuildMessages: %v", err)
+	}
+
+	var blocks []map[string]any
+	if err := json.Unmarshal(msgs[0].Content, &blocks); err != nil {
+		t.Fatalf("expected content array, got %s: %v", string(msgs[0].Content), err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("expected 2 blocks (text + document), got %d", len(blocks))
+	}
+	if blocks[0]["type"] != "text" || blocks[0]["text"] != "summarize this" {
+		t.Errorf("expected text block first, got %+v", blocks[0])
+	}
+	if blocks[1]["type"] != "document" {
+		t.Errorf("expected document block second, got %+v", blocks[1])
+	}
+	source, ok := blocks[1]["source"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected document.source object, got %T", blocks[1]["source"])
+	}
+	if source["type"] != "base64" || source["media_type"] != "application/pdf" {
+		t.Errorf("unexpected document source: %+v", source)
+	}
+	expectedB64 := base64.StdEncoding.EncodeToString(doc.Data)
+	if source["data"] != expectedB64 {
+		t.Errorf("expected base64 doc bytes, got %v", source["data"])
+	}
+}
+
+func TestBuildMessages_WithImageAndDocument(t *testing.T) {
+	img := attempt.Image{Data: []byte{0x01}, MimeType: "image/png"}
+	doc := attempt.Document{Data: []byte("%PDF"), MimeType: "application/pdf"}
+	conv := &attempt.Conversation{
+		Turns: []attempt.Turn{
+			{Prompt: attempt.Message{
+				Role:      attempt.RoleUser,
+				Content:   "both",
+				Images:    []attempt.Image{img},
+				Documents: []attempt.Document{doc},
+			}},
+		},
+	}
+
+	msgs, _, err := BuildMessages(conv)
+	if err != nil {
+		t.Fatalf("BuildMessages: %v", err)
+	}
+
+	var blocks []map[string]any
+	if err := json.Unmarshal(msgs[0].Content, &blocks); err != nil {
+		t.Fatalf("decode content: %v", err)
+	}
+	if len(blocks) != 3 {
+		t.Fatalf("expected 3 blocks (text + image + document), got %d", len(blocks))
+	}
+	wantTypes := []string{"text", "image", "document"}
+	for i, w := range wantTypes {
+		if blocks[i]["type"] != w {
+			t.Errorf("block %d: want type %q, got %v", i, w, blocks[i]["type"])
+		}
+	}
+}
+
 func TestBuildMessages_NilConversation(t *testing.T) {
 	msgs, system, err := BuildMessages(nil)
 	if err != nil {

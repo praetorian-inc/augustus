@@ -62,14 +62,14 @@ func BuildMessages(conv *attempt.Conversation) ([]Message, string, error) {
 
 // buildContent serializes a single Message into the Anthropic content field.
 // Text-only messages marshal to a plain JSON string; multimodal messages
-// marshal to a JSON array of typed content blocks.
+// (images and/or documents) marshal to a JSON array of typed content blocks.
 func buildContent(msg *attempt.Message) (json.RawMessage, error) {
-	if len(msg.Images) == 0 {
+	if len(msg.Images) == 0 && len(msg.Documents) == 0 {
 		// Backwards-compatible: emit plain string.
 		return json.Marshal(msg.Content)
 	}
 
-	blocks := make([]any, 0, 1+len(msg.Images))
+	blocks := make([]any, 0, 1+len(msg.Images)+len(msg.Documents))
 	if msg.Content != "" {
 		blocks = append(blocks, map[string]any{
 			"type": "text",
@@ -83,6 +83,16 @@ func buildContent(msg *attempt.Message) (json.RawMessage, error) {
 				"type":       "base64",
 				"media_type": img.MimeType,
 				"data":       img.ToBase64(),
+			},
+		})
+	}
+	for _, doc := range msg.Documents {
+		blocks = append(blocks, map[string]any{
+			"type": "document",
+			"source": map[string]any{
+				"type":       "base64",
+				"media_type": doc.MimeType,
+				"data":       doc.ToBase64(),
 			},
 		})
 	}
