@@ -20,6 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
+	"github.com/praetorian-inc/augustus/internal/generators/anthropic"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -181,21 +182,13 @@ func (g *Bedrock) generateOne(ctx context.Context, conv *attempt.Conversation) (
 }
 
 // buildClaudeRequest builds a request for Anthropic Claude models on Bedrock.
+// Reuses the anthropic.BuildMessages helper since Bedrock's Claude invocation
+// shares the same Messages API wire format (content arrays with text/image
+// blocks); only the top-level fields differ (anthropic_version, etc.).
 func (g *Bedrock) buildClaudeRequest(conv *attempt.Conversation) ([]byte, error) {
-	messages := make([]map[string]string, 0)
-
-	// Convert conversation to messages (skip system message)
-	for _, turn := range conv.Turns {
-		messages = append(messages, map[string]string{
-			"role":    "user",
-			"content": turn.Prompt.Content,
-		})
-		if turn.Response != nil {
-			messages = append(messages, map[string]string{
-				"role":    "assistant",
-				"content": turn.Response.Content,
-			})
-		}
+	messages, system, err := anthropic.BuildMessages(conv)
+	if err != nil {
+		return nil, err
 	}
 
 	req := map[string]any{
@@ -205,12 +198,10 @@ func (g *Bedrock) buildClaudeRequest(conv *attempt.Conversation) ([]byte, error)
 		"temperature":       g.temperature,
 	}
 
-	// Add system prompt if present
-	if conv.System != nil {
-		req["system"] = conv.System.Content
+	if system != "" {
+		req["system"] = system
 	}
 
-	// Add top_p if set
 	if g.topP > 0 {
 		req["top_p"] = g.topP
 	}
