@@ -130,19 +130,3 @@ func (d *Document) ToBase64() string {
 	}
 	return ""
 }
-
-// MultimodalAttempt extends Attempt to include image and audio data.
-//
-// This enables probes to test LLMs with multimodal inputs (text + images + audio).
-// The embedded Attempt contains the text prompt and text-based responses,
-// while Images and Audio contain the multimodal attachments.
-type MultimodalAttempt struct {
-	// Attempt is the base attempt with text prompts and outputs.
-	Attempt
-
-	// Images contains image attachments sent to the model.
-	Images []Image `json:"images,omitempty"`
-
-	// Audio contains audio attachments sent to the model.
-	Audio []Audio `json:"audio,omitempty"`
-}

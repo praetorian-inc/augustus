@@ -11,7 +11,8 @@ import (
 )
 
 // NVMultimodal is a generator that wraps NVIDIA NIM multimodal endpoints.
-// Supports text, image, and audio inputs.
+// Supports text and image inputs via openaicompat.ConversationToMessages.
+// Audio inputs are not currently wired through this generator.
 type NVMultimodal struct {
 	Config
 }
@@ -75,7 +76,7 @@ func (g *NVMultimodal) Name() string {
 
 // Description returns a human-readable description.
 func (g *NVMultimodal) Description() string {
-	return "NVIDIA NIM multimodal generator for text, image, and audio inputs"
+	return "NVIDIA NIM multimodal generator for text and image inputs"
 }
 
 // Vision is a generator that wraps NVIDIA NIM vision endpoints.

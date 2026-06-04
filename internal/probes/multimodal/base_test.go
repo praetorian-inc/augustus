@@ -8,7 +8,6 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestImage_Creation(t *testing.T) {
@@ -90,108 +89,6 @@ func TestAudio_Creation(t *testing.T) {
 			assert.Equal(t, tt.duration, audio.Duration)
 		})
 	}
-}
-
-func TestMultimodalAttempt_Creation(t *testing.T) {
-	t.Run("create multimodal attempt with images", func(t *testing.T) {
-		images := []attempt.Image{
-			{
-				Data:     []byte("image1"),
-				MimeType: "image/png",
-			},
-			{
-				Base64:   "base64-encoded-image",
-				MimeType: "image/jpeg",
-			},
-		}
-
-		ma := &attempt.MultimodalAttempt{
-			Attempt: *attempt.New("test prompt"),
-			Images:  images,
-		}
-
-		require.NotNil(t, ma)
-		assert.Equal(t, "test prompt", ma.Prompt)
-		assert.Len(t, ma.Images, 2)
-		assert.Equal(t, "image/png", ma.Images[0].MimeType)
-		assert.Equal(t, "image/jpeg", ma.Images[1].MimeType)
-	})
-
-	t.Run("create multimodal attempt with audio", func(t *testing.T) {
-		audio := []attempt.Audio{
-			{
-				Data:     []byte("audio1"),
-				MimeType: "audio/mp3",
-				Duration: 5 * time.Second,
-			},
-		}
-
-		ma := &attempt.MultimodalAttempt{
-			Attempt: *attempt.New("test prompt"),
-			Audio:   audio,
-		}
-
-		require.NotNil(t, ma)
-		assert.Len(t, ma.Audio, 1)
-		assert.Equal(t, "audio/mp3", ma.Audio[0].MimeType)
-		assert.Equal(t, 5*time.Second, ma.Audio[0].Duration)
-	})
-
-	t.Run("create multimodal attempt with both images and audio", func(t *testing.T) {
-		images := []attempt.Image{
-			{Path: "/path/to/image.png", MimeType: "image/png"},
-		}
-		audio := []attempt.Audio{
-			{Path: "/path/to/audio.mp3", MimeType: "audio/mp3", Duration: 3 * time.Second},
-		}
-
-		ma := &attempt.MultimodalAttempt{
-			Attempt: *attempt.New("multimodal prompt"),
-			Images:  images,
-			Audio:   audio,
-		}
-
-		require.NotNil(t, ma)
-		assert.Len(t, ma.Images, 1)
-		assert.Len(t, ma.Audio, 1)
-	})
-}
-
-func TestMultimodalAttempt_InheritsAttemptMethods(t *testing.T) {
-	t.Run("can use AddOutput from embedded Attempt", func(t *testing.T) {
-		ma := &attempt.MultimodalAttempt{
-			Attempt: *attempt.New("test"),
-		}
-
-		ma.AddOutput("response 1")
-		ma.AddOutput("response 2")
-
-		assert.Len(t, ma.Outputs, 2)
-		assert.Equal(t, "response 1", ma.Outputs[0])
-		assert.Equal(t, "response 2", ma.Outputs[1])
-	})
-
-	t.Run("can use AddScore from embedded Attempt", func(t *testing.T) {
-		ma := &attempt.MultimodalAttempt{
-			Attempt: *attempt.New("test"),
-		}
-
-		ma.AddScore(0.7)
-		ma.AddScore(0.9)
-
-		assert.Len(t, ma.Scores, 2)
-		assert.Equal(t, 0.7, ma.Scores[0])
-		assert.Equal(t, 0.9, ma.Scores[1])
-	})
-
-	t.Run("can use Complete from embedded Attempt", func(t *testing.T) {
-		ma := &attempt.MultimodalAttempt{
-			Attempt: *attempt.New("test"),
-		}
-
-		ma.Complete()
-		assert.Equal(t, attempt.StatusComplete, ma.Status)
-	})
 }
 
 // MockMultimodalProbe is a test implementation of MultimodalProbe
