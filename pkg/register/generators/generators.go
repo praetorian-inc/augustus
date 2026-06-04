@@ -14,6 +14,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/generators/deepinfra"
 	_ "github.com/praetorian-inc/augustus/internal/generators/fireworks"
 	_ "github.com/praetorian-inc/augustus/internal/generators/function"
+	_ "github.com/praetorian-inc/augustus/internal/generators/gemini"
 	_ "github.com/praetorian-inc/augustus/internal/generators/ggml"
 	_ "github.com/praetorian-inc/augustus/internal/generators/groq"
 	_ "github.com/praetorian-inc/augustus/internal/generators/guardrails"
