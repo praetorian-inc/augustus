@@ -140,6 +140,8 @@ func (g *Bedrock) generateOne(ctx context.Context, conv *attempt.Conversation) (
 
 	if strings.HasPrefix(g.modelID, "anthropic.claude") {
 		requestBody, err = g.buildClaudeRequest(conv)
+	} else if strings.HasPrefix(g.modelID, "amazon.nova") {
+		requestBody, err = g.buildNovaRequest(conv)
 	} else if strings.HasPrefix(g.modelID, "amazon.titan") {
 		requestBody, err = g.buildTitanRequest(conv)
 	} else if strings.HasPrefix(g.modelID, "meta.llama") {
@@ -168,6 +170,8 @@ func (g *Bedrock) generateOne(ctx context.Context, conv *attempt.Conversation) (
 	var text string
 	if strings.HasPrefix(g.modelID, "anthropic.claude") {
 		text, err = g.parseClaudeResponse(output.Body)
+	} else if strings.HasPrefix(g.modelID, "amazon.nova") {
+		text, err = g.parseNovaResponse(output.Body)
 	} else if strings.HasPrefix(g.modelID, "amazon.titan") {
 		text, err = g.parseTitanResponse(output.Body)
 	} else if strings.HasPrefix(g.modelID, "meta.llama") {
