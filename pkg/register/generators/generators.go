@@ -35,4 +35,5 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/generators/together"
 	_ "github.com/praetorian-inc/augustus/internal/generators/vertex"
 	_ "github.com/praetorian-inc/augustus/internal/generators/watsonx"
+	_ "github.com/praetorian-inc/augustus/internal/generators/xai"
 )
