@@ -30,11 +30,11 @@ func init() {
 
 // Default configuration values matching litellm patterns.
 const (
-	defaultMaxTokens      = 150
-	defaultTemperature    = 0.7
-	defaultAPIVersion     = "2023-06-01"
-	defaultBaseURL        = "https://api.anthropic.com/v1"
-	defaultTimeout        = 90 * time.Second
+	defaultMaxTokens   = 150
+	defaultTemperature = 0.7
+	defaultAPIVersion  = "2023-06-01"
+	defaultBaseURL     = "https://api.anthropic.com/v1"
+	defaultTimeout     = 90 * time.Second
 )
 
 // Anthropic is a generator that wraps the Anthropic Messages API.
@@ -109,31 +109,25 @@ func NewAnthropicWithOptions(opts ...Option) (*Anthropic, error) {
 
 // messageRequest represents the Anthropic Messages API request format.
 type messageRequest struct {
-	Model         string            `json:"model"`
-	MaxTokens     int               `json:"max_tokens"`
-	Messages      []anthropicMsg    `json:"messages"`
-	System        string            `json:"system,omitempty"`
-	Temperature   float64           `json:"temperature,omitempty"`
-	TopP          float64           `json:"top_p,omitempty"`
-	TopK          int               `json:"top_k,omitempty"`
-	StopSequences []string          `json:"stop_sequences,omitempty"`
-}
-
-// anthropicMsg represents a message in the Anthropic format.
-type anthropicMsg struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Model         string    `json:"model"`
+	MaxTokens     int       `json:"max_tokens"`
+	Messages      []Message `json:"messages"`
+	System        string    `json:"system,omitempty"`
+	Temperature   float64   `json:"temperature,omitempty"`
+	TopP          float64   `json:"top_p,omitempty"`
+	TopK          int       `json:"top_k,omitempty"`
+	StopSequences []string  `json:"stop_sequences,omitempty"`
 }
 
 // messageResponse represents the Anthropic Messages API response format.
 type messageResponse struct {
-	ID           string           `json:"id"`
-	Type         string           `json:"type"`
-	Role         string           `json:"role"`
-	Content      []contentBlock   `json:"content"`
-	StopReason   string           `json:"stop_reason"`
-	StopSequence *string          `json:"stop_sequence"`
-	Usage        usageStats       `json:"usage"`
+	ID           string         `json:"id"`
+	Type         string         `json:"type"`
+	Role         string         `json:"role"`
+	Content      []contentBlock `json:"content"`
+	StopReason   string         `json:"stop_reason"`
+	StopSequence *string        `json:"stop_sequence"`
+	Usage        usageStats     `json:"usage"`
 }
 
 // contentBlock represents a content block in the response.
@@ -183,17 +177,17 @@ func (g *Anthropic) Generate(ctx context.Context, conv *attempt.Conversation, n 
 
 // generateOne performs a single API call and returns one response.
 func (g *Anthropic) generateOne(ctx context.Context, conv *attempt.Conversation) (attempt.Message, error) {
-	// Build request
+	messages, system, err := BuildMessages(conv)
+	if err != nil {
+		return attempt.Message{}, err
+	}
+
 	req := messageRequest{
 		Model:       g.model,
 		MaxTokens:   g.maxTokens,
-		Messages:    g.conversationToMessages(conv),
+		Messages:    messages,
+		System:      system,
 		Temperature: g.temperature,
-	}
-
-	// Add system prompt if present
-	if conv.System != nil {
-		req.System = conv.System.Content
 	}
 
 	// Add optional parameters if set
@@ -258,33 +252,6 @@ func (g *Anthropic) generateOne(ctx context.Context, conv *attempt.Conversation)
 	}
 
 	return attempt.NewAssistantMessage(text), nil
-}
-
-// conversationToMessages converts an Augustus Conversation to Anthropic messages.
-// Note: System message is handled separately in Anthropic's API.
-func (g *Anthropic) conversationToMessages(conv *attempt.Conversation) []anthropicMsg {
-	messages := make([]anthropicMsg, 0)
-
-	// Note: System message is NOT included in messages array for Anthropic
-	// It's passed as a separate parameter
-
-	for _, turn := range conv.Turns {
-		// Add user message
-		messages = append(messages, anthropicMsg{
-			Role:    "user",
-			Content: turn.Prompt.Content,
-		})
-
-		// Add assistant response if present
-		if turn.Response != nil {
-			messages = append(messages, anthropicMsg{
-				Role:    "assistant",
-				Content: turn.Response.Content,
-			})
-		}
-	}
-
-	return messages
 }
 
 // handleError processes API error responses.
