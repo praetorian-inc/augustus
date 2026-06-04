@@ -212,12 +212,12 @@ func (p *DRAProbe) suffixGen(question string, template string) string {
 		if isHarmful {
 			// Truncate harmful tokens
 			if len(token) <= 2 {
-				wordGuide.WriteString(fmt.Sprintf("\"%s\" ", token))
+				fmt.Fprintf(&wordGuide, "\"%s\" ", token)
 			} else if len(token) <= 4 {
 				if len(token) > 0 && isAlpha(token[len(token)-1]) {
-					wordGuide.WriteString(fmt.Sprintf("\"%s\" ", token[:1]))
+					fmt.Fprintf(&wordGuide, "\"%s\" ", token[:1])
 				} else {
-					wordGuide.WriteString(fmt.Sprintf("\"%s\" ", token))
+					fmt.Fprintf(&wordGuide, "\"%s\" ", token)
 				}
 			} else {
 				// Truncate based on toxicTrunc
@@ -225,30 +225,30 @@ func (p *DRAProbe) suffixGen(question string, template string) string {
 				if truncLen < 1 {
 					truncLen = 1
 				}
-				wordGuide.WriteString(fmt.Sprintf("\"%s\" ", token[:truncLen]))
+				fmt.Fprintf(&wordGuide, "\"%s\" ", token[:truncLen])
 			}
 		} else {
 			// Handle benign tokens
 			if rand.Float64() < benignFullTokenProb {
 				// Keep full token
-				wordGuide.WriteString(fmt.Sprintf("\"%s\" ", token))
+				fmt.Fprintf(&wordGuide, "\"%s\" ", token)
 			} else {
 				// Truncate benign token
 				if len(token) <= 2 {
-					wordGuide.WriteString(fmt.Sprintf("\"%s\" ", token))
+					fmt.Fprintf(&wordGuide, "\"%s\" ", token)
 				} else {
 					truncLen := int(float64(len(token)) * (1.0 - benignTrunc))
 					if truncLen < 1 {
 						truncLen = 1
 					}
-					wordGuide.WriteString(fmt.Sprintf("\"%s\" ", token[:truncLen]))
+					fmt.Fprintf(&wordGuide, "\"%s\" ", token[:truncLen])
 				}
 			}
 		}
 	}
 
 	// Replace {} placeholder with word guide
-	result := strings.Replace(template, "{}", wordGuide.String(), -1)
+	result := strings.ReplaceAll(template, "{}", wordGuide.String())
 	return result
 }
 

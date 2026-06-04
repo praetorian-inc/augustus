@@ -190,7 +190,7 @@ func (g *WatsonX) setBearerToken(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("watsonx: failed to get IAM token: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -243,7 +243,7 @@ func (g *WatsonX) generateWithProject(ctx context.Context, prompt string) (strin
 	if err != nil {
 		return "", fmt.Errorf("watsonx: request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -298,7 +298,7 @@ func (g *WatsonX) generateWithDeployment(ctx context.Context, prompt string) (st
 	if err != nil {
 		return "", fmt.Errorf("watsonx: request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

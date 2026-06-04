@@ -93,7 +93,7 @@ func TestJavaScriptNpm_Detect(t *testing.T) {
 
 		if realPackages[path] {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"name":"` + path[1:] + `"}`))
+			_, _ = w.Write([]byte(`{"name":"` + path[1:] + `"}`))
 		} else {
 			w.WriteHeader(http.StatusNotFound)
 		}

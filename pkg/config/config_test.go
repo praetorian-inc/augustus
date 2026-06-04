@@ -120,11 +120,11 @@ func TestEnvironmentVariableInterpolation(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.yaml")
 
 	// Set environment variables
-	os.Setenv("AUGUSTUS_API_KEY", "test-api-key-123")
-	os.Setenv("AUGUSTUS_OUTPUT_DIR", "/tmp/augustus-output")
+	_ = os.Setenv("AUGUSTUS_API_KEY", "test-api-key-123")
+	_ = os.Setenv("AUGUSTUS_OUTPUT_DIR", "/tmp/augustus-output")
 	defer func() {
-		os.Unsetenv("AUGUSTUS_API_KEY")
-		os.Unsetenv("AUGUSTUS_OUTPUT_DIR")
+		_ = os.Unsetenv("AUGUSTUS_API_KEY")
+		_ = os.Unsetenv("AUGUSTUS_OUTPUT_DIR")
 	}()
 
 	yamlContent := `
@@ -157,7 +157,7 @@ func TestMissingEnvironmentVariable(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.yaml")
 
 	// Ensure env var is NOT set
-	os.Unsetenv("AUGUSTUS_MISSING_VAR")
+	_ = os.Unsetenv("AUGUSTUS_MISSING_VAR")
 
 	yamlContent := `
 generators:
@@ -762,14 +762,14 @@ func TestResolveDetectorConfig(t *testing.T) {
 				Detectors: DetectorConfig{
 					Settings: map[string]map[string]any{
 						"poetry.HarmJudge": {
-							"judge_generator": "anthropic.Anthropic",
+							"judge_generator_type": "anthropic.Anthropic",
 						},
 					},
 				},
 			},
 			detectorName: "poetry.HarmJudge",
 			wantKeys: map[string]any{
-				"judge_generator": "anthropic.Anthropic",
+				"judge_generator_type": "anthropic.Anthropic",
 			},
 		},
 		{
@@ -804,7 +804,7 @@ func TestResolveDetectorConfig(t *testing.T) {
 			detectorName: "judge.Judge",
 			wantKeys: map[string]any{
 				"judge_generator_type":   "anthropic.Anthropic",
-				"judge_generator_config": map[string]any{"model": "claude-3-haiku", "api_key": "test-key"},
+				"judge_config": map[string]any{"model": "claude-3-haiku", "api_key": "test-key"},
 			},
 		},
 		{
@@ -825,7 +825,7 @@ func TestResolveDetectorConfig(t *testing.T) {
 			detectorName: "judge.Judge",
 			wantKeys: map[string]any{
 				"judge_generator_type":   "anthropic.Anthropic",
-				"judge_generator_config": map[string]any{"model": "gpt-4o-mini"},
+				"judge_config": map[string]any{"model": "gpt-4o-mini"},
 			},
 		},
 	}
@@ -897,8 +897,8 @@ func TestNestedEnvVarInterpolation(t *testing.T) {
 	tmpDir := t.TempDir()
 	configPath := filepath.Join(tmpDir, "config.yaml")
 
-	os.Setenv("AUGUSTUS_ANTHROPIC_KEY", "sk-ant-test-123")
-	defer os.Unsetenv("AUGUSTUS_ANTHROPIC_KEY")
+	_ = os.Setenv("AUGUSTUS_ANTHROPIC_KEY", "sk-ant-test-123")
+	defer func() { _ = os.Unsetenv("AUGUSTUS_ANTHROPIC_KEY") }()
 
 	yamlContent := `
 probes:
@@ -919,7 +919,7 @@ buffs:
 detectors:
   settings:
     poetry.HarmJudge:
-      judge_generator_config:
+      judge_config:
         api_key: ${AUGUSTUS_ANTHROPIC_KEY}
 `
 
@@ -944,7 +944,7 @@ detectors:
 	// Verify env var was interpolated in nested detector settings
 	harmCfg := cfg.Detectors.Settings["poetry.HarmJudge"]
 	require.NotNil(t, harmCfg)
-	judgeCfg, ok := harmCfg["judge_generator_config"].(map[string]any)
+	judgeCfg, ok := harmCfg["judge_config"].(map[string]any)
 	require.True(t, ok)
 	assert.Equal(t, "sk-ant-test-123", judgeCfg["api_key"])
 }

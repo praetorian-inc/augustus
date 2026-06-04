@@ -64,10 +64,10 @@ func TestAnyscaleGenerator_RequiresModel(t *testing.T) {
 func TestAnyscaleGenerator_RequiresAPIKey(t *testing.T) {
 	// Clear any env var that might be set
 	origKey := os.Getenv("ANYSCALE_API_KEY")
-	os.Unsetenv("ANYSCALE_API_KEY")
+	_ = os.Unsetenv("ANYSCALE_API_KEY")
 	defer func() {
 		if origKey != "" {
-			os.Setenv("ANYSCALE_API_KEY", origKey)
+			_ = os.Setenv("ANYSCALE_API_KEY", origKey)
 		}
 	}()
 
@@ -93,12 +93,12 @@ func TestAnyscaleGenerator_APIKeyFromEnv(t *testing.T) {
 
 	// Set env var
 	origKey := os.Getenv("ANYSCALE_API_KEY")
-	os.Setenv("ANYSCALE_API_KEY", "test-env-key")
+	_ = os.Setenv("ANYSCALE_API_KEY", "test-env-key")
 	defer func() {
 		if origKey != "" {
-			os.Setenv("ANYSCALE_API_KEY", origKey)
+			_ = os.Setenv("ANYSCALE_API_KEY", origKey)
 		} else {
-			os.Unsetenv("ANYSCALE_API_KEY")
+			_ = os.Unsetenv("ANYSCALE_API_KEY")
 		}
 	}()
 

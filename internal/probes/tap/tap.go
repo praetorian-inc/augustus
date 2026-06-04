@@ -64,17 +64,14 @@ func NewIterativeTAP(cfg registry.Config) (probes.Prober, error) {
 		return nil, fmt.Errorf("creating attacker generator: %w", err)
 	}
 
-	// Judge generator: use explicit config, fall back to target type, then OpenAI
-	judgeType := registry.GetString(cfg, "judge_generator_type", targetType)
+	// Judge generator: must be explicitly configured (judge should not be the target)
+	judgeType := registry.GetString(cfg, "judge_generator_type", "")
+	if judgeType == "" {
+		return nil, fmt.Errorf("judge_generator_type is required: configure the global judge section in your YAML config")
+	}
 	judgeCfg := make(registry.Config)
 	if jc, ok := cfg["judge_config"].(map[string]any); ok {
 		judgeCfg = jc
-	}
-	// Prefer explicit judge_model, fallback to base model config
-	if model := registry.GetString(cfg, "judge_model", ""); model != "" {
-		judgeCfg["model"] = model
-	} else if model := registry.GetString(cfg, "model", ""); model != "" {
-		judgeCfg["model"] = model
 	}
 	judge, err := generators.Create(judgeType, judgeCfg)
 	if err != nil {
@@ -119,3 +116,4 @@ func (p *IterativeTAP) Description() string        { return p.description }
 func (p *IterativeTAP) Goal() string               { return p.goal }
 func (p *IterativeTAP) GetPrimaryDetector() string { return "judge.Judge" }
 func (p *IterativeTAP) GetPrompts() []string       { return []string{} }
+

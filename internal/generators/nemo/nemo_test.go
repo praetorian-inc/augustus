@@ -63,10 +63,10 @@ func TestNeMoGenerator_RequiresModel(t *testing.T) {
 func TestNeMoGenerator_RequiresAPIKey(t *testing.T) {
 	// Clear any env var that might be set
 	origKey := os.Getenv("NGC_API_KEY")
-	os.Unsetenv("NGC_API_KEY")
+	_ = os.Unsetenv("NGC_API_KEY")
 	defer func() {
 		if origKey != "" {
-			os.Setenv("NGC_API_KEY", origKey)
+			_ = os.Setenv("NGC_API_KEY", origKey)
 		}
 	}()
 
@@ -92,12 +92,12 @@ func TestNeMoGenerator_APIKeyFromEnv(t *testing.T) {
 
 	// Set env var
 	origKey := os.Getenv("NGC_API_KEY")
-	os.Setenv("NGC_API_KEY", "test-env-key")
+	_ = os.Setenv("NGC_API_KEY", "test-env-key")
 	defer func() {
 		if origKey != "" {
-			os.Setenv("NGC_API_KEY", origKey)
+			_ = os.Setenv("NGC_API_KEY", origKey)
 		} else {
-			os.Unsetenv("NGC_API_KEY")
+			_ = os.Unsetenv("NGC_API_KEY")
 		}
 	}()
 

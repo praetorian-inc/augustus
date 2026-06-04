@@ -59,14 +59,9 @@ func TestNewAzure_Success(t *testing.T) {
 
 func TestNewAzure_FromEnvironment(t *testing.T) {
 	// Set environment variables
-	os.Setenv("AZURE_API_KEY", "env-key")
-	os.Setenv("AZURE_ENDPOINT", "https://env.openai.azure.com")
-	os.Setenv("AZURE_MODEL_NAME", "gpt-4")
-	defer func() {
-		os.Unsetenv("AZURE_API_KEY")
-		os.Unsetenv("AZURE_ENDPOINT")
-		os.Unsetenv("AZURE_MODEL_NAME")
-	}()
+	t.Setenv("AZURE_API_KEY", "env-key")
+	t.Setenv("AZURE_ENDPOINT", "https://env.openai.azure.com")
+	t.Setenv("AZURE_MODEL_NAME", "gpt-4")
 
 	cfg := Config{}
 

@@ -102,8 +102,8 @@ func TestReasoningConfigFromMap_RequiresModel(t *testing.T) {
 func TestReasoningConfigFromMap_RequiresAPIKey(t *testing.T) {
 	// Temporarily clear env var
 	oldKey := os.Getenv("OPENAI_API_KEY")
-	os.Unsetenv("OPENAI_API_KEY")
-	defer os.Setenv("OPENAI_API_KEY", oldKey)
+	_ = os.Unsetenv("OPENAI_API_KEY")
+	defer func() { _ = os.Setenv("OPENAI_API_KEY", oldKey) }()
 
 	cfgMap := registry.Config{
 		"model": "o1-mini",

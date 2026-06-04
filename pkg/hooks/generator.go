@@ -56,13 +56,13 @@ func (h *HookedGenerator) Generate(ctx context.Context, conv *attempt.Conversati
 				return nil, fmt.Errorf("failed to create temp file for last response: %w", err)
 			}
 			if _, err := tmpFile.Write(h.lastResp); err != nil {
-				tmpFile.Close()
-				os.Remove(tmpFile.Name())
+				_ = tmpFile.Close()
+				_ = os.Remove(tmpFile.Name())
 				h.mu.Unlock()
 				return nil, fmt.Errorf("failed to write last response to temp file: %w", err)
 			}
-			tmpFile.Close()
-			defer os.Remove(tmpFile.Name())
+			_ = tmpFile.Close()
+			defer func() { _ = os.Remove(tmpFile.Name()) }()
 			env["AUGUSTUS_LAST_RESPONSE_FILE"] = tmpFile.Name()
 		}
 		// Include current vars in env so prepare can reference them

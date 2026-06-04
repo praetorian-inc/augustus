@@ -71,12 +71,12 @@ func TestLLaVA_AcceptsAPIKeyFromEnv(t *testing.T) {
 
 	// Set env var
 	origKey := os.Getenv("HF_INFERENCE_TOKEN")
-	os.Setenv("HF_INFERENCE_TOKEN", "test-env-key")
+	_ = os.Setenv("HF_INFERENCE_TOKEN", "test-env-key")
 	defer func() {
 		if origKey != "" {
-			os.Setenv("HF_INFERENCE_TOKEN", origKey)
+			_ = os.Setenv("HF_INFERENCE_TOKEN", origKey)
 		} else {
-			os.Unsetenv("HF_INFERENCE_TOKEN")
+			_ = os.Unsetenv("HF_INFERENCE_TOKEN")
 		}
 	}()
 

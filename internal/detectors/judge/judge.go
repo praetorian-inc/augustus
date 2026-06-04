@@ -49,16 +49,11 @@ func NewJudge(cfg registry.Config) (types.Detector, error) {
 		return nil, fmt.Errorf("judge_generator_type is required: configure the global judge section in your YAML config")
 	}
 
-	// Build generator config
-	genCfg := config.JudgeGeneratorConfig
+	// Create judge generator
+	genCfg := config.JudgeConfig
 	if genCfg == nil {
 		genCfg = make(registry.Config)
 	}
-	if config.JudgeModel != "" {
-		genCfg["model"] = config.JudgeModel
-	}
-
-	// Create judge generator
 	gen, err := generators.Create(config.JudgeGeneratorType, genCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create judge generator: %w", err)
@@ -199,15 +194,11 @@ func NewRefusal(cfg registry.Config) (types.Detector, error) {
 		return nil, fmt.Errorf("judge_generator_type is required: configure the global judge section in your YAML config")
 	}
 
-	// Build generator config
-	genCfg := config.JudgeGeneratorConfig
+	// Create judge generator
+	genCfg := config.JudgeConfig
 	if genCfg == nil {
 		genCfg = make(registry.Config)
 	}
-	if config.JudgeModel != "" {
-		genCfg["model"] = config.JudgeModel
-	}
-
 	gen, err := generators.Create(config.JudgeGeneratorType, genCfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create judge generator: %w", err)

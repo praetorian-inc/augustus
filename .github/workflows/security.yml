@@ -1,0 +1,33 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - '.golangci*'
+      - 'Makefile'
+  schedule:
+    - cron: '0 6 * * 1'  # Mondays 06:00 UTC — weekly baseline
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    uses: praetorian-inc/public-workflows/.github/workflows/go-sec.yml@c1a6ca690193bc4bbc5ee55d903f8ea17a37cd35  # v2.6.2
+    permissions:
+      contents: read
+      pull-requests: read     # go-sec.yml preflight reads PR files + repo tree
+      security-events: write
+      actions: read           # required by codeql-action/upload-sarif for run metadata
+    secrets: inherit

@@ -29,9 +29,6 @@ import (
 	replicatego "github.com/replicate/replicate-go"
 )
 
-// Environment variable name for API token
-const envVarName = "REPLICATE_API_TOKEN"
-
 func init() {
 	generators.Register("replicate.Replicate", NewReplicate)
 }

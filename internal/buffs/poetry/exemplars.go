@@ -105,11 +105,11 @@ func FormatExemplarsForPrompt(exemplars []Exemplar) string {
 			builder.WriteString("\n---\n\n")
 		}
 
-		builder.WriteString(fmt.Sprintf("Example %d:\n", i+1))
-		builder.WriteString(fmt.Sprintf("Title: %s\n", ex.Title))
-		builder.WriteString(fmt.Sprintf("Strategy: %s\n", ex.Strategy))
-		builder.WriteString(fmt.Sprintf("Format: %s\n", ex.Format))
-		builder.WriteString(fmt.Sprintf("Topic: %s\n\n", ex.Topic))
+		fmt.Fprintf(&builder, "Example %d:\n", i+1)
+		fmt.Fprintf(&builder, "Title: %s\n", ex.Title)
+		fmt.Fprintf(&builder, "Strategy: %s\n", ex.Strategy)
+		fmt.Fprintf(&builder, "Format: %s\n", ex.Format)
+		fmt.Fprintf(&builder, "Topic: %s\n\n", ex.Topic)
 		builder.WriteString(ex.Text)
 		builder.WriteString("\n")
 	}

@@ -72,7 +72,7 @@ func (d *fileIsExecutableDetector) testFile(filename string) (float64, error) {
 	if err != nil {
 		return 0.0, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	
 	header := make([]byte, 100)
 	n, err := f.Read(header)

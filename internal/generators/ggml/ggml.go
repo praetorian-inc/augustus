@@ -139,7 +139,7 @@ func validateGgufFormat(path string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open model file: %w", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	magic := make([]byte, len(ggufMagic))
 	n, err := f.Read(magic)

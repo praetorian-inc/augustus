@@ -570,6 +570,182 @@ func TestRestGenerator_Generate_JSONEscapeInput(t *testing.T) {
 	}
 }
 
+// TestNewRest_EndpointAlias verifies that "endpoint" works as an alias for "uri".
+func TestNewRest_EndpointAlias(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"endpoint": server.URL,
+	})
+	require.NoError(t, err, "NewRest with 'endpoint' key should succeed")
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hello")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	assert.Len(t, responses, 1)
+	assert.Equal(t, "ok", responses[0].Content)
+}
+
+// TestNewRest_BodyAlias verifies that "body" works as an alias for "req_template".
+func TestNewRest_BodyAlias(t *testing.T) {
+	var received string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf, _ := io.ReadAll(r.Body)
+		received = string(buf)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":  server.URL,
+		"body": `{"input":"$INPUT"}`,
+	})
+	require.NoError(t, err, "NewRest with 'body' key should succeed")
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test-input")
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	assert.Equal(t, `{"input":"test-input"}`, received)
+}
+
+// TestNewRest_ResponsePathAlias verifies that "response_path" works as an alias
+// for "response_json_field" and also implicitly enables JSON parsing.
+func TestNewRest_ResponsePathAlias(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"answer":"hello from path"}`)
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":           server.URL,
+		"response_path": "answer",
+	})
+	require.NoError(t, err, "NewRest with 'response_path' key should succeed")
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("ping")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	assert.Len(t, responses, 1)
+	assert.Equal(t, "hello from path", responses[0].Content)
+}
+
+// TestNewRest_URITakesPrecedenceOverEndpoint verifies that when both "uri" and
+// "endpoint" are present, "uri" wins.
+func TestNewRest_URITakesPrecedenceOverEndpoint(t *testing.T) {
+	uriServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("from-uri"))
+	}))
+	defer uriServer.Close()
+
+	endpointServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("from-endpoint"))
+	}))
+	defer endpointServer.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":      uriServer.URL,
+		"endpoint": endpointServer.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	assert.Len(t, responses, 1)
+	assert.Equal(t, "from-uri", responses[0].Content, "uri should take precedence over endpoint")
+}
+
+// TestNewRest_ReqTemplateTakesPrecedenceOverBody verifies that when both
+// "req_template" and "body" are present, "req_template" wins.
+func TestNewRest_ReqTemplateTakesPrecedenceOverBody(t *testing.T) {
+	var received string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf, _ := io.ReadAll(r.Body)
+		received = string(buf)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":          server.URL,
+		"req_template": `{"from":"req_template"}`,
+		"body":         `{"from":"body"}`,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("x")
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	assert.Equal(t, `{"from":"req_template"}`, received, "req_template should take precedence over body")
+}
+
+// TestNewRest_ResponseJSONFieldTakesPrecedenceOverResponsePath verifies that
+// when both "response_json_field" and "response_path" are present, "response_json_field" wins.
+func TestNewRest_ResponseJSONFieldTakesPrecedenceOverResponsePath(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"canonical":"from-json-field","alias":"from-path"}`)
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":                 server.URL,
+		"response_json":       true,
+		"response_json_field": "canonical",
+		"response_path":       "alias",
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("ping")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	assert.Len(t, responses, 1)
+	assert.Equal(t, "from-json-field", responses[0].Content, "response_json_field should take precedence over response_path")
+}
+
+// TestNewRest_ResponsePathRespectsExplicitResponseJSONFalse verifies that when
+// "response_path" is used alongside an explicit "response_json": false, the
+// explicit false is respected (response_json stays false).
+func TestNewRest_ResponsePathRespectsExplicitResponseJSONFalse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"answer":"raw json body"}`))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":           server.URL,
+		"response_json": false,
+		"response_path": "answer",
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("ping")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	assert.Len(t, responses, 1)
+	// Because response_json is explicitly false, the raw body should be returned
+	assert.Equal(t, `{"answer":"raw json body"}`, responses[0].Content,
+		"explicit response_json: false should prevent JSON field extraction even with response_path alias")
+}
+
 func TestRestGenerator_Generate_GETMethod(t *testing.T) {
 	var receivedParams string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1583,6 +1759,75 @@ func TestRestGenerator_SSEConfigurable_MissingTextField(t *testing.T) {
 	}
 }
 
+func TestRestGenerator_SSEDefault_PlainJSONStrings(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: started\n"))
+		_, _ = w.Write([]byte("data: \"Hello \"\n\n"))
+		_, _ = w.Write([]byte("event: chunk\n"))
+		_, _ = w.Write([]byte("data: \"World!\"\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri": server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if len(responses) != 1 {
+		t.Fatalf("Generate() returned %d responses, want 1", len(responses))
+	}
+
+	expected := "Hello World!"
+	if responses[0].Content != expected {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
+	}
+}
+
+func TestRestGenerator_SSEDefault_MixedObjectsAndStrings(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"delta\":{\"text\":\"From object\"}}\n\n"))
+		_, _ = w.Write([]byte("data: \"From string\"\n\n"))
+		_, _ = w.Write([]byte("data: {\"text\":\"Direct\"}\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri": server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if len(responses) != 1 {
+		t.Fatalf("Generate() returned %d responses, want 1", len(responses))
+	}
+
+	expected := "From objectFrom stringDirect"
+	if responses[0].Content != expected {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
+	}
+}
+
 func TestRestGeneratorHookVarSubstitution(t *testing.T) {
 	// Create a test server that echoes the request body back
 	var receivedBody string
@@ -1590,7 +1835,7 @@ func TestRestGeneratorHookVarSubstitution(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		receivedBody = string(body)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"response": "ok"}`)
+		_, _ = fmt.Fprintf(w, `{"response": "ok"}`)
 	}))
 	defer ts.Close()
 
@@ -1625,7 +1870,7 @@ func TestRestGeneratorHookVarSubstitution_Headers(t *testing.T) {
 	var receivedHeader string
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedHeader = r.Header.Get("X-Conversation-Id")
-		w.Write([]byte("ok"))
+		_, _ = w.Write([]byte("ok"))
 	}))
 	defer ts.Close()
 
@@ -1693,7 +1938,7 @@ func TestRestGenerator_HookVarSubstitution_PrefixCollision(t *testing.T) {
 func TestRestGenerator_LastRawResponse(t *testing.T) {
 	expectedBody := `{"result":"hello world"}`
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Write([]byte(expectedBody))
+		_, _ = w.Write([]byte(expectedBody))
 	}))
 	defer ts.Close()
 
@@ -1717,7 +1962,7 @@ func TestRestGenerator_MessagesTemplate_SingleTurn(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		receivedBody = string(body)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"response": "ok"}`)
+		_, _ = fmt.Fprintf(w, `{"response": "ok"}`)
 	}))
 	defer ts.Close()
 
@@ -1758,7 +2003,7 @@ func TestRestGenerator_MessagesTemplate_MultiTurn(t *testing.T) {
 		body, _ := io.ReadAll(r.Body)
 		receivedBody = string(body)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"response": "turn 3 response"}`)
+		_, _ = fmt.Fprintf(w, `{"response": "turn 3 response"}`)
 	}))
 	defer ts.Close()
 
@@ -1808,7 +2053,7 @@ func TestRestGenerator_MessagesTemplate_WithSystem(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		receivedBody = string(body)
-		fmt.Fprintf(w, `{"response": "ok"}`)
+		_, _ = fmt.Fprintf(w, `{"response": "ok"}`)
 	}))
 	defer ts.Close()
 
@@ -1848,7 +2093,7 @@ func TestRestGenerator_MessagesTemplate_BackwardCompat(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		receivedBody = string(body)
-		fmt.Fprintf(w, "ok")
+		_, _ = fmt.Fprintf(w, "ok")
 	}))
 	defer ts.Close()
 

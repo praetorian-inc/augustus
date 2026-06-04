@@ -104,7 +104,7 @@ func (l *LangChain) callInvoke(ctx context.Context, conv *attempt.Conversation) 
 	if err != nil {
 		return attempt.Message{}, fmt.Errorf("langchain: request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Check status code
 	if resp.StatusCode >= 400 {

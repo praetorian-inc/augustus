@@ -31,7 +31,7 @@ func TestRateLimitedHTTPClient_Do_RateLimits(t *testing.T) {
 		req, _ := http.NewRequestWithContext(ctx, "GET", server.URL, nil)
 		resp, err := client.Do(req)
 		require.NoError(t, err)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 	}
 
 	// Third request should block ~1 second waiting for refill
@@ -41,7 +41,7 @@ func TestRateLimitedHTTPClient_Do_RateLimits(t *testing.T) {
 	duration := time.Since(start)
 
 	require.NoError(t, err)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	assert.GreaterOrEqual(t, duration, 900*time.Millisecond)
 	assert.Equal(t, 3, requestCount)
 }
@@ -60,7 +60,7 @@ func TestRateLimitedHTTPClient_Do_RespectsContext(t *testing.T) {
 	req, _ := http.NewRequestWithContext(ctx, "GET", server.URL, nil)
 	resp, err := client.Do(req)
 	require.NoError(t, err)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 
 	// Second request with cancelled context
 	cancelCtx, cancel := context.WithCancel(context.Background())
@@ -84,7 +84,7 @@ func TestRateLimitedHTTPClient_Do_NilLimiter(t *testing.T) {
 	req, _ := http.NewRequestWithContext(ctx, "GET", server.URL, nil)
 	resp, err := client.Do(req)
 	require.NoError(t, err)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	assert.Equal(t, http.StatusOK, resp.StatusCode)
 }
 

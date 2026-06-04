@@ -63,10 +63,10 @@ func TestDeepInfraGenerator_RequiresModel(t *testing.T) {
 func TestDeepInfraGenerator_RequiresAPIKey(t *testing.T) {
 	// Clear any env var that might be set
 	origKey := os.Getenv("DEEPINFRA_API_KEY")
-	os.Unsetenv("DEEPINFRA_API_KEY")
+	_ = os.Unsetenv("DEEPINFRA_API_KEY")
 	defer func() {
 		if origKey != "" {
-			os.Setenv("DEEPINFRA_API_KEY", origKey)
+			_ = os.Setenv("DEEPINFRA_API_KEY", origKey)
 		}
 	}()
 
@@ -91,15 +91,7 @@ func TestDeepInfraGenerator_APIKeyFromEnv(t *testing.T) {
 	defer server.Close()
 
 	// Set env var
-	origKey := os.Getenv("DEEPINFRA_API_KEY")
-	os.Setenv("DEEPINFRA_API_KEY", "test-env-key")
-	defer func() {
-		if origKey != "" {
-			os.Setenv("DEEPINFRA_API_KEY", origKey)
-		} else {
-			os.Unsetenv("DEEPINFRA_API_KEY")
-		}
-	}()
+	t.Setenv("DEEPINFRA_API_KEY", "test-env-key")
 
 	g, err := NewDeepInfra(registry.Config{
 		"model":    "meta-llama/Meta-Llama-3-70B-Instruct",

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -59,7 +60,7 @@ func defaultTransport(proxyURL *url.URL, insecureSkipVerify bool) *http.Transpor
 	}
 
 	// Enable HTTP/2 support
-	http2.ConfigureTransport(transport)
+	_ = http2.ConfigureTransport(transport)
 
 	return transport
 }
@@ -110,11 +111,17 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 		skipCodes:      make(map[int]bool),
 	}
 
-	// Required: URI
+	// Required: URI (also accept "endpoint" as alias for compatibility with GeneratorConfig)
 	if uri, ok := cfg["uri"].(string); ok && uri != "" {
 		r.uri = uri
+		if endpoint, ok := cfg["endpoint"].(string); ok && endpoint != "" && endpoint != uri {
+			slog.Warn("both 'uri' and 'endpoint' specified; using 'uri'",
+				"uri", uri, "endpoint", endpoint)
+		}
+	} else if endpoint, ok := cfg["endpoint"].(string); ok && endpoint != "" {
+		r.uri = endpoint
 	} else {
-		return nil, fmt.Errorf("rest generator requires 'uri' configuration")
+		return nil, fmt.Errorf("rest generator requires 'uri' or 'endpoint' configuration")
 	}
 
 	// Optional: HTTP method
@@ -139,9 +146,15 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 		}
 	}
 
-	// Optional: Request template
+	// Optional: Request template (also accept "body" as alias for compatibility with GeneratorConfig)
 	if tmpl, ok := cfg["req_template"].(string); ok {
 		r.reqTemplate = tmpl
+		if body, ok := cfg["body"].(string); ok && body != tmpl {
+			slog.Warn("both 'req_template' and 'body' specified; using 'req_template'",
+				"req_template", tmpl, "body", body)
+		}
+	} else if body, ok := cfg["body"].(string); ok {
+		r.reqTemplate = body
 	}
 
 	// Optional: JSON request template object
@@ -153,11 +166,24 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 	}
 
 	// Optional: Response parsing
+	_, responseJSONExplicit := cfg["response_json"].(bool)
 	if responseJSON, ok := cfg["response_json"].(bool); ok {
 		r.responseJSON = responseJSON
 	}
 	if responseJSONField, ok := cfg["response_json_field"].(string); ok {
 		r.responseJSONField = responseJSONField
+		if responsePath, ok := cfg["response_path"].(string); ok && responsePath != responseJSONField {
+			slog.Warn("both 'response_json_field' and 'response_path' specified; using 'response_json_field'",
+				"response_json_field", responseJSONField, "response_path", responsePath)
+		}
+	} else if responsePath, ok := cfg["response_path"].(string); ok {
+		r.responseJSONField = responsePath
+		if responseJSONExplicit && !r.responseJSON {
+			slog.Warn("'response_path' would enable JSON parsing, but 'response_json' is explicitly false; respecting 'response_json: false'",
+				"response_path", responsePath)
+		} else {
+			r.responseJSON = true
+		}
 	}
 
 	// Validate JSON response configuration
@@ -351,7 +377,7 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 	if err != nil {
 		return attempt.Message{}, fmt.Errorf("rest: request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	// Handle skip codes
 	if r.skipCodes[resp.StatusCode] {
@@ -672,10 +698,14 @@ func (r *Rest) parseSSEDefault(body []byte) string {
 			continue
 		}
 
-		// Try to parse as JSON
+		// Try to parse as JSON object
 		var data map[string]any
 		if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
-			// Not valid JSON, skip
+			// Not a JSON object; try as a plain JSON string (e.g., data: "Hello world")
+			var strData string
+			if err := json.Unmarshal([]byte(jsonStr), &strData); err == nil && strData != "" {
+				textParts = append(textParts, strData)
+			}
 			continue
 		}
 

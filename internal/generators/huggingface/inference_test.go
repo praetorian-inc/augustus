@@ -72,12 +72,12 @@ func TestInferenceAPI_AcceptsAPIKeyFromEnv(t *testing.T) {
 
 	// Set env var
 	origKey := os.Getenv("HF_INFERENCE_TOKEN")
-	os.Setenv("HF_INFERENCE_TOKEN", "test-env-key")
+	_ = os.Setenv("HF_INFERENCE_TOKEN", "test-env-key")
 	defer func() {
 		if origKey != "" {
-			os.Setenv("HF_INFERENCE_TOKEN", origKey)
+			_ = os.Setenv("HF_INFERENCE_TOKEN", origKey)
 		} else {
-			os.Unsetenv("HF_INFERENCE_TOKEN")
+			_ = os.Unsetenv("HF_INFERENCE_TOKEN")
 		}
 	}()
 
@@ -106,16 +106,16 @@ func TestInferenceAPI_AcceptsAPIKeyFromAltEnv(t *testing.T) {
 	// Set alternative env var
 	origKey := os.Getenv("HUGGINGFACE_API_KEY")
 	origHFKey := os.Getenv("HF_INFERENCE_TOKEN")
-	os.Unsetenv("HF_INFERENCE_TOKEN")
-	os.Setenv("HUGGINGFACE_API_KEY", "test-alt-key")
+	_ = os.Unsetenv("HF_INFERENCE_TOKEN")
+	_ = os.Setenv("HUGGINGFACE_API_KEY", "test-alt-key")
 	defer func() {
 		if origKey != "" {
-			os.Setenv("HUGGINGFACE_API_KEY", origKey)
+			_ = os.Setenv("HUGGINGFACE_API_KEY", origKey)
 		} else {
-			os.Unsetenv("HUGGINGFACE_API_KEY")
+			_ = os.Unsetenv("HUGGINGFACE_API_KEY")
 		}
 		if origHFKey != "" {
-			os.Setenv("HF_INFERENCE_TOKEN", origHFKey)
+			_ = os.Setenv("HF_INFERENCE_TOKEN", origHFKey)
 		}
 	}()
 
@@ -143,14 +143,14 @@ func TestInferenceAPI_WorksWithoutAPIKey(t *testing.T) {
 	// Clear env vars
 	origHFKey := os.Getenv("HF_INFERENCE_TOKEN")
 	origAltKey := os.Getenv("HUGGINGFACE_API_KEY")
-	os.Unsetenv("HF_INFERENCE_TOKEN")
-	os.Unsetenv("HUGGINGFACE_API_KEY")
+	_ = os.Unsetenv("HF_INFERENCE_TOKEN")
+	_ = os.Unsetenv("HUGGINGFACE_API_KEY")
 	defer func() {
 		if origHFKey != "" {
-			os.Setenv("HF_INFERENCE_TOKEN", origHFKey)
+			_ = os.Setenv("HF_INFERENCE_TOKEN", origHFKey)
 		}
 		if origAltKey != "" {
-			os.Setenv("HUGGINGFACE_API_KEY", origAltKey)
+			_ = os.Setenv("HUGGINGFACE_API_KEY", origAltKey)
 		}
 	}()
 
