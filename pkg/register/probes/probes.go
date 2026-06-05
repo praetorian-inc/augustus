@@ -47,6 +47,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/realtoxicityprompts"
 	_ "github.com/praetorian-inc/augustus/internal/probes/snowball"
 	_ "github.com/praetorian-inc/augustus/internal/probes/suffix"
+	_ "github.com/praetorian-inc/augustus/internal/probes/systemprompt"
 	_ "github.com/praetorian-inc/augustus/internal/probes/tap"
 	_ "github.com/praetorian-inc/augustus/internal/probes/test"
 	_ "github.com/praetorian-inc/augustus/internal/probes/treesearch"
