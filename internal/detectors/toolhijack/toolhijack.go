@@ -79,34 +79,18 @@ type ToolSelectionDetector struct {
 func NewToolSelectionDetector(cfg registry.Config) (detectors.Detector, error) {
 	mal := append([]string{}, maliciousTools...)
 
-	if extra, ok := cfg["malicious_tools"]; ok {
-		if list, ok := extra.([]any); ok {
-			for _, item := range list {
-				if s, ok := item.(string); ok {
-					mal = append(mal, s)
-				}
-			}
-		}
+	if extra := registry.GetStringSlice(cfg, "malicious_tools", nil); len(extra) > 0 {
+		mal = append(mal, extra...)
 	}
 
 	d := &ToolSelectionDetector{
 		maliciousAC: buildAC(mal),
 	}
 
-	if legit, ok := cfg["legitimate_tools"]; ok {
-		if list, ok := legit.([]any); ok {
-			var legitTools []string
-			for _, item := range list {
-				if s, ok := item.(string); ok {
-					legitTools = append(legitTools, s)
-				}
-			}
-			if len(legitTools) > 0 {
-				ac := buildAC(legitTools)
-				d.legitimateAC = &ac
-				d.hasLegitimate = true
-			}
-		}
+	if legitTools := registry.GetStringSlice(cfg, "legitimate_tools", nil); len(legitTools) > 0 {
+		ac := buildAC(legitTools)
+		d.legitimateAC = &ac
+		d.hasLegitimate = true
 	}
 
 	return d, nil
@@ -216,23 +200,13 @@ type DenialLeakageDetector struct {
 func NewDenialLeakageDetector(cfg registry.Config) (detectors.Detector, error) {
 	patterns := append([]string{}, denialLeakageIndicators...)
 
-	if extra, ok := cfg["extra_indicators"]; ok {
-		if list, ok := extra.([]any); ok {
-			for _, item := range list {
-				if s, ok := item.(string); ok {
-					patterns = append(patterns, s)
-				}
-			}
-		}
+	if extra := registry.GetStringSlice(cfg, "extra_indicators", nil); len(extra) > 0 {
+		patterns = append(patterns, extra...)
 	}
 
-	threshold := 2
-	if thresh, ok := cfg["threshold"].(float64); ok {
-		t := int(thresh)
-		if t < 1 {
-			t = 1
-		}
-		threshold = t
+	threshold := registry.GetInt(cfg, "threshold", 2)
+	if threshold < 1 {
+		threshold = 1
 	}
 
 	return &DenialLeakageDetector{
