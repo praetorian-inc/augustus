@@ -5,6 +5,7 @@ import (
 	"log/slog"
 
 	"github.com/praetorian-inc/augustus/internal/multiturn"
+	"github.com/praetorian-inc/augustus/internal/multiturn/agentmemory"
 	memstrat "github.com/praetorian-inc/augustus/internal/multiturn/strategies/memoryinject"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -62,9 +63,20 @@ func NewPersistentInjection(cfg registry.Config) (probes.Prober, error) {
 	// Calculate when verification phase starts (2/3 through)
 	verifyTurn := 2*engineCfg.MaxTurns/3 + 1
 
+	// Create the agent memory store. This persists across session resets,
+	// simulating how real memory-augmented agents retain stored information
+	// even when conversation history is cleared.
+	memStore := agentmemory.New()
+
 	opts := []multiturn.EngineOption{
 		multiturn.WithHooks(multiturn.Hooks{
-			BeforeTurn: []multiturn.Hook{sessionResetHook(verifyTurn)},
+			BeforeTurn: []multiturn.Hook{
+				sessionResetHook(verifyTurn),
+				agentmemory.InjectMemoryHook(memStore),
+			},
+			AfterQuery: []multiturn.Hook{
+				agentmemory.ExtractMemoryHook(memStore),
+			},
 		}),
 	}
 
