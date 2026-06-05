@@ -374,9 +374,9 @@ func TestDenialLeakageDetectorCustomThreshold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Detect() error = %v", err)
 	}
-	// "the denial" + "record exists" = 2 matches, below threshold of 3
-	if scores[0] >= 1.0 {
-		t.Errorf("score = %f, should be < 1.0 with threshold=3 and only 2 matches", scores[0])
+	// "the denial" + "record exists" = 2 matches, below threshold of 3 → 0.5
+	if scores[0] != 0.5 {
+		t.Errorf("score = %f, want 0.5 with threshold=3 and 2 matches", scores[0])
 	}
 }
 

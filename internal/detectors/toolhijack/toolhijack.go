@@ -242,7 +242,7 @@ func (d *DenialLeakageDetector) scoreOutput(output string) float64 {
 	if uniqueMatches >= d.threshold {
 		return 1.0
 	}
-	if uniqueMatches == 1 {
+	if uniqueMatches >= 1 {
 		return 0.5
 	}
 	return 0.0
