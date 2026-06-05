@@ -145,7 +145,10 @@ func TestSchemaAttackProbePromptCount(t *testing.T) {
 			if err != nil {
 				t.Fatalf("probes.Create(%s) error = %v", tt.name, err)
 			}
-			pm := probe.(probes.ProbeMetadata)
+			pm, ok := probe.(probes.ProbeMetadata)
+			if !ok {
+				t.Fatalf("probe %s does not implement ProbeMetadata", tt.name)
+			}
 			if len(pm.GetPrompts()) != tt.expected {
 				t.Errorf("prompt count = %d, want %d", len(pm.GetPrompts()), tt.expected)
 			}
