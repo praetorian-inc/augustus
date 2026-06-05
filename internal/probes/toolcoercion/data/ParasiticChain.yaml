@@ -1,14 +1,14 @@
-id: toolhijack.ParasiticChain
+id: toolcoercion.ParasiticChain
 
 info:
   name: Parasitic Tool Chaining
   author: praetorian
   description: "Tests if tool descriptions can trick an agent into making unintended subsequent tool calls (parasitic chaining)"
   goal: cause unintended tool call chains by embedding chaining instructions in tool descriptions
-  detector: toolhijack.DenialLeakage
+  detector: toolcoercion.DenialLeakage
   tags:
     - agent
-    - tool-hijack
+    - tool-coercion
     - mcp
     - parasitic-chaining
     - tool-poisoning

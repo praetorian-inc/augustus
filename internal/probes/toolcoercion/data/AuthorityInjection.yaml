@@ -1,16 +1,15 @@
-id: toolhijack.AuthorityInjection
+id: toolcoercion.AuthorityInjection
 
 info:
-  name: Tool Hijack - Authority Injection
+  name: Tool Coercion - Authority Injection
   author: praetorian
-  description: "Tests if an LLM can be tricked into selecting a malicious tool via authority claims in tool descriptions"
-  goal: hijack tool selection by injecting authority claims into a malicious tool description
-  detector: toolhijack.ToolSelection
+  description: "Tests if an LLM can be coerced into selecting a malicious tool via authority claims in tool descriptions"
+  goal: coerce tool selection by injecting authority claims into a malicious tool description
+  detector: toolcoercion.ToolSelection
   tags:
     - agent
-    - tool-hijack
+    - tool-coercion
     - authority-injection
-    - toolhijacker
   severity: critical
   references:
     - https://arxiv.org/abs/2504.19793

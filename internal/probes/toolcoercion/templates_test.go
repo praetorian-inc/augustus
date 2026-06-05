@@ -1,4 +1,4 @@
-package toolhijack
+package toolcoercion
 
 import (
 	"context"
@@ -41,14 +41,14 @@ func (m *mockGenerator) Description() string {
 
 func TestToolHijackProbesRegistered(t *testing.T) {
 	expectedProbes := []string{
-		"toolhijack.AuthorityInjection",
-		"toolhijack.SemanticLure",
-		"toolhijack.InstructionEmbed",
-		"toolhijack.HaystackDilution",
-		"toolhijack.DeprecationClaim",
-		"toolhijack.CausalityLaundering",
-		"toolhijack.MCPToolPoison",
-		"toolhijack.ParasiticChain",
+		"toolcoercion.AuthorityInjection",
+		"toolcoercion.SemanticLure",
+		"toolcoercion.InstructionEmbed",
+		"toolcoercion.HaystackDilution",
+		"toolcoercion.DeprecationClaim",
+		"toolcoercion.CausalityLaundering",
+		"toolcoercion.MCPToolPoison",
+		"toolcoercion.ParasiticChain",
 	}
 
 	registeredProbes := probes.List()
@@ -66,14 +66,14 @@ func TestToolHijackProbesRegistered(t *testing.T) {
 
 func TestToolHijackProbeCreation(t *testing.T) {
 	probeNames := []string{
-		"toolhijack.AuthorityInjection",
-		"toolhijack.SemanticLure",
-		"toolhijack.InstructionEmbed",
-		"toolhijack.HaystackDilution",
-		"toolhijack.DeprecationClaim",
-		"toolhijack.CausalityLaundering",
-		"toolhijack.MCPToolPoison",
-		"toolhijack.ParasiticChain",
+		"toolcoercion.AuthorityInjection",
+		"toolcoercion.SemanticLure",
+		"toolcoercion.InstructionEmbed",
+		"toolcoercion.HaystackDilution",
+		"toolcoercion.DeprecationClaim",
+		"toolcoercion.CausalityLaundering",
+		"toolcoercion.MCPToolPoison",
+		"toolcoercion.ParasiticChain",
 	}
 
 	for _, name := range probeNames {
@@ -97,14 +97,14 @@ func TestToolHijackProbeMetadata(t *testing.T) {
 		name     string
 		detector string
 	}{
-		{"toolhijack.AuthorityInjection", "toolhijack.ToolSelection"},
-		{"toolhijack.SemanticLure", "toolhijack.ToolSelection"},
-		{"toolhijack.InstructionEmbed", "toolhijack.ToolSelection"},
-		{"toolhijack.HaystackDilution", "toolhijack.ToolSelection"},
-		{"toolhijack.DeprecationClaim", "toolhijack.ToolSelection"},
-		{"toolhijack.CausalityLaundering", "toolhijack.DenialLeakage"},
-		{"toolhijack.MCPToolPoison", "toolhijack.ToolSelection"},
-		{"toolhijack.ParasiticChain", "toolhijack.DenialLeakage"},
+		{"toolcoercion.AuthorityInjection", "toolcoercion.ToolSelection"},
+		{"toolcoercion.SemanticLure", "toolcoercion.ToolSelection"},
+		{"toolcoercion.InstructionEmbed", "toolcoercion.ToolSelection"},
+		{"toolcoercion.HaystackDilution", "toolcoercion.ToolSelection"},
+		{"toolcoercion.DeprecationClaim", "toolcoercion.ToolSelection"},
+		{"toolcoercion.CausalityLaundering", "toolcoercion.DenialLeakage"},
+		{"toolcoercion.MCPToolPoison", "toolcoercion.ToolSelection"},
+		{"toolcoercion.ParasiticChain", "toolcoercion.DenialLeakage"},
 	}
 
 	for _, tt := range tests {
@@ -138,7 +138,7 @@ func TestToolHijackProbeMetadata(t *testing.T) {
 }
 
 func TestToolHijackProbeExecution(t *testing.T) {
-	probe, err := probes.Create("toolhijack.AuthorityInjection", registry.Config{})
+	probe, err := probes.Create("toolcoercion.AuthorityInjection", registry.Config{})
 	if err != nil {
 		t.Fatalf("probes.Create() error = %v", err)
 	}
@@ -158,8 +158,8 @@ func TestToolHijackProbeExecution(t *testing.T) {
 	}
 
 	for _, a := range attempts {
-		if a.Probe != "toolhijack.AuthorityInjection" {
-			t.Errorf("attempt.Probe = %s, want toolhijack.AuthorityInjection", a.Probe)
+		if a.Probe != "toolcoercion.AuthorityInjection" {
+			t.Errorf("attempt.Probe = %s, want toolcoercion.AuthorityInjection", a.Probe)
 		}
 		if a.Status != attempt.StatusComplete {
 			t.Errorf("attempt.Status = %s, want complete", a.Status)
@@ -176,14 +176,14 @@ func TestToolHijackProbePromptCount(t *testing.T) {
 		probeName     string
 		expectedCount int
 	}{
-		{"AuthorityInjection", "toolhijack.AuthorityInjection", 3},
-		{"SemanticLure", "toolhijack.SemanticLure", 3},
-		{"InstructionEmbed", "toolhijack.InstructionEmbed", 3},
-		{"HaystackDilution", "toolhijack.HaystackDilution", 2},
-		{"DeprecationClaim", "toolhijack.DeprecationClaim", 3},
-		{"CausalityLaundering", "toolhijack.CausalityLaundering", 4},
-		{"MCPToolPoison", "toolhijack.MCPToolPoison", 3},
-		{"ParasiticChain", "toolhijack.ParasiticChain", 3},
+		{"AuthorityInjection", "toolcoercion.AuthorityInjection", 3},
+		{"SemanticLure", "toolcoercion.SemanticLure", 3},
+		{"InstructionEmbed", "toolcoercion.InstructionEmbed", 3},
+		{"HaystackDilution", "toolcoercion.HaystackDilution", 2},
+		{"DeprecationClaim", "toolcoercion.DeprecationClaim", 3},
+		{"CausalityLaundering", "toolcoercion.CausalityLaundering", 4},
+		{"MCPToolPoison", "toolcoercion.MCPToolPoison", 3},
+		{"ParasiticChain", "toolcoercion.ParasiticChain", 3},
 	}
 
 	for _, tt := range tests {

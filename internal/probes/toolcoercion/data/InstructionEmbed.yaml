@@ -1,16 +1,15 @@
-id: toolhijack.InstructionEmbed
+id: toolcoercion.InstructionEmbed
 
 info:
-  name: Tool Hijack - Instruction Embedding
+  name: Tool Coercion - Instruction Embedding
   author: praetorian
-  description: "Tests if hidden instructions embedded within tool descriptions can hijack tool selection"
-  goal: hijack tool selection by embedding selection instructions within the malicious tool description
-  detector: toolhijack.ToolSelection
+  description: "Tests if hidden instructions embedded within tool descriptions can coerce tool selection"
+  goal: coerce tool selection by embedding selection instructions within the malicious tool description
+  detector: toolcoercion.ToolSelection
   tags:
     - agent
-    - tool-hijack
+    - tool-coercion
     - instruction-injection
-    - toolhijacker
   severity: critical
   references:
     - https://arxiv.org/abs/2504.19793

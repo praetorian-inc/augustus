@@ -1,16 +1,15 @@
-id: toolhijack.HaystackDilution
+id: toolcoercion.HaystackDilution
 
 info:
-  name: Tool Hijack - Haystack Dilution
+  name: Tool Coercion - Haystack Dilution
   author: praetorian
-  description: "Tests tool selection hijacking when the malicious tool is hidden among many legitimate tools (large haystack)"
-  goal: hijack tool selection in a large tool library where the malicious tool must stand out among many candidates
-  detector: toolhijack.ToolSelection
+  description: "Tests tool selection coercion when the malicious tool is hidden among many legitimate tools (large haystack)"
+  goal: coerce tool selection in a large tool library where the malicious tool must stand out among many candidates
+  detector: toolcoercion.ToolSelection
   tags:
     - agent
-    - tool-hijack
+    - tool-coercion
     - haystack
-    - toolhijacker
   severity: high
   references:
     - https://arxiv.org/abs/2504.19793

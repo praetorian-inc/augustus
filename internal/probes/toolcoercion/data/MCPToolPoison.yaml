@@ -1,14 +1,14 @@
-id: toolhijack.MCPToolPoison
+id: toolcoercion.MCPToolPoison
 
 info:
   name: MCP Tool Description Poisoning
   author: praetorian
   description: "Tests if malicious instructions embedded in MCP tool descriptions can manipulate agent behavior"
   goal: inject prompt injection payloads into tool descriptions to influence agent actions
-  detector: toolhijack.ToolSelection
+  detector: toolcoercion.ToolSelection
   tags:
     - agent
-    - tool-hijack
+    - tool-coercion
     - mcp
     - tool-poisoning
     - prompt-injection
