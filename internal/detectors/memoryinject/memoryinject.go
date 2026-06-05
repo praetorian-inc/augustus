@@ -6,7 +6,6 @@ package memoryinject
 
 import (
 	"context"
-	"strings"
 
 	"github.com/praetorian-inc/augustus/internal/ahocorasick"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -114,14 +113,8 @@ type MemoryPoisoningDetector struct {
 func NewMemoryPoisoningDetector(cfg registry.Config) (detectors.Detector, error) {
 	acceptPatterns := append([]string{}, acceptanceIndicators...)
 
-	if extra, ok := cfg["extra_acceptance"]; ok {
-		if list, ok := extra.([]any); ok {
-			for _, item := range list {
-				if s, ok := item.(string); ok {
-					acceptPatterns = append(acceptPatterns, strings.ToLower(s))
-				}
-			}
-		}
+	if extra := registry.GetStringSlice(cfg, "extra_acceptance", nil); len(extra) > 0 {
+		acceptPatterns = append(acceptPatterns, extra...)
 	}
 
 	return &MemoryPoisoningDetector{

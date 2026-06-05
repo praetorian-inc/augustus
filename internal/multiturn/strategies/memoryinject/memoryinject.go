@@ -11,7 +11,6 @@ package memoryinject
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/praetorian-inc/augustus/internal/multiturn"
 )
@@ -204,6 +203,3 @@ func truncate(s string, n int) string {
 
 // Ensure Strategy satisfies the interface at compile time.
 var _ multiturn.Strategy = (*Strategy)(nil)
-
-// Dummy usage to avoid unused import of strings.
-var _ = strings.Join
