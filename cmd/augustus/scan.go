@@ -20,10 +20,16 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/harnesses"
 	"github.com/praetorian-inc/augustus/pkg/hooks"
+	"github.com/praetorian-inc/augustus/pkg/parsers"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/praetorian-inc/augustus/pkg/results"
 	"github.com/praetorian-inc/augustus/pkg/types"
+
+	// Import parser implementations to register them
+	_ "github.com/praetorian-inc/augustus/internal/parsers/external"
+	_ "github.com/praetorian-inc/augustus/internal/parsers/jsonparser"
+	_ "github.com/praetorian-inc/augustus/internal/parsers/sseparser"
 )
 
 // scanConfig holds the configuration for a scan command.
@@ -46,6 +52,11 @@ type scanConfig struct {
 	setup         string        // Shell command: once before all probes
 	prepare       string        // Shell command: before each probe
 	cleanup       string        // Shell command: after all probes
+
+	// Parser configuration
+	parserName         string
+	parserConfig       string
+	allowUnsafeParsers bool
 }
 
 // Kong helper methods
@@ -120,9 +131,12 @@ func (s *ScanCmd) loadScanConfig() *scanConfig {
 		timeout:       s.Timeout,
 		concurrency:   s.Concurrency,
 		probeTimeout:  s.ProbeTimeout,
-		setup:         s.Setup,
-		prepare:       s.Prepare,
-		cleanup:       s.Cleanup,
+		setup:              s.Setup,
+		prepare:            s.Prepare,
+		cleanup:            s.Cleanup,
+		parserName:         s.Parser,
+		parserConfig:       s.ParserConfig,
+		allowUnsafeParsers: s.AllowUnsafeParsers,
 	}
 }
 
@@ -631,6 +645,24 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 			prepareHook = &hooks.Hook{Command: cfg.prepare}
 		}
 		gen = hooks.NewHookedGenerator(gen, prepareHook, setupVars)
+	}
+
+	// Wrap generator with parser if configured
+	if cfg.parserName != "" {
+		parserCfg := registry.Config{}
+		if cfg.parserConfig != "" {
+			if err := json.Unmarshal([]byte(cfg.parserConfig), &parserCfg); err != nil {
+				return fmt.Errorf("invalid --parser-config JSON: %w", err)
+			}
+		}
+		parserCfg["allow_unsafe"] = cfg.allowUnsafeParsers
+
+		parser, err := parsers.Create(cfg.parserName, parserCfg)
+		if err != nil {
+			return fmt.Errorf("failed to create parser %s: %w", cfg.parserName, err)
+		}
+		gen = parsers.NewParsedGenerator(gen, parser)
+		slog.Info("parser enabled", "parser", cfg.parserName)
 	}
 
 	// Get probe names
