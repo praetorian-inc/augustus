@@ -28,6 +28,10 @@ func main() {
 		}),
 	)
 
+	if shouldShowBanner(ctx.Command()) {
+		printBanner()
+	}
+
 	// Run the command - runtime/scan errors exit with 1
 	err := ctx.Run()
 	if err != nil {

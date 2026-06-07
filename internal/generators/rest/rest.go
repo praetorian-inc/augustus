@@ -698,10 +698,14 @@ func (r *Rest) parseSSEDefault(body []byte) string {
 			continue
 		}
 
-		// Try to parse as JSON
+		// Try to parse as JSON object
 		var data map[string]any
 		if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
-			// Not valid JSON, skip
+			// Not a JSON object; try as a plain JSON string (e.g., data: "Hello world")
+			var strData string
+			if err := json.Unmarshal([]byte(jsonStr), &strData); err == nil && strData != "" {
+				textParts = append(textParts, strData)
+			}
 			continue
 		}
 

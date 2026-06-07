@@ -1759,6 +1759,75 @@ func TestRestGenerator_SSEConfigurable_MissingTextField(t *testing.T) {
 	}
 }
 
+func TestRestGenerator_SSEDefault_PlainJSONStrings(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: started\n"))
+		_, _ = w.Write([]byte("data: \"Hello \"\n\n"))
+		_, _ = w.Write([]byte("event: chunk\n"))
+		_, _ = w.Write([]byte("data: \"World!\"\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri": server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if len(responses) != 1 {
+		t.Fatalf("Generate() returned %d responses, want 1", len(responses))
+	}
+
+	expected := "Hello World!"
+	if responses[0].Content != expected {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
+	}
+}
+
+func TestRestGenerator_SSEDefault_MixedObjectsAndStrings(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"delta\":{\"text\":\"From object\"}}\n\n"))
+		_, _ = w.Write([]byte("data: \"From string\"\n\n"))
+		_, _ = w.Write([]byte("data: {\"text\":\"Direct\"}\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri": server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if len(responses) != 1 {
+		t.Fatalf("Generate() returned %d responses, want 1", len(responses))
+	}
+
+	expected := "From objectFrom stringDirect"
+	if responses[0].Content != expected {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
+	}
+}
+
 func TestRestGeneratorHookVarSubstitution(t *testing.T) {
 	// Create a test server that echoes the request body back
 	var receivedBody string

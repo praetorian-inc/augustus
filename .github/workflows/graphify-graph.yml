@@ -1,0 +1,38 @@
+name: graphify-graph
+# Builds the augustus code knowledge graph via the shared public-workflows reusable
+# and publishes graph.json as an artifact. graphify has no server — the graph is a
+# file that `graphify query` reads; engineers/agents pull the artifact instead of
+# each rebuilding it locally.
+#
+# Pull the latest graph:
+#   gh run download -R praetorian-inc/augustus -n augustus-graph -D graphify-out
+#
+# The pull_request trigger (scoped to this workflow + .graphifyignore) validates the
+# build on PRs that change the graphify config; push-to-main + weekly keep it fresh.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+      - '.graphifyignore'
+      - '.github/workflows/graphify-graph.yml'
+  pull_request:
+    paths:
+      - '.graphifyignore'
+      - '.github/workflows/graphify-graph.yml'
+  schedule:
+    - cron: '0 7 * * 1'   # Mondays 07:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  graph:
+    # Re-pin to the public-workflows release tag once PR #104 merges + tags.
+    uses: praetorian-inc/public-workflows/.github/workflows/graphify-graph.yml@c81c12f1aae98b023e1aea25077c58a628857b6c  # v2.9.0
+    permissions:
+      contents: read
