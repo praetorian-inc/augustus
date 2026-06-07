@@ -12,9 +12,11 @@ concurrency:
 
 jobs:
   claude-code-action:
-    uses: praetorian-inc/public-workflows/.github/workflows/claude-code.yml@2d4ebcb9a35f353647701eb4caa8ecbd46c32052  # v2.6.4
+    uses: praetorian-inc/public-workflows/.github/workflows/claude-code.yml@8c7df4ce3c6b5bbf4ef9e3f1df0e4f6a5d3643e5  # v2.9.1
     permissions:
       contents: read
       pull-requests: write
+    with:
+      max_turns: 30
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
