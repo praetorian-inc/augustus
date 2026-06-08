@@ -39,6 +39,35 @@ func TestConversationClone(t *testing.T) {
 	assert.Equal(t, "Test system", cloned.System.Content)
 }
 
+func TestConversationClone_PreservesToolsAndToolChoice(t *testing.T) {
+	conv := NewConversation()
+	conv.AddPrompt("Hello")
+	conv.Tools = []map[string]any{
+		{"name": "web_search", "description": "search"},
+		{"name": "send_email", "description": "send email"},
+	}
+	conv.ToolChoice = "required"
+
+	cloned := conv.Clone()
+
+	assert.Equal(t, conv.Tools, cloned.Tools)
+	assert.Equal(t, "required", cloned.ToolChoice)
+
+	// Mutate original to verify deep copy (clone should be unaffected)
+	conv.Tools = append(conv.Tools, map[string]any{"name": "third_tool", "description": "extra"})
+	assert.Len(t, cloned.Tools, 2)
+}
+
+func TestConversationClone_NilToolsStaysNil(t *testing.T) {
+	conv := NewConversation()
+	conv.AddPrompt("Hello")
+
+	cloned := conv.Clone()
+
+	assert.Nil(t, cloned.Tools)
+	assert.Equal(t, "", cloned.ToolChoice)
+}
+
 func TestConversationReplaceLastPrompt(t *testing.T) {
 	conv := NewConversation()
 	conv.AddPrompt("Hello")

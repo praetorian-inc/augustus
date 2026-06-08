@@ -20,10 +20,12 @@ go test ./... -run TestName   # Run single test by name
 make test-equiv               # Run equivalence tests (Go vs Python)
 make test-cover               # Run tests with coverage report
 
-# Lint
-make lint                     # Run golangci-lint (requires installation)
-go fmt ./...                  # Format code
+# Lint & format
+make lint                     # Run golangci-lint per .golangci.yml (standard linters + gofumpt/goimports formatters); auto-installs the pinned version, falls back to go vet if unavailable
+golangci-lint fmt ./...       # Apply gofumpt + goimports formatting — matches what CI enforces (plain `go fmt` no longer satisfies the lint gate)
 ```
+
+Linting is configured by `.golangci.yml` (golangci-lint v2): the default `standard` linter set plus a `formatters` block enabling `gofumpt` and `goimports`. CI runs this via the shared `public-workflows/go-ci.yml` reusable workflow on every PR, so formatting drift fails the build — keep the tree `golangci-lint fmt`-clean.
 
 ## Architecture
 
@@ -34,6 +36,12 @@ All capabilities implement these interfaces:
 - **Generator**: Wraps LLM APIs, handles `*attempt.Conversation` → `[]attempt.Message`
 - **Detector**: Analyzes outputs, returns scores `[0.0, 1.0]` (0=safe, 1=vulnerable)
 - **Buff**: Transforms prompts before sending (encoding, translation, paraphrase)
+
+Probes may also implement these **optional** interfaces (all in `pkg/types/prober.go`) for advanced behavior:
+- **ProbeMetadata**: `Description`/`Goal`/`GetPrimaryDetector`/`GetPrompts` for introspection
+- **ProbeDetectorConfig**: `GetDetectorConfig()` — per-probe detector config overrides
+- **ProbeSecondaryDetectors**: `GetSecondaryDetectors()` — run extra detectors alongside the primary; the attempt verdict reflects the **max score across all detectors** (see `attempt.GetEffectiveScores`), so a secondary hit alone marks the attempt vulnerable
+- **ProbeTools**: `GetTools()` / `GetToolChoice()` — declare function-calling tool schemas for tool-use/agent probes (sent via the native wire layer in `internal/attackengine/toolcalls.go`)
 
 ### Plugin Registration Pattern
 
@@ -85,7 +93,7 @@ Scanner uses `errgroup` for bounded concurrency (default 10 goroutines).
 3. Register in `init()`: `probes.Register("category.Name", factory)`
 4. Add tests in `*_test.go`
 
-For YAML-based probes, create `.yaml` files in `data/` subdirectory and use `templates.NewLoader()`.
+For YAML-based probes, create `.yaml` files in `data/` subdirectory and use `templates.NewLoader()`. YAML templates support advanced fields consumed via the optional interfaces above: `detector_config`, `secondary_detectors`, and — for tool-use/function-calling probes — `tools`, `tool_choice`, `tool_results`, and `mode: [chat, native]`. The canonical `TemplateProbe` (`pkg/templates/probe.go`) implements all optional interfaces; see `internal/probes/tooluse/data/*.yaml` for tool-use attack examples (unauthorized invocation, parameter injection, selection hijacking, etc.).
 
 ### New Generator
 

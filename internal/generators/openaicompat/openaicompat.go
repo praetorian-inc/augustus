@@ -8,6 +8,7 @@ package openaicompat
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"time"
@@ -87,22 +88,60 @@ func ConversationToMessages(conv *attempt.Conversation) []goopenai.ChatCompletio
 
 	// Add turns
 	for _, turn := range conv.Turns {
-		// Add user message
-		messages = append(messages, goopenai.ChatCompletionMessage{
-			Role:    goopenai.ChatMessageRoleUser,
-			Content: turn.Prompt.Content,
-		})
-
-		// Add assistant response if present
-		if turn.Response != nil {
+		switch turn.Prompt.Role {
+		case attempt.RoleTool:
 			messages = append(messages, goopenai.ChatCompletionMessage{
+				Role:       "tool",
+				Content:    turn.Prompt.Content,
+				ToolCallID: turn.Prompt.ToolCallID,
+			})
+		default:
+			messages = append(messages, goopenai.ChatCompletionMessage{
+				Role:    goopenai.ChatMessageRoleUser,
+				Content: turn.Prompt.Content,
+			})
+		}
+
+		if turn.Response != nil {
+			msg := goopenai.ChatCompletionMessage{
 				Role:    goopenai.ChatMessageRoleAssistant,
 				Content: turn.Response.Content,
-			})
+			}
+			if len(turn.Response.ToolCalls) > 0 {
+				msg.ToolCalls = canonicalToOpenAIToolCalls(turn.Response.ToolCalls)
+			}
+			messages = append(messages, msg)
 		}
 	}
 
 	return messages
+}
+
+// canonicalToOpenAIToolCalls converts canonical tool call maps back to OpenAI SDK format.
+// Used when building multi-turn conversations that include prior assistant tool calls.
+func canonicalToOpenAIToolCalls(toolCalls []map[string]any) []goopenai.ToolCall {
+	result := make([]goopenai.ToolCall, 0, len(toolCalls))
+	for _, tc := range toolCalls {
+		name, _ := tc["name"].(string)
+		id, _ := tc["id"].(string)
+		if id == "" {
+			id = "call_" + name
+		}
+		// Intentionally reads only "args" — the normalizer also stores "_raw_args"
+		// (the unparsed JSON string) for detector inspection, but that sentinel is
+		// not needed when reconstructing wire-format tool calls for multi-turn replay.
+		args, _ := tc["args"].(map[string]any)
+		argsJSON, _ := json.Marshal(args)
+		result = append(result, goopenai.ToolCall{
+			ID:   id,
+			Type: goopenai.ToolTypeFunction,
+			Function: goopenai.FunctionCall{
+				Name:      name,
+				Arguments: string(argsJSON),
+			},
+		})
+	}
+	return result
 }
 
 // WrapError wraps OpenAI-compatible API errors with a provider-specific prefix.
@@ -289,6 +328,10 @@ func NewGenerator(cfg registry.Config, pc ProviderConfig) (*CompatGenerator, err
 }
 
 // Generate sends the conversation to the provider and returns responses.
+// NOTE: GenerateChat does not wire conv.Tools into the API request, so tool-use
+// probes against compat providers (groq, fireworks, deepinfra, nim, nemo) will
+// not receive structured tool calls from the model. This is intentional for
+// LAB-2981 scope (OpenAI + Anthropic only); LAB-2982 tracks compat tool support.
 func (g *CompatGenerator) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
 	if n <= 0 {
 		return []attempt.Message{}, nil
