@@ -11,6 +11,7 @@ import (
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
+	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -967,4 +968,93 @@ func TestVertexGenerator_Generate_InvalidToolNameError(t *testing.T) {
 	_, err = g.Generate(context.Background(), conv, 1)
 	require.Error(t, err, "empty tool name must return an error")
 	assert.Contains(t, err.Error(), "missing valid string name")
+}
+
+// TestVertexGenerator_TwoTurnToolResult_NameMatchesFunctionCall tests the bug
+// described in PR #131: when RunTwoTurnPrompts produces a tool-result turn using
+// the "call_"+name fallback ID (because NormalizeGeminiFunctionCalls did not set
+// an "id" field), conversationToContents must send the bare function name in
+// functionResponse.Name, not the "call_web_search" fallback. Gemini requires
+// functionResponse.name == functionCall.name.
+//
+// This test drives the real RunTwoTurnPrompts → Vertex serialization path to
+// reproduce the mismatch.
+func TestVertexGenerator_TwoTurnToolResult_NameMatchesFunctionCall(t *testing.T) {
+	// turn1Server returns a functionCall response (no "id" field, matching Gemini wire format).
+	// turn2Server captures the second request so we can assert functionResponse.name.
+	var turn2Request map[string]any
+	callCount := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		if callCount == 1 {
+			// Turn 1: return a function call for "web_search"
+			_ = json.NewEncoder(w).Encode(mockVertexFunctionCallResponse(
+				"web_search",
+				map[string]any{"query": "AI safety"},
+			))
+		} else {
+			// Turn 2: capture the full request and return a text response
+			_ = json.NewDecoder(r.Body).Decode(&turn2Request)
+			_ = json.NewEncoder(w).Encode(mockVertexResponse("Here are the results."))
+		}
+	}))
+	defer server.Close()
+
+	g, err := NewVertex(registry.Config{
+		"model":      "gemini-pro",
+		"project_id": "test-project",
+		"location":   "us-central1",
+		"base_url":   server.URL,
+	})
+	require.NoError(t, err)
+
+	// Drive through RunTwoTurnPrompts — this is the real production path
+	// where NormalizeGeminiFunctionCalls builds tool-call entries without "id",
+	// causing the fallback "call_"+name to flow into ToolCallID.
+	_, err = probes.RunTwoTurnPrompts(
+		context.Background(),
+		g,
+		[]string{"Search for AI safety"},
+		"test-probe",
+		"test-detector",
+		[]map[string]any{{"name": "web_search", "description": "Search the web"}},
+		"auto",
+		map[string]string{"web_search": `{"results": ["result1"]}`},
+	)
+	require.NoError(t, err)
+
+	// Verify that the second request was actually sent (Turn 2 fired).
+	require.Equal(t, 2, callCount, "expected 2 API calls (turn1 + turn2)")
+	require.NotNil(t, turn2Request, "turn 2 request must have been captured")
+
+	// Extract the "function" role content from Turn 2's contents.
+	contents, ok := turn2Request["contents"].([]any)
+	require.True(t, ok, "turn2 request must contain contents array")
+
+	var funcContent map[string]any
+	for _, c := range contents {
+		cb, ok := c.(map[string]any)
+		if !ok {
+			continue
+		}
+		if cb["role"] == "function" {
+			funcContent = cb
+			break
+		}
+	}
+	require.NotNil(t, funcContent, "turn2 contents must include a 'function' role entry")
+
+	parts, ok := funcContent["parts"].([]any)
+	require.True(t, ok, "function content must have parts")
+	require.Len(t, parts, 1)
+
+	part, ok := parts[0].(map[string]any)
+	require.True(t, ok)
+	funcResp, ok := part["functionResponse"].(map[string]any)
+	require.True(t, ok, "part must contain functionResponse")
+
+	// THE KEY ASSERTION: functionResponse.name must equal the bare function name
+	// "web_search", NOT the fallback "call_web_search". Gemini rejects mismatches.
+	assert.Equal(t, "web_search", funcResp["name"],
+		"functionResponse.name must match functionCall.name (bare name), not the 'call_'+name fallback")
 }

@@ -342,19 +342,33 @@ func (g *Anthropic) conversationToMessages(conv *attempt.Conversation) []anthrop
 	// Note: System message is NOT included in messages array for Anthropic
 	// It's passed as a separate parameter
 
-	for _, turn := range conv.Turns {
+	for i, turn := range conv.Turns {
 		switch turn.Prompt.Role {
 		case attempt.RoleTool:
-			// Tool result: user message with tool_result content blocks.
+			// Coalesce consecutive RoleTool turns into a single user message.
+			// Anthropic rejects consecutive same-role messages (HTTP 400) and
+			// requires all tool_result blocks for one assistant turn to be sent
+			// in a single user message. RunTwoTurnPrompts adds a separate
+			// RoleTool turn per tool call, so we must merge them here.
+			//
+			// Only emit a new user message when this is the FIRST RoleTool in a
+			// consecutive run; subsequent ones append to the last message.
 			block := map[string]any{
 				"type":        "tool_result",
 				"tool_use_id": turn.Prompt.ToolCallID,
 				"content":     turn.Prompt.Content,
 			}
-			messages = append(messages, anthropicMsg{
-				Role:    "user",
-				Content: []any{block},
-			})
+			if i > 0 && conv.Turns[i-1].Prompt.Role == attempt.RoleTool {
+				// Append to the existing last user message (guaranteed to be tool_result).
+				last := &messages[len(messages)-1]
+				blocks, _ := last.Content.([]any)
+				last.Content = append(blocks, block)
+			} else {
+				messages = append(messages, anthropicMsg{
+					Role:    "user",
+					Content: []any{block},
+				})
+			}
 		default:
 			messages = append(messages, anthropicMsg{
 				Role:    "user",

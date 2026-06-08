@@ -504,9 +504,17 @@ func mergeCfgs(base, override map[string]any) registry.Config {
 	return merged
 }
 
-// hasConfigList returns true when cfg[key] is a non-empty string or non-empty
-// slice ([]string or []any). Used for load-time validation of detectors that
-// require at least one list-valued config key (e.g. expected_tools/forbidden_tools).
+// hasConfigList returns true when cfg[key] contains at least one usable string
+// value. Used for load-time validation of detectors that require at least one
+// list-valued config key (e.g. expected_tools/forbidden_tools).
+//
+// Fix 4 — []any element-type validation: a []any slice whose elements are all
+// non-strings (e.g. []any{123}) previously passed this guard because the check
+// was len(list) > 0. However, parseStringList (the function that the detector
+// actually uses to parse the same config) silently drops non-string items,
+// leaving the detector with an empty slice that scores 0.0 — re-opening the
+// fail-open the guard exists to prevent. The fix counts only string-typed
+// elements, matching the actual parsing behavior.
 func hasConfigList(cfg registry.Config, key string) bool {
 	v, ok := cfg[key]
 	if !ok {
@@ -516,7 +524,13 @@ func hasConfigList(cfg registry.Config, key string) bool {
 	case []string:
 		return len(list) > 0
 	case []any:
-		return len(list) > 0
+		// Mirror parseStringList: only string elements are usable.
+		for _, item := range list {
+			if _, ok := item.(string); ok {
+				return true
+			}
+		}
+		return false
 	case string:
 		return list != ""
 	default:

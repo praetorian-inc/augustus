@@ -88,7 +88,33 @@ func (c *Conversation) LastPrompt() string {
 	return c.Turns[len(c.Turns)-1].Prompt.Content
 }
 
-// deepCopyToolCalls creates an independent copy of a tool calls slice.
+// deepCopyValue recursively deep-copies a value that may be a map[string]any,
+// []any, or a scalar. Scalars are returned as-is (they are immutable or
+// value-typed in Go). This is used by deepCopyToolCalls to prevent cloned
+// conversations from sharing nested "args" maps with their source.
+func deepCopyValue(v any) any {
+	switch val := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(val))
+		for k, vv := range val {
+			out[k] = deepCopyValue(vv)
+		}
+		return out
+	case []any:
+		out := make([]any, len(val))
+		for i, vv := range val {
+			out[i] = deepCopyValue(vv)
+		}
+		return out
+	default:
+		// Scalar types (string, int, float64, bool, nil, etc.) are safe to share.
+		return v
+	}
+}
+
+// deepCopyToolCalls creates an independent deep copy of a tool calls slice.
+// Nested values (e.g. the "args" map[string]any) are recursively copied so
+// that mutating a clone's tool call args does not affect the source.
 func deepCopyToolCalls(tcs []map[string]any) []map[string]any {
 	if len(tcs) == 0 {
 		return tcs
@@ -100,7 +126,7 @@ func deepCopyToolCalls(tcs []map[string]any) []map[string]any {
 		}
 		tcCopy := make(map[string]any, len(tc))
 		for k, v := range tc {
-			tcCopy[k] = v
+			tcCopy[k] = deepCopyValue(v)
 		}
 		out[i] = tcCopy
 	}

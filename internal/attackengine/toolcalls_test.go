@@ -380,9 +380,12 @@ func TestNormalizeGeminiFunctionCalls_NilArgs(t *testing.T) {
 	assert.Empty(t, args, "nil args should yield empty args map")
 }
 
-func TestNormalizeGeminiFunctionCalls_NoIDField(t *testing.T) {
-	// Gemini function calls have no "id" field — unlike OpenAI, Anthropic,
-	// and Cohere which do. Verify that "id" is never present in the output.
+func TestNormalizeGeminiFunctionCalls_IDEqualsName(t *testing.T) {
+	// NormalizeGeminiFunctionCalls sets "id" to the bare function name so that
+	// the Vertex serialization path (conversationToContents) can use ToolCallID
+	// directly as functionResponse.name, satisfying Gemini's requirement that
+	// functionResponse.name == functionCall.name. Without this, RunTwoTurnPrompts
+	// would fall back to "call_"+name which Gemini rejects.
 	fc := GeminiFunctionCall{
 		Name: "search",
 		Args: map[string]any{"query": "exfil"},
@@ -391,8 +394,9 @@ func TestNormalizeGeminiFunctionCalls_NoIDField(t *testing.T) {
 	got := NormalizeGeminiFunctionCalls([]GeminiFunctionCall{fc})
 
 	require.Len(t, got, 1)
-	_, hasID := got[0]["id"]
-	assert.False(t, hasID, "Gemini function calls should never have an id field in canonical form")
+	id, hasID := got[0]["id"]
+	require.True(t, hasID, "Gemini normalized entries must carry id=name for Vertex tool-result routing")
+	assert.Equal(t, "search", id, "id must equal the bare function name")
 }
 
 // ---------------------------------------------------------------------------

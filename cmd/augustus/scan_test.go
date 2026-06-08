@@ -1881,3 +1881,59 @@ func TestHasConfigList(t *testing.T) {
 		})
 	}
 }
+
+// TestHasConfigList_NonStringSliceIsTreatedAsMissing verifies Fix 4:
+// a []any containing only non-string elements (e.g. integers) is treated as
+// MISSING config, not as a valid list. Before Fix 4, hasConfigList returned
+// true for []any{123} because it only checked len(list) > 0 without validating
+// element types. parseStringList (which the detector actually uses to parse
+// the config) drops non-string items, so the detector would receive an empty
+// slice and silently score 0.0 — re-opening the fail-open that the guard exists
+// to prevent.
+func TestHasConfigList_NonStringSliceIsTreatedAsMissing(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  registry.Config
+		key  string
+		want bool
+	}{
+		{
+			name: "[]any with integer only returns false (Fix 4)",
+			cfg:  registry.Config{"k": []any{123}},
+			key:  "k",
+			want: false,
+		},
+		{
+			name: "[]any with multiple integers returns false (Fix 4)",
+			cfg:  registry.Config{"k": []any{1, 2, 3}},
+			key:  "k",
+			want: false,
+		},
+		{
+			name: "[]any with bool only returns false (Fix 4)",
+			cfg:  registry.Config{"k": []any{true}},
+			key:  "k",
+			want: false,
+		},
+		{
+			name: "[]any with mixed string+int returns true (at least one string)",
+			cfg:  registry.Config{"k": []any{"valid", 123}},
+			key:  "k",
+			want: true,
+		},
+		{
+			name: "[]any with string still returns true (regression)",
+			cfg:  registry.Config{"k": []any{"send_email"}},
+			key:  "k",
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := hasConfigList(tt.cfg, tt.key)
+			if got != tt.want {
+				t.Errorf("hasConfigList(%v, %q) = %v, want %v", tt.cfg, tt.key, got, tt.want)
+			}
+		})
+	}
+}

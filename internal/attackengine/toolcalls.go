@@ -88,7 +88,11 @@ func NormalizeGeminiFunctionCalls(funcCalls []GeminiFunctionCall) []map[string]a
 			continue
 		}
 
-		entry := map[string]any{"name": fc.Name}
+		// Set id to the bare function name so that Gemini/Vertex tool-result
+		// replies in RunTwoTurnPrompts carry the correct name in ToolCallID.
+		// Gemini requires functionResponse.name == functionCall.name (the bare
+		// name), not an OpenAI-style "call_"+name surrogate.
+		entry := map[string]any{"name": fc.Name, "id": fc.Name}
 
 		if fc.Args != nil {
 			entry["args"] = fc.Args

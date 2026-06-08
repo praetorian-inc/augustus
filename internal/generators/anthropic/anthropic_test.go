@@ -983,3 +983,72 @@ func TestAnthropicConversationToMessages_ToolResult(t *testing.T) {
 	assert.Equal(t, "toolu_abc", toolResultBlock["tool_use_id"])
 	assert.Equal(t, "Search results here", toolResultBlock["content"])
 }
+
+// TestAnthropicConversationToMessages_ParallelToolResultsCoalesced tests the bug
+// described in PR #131: when the model returns ≥2 tool calls in Turn 1,
+// RunTwoTurnPrompts adds a separate RoleTool turn for each. conversationToMessages
+// must coalesce all consecutive RoleTool turns into a SINGLE user message with
+// all tool_result blocks, because Anthropic rejects consecutive same-role messages
+// (HTTP 400). The existing TestAnthropicConversationToMessages_ToolResult only
+// tests the single-tool case and does not cover this.
+func TestAnthropicConversationToMessages_ParallelToolResultsCoalesced(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockAnthropicResponse("Here are the results."))
+	}))
+	defer server.Close()
+
+	g, err := NewAnthropic(registry.Config{
+		"model": "claude-3-5-sonnet-20241022", "api_key": "test-key", "base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	// Build a conversation that simulates what RunTwoTurnPrompts produces
+	// when the model returns 2 tool calls: TWO separate RoleTool turns
+	// (one per call), which is the shape RunTwoTurnPrompts adds them.
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Search for AI safety and climate change")
+
+	// Turn 1 response: assistant with 2 tool_use blocks
+	turn1Resp := attempt.NewAssistantMessage("")
+	turn1Resp.ToolCalls = []map[string]any{
+		{"name": "web_search", "id": "toolu_001", "args": map[string]any{"query": "AI safety"}},
+		{"name": "web_search", "id": "toolu_002", "args": map[string]any{"query": "climate change"}},
+	}
+	conv.Turns[0].Response = &turn1Resp
+
+	// Two separate RoleTool turns — exactly what RunTwoTurnPrompts adds
+	conv.AddTurn(attempt.Turn{Prompt: attempt.NewToolResultMessage("toolu_001", "AI safety results")})
+	conv.AddTurn(attempt.Turn{Prompt: attempt.NewToolResultMessage("toolu_002", "Climate results")})
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	messages, ok := receivedRequest["messages"].([]any)
+	require.True(t, ok, "request must contain messages array")
+
+	// With coalescing, the structure must be:
+	//   [0] user (original prompt)
+	//   [1] assistant (tool_use blocks)
+	//   [2] user (SINGLE message with BOTH tool_result blocks)
+	// NOT 4 messages (with two separate user tool-result messages).
+	require.Len(t, messages, 3,
+		"parallel tool results must be coalesced into a single user message (not separate consecutive user messages)")
+
+	msg2 := messages[2].(map[string]any)
+	assert.Equal(t, "user", msg2["role"])
+	content2, ok := msg2["content"].([]any)
+	require.True(t, ok, "coalesced user message must have structured content")
+	require.Len(t, content2, 2, "coalesced user message must contain both tool_result blocks")
+
+	block0 := content2[0].(map[string]any)
+	assert.Equal(t, "tool_result", block0["type"])
+	assert.Equal(t, "toolu_001", block0["tool_use_id"])
+	assert.Equal(t, "AI safety results", block0["content"])
+
+	block1 := content2[1].(map[string]any)
+	assert.Equal(t, "tool_result", block1["type"])
+	assert.Equal(t, "toolu_002", block1["tool_use_id"])
+	assert.Equal(t, "Climate results", block1["content"])
+}
