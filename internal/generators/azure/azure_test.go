@@ -5,9 +5,10 @@ import (
 	"os"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
 )
 
 func TestNewAzure_RequiresModel(t *testing.T) {

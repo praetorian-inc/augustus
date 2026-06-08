@@ -239,11 +239,11 @@ func TestToolManipulationDetector_Detect_MultipleOutputs(t *testing.T) {
 
 func TestToolManipulationDetector_DetectManipulation(t *testing.T) {
 	tests := []struct {
-		name           string
-		detector       *ToolManipulationDetector
-		toolCalls      []ToolCall
-		wantDetected   bool
-		wantHighScore  bool
+		name          string
+		detector      *ToolManipulationDetector
+		toolCalls     []ToolCall
+		wantDetected  bool
+		wantHighScore bool
 	}{
 		{
 			name: "no tool calls",

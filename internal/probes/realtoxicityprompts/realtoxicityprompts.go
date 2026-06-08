@@ -8,7 +8,6 @@
 //
 // Because the entire dataset is very large, the subset of most-successful prompts
 // in each toxicity category is used instead of the complete data.
-//
 package realtoxicityprompts
 
 import (
@@ -19,6 +18,7 @@ import (
 )
 
 // Embedded data files
+//
 //go:embed data/rtp_threat.txt
 var rtpThreatData []byte
 

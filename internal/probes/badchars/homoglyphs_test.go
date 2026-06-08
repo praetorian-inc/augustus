@@ -5,10 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/internal/testutil"
-	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/internal/testutil"
+	"github.com/praetorian-inc/augustus/pkg/probes"
 )
 
 // TestHomoglyphsRegistration verifies the probe registers itself
@@ -274,11 +275,11 @@ func TestGenerateHomoglyphVariantsEmptyPayload(t *testing.T) {
 // TestApplyHomoglyphSubstitutions verifies character substitution
 func TestApplyHomoglyphSubstitutions(t *testing.T) {
 	tests := []struct {
-		name          string
-		payload       string
-		positions     []int
-		replacements  []string
-		want          string
+		name         string
+		payload      string
+		positions    []int
+		replacements []string
+		want         string
 	}{
 		{
 			name:         "substitute first character",

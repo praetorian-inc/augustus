@@ -18,7 +18,6 @@ func init() {
 // on MetaCPAN. These hallucinated modules could be uploaded by attackers,
 // and would then be silently pulled into developer environments. This probe
 // tests whether the model recommends such hallucinated Perl packages.
-//
 type Perl struct {
 	prompts []string
 }

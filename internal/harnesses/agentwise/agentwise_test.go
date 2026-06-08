@@ -23,11 +23,11 @@ func (m *mockProbe) Probe(ctx context.Context, gen probes.Generator) ([]*attempt
 	return nil, nil
 }
 
-func (m *mockProbe) Name() string                 { return m.name }
-func (m *mockProbe) Description() string          { return m.description }
-func (m *mockProbe) Goal() string                 { return m.goal }
-func (m *mockProbe) GetPrimaryDetector() string   { return m.detector }
-func (m *mockProbe) GetPrompts() []string         { return m.prompts }
+func (m *mockProbe) Name() string               { return m.name }
+func (m *mockProbe) Description() string        { return m.description }
+func (m *mockProbe) Goal() string               { return m.goal }
+func (m *mockProbe) GetPrimaryDetector() string { return m.detector }
+func (m *mockProbe) GetPrompts() []string       { return m.prompts }
 
 // TestAgentConfig tests the AgentConfig struct initialization.
 func TestAgentConfig(t *testing.T) {
@@ -162,11 +162,11 @@ func TestIsProbeApplicable(t *testing.T) {
 // TestFilterProbes tests the FilterProbes method.
 func TestFilterProbes(t *testing.T) {
 	tests := []struct {
-		name       string
-		config     AgentConfig
-		probes     []probes.Prober
-		wantCount  int
-		wantNames  []string
+		name      string
+		config    AgentConfig
+		probes    []probes.Prober
+		wantCount int
+		wantNames []string
 	}{
 		{
 			name: "filter out multiagent probes when HasMultiAgent=false",
@@ -320,11 +320,11 @@ func TestRegistration(t *testing.T) {
 
 	// Create instance from registry
 	cfg := registry.Config{
-		"has_tools":       true,
-		"has_browsing":    false,
-		"has_memory":      true,
-		"has_multiagent":  false,
-		"tool_list":       []string{"tool1"},
+		"has_tools":      true,
+		"has_browsing":   false,
+		"has_memory":     true,
+		"has_multiagent": false,
+		"tool_list":      []string{"tool1"},
 	}
 
 	harness, err := factory(cfg)

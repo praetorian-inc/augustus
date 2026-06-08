@@ -8,14 +8,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	_ "github.com/praetorian-inc/augustus/internal/detectors/always" // Register always.Pass, always.Fail
+	_ "github.com/praetorian-inc/augustus/internal/generators/test"  // Register test.Blank, test.Repeat
+	_ "github.com/praetorian-inc/augustus/internal/probes/test"      // Register test.Blank, test.Test
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
-	_ "github.com/praetorian-inc/augustus/internal/detectors/always" // Register always.Pass, always.Fail
 	"github.com/praetorian-inc/augustus/pkg/generators"
-	_ "github.com/praetorian-inc/augustus/internal/generators/test" // Register test.Blank, test.Repeat
 	"github.com/praetorian-inc/augustus/pkg/harnesses"
 	"github.com/praetorian-inc/augustus/pkg/probes"
-	_ "github.com/praetorian-inc/augustus/internal/probes/test" // Register test.Blank, test.Test
 )
 
 // testEvaluator is a simple evaluator that records attempts.

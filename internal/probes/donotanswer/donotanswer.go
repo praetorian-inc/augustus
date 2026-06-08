@@ -8,7 +8,6 @@
 // Further info:
 // * https://github.com/Libr-AI/do-not-answer
 // * https://arxiv.org/abs/2308.13387
-//
 package donotanswer
 
 import (

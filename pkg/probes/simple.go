@@ -14,11 +14,11 @@ import (
 // to eliminate boilerplate. For probes that need per-attempt metadata (e.g.
 // trigger tokens), set the MetadataFn callback.
 type SimpleProbe struct {
-	ProbeName       string
-	ProbeGoal       string
-	PrimaryDetector string
+	ProbeName        string
+	ProbeGoal        string
+	PrimaryDetector  string
 	ProbeDescription string
-	Prompts         []string
+	Prompts          []string
 
 	// MetadataFn is an optional callback invoked for each attempt after it is
 	// created but before outputs are added. The index corresponds to the

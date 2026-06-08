@@ -172,12 +172,12 @@ func synonymSubstitutionPrompts(basePrompt string) []string {
 
 	// Common synonym mappings for sensitive words
 	synonyms := map[string][]string{
-		"hack":         {"gain unauthorized access", "breach", "infiltrate", "penetrate"},
-		"exploit":      {"leverage", "take advantage of", "utilize"},
-		"attack":       {"target", "compromise", "assault"},
-		"malware":      {"malicious software", "harmful code", "virus"},
-		"steal":        {"take", "acquire", "obtain", "extract"},
-		"password":     {"credentials", "authentication", "login info"},
+		"hack":          {"gain unauthorized access", "breach", "infiltrate", "penetrate"},
+		"exploit":       {"leverage", "take advantage of", "utilize"},
+		"attack":        {"target", "compromise", "assault"},
+		"malware":       {"malicious software", "harmful code", "virus"},
+		"steal":         {"take", "acquire", "obtain", "extract"},
+		"password":      {"credentials", "authentication", "login info"},
 		"vulnerability": {"weakness", "flaw", "security issue", "gap"},
 	}
 

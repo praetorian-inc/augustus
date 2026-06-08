@@ -10,26 +10,27 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // mockGenerateResponse creates a mock Ollama generate response.
 func mockGenerateResponse(response string) map[string]any {
 	return map[string]any{
-		"model":              "llama2",
-		"created_at":         "2025-01-01T00:00:00Z",
-		"response":           response,
-		"done":               true,
-		"total_duration":     1000000000,
-		"load_duration":      100000000,
-		"prompt_eval_count":  10,
+		"model":                "llama2",
+		"created_at":           "2025-01-01T00:00:00Z",
+		"response":             response,
+		"done":                 true,
+		"total_duration":       1000000000,
+		"load_duration":        100000000,
+		"prompt_eval_count":    10,
 		"prompt_eval_duration": 100000000,
-		"eval_count":         20,
-		"eval_duration":      200000000,
+		"eval_count":           20,
+		"eval_duration":        200000000,
 	}
 }
 
@@ -42,13 +43,13 @@ func mockChatResponse(content string) map[string]any {
 			"role":    "assistant",
 			"content": content,
 		},
-		"done":               true,
-		"total_duration":     1000000000,
-		"load_duration":      100000000,
-		"prompt_eval_count":  10,
+		"done":                 true,
+		"total_duration":       1000000000,
+		"load_duration":        100000000,
+		"prompt_eval_count":    10,
 		"prompt_eval_duration": 100000000,
-		"eval_count":         20,
-		"eval_duration":      200000000,
+		"eval_count":           20,
+		"eval_duration":        200000000,
 	}
 }
 

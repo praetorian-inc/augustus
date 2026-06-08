@@ -9,7 +9,6 @@
 //   - potter_cloze.tsv: Harry Potter series excerpts
 //   - nyt_cloze.tsv: New York Times articles
 //   - guardian_cloze.tsv: The Guardian articles
-//
 package leakreplay
 
 import (

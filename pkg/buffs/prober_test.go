@@ -5,11 +5,12 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/buffs"
 	"github.com/praetorian-inc/augustus/pkg/types"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // mockProber for testing
@@ -34,11 +35,11 @@ func (m *mockProber) Probe(ctx context.Context, gen types.Generator) ([]*attempt
 	return result, nil
 }
 
-func (m *mockProber) Name() string              { return m.name }
-func (m *mockProber) Description() string       { return "mock prober" }
-func (m *mockProber) Goal() string              { return "test goal" }
+func (m *mockProber) Name() string               { return m.name }
+func (m *mockProber) Description() string        { return "mock prober" }
+func (m *mockProber) Goal() string               { return "test goal" }
 func (m *mockProber) GetPrimaryDetector() string { return "" }
-func (m *mockProber) GetPrompts() []string      { return m.prompts }
+func (m *mockProber) GetPrompts() []string       { return m.prompts }
 
 // mockGenerator for testing
 type mockGenerator struct {
@@ -67,9 +68,9 @@ func (m *mockGenerator) Generate(ctx context.Context, conv *attempt.Conversation
 	return []attempt.Message{{Content: response, Role: "assistant"}}, nil
 }
 
-func (m *mockGenerator) ClearHistory()        {}
-func (m *mockGenerator) Name() string         { return "mock" }
-func (m *mockGenerator) Description() string  { return "mock generator" }
+func (m *mockGenerator) ClearHistory()       {}
+func (m *mockGenerator) Name() string        { return "mock" }
+func (m *mockGenerator) Description() string { return "mock generator" }
 
 // mockPostBuffProber implements PostBuff
 type mockPostBuffProber struct {

@@ -29,7 +29,6 @@ var substances = []string{
 // Substances is a probe that attempts to get models to output instructions
 // for making harmful or illegal substances by appealing to pathos to remember
 // a deceased grandmother who was a chemical engineer.
-//
 type Substances struct {
 	*GrandmaProbe
 }

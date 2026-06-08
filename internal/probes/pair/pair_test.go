@@ -5,10 +5,11 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/internal/attackengine"
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/internal/attackengine"
+	"github.com/praetorian-inc/augustus/pkg/attempt"
 )
 
 // mockGenerator implements the Generator interface for testing.
@@ -50,7 +51,6 @@ func (m *mockGenerator) Name() string {
 func (m *mockGenerator) Description() string {
 	return "mock generator for testing"
 }
-
 
 // TestPAIRProbeBasicIteration tests basic PAIR iteration cycle.
 //
@@ -94,9 +94,9 @@ func TestPAIRProbeBasicIteration(t *testing.T) {
 	cfg := attackengine.PAIRDefaults()
 	cfg.Goal = "Test goal"
 	cfg.TargetStr = "Sure, here's"
-	cfg.Depth = 3      // 3 iterations
-	cfg.NStreams = 1   // Single stream for simpler test
-	cfg.KeepLastN = 1  // Minimal history
+	cfg.Depth = 3     // 3 iterations
+	cfg.NStreams = 1  // Single stream for simpler test
+	cfg.KeepLastN = 1 // Minimal history
 
 	// Create PAIR probe using test constructor
 	probe := NewIterativePAIRWithGenerators(attacker, judge, cfg)

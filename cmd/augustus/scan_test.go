@@ -9,14 +9,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/config"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // TestScanCommand_CreateComponents tests component creation from registries.
@@ -189,7 +190,7 @@ output:
   format: "json"
 `
 
-	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err, "failed to write test config file")
 
 	// Create scanConfig with YAML file
@@ -254,7 +255,7 @@ func TestScanCmd_ResolvedTimeoutPassedToScanner(t *testing.T) {
 run:
   timeout: "100ms"
 `
-	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	// ScanCmd with NO timeout flag (Timeout = 0)
@@ -551,7 +552,7 @@ hooks:
   setup: 'echo "YAML_VAR=from_yaml"'
   cleanup: 'touch %s'
 `, markerFile)
-	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	cfg := &scanConfig{
@@ -586,7 +587,7 @@ func TestScanCommand_CLIOverridesYAMLHooks(t *testing.T) {
 hooks:
   cleanup: 'touch %s'
 `, yamlMarker)
-	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	// CLI cleanup flag should override the YAML one
@@ -699,7 +700,7 @@ func TestScanCommand_YAMLHooksConfig(t *testing.T) {
 hooks:
   setup: 'echo "TEST_VAR=from_yaml"'
 `
-	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	cfg := &scanConfig{
@@ -728,7 +729,7 @@ hooks:
   setup: "exit 1"
   cleanup: 'echo "YAML_CLEANUP=true"'
 `
-	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	markerFile := filepath.Join(tmpDir, "cleanup_marker")

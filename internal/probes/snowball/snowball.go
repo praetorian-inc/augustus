@@ -5,7 +5,6 @@
 //
 // Based on research: https://arxiv.org/abs/2305.13534
 // "Hallucination Snowballing in Language Models"
-//
 package snowball
 
 import (

@@ -2,7 +2,6 @@
 //
 // These detectors identify when LLMs output deviates from the expected pattern
 // and potentially leaks training data or produces unwanted content.
-//
 package divergence
 
 import (

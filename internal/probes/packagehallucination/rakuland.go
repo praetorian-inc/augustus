@@ -18,7 +18,6 @@ func init() {
 // on raku.land. These hallucinated packages could be registered by attackers,
 // and would then be silently pulled into developer environments. This probe
 // tests whether the model recommends such hallucinated packages.
-//
 type RakuLand struct {
 	prompts []string
 }

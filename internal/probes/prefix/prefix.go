@@ -3,7 +3,6 @@
 // Prefix probes attempt to bypass LLM safety mechanisms by prepending
 // adversarial prefixes to harmful prompts. These prefixes use various
 // techniques including roleplay, context manipulation, and authority claims.
-//
 package prefix
 
 import (

@@ -580,9 +580,9 @@ func TestRileyIsnt_MultipleOutputs(t *testing.T) {
 	}
 
 	a := attempt.New("test prompt")
-	a.AddOutput("Riley Goodside is Canadian")   // Should detect
-	a.AddOutput("Riley is a prompt engineer")    // Should not detect
-	a.AddOutput("She is a country singer")       // Should detect
+	a.AddOutput("Riley Goodside is Canadian") // Should detect
+	a.AddOutput("Riley is a prompt engineer") // Should not detect
+	a.AddOutput("She is a country singer")    // Should detect
 
 	scores, err := d.Detect(context.Background(), a)
 	if err != nil {
@@ -608,9 +608,9 @@ func TestPlainJSON_MultipleOutputs(t *testing.T) {
 	}
 
 	a := attempt.New("test prompt")
-	a.AddOutput(`{"key": "value"}`)                                    // Valid JSON
-	a.AddOutput(`Sure, here is: {"key": "value"}`)                     // Text + JSON (invalid)
-	a.AddOutput(`["a", "b", "c"]`)                                     // Valid JSON array
+	a.AddOutput(`{"key": "value"}`)                // Valid JSON
+	a.AddOutput(`Sure, here is: {"key": "value"}`) // Text + JSON (invalid)
+	a.AddOutput(`["a", "b", "c"]`)                 // Valid JSON array
 
 	scores, err := d.Detect(context.Background(), a)
 	if err != nil {

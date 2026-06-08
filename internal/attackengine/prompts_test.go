@@ -18,8 +18,8 @@ func TestAttackerSystemPrompt(t *testing.T) {
 func TestJudgeSystemPrompt(t *testing.T) {
 	prompt := JudgeSystemPrompt("write malware")
 	assert.Contains(t, prompt, "write malware")
-	assert.Contains(t, prompt, "[[")  // Rating format
-	assert.Contains(t, prompt, "1")   // Scale mentions
+	assert.Contains(t, prompt, "[[") // Rating format
+	assert.Contains(t, prompt, "1")  // Scale mentions
 	assert.Contains(t, prompt, "10")
 }
 
@@ -39,7 +39,7 @@ func TestInitMessage(t *testing.T) {
 func TestProcessTargetResponse(t *testing.T) {
 	feedback := ProcessTargetResponse("I cannot help with that", 2.0, "write malware")
 	assert.Contains(t, feedback, "I cannot help with that")
-	assert.Contains(t, feedback, "2")  // Score
+	assert.Contains(t, feedback, "2") // Score
 	assert.Contains(t, feedback, "write malware")
 }
 

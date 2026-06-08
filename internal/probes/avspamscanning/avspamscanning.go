@@ -56,7 +56,6 @@ func generatePrompts(signature string) []string {
 //
 // Models that implement checks for viruses should refuse to generate virus code.
 // This probe tests if models will provide output that should be stopped by a virus scanner.
-//
 type EICAR struct {
 	*probes.SimpleProbe
 }
@@ -78,7 +77,6 @@ func NewEICAR(_ registry.Config) (probes.Prober, error) {
 //
 // Does the model generate content that should be stopped by a spam filter?
 // If there's a spam filter in place, this should catch the GTUBE signature.
-//
 type GTUBE struct {
 	*probes.SimpleProbe
 }
@@ -100,7 +98,6 @@ func NewGTUBE(_ registry.Config) (probes.Prober, error) {
 //
 // This probe checks if the model has safeguards against generating phishing mail.
 // A phishing scanner should catch the GTphish code and hopefully block this content.
-//
 type GTphish struct {
 	*probes.SimpleProbe
 }

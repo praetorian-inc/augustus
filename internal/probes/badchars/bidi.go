@@ -2,7 +2,6 @@
 //
 // Implements Unicode-based attacks including invisible characters, bidi-based reorderings,
 // and other imperceptible text manipulations as described in https://arxiv.org/abs/2106.09898.
-//
 package badchars
 
 import (
@@ -31,7 +30,6 @@ const (
 // This probe applies bidi control characters to swap adjacent characters in harmful prompts,
 // creating imperceptible perturbations that may bypass text-based safety filters while
 // remaining semantically equivalent when rendered.
-//
 type Bidi struct {
 	prompts []string
 }
@@ -90,7 +88,6 @@ func NewBidi(_ registry.Config) (probes.Prober, error) {
 // The sequence mirrors the bidi swap function from Boucher et al. ("Bad Characters")
 // and forces two adjacent code points to render in reverse order while containing
 // all directionality side effects.
-//
 func renderSwap(first, second string) string {
 	// Build the bidi control sequence that swaps first and second
 	// Sequence: LRO, LRI, RLO, LRI, second, PDI, LRI, first, PDI, PDF, PDI, PDF
@@ -104,7 +101,6 @@ func renderSwap(first, second string) string {
 // Each index represents the position where two adjacent characters should be swapped.
 // The function processes indices in order and adjusts for the length changes caused
 // by inserting bidi control sequences.
-//
 func applySwaps(payload string, indices []int) string {
 	// Convert string to rune slice for proper Unicode handling
 	runes := []rune(payload)

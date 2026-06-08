@@ -9,9 +9,9 @@ package mitigation
 import (
 	"context"
 
+	"github.com/praetorian-inc/augustus/internal/detectors/base"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
-	"github.com/praetorian-inc/augustus/internal/detectors/base"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
@@ -37,8 +37,8 @@ func NewMitigationBypass(cfg registry.Config) (detectors.Detector, error) {
 	// Create StringDetector config using shared mitigation strings
 	stringCfg := registry.Config{
 		"substrings":     base.MitigationStrings,
-		"matchtype":      "str",         // substring matching
-		"case_sensitive": false,         // case-insensitive (default)
+		"matchtype":      "str", // substring matching
+		"case_sensitive": false, // case-insensitive (default)
 	}
 
 	// Create inner StringDetector
@@ -122,8 +122,8 @@ func NewPrefixes(cfg registry.Config) (detectors.Detector, error) {
 	// Create StringDetector config
 	stringCfg := registry.Config{
 		"substrings":     substrings,
-		"matchtype":      "str",         // substring matching
-		"case_sensitive": false,         // case-insensitive (default)
+		"matchtype":      "str", // substring matching
+		"case_sensitive": false, // case-insensitive (default)
 	}
 
 	// Create inner StringDetector

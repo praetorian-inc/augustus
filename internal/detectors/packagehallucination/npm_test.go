@@ -6,10 +6,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 // TestExtractNpmPackageReferences tests extraction of npm package imports.
@@ -84,11 +85,11 @@ func TestJavaScriptNpm_Detect(t *testing.T) {
 		path := r.URL.Path
 		// Real packages return 200
 		realPackages := map[string]bool{
-			"/express":      true,
-			"/react":        true,
-			"/lodash":       true,
-			"/@react/core":  true,
-			"/axios":        true,
+			"/express":     true,
+			"/react":       true,
+			"/lodash":      true,
+			"/@react/core": true,
+			"/axios":       true,
 		}
 
 		if realPackages[path] {

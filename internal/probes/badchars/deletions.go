@@ -29,7 +29,6 @@ func init() {
 	}
 }
 
-
 // deletionVariant represents a generated prompt variant with deletion/backspace pairs.
 type deletionVariant struct {
 	text       string
@@ -38,7 +37,6 @@ type deletionVariant struct {
 }
 
 // Deletions injects ASCII character followed by backspace to create invisible perturbations.
-//
 type Deletions struct {
 	name            string
 	goal            string

@@ -37,7 +37,7 @@ var (
 // 3. Stores detector results in the attempt
 // 4. Marks the attempt as complete
 // 5. Calls the evaluator with all attempts
-type Probewise struct{
+type Probewise struct {
 	opts               *scanner.Options
 	onAttemptProcessed func(*attempt.Attempt)
 }

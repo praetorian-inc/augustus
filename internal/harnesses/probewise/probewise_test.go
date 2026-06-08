@@ -85,11 +85,11 @@ func (m *mockProbe) Probe(ctx context.Context, gen probes.Generator) ([]*attempt
 	return attempts, nil
 }
 
-func (m *mockProbe) Name() string                { return m.name }
-func (m *mockProbe) Description() string         { return "mock probe for testing" }
-func (m *mockProbe) Goal() string                { return m.goal }
-func (m *mockProbe) GetPrimaryDetector() string  { return m.primaryDetector }
-func (m *mockProbe) GetPrompts() []string        { return m.prompts }
+func (m *mockProbe) Name() string               { return m.name }
+func (m *mockProbe) Description() string        { return "mock probe for testing" }
+func (m *mockProbe) Goal() string               { return m.goal }
+func (m *mockProbe) GetPrimaryDetector() string { return m.primaryDetector }
+func (m *mockProbe) GetPrompts() []string       { return m.prompts }
 
 // mockDetector implements detectors.Detector for testing.
 type mockDetector struct {

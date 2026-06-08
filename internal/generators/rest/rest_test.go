@@ -11,12 +11,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/hooks"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestRestGenerator_Name(t *testing.T) {
@@ -307,8 +308,8 @@ func TestRestGenerator_Generate_Headers(t *testing.T) {
 
 func TestRestGenerator_Generate_HTTPMethods(t *testing.T) {
 	tests := []struct {
-		method       string
-		wantMethod   string
+		method     string
+		wantMethod string
 	}{
 		{"get", "GET"},
 		{"GET", "GET"},
@@ -2166,4 +2167,3 @@ func TestConversationToJSON(t *testing.T) {
 		assert.Equal(t, "user", msgs[3].Role)
 	})
 }
-

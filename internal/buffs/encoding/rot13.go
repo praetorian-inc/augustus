@@ -21,7 +21,6 @@ func init() {
 // This buff transforms the prompt text into ROT13 (rotating each letter by 13
 // positions) and wraps it with an instruction prefix. ROT13 only applies to
 // letters in the English alphabet.
-//
 type ROT13 struct{}
 
 // NewROT13 creates a new ROT13 buff.

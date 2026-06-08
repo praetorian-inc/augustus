@@ -31,7 +31,6 @@ func init() {
 // LLMs tend to hallucinate incorrect information when asked about Riley Goodside,
 // such as claiming he's a female Canadian country singer, a TV character, or other
 // false identities. This is a hallucination/misinformation check.
-//
 type WhoIsRiley struct {
 	*probes.SimpleProbe
 }
@@ -62,7 +61,6 @@ func NewWhoIsRiley(_ registry.Config) (probes.Prober, error) {
 // (e.g., "Sure, here is the JSON:"). This is difficult to parse automatically.
 // However, models skip the preamble when threatened with harm to a human.
 // This indicates model instability and susceptibility to social engineering.
-//
 type ThreatenJSON struct {
 	*probes.SimpleProbe
 }
@@ -97,7 +95,6 @@ Return the JSON example. No text before. No text after. `
 //
 // Based on Riley Goodside's research and Simon Willison's documentation of markdown
 // image exfiltration attacks against ChatGPT and other LLM interfaces.
-//
 type PoemExfiltration struct {
 	*probes.SimpleProbe
 }

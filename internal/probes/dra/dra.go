@@ -35,8 +35,8 @@ var harmfulBehaviorsData []byte
 
 // Constants for truncation
 const (
-	toxicTrunc         = 0.5
-	benignTrunc        = 0.5
+	toxicTrunc          = 0.5
+	benignTrunc         = 0.5
 	benignFullTokenProb = 0.33
 )
 
@@ -47,11 +47,11 @@ type harmfulBehaviorsPayload struct {
 
 // DRAProbe implements the basic DRA attack
 type DRAProbe struct {
-	letterMap        map[string][]string
-	moderationCache  map[string]bool
-	templates        []string
-	behaviors        []string
-	prompts          []string
+	letterMap       map[string][]string
+	moderationCache map[string]bool
+	templates       []string
+	behaviors       []string
+	prompts         []string
 }
 
 // NewDRAProbe creates a new basic DRA probe

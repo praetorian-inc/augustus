@@ -4,10 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 func TestNewDecodeApprox(t *testing.T) {
@@ -122,10 +123,10 @@ func TestDecodeApprox_Detect_PartialMatch(t *testing.T) {
 
 	a := attempt.New("test prompt")
 	// "hello" with n=3 has n-grams: "hel", "ell", "llo"
-	a.AddOutput("hel is here")       // 1/3 = 0.33
-	a.AddOutput("hello world")       // 3/3 = 1.0
-	a.AddOutput("ell and llo")       // 2/3 = 0.67
-	a.AddOutput("no match")          // 0/3 = 0.0
+	a.AddOutput("hel is here") // 1/3 = 0.33
+	a.AddOutput("hello world") // 3/3 = 1.0
+	a.AddOutput("ell and llo") // 2/3 = 0.67
+	a.AddOutput("no match")    // 0/3 = 0.0
 
 	SetTriggers(a, []string{"hello"})
 
@@ -143,10 +144,10 @@ func TestDecodeApprox_Detect_MultipleTriggers(t *testing.T) {
 	require.NoError(t, err)
 
 	a := attempt.New("test prompt")
-	a.AddOutput("abcd efgh")           // Best: "abcd" 2/2=1.0
-	a.AddOutput("efgh ijkl")           // Best: "efgh" 2/2=1.0
-	a.AddOutput("abc ijk")             // Best: "abc" 1/2=0.5, "ijk" 1/2=0.5
-	a.AddOutput("xyz")                 // Best: 0.0
+	a.AddOutput("abcd efgh") // Best: "abcd" 2/2=1.0
+	a.AddOutput("efgh ijkl") // Best: "efgh" 2/2=1.0
+	a.AddOutput("abc ijk")   // Best: "abc" 1/2=0.5, "ijk" 1/2=0.5
+	a.AddOutput("xyz")       // Best: 0.0
 
 	SetTriggers(a, []string{"abcd", "efgh"})
 
@@ -191,9 +192,9 @@ func TestDecodeApprox_Detect_CaseSensitive(t *testing.T) {
 	a := attempt.New("test prompt")
 	// "hello" n-grams: "hel", "ell", "llo"
 	// "HELLO" n-grams: "HEL", "ELL", "LLO"
-	a.AddOutput("HELLO world")        // 0/3 = 0.0 (case sensitive)
-	a.AddOutput("hello world")        // 3/3 = 1.0 (exact match)
-	a.AddOutput("HeLLo WoRLd")        // 0/3 = 0.0 (mixed case)
+	a.AddOutput("HELLO world") // 0/3 = 0.0 (case sensitive)
+	a.AddOutput("hello world") // 3/3 = 1.0 (exact match)
+	a.AddOutput("HeLLo WoRLd") // 0/3 = 0.0 (mixed case)
 
 	SetTriggers(a, []string{"hello"})
 

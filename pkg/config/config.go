@@ -92,12 +92,12 @@ func (g GeneratorConfig) ToRegistryConfig() map[string]any {
 
 // ProbeConfig contains probe-specific configuration
 type ProbeConfig struct {
-	Encoding              EncodingProbeConfig        `yaml:"encoding"`
-	AttackerGeneratorType string                     `yaml:"attacker_generator_type,omitempty" koanf:"attacker_generator_type"`
-	AttackerConfig        map[string]any             `yaml:"attacker_config,omitempty" koanf:"attacker_config"`
-	JudgeGeneratorType    string                     `yaml:"judge_generator_type,omitempty" koanf:"judge_generator_type"`
-	JudgeConfig           map[string]any             `yaml:"judge_config,omitempty" koanf:"judge_config"`
-	Settings              map[string]map[string]any  `yaml:"settings,omitempty" koanf:"settings"`
+	Encoding              EncodingProbeConfig       `yaml:"encoding"`
+	AttackerGeneratorType string                    `yaml:"attacker_generator_type,omitempty" koanf:"attacker_generator_type"`
+	AttackerConfig        map[string]any            `yaml:"attacker_config,omitempty" koanf:"attacker_config"`
+	JudgeGeneratorType    string                    `yaml:"judge_generator_type,omitempty" koanf:"judge_generator_type"`
+	JudgeConfig           map[string]any            `yaml:"judge_config,omitempty" koanf:"judge_config"`
+	Settings              map[string]map[string]any `yaml:"settings,omitempty" koanf:"settings"`
 }
 
 // EncodingProbeConfig contains encoding probe configuration
@@ -107,8 +107,8 @@ type EncodingProbeConfig struct {
 
 // DetectorConfig contains detector-specific configuration
 type DetectorConfig struct {
-	Always   AlwaysDetectorConfig       `yaml:"always"`
-	Settings map[string]map[string]any  `yaml:"settings,omitempty" koanf:"settings"`
+	Always   AlwaysDetectorConfig      `yaml:"always"`
+	Settings map[string]map[string]any `yaml:"settings,omitempty" koanf:"settings"`
 }
 
 // BuffConfig contains buff-specific configuration
@@ -233,6 +233,7 @@ func (c *Config) HasProbeConfig(probeName string) bool {
 	_, ok := c.Probes.Settings[probeName]
 	return ok
 }
+
 // Validate validates the configuration and returns helpful error messages
 func (c *Config) Validate() error {
 	// Validate run config

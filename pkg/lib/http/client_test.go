@@ -68,7 +68,6 @@ func TestClient_Get(t *testing.T) {
 
 	client := NewClient(WithBaseURL(server.URL))
 	resp, err := client.Get(context.Background(), "/test")
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -99,7 +98,6 @@ func TestClient_Post(t *testing.T) {
 	client := NewClient(WithBaseURL(server.URL))
 	body := map[string]any{"key": "value"}
 	resp, err := client.Post(context.Background(), "/api", body)
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -125,7 +123,6 @@ func TestClient_PostJSON_TypedResponse(t *testing.T) {
 
 	client := NewClient(WithBaseURL(server.URL))
 	resp, err := client.Post(context.Background(), "/api", nil)
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -153,7 +150,6 @@ func TestClient_HeadersPropagated(t *testing.T) {
 		WithBearerToken("my-token"),
 	)
 	_, err := client.Get(context.Background(), "/test")
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -176,7 +172,6 @@ func TestClient_UserAgent(t *testing.T) {
 		WithUserAgent("Venator/1.0"),
 	)
 	_, err := client.Get(context.Background(), "/test")
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -197,7 +192,6 @@ func TestClient_Do_CustomRequest(t *testing.T) {
 	client := NewClient(WithBaseURL(server.URL))
 	req, _ := http.NewRequest(http.MethodPut, server.URL+"/update", nil)
 	resp, err := client.Do(context.Background(), req)
-
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -215,7 +209,6 @@ func TestClient_ErrorStatus(t *testing.T) {
 
 	client := NewClient(WithBaseURL(server.URL))
 	resp, err := client.Get(context.Background(), "/fail")
-
 	// Should not return error for non-2xx (caller decides how to handle)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
