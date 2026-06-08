@@ -5,7 +5,7 @@ go 1.25.3
 require (
 	github.com/Milly/go-base2048 v0.1.0
 	github.com/alecthomas/kong v1.15.0
-	github.com/aws/aws-sdk-go-v2 v1.41.12
+	github.com/aws/aws-sdk-go-v2 v1.42.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.23
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.50.6
 	github.com/go-playground/validator/v10 v10.30.3
