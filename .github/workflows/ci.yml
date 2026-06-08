@@ -22,10 +22,9 @@ permissions:
 
 jobs:
   ci:
-    uses: praetorian-inc/public-workflows/.github/workflows/go-ci.yml@8c7df4ce3c6b5bbf4ef9e3f1df0e4f6a5d3643e5  # v2.9.1
+    uses: praetorian-inc/public-workflows/.github/workflows/go-ci.yml@fc299086c95ccce7bd9046e158b029dfb5815e2f  # v2.9.2
     permissions:
       contents: read
-      pull-requests: read
     with:
       build-cmd-path: ./cmd/augustus
       build-binary-name: augustus
