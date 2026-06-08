@@ -10,11 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // mockAnthropicResponse creates a mock Anthropic Messages API response.
@@ -864,8 +865,10 @@ func TestAnthropicGenerator_Generate_ResponseToolUseBlocks(t *testing.T) {
 			"model": "claude-3-5-sonnet-20241022",
 			"content": []map[string]any{
 				{"type": "text", "text": "Let me search for that."},
-				{"type": "tool_use", "id": "toolu_abc123", "name": "web_search",
-					"input": map[string]any{"query": "AI safety"}},
+				{
+					"type": "tool_use", "id": "toolu_abc123", "name": "web_search",
+					"input": map[string]any{"query": "AI safety"},
+				},
 			},
 			"stop_reason": "tool_use",
 			"usage":       map[string]any{"input_tokens": 10, "output_tokens": 20},

@@ -8,9 +8,9 @@ type CandidateSet struct {
 	Prompts       []string
 	Improvements  []string
 	Conversations []*ConversationState
-	TargetOutputs []string        // May be nil (phase 1 prune)
+	TargetOutputs []string // May be nil (phase 1 prune)
 	OnTopicScores []float64
-	JudgeScores   []float64       // May be nil (phase 1 prune)
+	JudgeScores   []float64 // May be nil (phase 1 prune)
 	AttackResults []*AttackResult
 }
 

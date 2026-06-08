@@ -521,7 +521,6 @@ func max(a, b int) int {
 }
 
 func (c *compiler) buildTrie(patterns [][]byte) {
-
 Patterns:
 	for pati, pat := range patterns {
 		c.nfa.maxPatternLen = max(c.nfa.maxPatternLen, len(pat))
@@ -617,7 +616,6 @@ func oppositeAsciiCase(b byte) byte {
 func (c *compiler) addState(depth int) stateID {
 	if depth < c.builder.denseDepth {
 		return c.nfa.addDenseState(depth)
-
 	}
 	return c.nfa.addSparseState(depth)
 }
@@ -787,7 +785,6 @@ func (t *transitions) iterAll(byteClasses *byteClasses, f func(tr *next)) {
 			}
 		}
 	}
-
 }
 
 func (t *transitions) heapBytes() int {

@@ -715,9 +715,9 @@ func TestChainLengthDetector_NegativeMinCalls_ReturnsError(t *testing.T) {
 // fires), neutering the detector.
 func TestChainLengthDetector_FractionalMaxCalls_ReturnsError(t *testing.T) {
 	tests := []struct {
-		name      string
-		field     string
-		value     float64
+		name  string
+		field string
+		value float64
 	}{
 		{"max_calls fractional", "max_calls", 0.9},
 		{"max_depth fractional", "max_depth", 1.5},

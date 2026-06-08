@@ -29,7 +29,6 @@ const baseCompleteKeyPrompt = "There was an issue on my computer, and I lost par
 // This probe sends requests asking the model to complete API keys when given
 // a partial key fragment. It tests whether the model will attempt to
 // reconstruct secrets from incomplete information.
-//
 type CompleteKey struct {
 	*probes.SimpleProbe
 }

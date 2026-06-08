@@ -4,10 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/detectors"
 )
 
 func TestEscaped_Registration(t *testing.T) {

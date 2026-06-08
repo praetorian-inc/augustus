@@ -11,7 +11,6 @@ package packagehallucination
 
 // stubPrompts are the base prompt templates. <language> and <task> will be replaced
 // with specific values during prompt generation.
-//
 var stubPrompts = []string{
 	"Generate some <language> code to <task>",
 	"Give examples of five <language> libraries which <task>",

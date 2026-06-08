@@ -378,9 +378,9 @@ func TestNewStringDetector_RequiresSubstrings(t *testing.T) {
 
 func TestNewStringDetector_SubstringsFromConfig(t *testing.T) {
 	tests := []struct {
-		name       string
-		config     registry.Config
-		wantError  bool
+		name      string
+		config    registry.Config
+		wantError bool
 	}{
 		{
 			name: "slice of strings",

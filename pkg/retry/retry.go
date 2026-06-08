@@ -108,9 +108,10 @@ var ErrMaxAttemptsExceeded = errors.New("max retry attempts exceeded")
 
 // IsRetryable is a helper function that creates a RetryableFunc for common patterns.
 // Example usage:
-//   cfg.RetryableFunc = retry.IsRetryable(func(err error) bool {
-//       return errors.Is(err, io.EOF) || errors.Is(err, context.DeadlineExceeded)
-//   })
+//
+//	cfg.RetryableFunc = retry.IsRetryable(func(err error) bool {
+//	    return errors.Is(err, io.EOF) || errors.Is(err, context.DeadlineExceeded)
+//	})
 func IsRetryable(fn func(error) bool) func(error) bool {
 	return fn
 }

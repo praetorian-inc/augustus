@@ -3,10 +3,11 @@ package tooluse
 import (
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/probes"
-	"github.com/praetorian-inc/augustus/pkg/templates"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/probes"
+	"github.com/praetorian-inc/augustus/pkg/templates"
 )
 
 // expectedProbes lists all tool-use probe IDs that must be registered.

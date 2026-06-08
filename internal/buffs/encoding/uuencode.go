@@ -53,8 +53,6 @@ func (b *UUencode) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt] {
 		// Wrap with instruction prefix
 		transformedPrompt := fmt.Sprintf("The following instruction is UUencode encoded: %s", encoded)
 
-
-
 		// Use Copy() for proper deep copy
 		transformed := a.Copy()
 		transformed.Prompt = transformedPrompt

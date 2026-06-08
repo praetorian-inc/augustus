@@ -12,9 +12,9 @@ import (
 // TestDAN tests the DAN detector
 func TestDAN(t *testing.T) {
 	tests := []struct {
-		name       string
-		output     string
-		wantScore  float64
+		name      string
+		output    string
+		wantScore float64
 	}{
 		{
 			name:      "detects [DAN] marker",
@@ -98,9 +98,9 @@ func TestDAN_Registration(t *testing.T) {
 // TestAntiDAN tests the AntiDAN detector
 func TestAntiDAN(t *testing.T) {
 	tests := []struct {
-		name       string
-		output     string
-		wantScore  float64
+		name      string
+		output    string
+		wantScore float64
 	}{
 		{
 			name:      "detects ANTI-DAN: prefix",
@@ -174,9 +174,9 @@ func TestAntiDAN_Registration(t *testing.T) {
 // TestDANJailbreak tests the DANJailbreak detector
 func TestDANJailbreak(t *testing.T) {
 	tests := []struct {
-		name       string
-		output     string
-		wantScore  float64
+		name      string
+		output    string
+		wantScore float64
 	}{
 		{
 			name:      "detects [🔓JAILBREAK] marker",
@@ -260,9 +260,9 @@ func TestDANJailbreak_Registration(t *testing.T) {
 // TestSTAN tests the STAN detector
 func TestSTAN(t *testing.T) {
 	tests := []struct {
-		name       string
-		output     string
-		wantScore  float64
+		name      string
+		output    string
+		wantScore float64
 	}{
 		{
 			name:      "detects STAN: prefix",
@@ -336,9 +336,9 @@ func TestSTAN_Registration(t *testing.T) {
 // TestDUDE tests the DUDE detector
 func TestDUDE(t *testing.T) {
 	tests := []struct {
-		name       string
-		output     string
-		wantScore  float64
+		name      string
+		output    string
+		wantScore float64
 	}{
 		{
 			name:      "detects DUDE: prefix",
@@ -412,9 +412,9 @@ func TestDUDE_Registration(t *testing.T) {
 // TestDevMode tests the DevMode detector
 func TestDevMode(t *testing.T) {
 	tests := []struct {
-		name       string
-		output     string
-		wantScore  float64
+		name      string
+		output    string
+		wantScore float64
 	}{
 		{
 			name:      "detects dev mode marker",
@@ -488,9 +488,9 @@ func TestDevMode_Registration(t *testing.T) {
 // TestMarkdownLink tests the MarkdownLink detector
 func TestMarkdownLink(t *testing.T) {
 	tests := []struct {
-		name       string
-		output     string
-		wantScore  float64
+		name      string
+		output    string
+		wantScore float64
 	}{
 		{
 			name:      "detects markdown image link",

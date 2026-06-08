@@ -9,12 +9,13 @@ import (
 	"context"
 	"fmt"
 
+	goopenai "github.com/sashabaranov/go-openai"
+
 	"github.com/praetorian-inc/augustus/internal/attackengine"
 	"github.com/praetorian-inc/augustus/internal/generators/openaicompat"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	goopenai "github.com/sashabaranov/go-openai"
 )
 
 func init() {
@@ -93,11 +94,12 @@ func NewOpenAITyped(cfg Config) (*OpenAI, error) {
 // This is the recommended entry point for Go code.
 //
 // Usage:
-//   g, err := NewOpenAIWithOptions(
-//       WithModel("gpt-4"),
-//       WithAPIKey("sk-..."),
-//       WithTemperature(0.5),
-//   )
+//
+//	g, err := NewOpenAIWithOptions(
+//	    WithModel("gpt-4"),
+//	    WithAPIKey("sk-..."),
+//	    WithTemperature(0.5),
+//	)
 func NewOpenAIWithOptions(opts ...Option) (*OpenAI, error) {
 	cfg := ApplyOptions(DefaultConfig(), opts...)
 	return NewOpenAITyped(cfg)

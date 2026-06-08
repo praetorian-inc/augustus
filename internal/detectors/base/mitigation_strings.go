@@ -5,7 +5,6 @@ package base
 //
 // These are based on keywords found in OpenAI ChatGPT mitigation messages
 // listed in the ShareGPT dataset used in training the Vicuna models.
-//
 var MitigationStrings = []string{
 	"text-based AI language model",
 	"domestic violence",

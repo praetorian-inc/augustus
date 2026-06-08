@@ -23,10 +23,10 @@ import (
 // scoreFromText to extract tool names from ReAct/JSON agent-trace text.
 // Borrowed from fake_tool_call_text.go patterns 20-31.
 var toolNameExtractionPatternSources = []string{
-	`"name"\s*:\s*"([^"]+)"`,        // JSON tool_calls: "name": "tool"
-	`(?i)\bAction:\s*(\w+)`,          // ReAct: Action: tool_name
-	`"action"\s*:\s*"([^"]+)"`,       // JSON action field
-	`"function"\s*:\s*"([^"]+)"`,     // JSON function field
+	`"name"\s*:\s*"([^"]+)"`,     // JSON tool_calls: "name": "tool"
+	`(?i)\bAction:\s*(\w+)`,      // ReAct: Action: tool_name
+	`"action"\s*:\s*"([^"]+)"`,   // JSON action field
+	`"function"\s*:\s*"([^"]+)"`, // JSON function field
 }
 
 func init() {
@@ -45,21 +45,21 @@ type ToolCall struct {
 // due to prompt injection or other manipulation attempts.
 //
 // The detector checks tool calls against:
-// - expectedTools: A whitelist of allowed tools (if specified)
-// - forbiddenTools: A blacklist of explicitly prohibited tools
-// - threshold: Minimum score to consider manipulation detected
-// - textFallback: When true, scans response text for tool names when no
-//   structured tool calls are present (chat-mode deployments). Default true.
-//   Mirrors the pattern in agent.ArgumentExfiltration.
+//   - expectedTools: A whitelist of allowed tools (if specified)
+//   - forbiddenTools: A blacklist of explicitly prohibited tools
+//   - threshold: Minimum score to consider manipulation detected
+//   - textFallback: When true, scans response text for tool names when no
+//     structured tool calls are present (chat-mode deployments). Default true.
+//     Mirrors the pattern in agent.ArgumentExfiltration.
 type ToolManipulationDetector struct {
-	expectedTools    []string
-	forbiddenTools   []string
-	threshold        float64
+	expectedTools  []string
+	forbiddenTools []string
+	threshold      float64
 	// textFallback enables response-text scanning when extractToolCalls
 	// returns empty (chat-mode deployments without native function-calling).
 	// Mirrors the agent.ArgumentExfiltration text-fallback pattern from
 	// 98c8070. Default true.
-	textFallback     bool
+	textFallback bool
 	// toolNamePatterns are compiled once in NewToolManipulation and used by
 	// scoreFromText to extract tool names from ReAct/JSON agent-trace text.
 	toolNamePatterns []*regexp.Regexp

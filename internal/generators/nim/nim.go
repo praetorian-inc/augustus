@@ -5,7 +5,6 @@
 package nim
 
 import (
-
 	"github.com/praetorian-inc/augustus/internal/generators/openaicompat"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -33,4 +32,3 @@ func NewNIM(cfg registry.Config) (generators.Generator, error) {
 		EnvVar:         "NIM_API_KEY",
 	})
 }
-

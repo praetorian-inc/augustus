@@ -4,10 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 // mockGenerator implements types.Generator for testing
@@ -158,9 +159,9 @@ func TestTemplateProbe_Probe_ToolsOnly_SingleTurn(t *testing.T) {
 // The first Generate call returns a message with ToolCalls; subsequent calls
 // return plain text responses.
 type mockGeneratorWithToolCalls struct {
-	callCount  int
-	toolCalls  []map[string]any
-	textResp   string
+	callCount int
+	toolCalls []map[string]any
+	textResp  string
 }
 
 func (m *mockGeneratorWithToolCalls) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {

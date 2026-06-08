@@ -6,9 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/praetorian-inc/augustus/pkg/ratelimit"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/ratelimit"
 )
 
 func TestFastRateLimiting(t *testing.T) {

@@ -4,8 +4,9 @@ package openaicompat
 import (
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 func TestBaseConfigFromMap_ValidConfig(t *testing.T) {

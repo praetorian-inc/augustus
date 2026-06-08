@@ -21,9 +21,9 @@ func (m *mockGenerator) Generate(ctx context.Context, conv *attempt.Conversation
 	return []attempt.Message{{Content: "mock response", Role: "assistant"}}, nil
 }
 
-func (m *mockGenerator) ClearHistory()         {}
-func (m *mockGenerator) Name() string          { return "mock" }
-func (m *mockGenerator) Description() string   { return "mock generator for testing" }
+func (m *mockGenerator) ClearHistory()       {}
+func (m *mockGenerator) Name() string        { return "mock" }
+func (m *mockGenerator) Description() string { return "mock generator for testing" }
 
 func TestRegistration(t *testing.T) {
 	_, ok := probes.Get("flipattack.FullAttack")

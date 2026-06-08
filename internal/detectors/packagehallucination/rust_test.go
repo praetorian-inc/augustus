@@ -6,10 +6,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 // TestRustDetector_Detect tests the Rust detector.
@@ -18,8 +19,8 @@ func TestRustDetector_Detect(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Real crates return 200
 		realCrates := map[string]bool{
-			"/api/v1/crates/serde":    true,
-			"/api/v1/crates/tokio":    true,
+			"/api/v1/crates/serde":     true,
+			"/api/v1/crates/tokio":     true,
 			"/api/v1/crates/actix-web": true,
 		}
 		if realCrates[r.URL.Path] {

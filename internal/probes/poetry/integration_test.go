@@ -7,21 +7,22 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/buffs"
-	_ "github.com/praetorian-inc/augustus/internal/buffs/encoding" // Register encoding buffs
-	_ "github.com/praetorian-inc/augustus/internal/buffs/poetry"   // Register poetry buffs
-	"github.com/praetorian-inc/augustus/pkg/detectors"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	_ "github.com/praetorian-inc/augustus/internal/buffs/encoding"       // Register encoding buffs
+	_ "github.com/praetorian-inc/augustus/internal/buffs/poetry"         // Register poetry buffs
 	_ "github.com/praetorian-inc/augustus/internal/detectors/any"        // Register any.AnyOutput
 	_ "github.com/praetorian-inc/augustus/internal/detectors/dan"        // Register dan.DAN
 	_ "github.com/praetorian-inc/augustus/internal/detectors/mitigation" // Register mitigation.MitigationBypass
 	_ "github.com/praetorian-inc/augustus/internal/detectors/poetry"     // Register poetry.HarmJudge
 	"github.com/praetorian-inc/augustus/internal/harnesses/probewise"
-	"github.com/praetorian-inc/augustus/pkg/probes"
 	_ "github.com/praetorian-inc/augustus/internal/probes/dan" // Register dan.Dan_11_0
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/buffs"
+	"github.com/praetorian-inc/augustus/pkg/detectors"
+	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // testEvaluator captures attempts for integration tests

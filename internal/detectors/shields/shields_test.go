@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
 )
 
 func TestUpDetector_ShieldsTriggered(t *testing.T) {

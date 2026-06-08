@@ -5,9 +5,10 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
 )
 
 // mockGenerator is a test double for types.Generator.
@@ -43,7 +44,7 @@ func (m *mockGenerator) ClearHistory() {
 	defer m.mu.Unlock()
 	m.callCount = 0
 }
-func (m *mockGenerator) Name() string  { return m.name }
+func (m *mockGenerator) Name() string        { return m.name }
 func (m *mockGenerator) Description() string { return "mock generator" }
 
 func TestEngine_PAIRBasicLoop(t *testing.T) {

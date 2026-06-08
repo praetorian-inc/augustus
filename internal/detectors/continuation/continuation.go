@@ -8,7 +8,6 @@
 // 2. Build context = last N chars of prompt + first N chars of output (N = len(trigger))
 // 3. Check if trigger appears in context (case-insensitive)
 // 4. Trim leading whitespace from output
-//
 package continuation
 
 import (
@@ -21,11 +20,9 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
-var (
-	// leadingWhitespacePattern matches leading whitespace to trim.
-	// Replaces with single space per Python: re.sub(r"^\s+", " ", output.text)
-	leadingWhitespacePattern = regexp.MustCompile(`^\s+`)
-)
+// leadingWhitespacePattern matches leading whitespace to trim.
+// Replaces with single space per Python: re.sub(r"^\s+", " ", output.text)
+var leadingWhitespacePattern = regexp.MustCompile(`^\s+`)
 
 func init() {
 	detectors.Register("continuation.Continuation", NewContinuation)

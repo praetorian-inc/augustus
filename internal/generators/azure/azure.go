@@ -19,11 +19,12 @@ import (
 	"context"
 	"os"
 
+	goopenai "github.com/sashabaranov/go-openai"
+
 	"github.com/praetorian-inc/augustus/internal/generators/openaicompat"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	goopenai "github.com/sashabaranov/go-openai"
 )
 
 func init() {
@@ -33,10 +34,10 @@ func init() {
 // openaiModelMapping maps Azure model names to OpenAI equivalents.
 // Based on https://learn.microsoft.com/en-us/azure/ai-services/openai/concepts/models
 var openaiModelMapping = map[string]string{
-	"gpt-4":                   "gpt-4-turbo-2024-04-09",
-	"gpt-35-turbo":            "gpt-3.5-turbo-0125",
-	"gpt-35-turbo-16k":        "gpt-3.5-turbo-16k",
-	"gpt-35-turbo-instruct":   "gpt-3.5-turbo-instruct",
+	"gpt-4":                 "gpt-4-turbo-2024-04-09",
+	"gpt-35-turbo":          "gpt-3.5-turbo-0125",
+	"gpt-35-turbo-16k":      "gpt-3.5-turbo-16k",
+	"gpt-35-turbo-instruct": "gpt-3.5-turbo-instruct",
 }
 
 // chatModels references the shared set of models that use the chat completions API.
@@ -122,12 +123,13 @@ func NewAzureTyped(cfg Config) (*AzureOpenAI, error) {
 // This is the recommended entry point for Go code.
 //
 // Usage:
-//   g, err := NewAzureWithOptions(
-//       WithModel("gpt-4"),
-//       WithAPIKey("..."),
-//       WithEndpoint("https://your-resource.openai.azure.com"),
-//       WithTemperature(0.5),
-//   )
+//
+//	g, err := NewAzureWithOptions(
+//	    WithModel("gpt-4"),
+//	    WithAPIKey("..."),
+//	    WithEndpoint("https://your-resource.openai.azure.com"),
+//	    WithTemperature(0.5),
+//	)
 func NewAzureWithOptions(opts ...Option) (*AzureOpenAI, error) {
 	cfg := ApplyOptions(DefaultConfig(), opts...)
 	return NewAzureTyped(cfg)

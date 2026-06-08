@@ -104,11 +104,11 @@ func TestInterAgentAttackStructure(t *testing.T) {
 
 func TestNewMultiAgentProbe(t *testing.T) {
 	cfg := registry.Config{
-		"attack_name":      "orchestrator_poisoning",
-		"source_role":      "orchestrator",
-		"target_role":      "worker",
-		"payload":          "inject malicious task",
-		"expected_impact":  "worker executes malicious code",
+		"attack_name":     "orchestrator_poisoning",
+		"source_role":     "orchestrator",
+		"target_role":     "worker",
+		"payload":         "inject malicious task",
+		"expected_impact": "worker executes malicious code",
 	}
 
 	probe, err := NewMultiAgentProbe(cfg)

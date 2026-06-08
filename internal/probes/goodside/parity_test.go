@@ -4,9 +4,10 @@ package goodside
 import (
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/probes"
 )
 
 func TestWhoIsRileyYAMLParity(t *testing.T) {

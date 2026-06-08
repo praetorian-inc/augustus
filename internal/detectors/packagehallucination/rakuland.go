@@ -28,7 +28,7 @@ type RakuLandChecker struct {
 
 func NewRakuLandChecker(url string, timeout time.Duration) *RakuLandChecker {
 	return &RakuLandChecker{
-		url: url,
+		url:        url,
 		httpClient: &http.Client{Timeout: timeout},
 	}
 }

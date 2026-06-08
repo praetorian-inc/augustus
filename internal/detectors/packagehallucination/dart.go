@@ -27,7 +27,7 @@ type PubDevChecker struct {
 
 func NewPubDevChecker(url string, timeout time.Duration) *PubDevChecker {
 	return &PubDevChecker{
-		url: url,
+		url:        url,
 		httpClient: &http.Client{Timeout: timeout},
 	}
 }
@@ -54,8 +54,10 @@ func (c *PubDevChecker) Exists(ctx context.Context, pkg string) (bool, error) {
 	}
 }
 
-var dartImportPattern = regexp.MustCompile(`import\s+['"]package:([a-zA-Z0-9_][a-zA-Z0-9_-]*)/`)
-var dartCorePattern = regexp.MustCompile(`import\s+['"]dart:`)
+var (
+	dartImportPattern = regexp.MustCompile(`import\s+['"]package:([a-zA-Z0-9_][a-zA-Z0-9_-]*)/`)
+	dartCorePattern   = regexp.MustCompile(`import\s+['"]dart:`)
+)
 
 func NewDart(cfg registry.Config) (detectors.Detector, error) {
 	var checker PackageChecker
@@ -102,12 +104,12 @@ func (d *Dart) Detect(ctx context.Context, a *attempt.Attempt) ([]float64, error
 
 func extractDartPackageReferences(output string) map[string]bool {
 	packages := make(map[string]bool)
-	
+
 	// Skip dart:core imports
 	if dartCorePattern.MatchString(output) {
 		return packages
 	}
-	
+
 	matches := dartImportPattern.FindAllStringSubmatch(output, -1)
 	for _, match := range matches {
 		if len(match) > 1 {

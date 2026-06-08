@@ -3,10 +3,11 @@ package openaicompat
 import (
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	goopenai "github.com/sashabaranov/go-openai"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
 )
 
 // ---------------------------------------------------------------------------

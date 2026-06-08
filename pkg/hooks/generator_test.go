@@ -7,9 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
 )
 
 // mockGenerator is a test double for types.Generator.
@@ -34,9 +35,9 @@ func (m *mockGenerator) Generate(ctx context.Context, conv *attempt.Conversation
 	return m.responses, nil
 }
 
-func (m *mockGenerator) ClearHistory()          {}
-func (m *mockGenerator) Name() string           { return m.name }
-func (m *mockGenerator) Description() string    { return "mock generator" }
+func (m *mockGenerator) ClearHistory()           {}
+func (m *mockGenerator) Name() string            { return m.name }
+func (m *mockGenerator) Description() string     { return "mock generator" }
 func (m *mockGenerator) LastRawResponse() []byte { return m.rawResp }
 
 func TestHookedGeneratorNoHooks(t *testing.T) {

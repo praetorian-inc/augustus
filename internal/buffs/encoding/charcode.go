@@ -22,7 +22,6 @@ func init() {
 //
 // This is a jailbreak technique that obfuscates prompts using character codes.
 // For example, "Hi" becomes "72 105" (ASCII codes for 'H' and 'i').
-//
 type CharCode struct{}
 
 // NewCharCode creates a new CharCode buff.
@@ -63,4 +62,3 @@ func (c *CharCode) Name() string {
 func (c *CharCode) Description() string {
 	return "Encodes prompts using Unicode code points (character codes)"
 }
-

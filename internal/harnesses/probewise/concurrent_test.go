@@ -35,11 +35,11 @@ func (d *delayedProbe) Probe(ctx context.Context, gen probes.Generator) ([]*atte
 	}
 }
 
-func (d *delayedProbe) Name() string                { return d.name }
-func (d *delayedProbe) Description() string         { return "delayed probe for testing" }
-func (d *delayedProbe) Goal() string                { return "test concurrent execution" }
-func (d *delayedProbe) GetPrimaryDetector() string  { return d.primaryDetector }
-func (d *delayedProbe) GetPrompts() []string        { return []string{"test prompt"} }
+func (d *delayedProbe) Name() string               { return d.name }
+func (d *delayedProbe) Description() string        { return "delayed probe for testing" }
+func (d *delayedProbe) Goal() string               { return "test concurrent execution" }
+func (d *delayedProbe) GetPrimaryDetector() string { return d.primaryDetector }
+func (d *delayedProbe) GetPrompts() []string       { return []string{"test prompt"} }
 
 // TestProbewise_Run_ConcurrentExecution verifies that multiple probes execute concurrently.
 //
