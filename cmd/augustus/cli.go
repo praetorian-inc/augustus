@@ -126,6 +126,11 @@ func (s *ScanCmd) Validate() error {
 		return fmt.Errorf("--profile requires --config-file")
 	}
 
+	// Parser-related flags require --parser
+	if s.Parser == "" && (s.ParserConfig != "" || s.AllowUnsafeParsers) {
+		return fmt.Errorf("--parser-config and --allow-unsafe-parsers require --parser")
+	}
+
 	return nil
 }
 

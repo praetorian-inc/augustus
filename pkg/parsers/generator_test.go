@@ -65,18 +65,20 @@ func TestParsedGenerator_Generate(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name       string
-		messages   []attempt.Message
-		transform  func(string) string
-		wantOutput string
+		name        string
+		messages    []attempt.Message
+		transform   func(string) string
+		n           int
+		wantOutputs []string
 	}{
 		{
 			name: "passthrough",
 			messages: []attempt.Message{
 				{Role: attempt.RoleAssistant, Content: "Hello, world!"},
 			},
-			transform:  nil,
-			wantOutput: "Hello, world!",
+			transform:   nil,
+			n:           1,
+			wantOutputs: []string{"Hello, world!"},
 		},
 		{
 			name: "uppercase transformation",
@@ -86,10 +88,11 @@ func TestParsedGenerator_Generate(t *testing.T) {
 			transform: func(s string) string {
 				return "PARSED: " + s
 			},
-			wantOutput: "PARSED: hello",
+			n:           1,
+			wantOutputs: []string{"PARSED: hello"},
 		},
 		{
-			name: "multiple messages",
+			name: "multiple messages all parsed",
 			messages: []attempt.Message{
 				{Role: attempt.RoleAssistant, Content: "first"},
 				{Role: attempt.RoleAssistant, Content: "second"},
@@ -97,7 +100,8 @@ func TestParsedGenerator_Generate(t *testing.T) {
 			transform: func(s string) string {
 				return "[" + s + "]"
 			},
-			wantOutput: "[first]",
+			n:           2,
+			wantOutputs: []string{"[first]", "[second]"},
 		},
 	}
 
@@ -108,15 +112,17 @@ func TestParsedGenerator_Generate(t *testing.T) {
 			pg := NewParsedGenerator(gen, parser)
 
 			conv := attempt.NewConversation()
-			messages, err := pg.Generate(ctx, conv, 1)
+			messages, err := pg.Generate(ctx, conv, tt.n)
 			if err != nil {
 				t.Fatalf("Generate failed: %v", err)
 			}
-			if len(messages) == 0 {
-				t.Fatal("Generate returned no messages")
+			if len(messages) != len(tt.wantOutputs) {
+				t.Fatalf("got %d messages, want %d", len(messages), len(tt.wantOutputs))
 			}
-			if messages[0].Content != tt.wantOutput {
-				t.Errorf("Content = %q, want %q", messages[0].Content, tt.wantOutput)
+			for i, want := range tt.wantOutputs {
+				if messages[i].Content != want {
+					t.Errorf("messages[%d].Content = %q, want %q", i, messages[i].Content, want)
+				}
 			}
 		})
 	}

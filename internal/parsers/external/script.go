@@ -87,7 +87,7 @@ func NewScript(cfg registry.Config) (parsers.Parser, error) {
 	}
 
 	if timeout, ok := cfg["timeout"].(float64); ok {
-		s.timeout = time.Duration(timeout) * time.Second
+		s.timeout = time.Duration(timeout * float64(time.Second))
 	} else if timeout, ok := cfg["timeout"].(int); ok {
 		s.timeout = time.Duration(timeout) * time.Second
 	}
@@ -195,10 +195,11 @@ func (s *Script) parseNsjail(ctx context.Context, raw []byte, contentType string
 		"--time_limit", fmt.Sprintf("%d", int(s.timeout.Seconds())),
 		"--rlimit_as", "128",
 		"--rlimit_cpu", "10",
-		"--disable_clone_newnet",
-		"--",
-		"sh", "-c", s.command,
 	}
+	if s.noNetwork {
+		args = append(args, "--disable_clone_newnet")
+	}
+	args = append(args, "--", "sh", "-c", s.command)
 
 	ctx, cancel := context.WithTimeout(ctx, s.timeout)
 	defer cancel()
