@@ -364,8 +364,8 @@ func createDetectors(detectorNames []string, probeList []probes.Prober, yamlCfg 
 			if detectorName == "agent.ToolManipulation" {
 				if !hasConfigList(detCfg, "expected_tools") && !hasConfigList(detCfg, "forbidden_tools") {
 					return nil, fmt.Errorf(
-						"detector agent.ToolManipulation requires expected_tools or forbidden_tools in config — "+
-							"probes using this detector will always score 0.0 without configuration. "+
+						"detector agent.ToolManipulation requires expected_tools or forbidden_tools in config — " +
+							"probes using this detector will always score 0.0 without configuration. " +
 							"Set via --config-file YAML or --detector-config flag",
 					)
 				}

@@ -1116,7 +1116,6 @@ prompts:
 	assert.Equal(t, "agent.ArgumentExfiltration", detList[1].Name(), "secondary detector must be second")
 }
 
-
 // TestBuildProbeDetectorMap_PrimaryAndSecondary verifies that a probe with both
 // detector_config AND secondary_detectors produces a 2-element slice: primary first.
 func TestBuildProbeDetectorMap_PrimaryAndSecondary(t *testing.T) {
@@ -1623,7 +1622,7 @@ type cfgCaptureDet struct {
 }
 
 func (c *cfgCaptureDet) Name() string        { return c.name }
-func (c *cfgCaptureDet) Description() string  { return "config-capture sentinel for leak tests" }
+func (c *cfgCaptureDet) Description() string { return "config-capture sentinel for leak tests" }
 func (c *cfgCaptureDet) Detect(_ context.Context, a *attempt.Attempt) ([]float64, error) {
 	return make([]float64, len(a.Outputs)), nil
 }

@@ -2141,7 +2141,6 @@ func TestArgumentExfiltration_ForbiddenKeyInDeeplyNestedArray(t *testing.T) {
 	}
 }
 
-
 // TestArgumentExfiltration_TextFallback_WithScopedTools_NoRegression verifies that
 // scoreFromText still works correctly when scopedTools is set.  The scoped_tools
 // field has no effect on the text-fallback path (it filters structured tool calls

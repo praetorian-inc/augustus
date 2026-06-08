@@ -30,7 +30,7 @@ func mockAnthropicResponse(content string) map[string]any {
 				"text": content,
 			},
 		},
-		"stop_reason":  "end_turn",
+		"stop_reason":   "end_turn",
 		"stop_sequence": nil,
 		"usage": map[string]any{
 			"input_tokens":  10,

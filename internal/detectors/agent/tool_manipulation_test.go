@@ -462,7 +462,6 @@ func TestToolManipulation_TextFallback_EmptyOutputs(t *testing.T) {
 	}
 }
 
-
 // TestToolManipulation_TextFallback_CaseInsensitiveForbidden verifies that the
 // text-fallback path matches forbidden tool names case-insensitively.
 // Fix H5: forbidden_tools check in scoreFromText uses strings.ToLower on both sides.

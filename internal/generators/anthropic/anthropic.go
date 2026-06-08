@@ -31,11 +31,11 @@ func init() {
 
 // Default configuration values matching litellm patterns.
 const (
-	defaultMaxTokens      = 150
-	defaultTemperature    = 0.7
-	defaultAPIVersion     = "2023-06-01"
-	defaultBaseURL        = "https://api.anthropic.com/v1"
-	defaultTimeout        = 90 * time.Second
+	defaultMaxTokens   = 150
+	defaultTemperature = 0.7
+	defaultAPIVersion  = "2023-06-01"
+	defaultBaseURL     = "https://api.anthropic.com/v1"
+	defaultTimeout     = 90 * time.Second
 )
 
 // Anthropic is a generator that wraps the Anthropic Messages API.
@@ -145,13 +145,13 @@ type anthropicToolChoice struct {
 
 // messageResponse represents the Anthropic Messages API response format.
 type messageResponse struct {
-	ID           string           `json:"id"`
-	Type         string           `json:"type"`
-	Role         string           `json:"role"`
-	Content      []contentBlock   `json:"content"`
-	StopReason   string           `json:"stop_reason"`
-	StopSequence *string          `json:"stop_sequence"`
-	Usage        usageStats       `json:"usage"`
+	ID           string         `json:"id"`
+	Type         string         `json:"type"`
+	Role         string         `json:"role"`
+	Content      []contentBlock `json:"content"`
+	StopReason   string         `json:"stop_reason"`
+	StopSequence *string        `json:"stop_sequence"`
+	Usage        usageStats     `json:"usage"`
 }
 
 // contentBlock represents a content block in the response.
