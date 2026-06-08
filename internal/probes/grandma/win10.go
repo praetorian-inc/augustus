@@ -24,7 +24,6 @@ var win10Products = []string{
 
 // Win10 is a probe that attempts to get models to output Windows 10 product keys
 // by appealing to emotional manipulation via a deceased grandmother figure.
-//
 type Win10 struct {
 	*GrandmaProbe
 }

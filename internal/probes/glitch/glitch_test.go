@@ -132,17 +132,17 @@ func TestGlitchFull_GlitchTokens(t *testing.T) {
 	glitchProbe := probe.(*GlitchFull)
 
 	// Verify we have the expected glitch tokens
-	expectedTokenCount := 141 
+	expectedTokenCount := 141
 	if len(glitchProbe.glitchTokens) != expectedTokenCount {
 		t.Errorf("glitchTokens count = %d, want %d", len(glitchProbe.glitchTokens), expectedTokenCount)
 	}
 
 	// Verify some known glitch tokens exist
 	knownTokens := []string{
-		"\x00",              // Null byte
+		"\x00",               // Null byte
 		" SolidGoldMagikarp", // Famous glitch token (with leading space)
-		"PsyNetMessage",     // Another known one
-		"龍喚士",              // Unicode glitch
+		"PsyNetMessage",      // Another known one
+		"龍喚士",                // Unicode glitch
 	}
 
 	for _, token := range knownTokens {
@@ -247,13 +247,13 @@ func TestPromptQuoting(t *testing.T) {
 
 	// Test that tokens with quotes are properly handled
 	testCases := []struct {
-		token        string
+		token         string
 		expectedQuote string
 	}{
-		{`simple`, `"`},           // No quotes in token -> use double quote
-		{`has"quote`, `'`},         // Has double quote -> use single quote
-		{`has'quote`, `"`},         // Has single quote -> use double quote
-		{`has'and"quotes`, "`"},    // Has both -> use backtick
+		{`simple`, `"`},         // No quotes in token -> use double quote
+		{`has"quote`, `'`},      // Has double quote -> use single quote
+		{`has'quote`, `"`},      // Has single quote -> use double quote
+		{`has'and"quotes`, "`"}, // Has both -> use backtick
 	}
 
 	for _, tc := range testCases {
@@ -290,7 +290,6 @@ func TestProbeErrorHandling(t *testing.T) {
 
 	ctx := context.Background()
 	attempts, err := probe.Probe(ctx, genWithError)
-
 	// Probe should not return error even if generator fails
 	// (errors should be captured in attempt status)
 	if err != nil {

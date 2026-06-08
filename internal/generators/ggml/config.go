@@ -16,12 +16,12 @@ type Config struct {
 	GgmlMainPath string
 
 	// Optional generation parameters
-	Temperature    float64
-	TopK           int
-	TopP           float64
-	MaxTokens      int
-	RepeatPenalty  float64
-	ExtraFlags     []string
+	Temperature   float64
+	TopK          int
+	TopP          float64
+	MaxTokens     int
+	RepeatPenalty float64
+	ExtraFlags    []string
 }
 
 // DefaultConfig returns a Config with default values.

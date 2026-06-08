@@ -115,8 +115,8 @@ func TestParseKeyValueLines_InvalidKeysRejected(t *testing.T) {
 			},
 		},
 		{
-			name:  "all invalid keys yields empty map",
-			input: "a-b=1\nc.d=2\ne f=3\n",
+			name:     "all invalid keys yields empty map",
+			input:    "a-b=1\nc.d=2\ne f=3\n",
 			expected: map[string]string{},
 		},
 		{

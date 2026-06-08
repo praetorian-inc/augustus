@@ -10,11 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // mockAnthropicResponse creates a mock Anthropic Messages API response.
@@ -30,7 +31,7 @@ func mockAnthropicResponse(content string) map[string]any {
 				"text": content,
 			},
 		},
-		"stop_reason":  "end_turn",
+		"stop_reason":   "end_turn",
 		"stop_sequence": nil,
 		"usage": map[string]any{
 			"input_tokens":  10,

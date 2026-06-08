@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	_ "github.com/praetorian-inc/augustus/internal/detectors/advpatch"
-	_ "github.com/praetorian-inc/augustus/internal/detectors/pair"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/packagehallucination"
+	_ "github.com/praetorian-inc/augustus/internal/detectors/pair"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/registry"

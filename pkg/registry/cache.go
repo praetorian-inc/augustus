@@ -106,7 +106,7 @@ func (c *PluginCache) Save() error {
 		return err
 	}
 
-	return os.WriteFile(c.path, data, 0644)
+	return os.WriteFile(c.path, data, 0o600)
 }
 
 // Load reads the cache from disk.

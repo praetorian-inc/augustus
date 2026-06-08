@@ -36,7 +36,7 @@ type Batch struct {
 // New creates a new batch harness from configuration.
 func New(cfg registry.Config) (*Batch, error) {
 	b := &Batch{
-		concurrency: 10,              // Default concurrency
+		concurrency: 10,               // Default concurrency
 		timeout:     30 * time.Second, // Default timeout
 	}
 

@@ -13,9 +13,9 @@ import (
 // TestGlitchType_Constants verifies GlitchType constants are defined.
 func TestGlitchType_Constants(t *testing.T) {
 	tests := []struct {
-		name     string
+		name       string
 		glitchType GlitchType
-		expected int
+		expected   int
 	}{
 		{"SolidGoldMagikarp", SolidGoldMagikarp, 0},
 		{"UndefinedBehavior", UndefinedBehavior, 1},

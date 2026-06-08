@@ -49,18 +49,19 @@ type PatternsDetector struct {
 // NewPatterns creates a new patterns detector from configuration.
 //
 // Configuration format:
-//   {
-//     "patterns": [
-//       {
-//         "name": "password_leak",
-//         "regex": "password\\s*[:=]",
-//         "severity": 1.0,
-//         "semantic": "Optional semantic description"
-//       }
-//     ],
-//     "mode": "any",  // "any", "all", or "weighted"
-//     "threshold": 0.5
-//   }
+//
+//	{
+//	  "patterns": [
+//	    {
+//	      "name": "password_leak",
+//	      "regex": "password\\s*[:=]",
+//	      "severity": 1.0,
+//	      "semantic": "Optional semantic description"
+//	    }
+//	  ],
+//	  "mode": "any",  // "any", "all", or "weighted"
+//	  "threshold": 0.5
+//	}
 func NewPatterns(cfg registry.Config) (detectors.Detector, error) {
 	d := &PatternsDetector{
 		patterns:  []Pattern{},

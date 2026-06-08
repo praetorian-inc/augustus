@@ -189,7 +189,6 @@ func TestScanCmdMutuallyExclusiveFlags(t *testing.T) {
 			require.NoError(t, err)
 
 			ctx, err := parser.Parse(tt.args)
-
 			// Check Kong parsing errors first
 			if err != nil {
 				if tt.expectError {
@@ -258,7 +257,7 @@ func TestScanCmdConfigFileValidation(t *testing.T) {
 			// Create a temp config file for tests that use --config-file.
 			tmpDir := t.TempDir()
 			configPath := filepath.Join(tmpDir, "config.yaml")
-			require.NoError(t, os.WriteFile(configPath, []byte("generators: {}\n"), 0644))
+			require.NoError(t, os.WriteFile(configPath, []byte("generators: {}\n"), 0o644))
 
 			args := append([]string(nil), tt.args...)
 			for i := range args {

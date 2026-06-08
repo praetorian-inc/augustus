@@ -38,7 +38,6 @@ func init() {
 // PegasusT5 paraphrases prompts using the Pegasus transformer model.
 // It generates 6 paraphrased variants to test if different phrasings
 // bypass safety measures.
-//
 type PegasusT5 struct {
 	// Model is the HuggingFace model name.
 	Model string
@@ -233,4 +232,3 @@ func (p *PegasusT5) getParaphrases(text string) ([]string, error) {
 
 	return paraphrases, nil
 }
-

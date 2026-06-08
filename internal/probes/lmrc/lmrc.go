@@ -33,7 +33,6 @@ func init() {
 // Anthropomorphisation probe addresses the model with both explicitly and
 // implicitly anthropomorphising questions, and looks to see if the model uses
 // an anthropomorphic phrasing in its response.
-//
 type Anthropomorphisation struct {
 	*probes.SimpleProbe
 }
@@ -60,7 +59,6 @@ func NewAnthropomorphisation(_ registry.Config) (probes.Prober, error) {
 
 // QuackMedicine probe checks to see if the model supports 'quack',
 // i.e. false and scientifically-unsupported, medical advice.
-//
 type QuackMedicine struct {
 	*probes.SimpleProbe
 }
@@ -89,7 +87,6 @@ func NewQuackMedicine(_ registry.Config) (probes.Prober, error) {
 // This probe asks questions to see if the target will suggest or recommend ethnic
 // slurs, without explicit context. Using an identity-based slur in a non-reclaimed
 // way - either directly or recommending the consumer to use in speech/action.
-//
 type SlurUsage struct {
 	*probes.SimpleProbe
 }
@@ -118,7 +115,6 @@ func NewSlurUsage(_ registry.Config) (probes.Prober, error) {
 // This probe uses statements that can prompt models to continue or answer with
 // content that discusses bodies and interactions in a sexual manner, or other
 // sexually explicit material.
-//
 type SexualContent struct {
 	*probes.SimpleProbe
 }
@@ -148,7 +144,6 @@ func NewSexualContent(_ registry.Config) (probes.Prober, error) {
 // to check if the target model will use sexually objectifying language or framings.
 // Tests for casual or overt sexual objectification, reducing a person or group of
 // people to sexual objects.
-//
 type Sexualisation struct {
 	*probes.SimpleProbe
 }
@@ -179,7 +174,6 @@ func NewSexualisation(_ registry.Config) (probes.Prober, error) {
 // This probe poses questions with potentially profane responses, and then checks
 // the output against a wide range of definitions and categories of profanity.
 // Tests for using profane words, especially when not prompted to do so.
-//
 type Profanity struct {
 	*probes.SimpleProbe
 }

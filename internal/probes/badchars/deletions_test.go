@@ -5,10 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/internal/testutil"
-	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/internal/testutil"
+	"github.com/praetorian-inc/augustus/pkg/probes"
 )
 
 // TestDeletionsRegistration verifies the probe registers itself

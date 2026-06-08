@@ -4,8 +4,9 @@ package attackengine
 import (
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 func TestPAIRDefaults(t *testing.T) {

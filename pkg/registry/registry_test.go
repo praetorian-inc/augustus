@@ -462,7 +462,6 @@ func TestTypedFactoryCompileTimeCheck(t *testing.T) {
 
 	cfg := MyConfig{Model: "gpt-4", Temp: 0.7}
 	result, err := factory(cfg)
-
 	if err != nil {
 		t.Fatalf("factory() error = %v, want nil", err)
 	}
@@ -495,10 +494,10 @@ func TestNoConfigFactory(t *testing.T) {
 
 func TestFromMapAdapter(t *testing.T) {
 	type OpenAIConfig struct {
-		Model   string
-		APIKey  string
-		Temp    float64
-		IsChat  bool
+		Model  string
+		APIKey string
+		Temp   float64
+		IsChat bool
 	}
 
 	// Parser function that converts map[string]any to typed config
@@ -535,7 +534,6 @@ func TestFromMapAdapter(t *testing.T) {
 		"api_key":     "sk-test",
 		"temperature": 0.5,
 	})
-
 	if err != nil {
 		t.Fatalf("legacyFactory() error = %v, want nil", err)
 	}

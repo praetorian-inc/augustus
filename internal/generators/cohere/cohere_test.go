@@ -10,17 +10,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // mockChatResponse creates a mock Cohere v2 chat response.
 func mockChatResponse(content string) map[string]any {
 	return map[string]any{
-		"id":           "chat-test-id",
+		"id":            "chat-test-id",
 		"finish_reason": "COMPLETE",
 		"message": map[string]any{
 			"role": "assistant",

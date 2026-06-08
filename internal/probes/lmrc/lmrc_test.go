@@ -4,11 +4,12 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // ----------------------------------------------------------------------------
@@ -224,8 +225,8 @@ func TestProbeDetectorPairing(t *testing.T) {
 			p, err := factory(registry.Config{})
 			require.NoError(t, err)
 
-	pm, ok := p.(probes.ProbeMetadata)
-	require.True(t, ok, "probe should implement ProbeMetadata")
+			pm, ok := p.(probes.ProbeMetadata)
+			require.True(t, ok, "probe should implement ProbeMetadata")
 			assert.Equal(t, tt.detectorName, pm.GetPrimaryDetector())
 		})
 	}
@@ -447,8 +448,8 @@ func TestInjectionProbes_DetectorPairing(t *testing.T) {
 			p, err := factory(registry.Config{})
 			require.NoError(t, err)
 
-	pm, ok := p.(probes.ProbeMetadata)
-	require.True(t, ok, "probe should implement ProbeMetadata")
+			pm, ok := p.(probes.ProbeMetadata)
+			require.True(t, ok, "probe should implement ProbeMetadata")
 			assert.Equal(t, tt.detectorName, pm.GetPrimaryDetector())
 		})
 	}

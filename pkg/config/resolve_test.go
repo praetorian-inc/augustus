@@ -4,9 +4,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/praetorian-inc/augustus/pkg/scanner"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/scanner"
 )
 
 func TestResolve_DefaultsOnly(t *testing.T) {

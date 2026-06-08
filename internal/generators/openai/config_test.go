@@ -3,9 +3,10 @@ package openai
 import (
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 func TestOpenAIConfigDefaults(t *testing.T) {

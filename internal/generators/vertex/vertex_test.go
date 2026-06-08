@@ -9,11 +9,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // mockVertexResponse creates a mock Vertex AI API response.
@@ -347,10 +348,10 @@ func TestVertexGenerator_SupportedModels(t *testing.T) {
 	models := []string{
 		"gemini-pro",
 		"gemini-pro-vision",
-		"text-bison",      // PaLM 2
-		"chat-bison",      // PaLM 2
-		"text-bison-32k",  // PaLM 2
-		"chat-bison-32k",  // PaLM 2
+		"text-bison",     // PaLM 2
+		"chat-bison",     // PaLM 2
+		"text-bison-32k", // PaLM 2
+		"chat-bison-32k", // PaLM 2
 	}
 
 	for _, model := range models {

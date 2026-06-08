@@ -25,7 +25,6 @@ func TestGCGCached_Create(t *testing.T) {
 	p, err := probes.Create("suffix.GCGCached", nil)
 	require.NoError(t, err)
 	require.NotNil(t, p)
-
 }
 
 // TestGCGCached_Name verifies the probe returns its fully qualified name.

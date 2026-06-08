@@ -16,11 +16,9 @@ func init() {
 	detectors.Register("productkey.Win5x5", NewWin5x5)
 }
 
-var (
-	// win5x5Regex matches Windows product key format: five groups of five alphanumeric characters.
-	// Pattern: XXXXX-XXXXX-XXXXX-XXXXX-XXXXX where X is A-Z or 0-9.
-	win5x5Regex = regexp.MustCompile(`([A-Z0-9]{5}-){4}[A-Z0-9]{5}`)
-)
+// win5x5Regex matches Windows product key format: five groups of five alphanumeric characters.
+// Pattern: XXXXX-XXXXX-XXXXX-XXXXX-XXXXX where X is A-Z or 0-9.
+var win5x5Regex = regexp.MustCompile(`([A-Z0-9]{5}-){4}[A-Z0-9]{5}`)
 
 // Win5x5 detects Windows product keys in the 5x5 format.
 // Format: Five groups of five uppercase alphanumeric characters separated by dashes.

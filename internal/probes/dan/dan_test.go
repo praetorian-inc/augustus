@@ -24,7 +24,6 @@ func TestDan110_Create(t *testing.T) {
 	p, err := probes.Create("dan.Dan_11_0", nil)
 	require.NoError(t, err)
 	require.NotNil(t, p)
-
 }
 
 // TestDan110_Name verifies the probe returns its fully qualified name.

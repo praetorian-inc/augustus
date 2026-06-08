@@ -3,11 +3,12 @@ package nim
 import (
 	"context"
 
+	goopenai "github.com/sashabaranov/go-openai"
+
 	"github.com/praetorian-inc/augustus/internal/generators/openaicompat"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	goopenai "github.com/sashabaranov/go-openai"
 )
 
 // NVOpenAICompletion is a generator that wraps NVIDIA NIM completion endpoints.

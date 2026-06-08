@@ -72,9 +72,9 @@ func NewGCG(_ registry.Config) (probes.Prober, error) {
 	gcg := &GCGProbe{
 		SimpleProbe: base,
 		suffixes:    suffixes,
-		iterations:  500,  // Default from research
-		topK:        256,  // Default from research
-		batchSize:   512,  // Default from research
+		iterations:  500, // Default from research
+		topK:        256, // Default from research
+		batchSize:   512, // Default from research
 	}
 
 	return gcg, nil

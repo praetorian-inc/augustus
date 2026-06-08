@@ -8,7 +8,6 @@
 //
 // Further info:
 // * https://openreview.net/forum?id=qiaRo_7Zmug
-//
 package promptinject
 
 import (

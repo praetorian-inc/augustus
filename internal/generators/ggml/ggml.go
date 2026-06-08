@@ -123,11 +123,12 @@ func NewGgmlTyped(cfg Config) (*Ggml, error) {
 // This is the recommended entry point for Go code.
 //
 // Usage:
-//   g, err := NewGgmlWithOptions(
-//       WithModelPath("/path/to/model.gguf"),
-//       WithGgmlMainPath("/path/to/llama.cpp/main"),
-//       WithTemperature(0.7),
-//   )
+//
+//	g, err := NewGgmlWithOptions(
+//	    WithModelPath("/path/to/model.gguf"),
+//	    WithGgmlMainPath("/path/to/llama.cpp/main"),
+//	    WithTemperature(0.7),
+//	)
 func NewGgmlWithOptions(opts ...Option) (*Ggml, error) {
 	cfg := ApplyOptions(DefaultConfig(), opts...)
 	return NewGgmlTyped(cfg)

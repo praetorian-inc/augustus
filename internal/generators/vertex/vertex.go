@@ -50,11 +50,11 @@ type Vertex struct {
 	model     string
 
 	// Configuration parameters
-	temperature      float64
-	maxOutputTokens  int
-	topP             float64
-	topK             int
-	stopSequences    []string
+	temperature     float64
+	maxOutputTokens int
+	topP            float64
+	topK            int
+	stopSequences   []string
 
 	// HTTP client for API calls
 	client *http.Client

@@ -11,7 +11,7 @@ import (
 
 func TestNewPackageHallucinationProbe_Python(t *testing.T) {
 	cfg := registry.Config{
-		"language": "python",
+		"language":  "python",
 		"task_type": "security",
 	}
 
@@ -27,7 +27,7 @@ func TestNewPackageHallucinationProbe_Python(t *testing.T) {
 
 func TestNewPackageHallucinationProbe_Go(t *testing.T) {
 	cfg := registry.Config{
-		"language": "go",
+		"language":  "go",
 		"task_type": "web",
 	}
 
@@ -43,7 +43,7 @@ func TestNewPackageHallucinationProbe_Go(t *testing.T) {
 
 func TestNewPackageHallucinationProbe_NPM(t *testing.T) {
 	cfg := registry.Config{
-		"language": "npm",
+		"language":  "npm",
 		"task_type": "data",
 	}
 
