@@ -1,59 +1,44 @@
 package runtimetemplates
 
 import (
-	"context"
 	"maps"
 
 	"github.com/praetorian-inc/augustus/internal/multiturn"
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/praetorian-inc/augustus/pkg/templates"
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 // MultiTurnTemplateProbe runs a YAML-defined multi-turn strategy through the
-// unified multi-turn attack engine. It mirrors multiturn.BaseMultiTurnProbe but
-// reports the detector named in the template's info.detector field rather than
-// the hardcoded default.
+// unified multi-turn attack engine. It embeds BaseMultiTurnProbe (which handles
+// the run loop, naming, and detector reporting via its Detector field) and adds
+// per-template detector config.
 type MultiTurnTemplateProbe struct {
-	engine   *multiturn.UnifiedEngine
-	name     string
-	goal     string
-	desc     string
-	detector string
+	multiturn.BaseMultiTurnProbe
+	detectorConfig map[string]any
+}
+
+// GetDetectorConfig returns per-template detector configuration overrides
+// (info.detector_config). Implements types.ProbeDetectorConfig so multi-turn
+// templates are as self-contained as static ones. Returns nil when unset.
+func (p *MultiTurnTemplateProbe) GetDetectorConfig() map[string]any {
+	return p.detectorConfig
 }
 
 // newMultiTurnProbeWithGenerators builds a probe from pre-constructed components.
 // Used directly by tests and indirectly by the registry factory.
-func newMultiTurnProbeWithGenerators(name, desc, detector string, strategy multiturn.Strategy, attacker, judge types.Generator, cfg multiturn.Config) *MultiTurnTemplateProbe {
+func newMultiTurnProbeWithGenerators(name, desc, detector string, detectorConfig map[string]any, strategy multiturn.Strategy, attacker, judge types.Generator, cfg multiturn.Config) *MultiTurnTemplateProbe {
 	return &MultiTurnTemplateProbe{
-		engine:   multiturn.NewUnifiedEngine(strategy, attacker, judge, cfg),
-		name:     name,
-		goal:     cfg.Goal,
-		desc:     desc,
-		detector: detector,
+		BaseMultiTurnProbe: multiturn.BaseMultiTurnProbe{
+			Engine:    multiturn.NewUnifiedEngine(strategy, attacker, judge, cfg),
+			ProbeName: name,
+			ProbeGoal: cfg.Goal,
+			ProbeDesc: desc,
+			Detector:  detector,
+		},
+		detectorConfig: detectorConfig,
 	}
 }
-
-// Probe executes the multi-turn attack and stamps each attempt with this
-// probe's name and configured detector.
-func (p *MultiTurnTemplateProbe) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
-	attempts, err := p.engine.Run(ctx, gen)
-	if err != nil {
-		return nil, err
-	}
-	for _, a := range attempts {
-		a.Probe = p.name
-		a.Detector = p.detector
-	}
-	return attempts, nil
-}
-
-func (p *MultiTurnTemplateProbe) Name() string               { return p.name }
-func (p *MultiTurnTemplateProbe) Description() string        { return p.desc }
-func (p *MultiTurnTemplateProbe) Goal() string               { return p.goal }
-func (p *MultiTurnTemplateProbe) GetPrimaryDetector() string { return p.detector }
-func (p *MultiTurnTemplateProbe) GetPrompts() []string       { return []string{} }
 
 // buildEngineConfigMap merges a multi-turn template's engine block with optional
 // scan-time config into the registry.Config that multiturn.CreateGenerators reads.
@@ -61,6 +46,12 @@ func (p *MultiTurnTemplateProbe) GetPrompts() []string       { return []string{}
 // are defaults; any matching key in the scan-time config overrides them, so a
 // template can be re-aimed (goal, model, generator types, turn budget) without
 // editing the file. Goal defaults to info.goal when not set at scan time.
+//
+// The string keys below MUST match the keys multiturn.ConfigFromMap /
+// CreateGenerators read. This stringly-typed coupling is the price of reusing the
+// engine's existing map-based config contract; it is pinned by
+// TestBuildEngineConfigMap_RoundTripsThroughEngineConfig so a key rename in
+// multiturn fails this package's tests rather than silently dropping config.
 func buildEngineConfigMap(tmpl *templates.ProbeTemplate, cfg registry.Config) registry.Config {
 	m := registry.Config{}
 
@@ -112,7 +103,7 @@ func newMultiTurnProbe(tmpl *templates.ProbeTemplate, cfg registry.Config) (type
 	}
 
 	return newMultiTurnProbeWithGenerators(
-		tmpl.ID, tmpl.Info.Description, tmpl.Info.Detector,
+		tmpl.ID, tmpl.Info.Description, tmpl.Info.Detector, tmpl.Info.DetectorConfig,
 		strategy, attacker, judge, engineCfg,
 	), nil
 }

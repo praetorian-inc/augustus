@@ -14,8 +14,9 @@ import (
 
 // Compile-time assertions that MultiTurnTemplateProbe satisfies the probe interfaces.
 var (
-	_ types.Prober        = (*MultiTurnTemplateProbe)(nil)
-	_ types.ProbeMetadata = (*MultiTurnTemplateProbe)(nil)
+	_ types.Prober              = (*MultiTurnTemplateProbe)(nil)
+	_ types.ProbeMetadata       = (*MultiTurnTemplateProbe)(nil)
+	_ types.ProbeDetectorConfig = (*MultiTurnTemplateProbe)(nil)
 )
 
 // mockGen is a minimal scripted generator for probe tests.
@@ -65,7 +66,7 @@ func TestMultiTurnTemplateProbe_SetsNameAndCustomDetector(t *testing.T) {
 	cfg.UseSecondaryJudge = false
 
 	probe := newMultiTurnProbeWithGenerators(
-		"custom.MyProbe", "desc", "myveritcustom.Detector",
+		"custom.MyProbe", "desc", "myveritcustom.Detector", nil,
 		testStrategyForProbe(t), attacker, judge, cfg,
 	)
 
@@ -87,8 +88,9 @@ func TestMultiTurnTemplateProbe_SetsNameAndCustomDetector(t *testing.T) {
 }
 
 func TestMultiTurnTemplateProbe_Metadata(t *testing.T) {
+	detCfg := map[string]any{"detector_goal": "reveal cross-tenant data"}
 	probe := newMultiTurnProbeWithGenerators(
-		"custom.MyProbe", "my description", "judge.Refusal",
+		"custom.MyProbe", "my description", "judge.Refusal", detCfg,
 		testStrategyForProbe(t), &mockGen{}, &mockGen{}, multiturn.Defaults(),
 	)
 	if probe.Name() != "custom.MyProbe" {
@@ -99,6 +101,81 @@ func TestMultiTurnTemplateProbe_Metadata(t *testing.T) {
 	}
 	if probe.GetPrimaryDetector() != "judge.Refusal" {
 		t.Errorf("GetPrimaryDetector() = %q, want judge.Refusal", probe.GetPrimaryDetector())
+	}
+	if probe.GetDetectorConfig()["detector_goal"] != "reveal cross-tenant data" {
+		t.Errorf("GetDetectorConfig() did not carry info.detector_config: %v", probe.GetDetectorConfig())
+	}
+}
+
+// TestNewMultiTurnProbe_CarriesDetectorConfig verifies the factory threads
+// info.detector_config from the template into the probe (seam #3).
+func TestNewMultiTurnProbe_CarriesDetectorConfig(t *testing.T) {
+	tmpl := &templates.ProbeTemplate{
+		ID:   "custom.WithDetCfg",
+		Type: templates.TypeMultiTurn,
+		Info: templates.ProbeInfo{
+			Name: "x", Severity: "high", Detector: "judge.Judge",
+			Goal:           "g",
+			DetectorConfig: map[string]any{"detector_goal": "custom rubric goal"},
+		},
+		Engine: &templates.EngineConfig{
+			AttackerGeneratorType: "test.Single",
+			JudgeGeneratorType:    "test.Single",
+		},
+		Strategy: &templates.StrategyConfig{AttackerSystem: "sys {{.Goal}}", Turn: "turn {{.TurnNum}}"},
+	}
+	probe, err := newMultiTurnProbe(tmpl, nil)
+	if err != nil {
+		t.Fatalf("newMultiTurnProbe: %v", err)
+	}
+	pdc, ok := probe.(types.ProbeDetectorConfig)
+	if !ok {
+		t.Fatal("multi-turn probe should implement ProbeDetectorConfig")
+	}
+	if pdc.GetDetectorConfig()["detector_goal"] != "custom rubric goal" {
+		t.Errorf("detector_config not threaded from template: %v", pdc.GetDetectorConfig())
+	}
+}
+
+// TestBuildEngineConfigMap_RoundTripsThroughEngineConfig pins the stringly-typed
+// key contract between buildEngineConfigMap and multiturn.ConfigFromMap (seam #2):
+// every engine field set on the template must survive the map and parse back into
+// the typed multiturn.Config. A key rename in multiturn breaks this test.
+func TestBuildEngineConfigMap_RoundTripsThroughEngineConfig(t *testing.T) {
+	tmpl := &templates.ProbeTemplate{
+		ID:   "custom.RoundTrip",
+		Type: templates.TypeMultiTurn,
+		Info: templates.ProbeInfo{Name: "x", Severity: "high", Detector: "judge.Judge", Goal: "the goal"},
+		Engine: &templates.EngineConfig{
+			AttackerGeneratorType: "test.Single",
+			JudgeGeneratorType:    "test.Single",
+			MaxTurns:              9,
+			SuccessThreshold:      0.75,
+			MaxRefusalRetries:     4,
+			MaxBacktracks:         2,
+			Stateful:              true,
+		},
+	}
+	m := buildEngineConfigMap(tmpl, nil)
+	cfg := multiturn.ConfigFromMap(m, multiturn.Defaults())
+
+	if cfg.Goal != "the goal" {
+		t.Errorf("Goal = %q", cfg.Goal)
+	}
+	if cfg.MaxTurns != 9 {
+		t.Errorf("MaxTurns = %d, want 9 (key 'max_turns' must match multiturn)", cfg.MaxTurns)
+	}
+	if cfg.SuccessThreshold != 0.75 {
+		t.Errorf("SuccessThreshold = %v, want 0.75 (key 'success_threshold')", cfg.SuccessThreshold)
+	}
+	if cfg.MaxRefusalRetries != 4 {
+		t.Errorf("MaxRefusalRetries = %d, want 4 (key 'max_refusal_retries')", cfg.MaxRefusalRetries)
+	}
+	if cfg.MaxBacktracks != 2 {
+		t.Errorf("MaxBacktracks = %d, want 2 (key 'max_backtracks')", cfg.MaxBacktracks)
+	}
+	if !cfg.Stateful {
+		t.Errorf("Stateful = false, want true (key 'stateful')")
 	}
 }
 

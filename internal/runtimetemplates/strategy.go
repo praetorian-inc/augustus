@@ -163,12 +163,13 @@ func parseNamed(strategyName, field, src string) (*template.Template, error) {
 
 // render executes tmpl with data. Templates are dry-run validated at load time,
 // so a runtime error here is near-impossible; if one occurs we log it and return
-// whatever rendered successfully (never the raw template source, which would
-// confuse the LLM).
+// an empty string (never a half-rendered prompt or the raw template source, both
+// of which would confuse the LLM).
 func render(tmpl *template.Template, data any) string {
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
 		slog.Warn("runtime template render failed", "template", tmpl.Name(), "error", err)
+		return ""
 	}
 	return buf.String()
 }
