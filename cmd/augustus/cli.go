@@ -68,10 +68,11 @@ type ScanCmd struct {
 	BuffsGlob string   `help:"Comma-separated buff glob patterns (e.g., 'encoding.*')." name:"buffs-glob"`
 
 	// Configuration
-	ConfigFile string `help:"YAML config file path." type:"existingfile" name:"config-file"`
-	Config     string `help:"JSON config for generator." short:"c"`
-	Model      string `help:"Model name for generator (shorthand for --config '{\"model\":\"...\"}')." short:"m"`
-	Profile    string `help:"Named profile to apply from config file." name:"profile"`
+	ConfigFile   string `help:"YAML config file path." type:"existingfile" name:"config-file"`
+	TemplatesDir string `help:"Directory of probe template YAML files to load and register at runtime (no rebuild required)." type:"existingdir" name:"templates-dir"`
+	Config       string `help:"JSON config for generator." short:"c"`
+	Model        string `help:"Model name for generator (shorthand for --config '{\"model\":\"...\"}')." short:"m"`
+	Profile      string `help:"Named profile to apply from config file." name:"profile"`
 
 	// Execution
 	Harness      string        `help:"Harness name (default: probewise.Probewise)." default:"probewise.Probewise"`

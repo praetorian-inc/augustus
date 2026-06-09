@@ -32,10 +32,33 @@ var (
 	// ErrSecondaryDetectorSelfReference is returned when a secondary detector name equals the primary.
 	ErrSecondaryDetectorSelfReference = errors.New("template validation failed: secondary_detectors entry name must not equal the primary detector")
 
+	// ErrInvalidType is returned when a template declares an unknown type.
+	ErrInvalidType = errors.New("template validation failed: 'type' must be 'static' or 'multiturn'")
+
+	// ErrMissingEngine is returned when a multi-turn template has no engine block.
+	ErrMissingEngine = errors.New("template validation failed: multi-turn templates require an 'engine' block")
+
+	// ErrMissingGeneratorType is returned when a multi-turn engine omits an attacker or judge generator type.
+	ErrMissingGeneratorType = errors.New("template validation failed: engine requires 'attacker_generator_type' and 'judge_generator_type'")
+
+	// ErrMissingStrategyPrompt is returned when a multi-turn template omits a required strategy prompt.
+	ErrMissingStrategyPrompt = errors.New("template validation failed: strategy requires 'attacker_system' and 'turn' prompts")
+
 	// Classification validation regexes compiled once at package init
 	cwePattern   = regexp.MustCompile(`^CWE-\d+$`)
 	mitrePattern = regexp.MustCompile(`^(T\d{4}(\.\d{3})?|AML\.T\d{4}(\.\d{3})?)$`)
 	owaspPattern = regexp.MustCompile(`^A\d{2}:\d{4}$`)
+)
+
+// Template type discriminators. An empty Type is treated as TypeStatic for
+// backward compatibility with existing single-turn templates.
+const (
+	// TypeStatic is a single-turn probe that fires a fixed list of prompts.
+	TypeStatic = "static"
+
+	// TypeMultiTurn is a multi-turn probe driven by the unified multi-turn
+	// attack engine, with the strategy supplied as prompt templates.
+	TypeMultiTurn = "multiturn"
 )
 
 // ProbeTemplate defines the YAML structure for probe templates.
@@ -44,14 +67,80 @@ type ProbeTemplate struct {
 	// ID is the fully qualified probe name (e.g., "dan.Dan_11_0")
 	ID string `yaml:"id"`
 
+	// Type selects the probe kind: "static" (default) or "multiturn".
+	Type string `yaml:"type,omitempty"`
+
 	// Info contains probe metadata
 	Info ProbeInfo `yaml:"info"`
 
-	// Prompts contains the attack prompts
-	Prompts []string `yaml:"prompts"`
+	// Prompts contains the attack prompts (static templates only).
+	Prompts []string `yaml:"prompts,omitempty"`
+
+	// Engine configures the multi-turn attack engine (multi-turn templates only).
+	Engine *EngineConfig `yaml:"engine,omitempty"`
+
+	// Strategy supplies the multi-turn attack prompts (multi-turn templates only).
+	Strategy *StrategyConfig `yaml:"strategy,omitempty"`
+}
+
+// EngineConfig holds the multi-turn engine parameters for a multi-turn template.
+// Field semantics mirror internal/multiturn/config.Config.
+type EngineConfig struct {
+	// AttackerGeneratorType is the registered generator type for the attacker LLM.
+	AttackerGeneratorType string `yaml:"attacker_generator_type"`
+
+	// JudgeGeneratorType is the registered generator type for the in-loop judge LLM.
+	JudgeGeneratorType string `yaml:"judge_generator_type"`
+
+	// AttackerModel optionally overrides the attacker model name.
+	AttackerModel string `yaml:"attacker_model,omitempty"`
+
+	// MaxTurns is the maximum number of conversation turns (default: engine default).
+	MaxTurns int `yaml:"max_turns,omitempty"`
+
+	// SuccessThreshold is the judge score (0-1) that triggers early success exit.
+	SuccessThreshold float64 `yaml:"success_threshold,omitempty"`
+
+	// MaxRefusalRetries is the max retries per turn when the target refuses.
+	MaxRefusalRetries int `yaml:"max_refusal_retries,omitempty"`
+
+	// MaxBacktracks is the max turn-level rollbacks on refusal.
+	MaxBacktracks int `yaml:"max_backtracks,omitempty"`
+
+	// Stateful disables backtracking for stateful targets when true.
+	Stateful bool `yaml:"stateful,omitempty"`
+}
+
+// StrategyConfig supplies the multi-turn attack prompt templates. Each field is
+// a Go text/template rendered with strategy-specific data at runtime.
+type StrategyConfig struct {
+	// Name is the strategy identifier reported in results (default: the template ID).
+	Name string `yaml:"name,omitempty"`
+
+	// Parser selects attacker-output parsing: "simple" (default) or "extended".
+	Parser string `yaml:"parser,omitempty"`
+
+	// AttackerSystem is the attacker system prompt template. Required.
+	AttackerSystem string `yaml:"attacker_system"`
+
+	// Turn is the per-turn question prompt template. Required.
+	Turn string `yaml:"turn"`
+
+	// Rephrase is the prompt template used to rephrase a refused question. Optional.
+	Rephrase string `yaml:"rephrase,omitempty"`
+
+	// Feedback is the prompt template feeding target response + score back. Optional.
+	Feedback string `yaml:"feedback,omitempty"`
+}
+
+// IsMultiTurn reports whether the template is a multi-turn probe.
+func (t *ProbeTemplate) IsMultiTurn() bool {
+	return t.Type == TypeMultiTurn
 }
 
 // Validate checks if the ProbeTemplate has all required fields and valid values.
+// Validation is type-aware: static templates require a non-empty prompts list,
+// while multi-turn templates require engine and strategy blocks instead.
 func (t *ProbeTemplate) Validate() error {
 	if t.ID == "" {
 		return ErrMissingID
@@ -68,6 +157,19 @@ func (t *ProbeTemplate) Validate() error {
 	if !validSeverities[strings.ToLower(t.Info.Severity)] {
 		return fmt.Errorf("%w: '%s'", ErrInvalidSeverity, t.Info.Severity)
 	}
+
+	switch t.Type {
+	case "", TypeStatic:
+		return t.validateStatic()
+	case TypeMultiTurn:
+		return t.validateMultiTurn()
+	default:
+		return fmt.Errorf("%w (template '%s' has type '%s')", ErrInvalidType, t.ID, t.Type)
+	}
+}
+
+// validateStatic enforces the single-turn template requirements.
+func (t *ProbeTemplate) validateStatic() error {
 	if len(t.Prompts) == 0 {
 		return fmt.Errorf("%w for template '%s'", ErrEmptyPrompts, t.ID)
 	}
@@ -127,6 +229,22 @@ func (t *ProbeTemplate) Validate() error {
 				return fmt.Errorf("template validation failed: tool_results references undeclared tool '%s' for template '%s'", resultTool, t.ID)
 			}
 		}
+	}
+	return nil
+}
+
+// validateMultiTurn enforces the multi-turn template requirements.
+func (t *ProbeTemplate) validateMultiTurn() error {
+	if t.Engine == nil {
+		return fmt.Errorf("%w (template '%s')", ErrMissingEngine, t.ID)
+	}
+	if strings.TrimSpace(t.Engine.AttackerGeneratorType) == "" || strings.TrimSpace(t.Engine.JudgeGeneratorType) == "" {
+		return fmt.Errorf("%w (template '%s')", ErrMissingGeneratorType, t.ID)
+	}
+	if t.Strategy == nil ||
+		strings.TrimSpace(t.Strategy.AttackerSystem) == "" ||
+		strings.TrimSpace(t.Strategy.Turn) == "" {
+		return fmt.Errorf("%w (template '%s')", ErrMissingStrategyPrompt, t.ID)
 	}
 	return nil
 }
