@@ -121,3 +121,4 @@ benchmark-results/
 .claude/.serena/
 .claude/.serena-warmup-status.json
 .claude/agent-memory/
+.claude/workflows/
