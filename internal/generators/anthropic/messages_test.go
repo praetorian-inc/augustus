@@ -315,3 +315,33 @@ func TestBuildMessages_NilConversation(t *testing.T) {
 }
 
 func ptrMsg(m attempt.Message) *attempt.Message { return &m }
+
+// TestBuildMessages_AssistantResponseOnly verifies that turns containing only
+// an assistant response (with empty/default user Prompt) still serialize
+// cleanly. This shouldn't happen in normal Augustus flow, but BuildMessages
+// is exported and may be called from less constrained contexts.
+func TestBuildMessages_AssistantResponseOnly(t *testing.T) {
+	conv := &attempt.Conversation{
+		Turns: []attempt.Turn{
+			{
+				Prompt:   attempt.NewUserMessage(""),
+				Response: ptrMsg(attempt.NewAssistantMessage("hello back")),
+			},
+		},
+	}
+
+	msgs, _, err := BuildMessages(conv)
+	if err != nil {
+		t.Fatalf("BuildMessages: %v", err)
+	}
+	// Two messages — user (empty string content) + assistant.
+	if len(msgs) != 2 {
+		t.Fatalf("expected 2 messages, got %d", len(msgs))
+	}
+	if string(msgs[0].Content) != `""` {
+		t.Errorf("expected empty user content as JSON empty string, got %s", string(msgs[0].Content))
+	}
+	if string(msgs[1].Content) != `"hello back"` {
+		t.Errorf("expected assistant content as plain string, got %s", string(msgs[1].Content))
+	}
+}

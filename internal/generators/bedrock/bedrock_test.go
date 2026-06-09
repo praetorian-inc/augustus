@@ -6,7 +6,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
@@ -316,4 +318,89 @@ func TestBedrockGenerator_AWSCredentials(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.NotNil(t, g)
+}
+
+func TestBedrockGenerator_ClaudeHandlesMalformedJSON(t *testing.T) {
+	setFakeAWSCredentials(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"content":[{`)) // truncated
+	}))
+	defer server.Close()
+
+	g, err := NewBedrock(registry.Config{
+		"model":    "anthropic.claude-3-sonnet-20240229-v1:0",
+		"region":   "us-east-1",
+		"endpoint": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hi")
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "parse",
+		"expected parse failure in error, got: %v", err)
+}
+
+func TestBedrockGenerator_Handles500Error(t *testing.T) {
+	setFakeAWSCredentials(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"message": "InternalServerException: Server error",
+		})
+	}))
+	defer server.Close()
+
+	g, err := NewBedrock(registry.Config{
+		"model":    "anthropic.claude-3-sonnet-20240229-v1:0",
+		"region":   "us-east-1",
+		"endpoint": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hi")
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.Error(t, err)
+	// AWS SDK error wrapping varies; accept any signal of HTTP failure.
+	errStr := strings.ToLower(err.Error())
+	assert.True(t,
+		strings.Contains(errStr, "500") || strings.Contains(errStr, "server") ||
+			strings.Contains(errStr, "internal"),
+		"expected 5xx signal in error, got: %v", err)
+}
+
+func TestBedrockGenerator_ContextCancellation(t *testing.T) {
+	setFakeAWSCredentials(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+	}))
+	defer server.Close()
+
+	g, err := NewBedrock(registry.Config{
+		"model":    "anthropic.claude-3-sonnet-20240229-v1:0",
+		"region":   "us-east-1",
+		"endpoint": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hi")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err = g.Generate(ctx, conv, 1)
+	require.Error(t, err)
+	assert.True(t,
+		strings.Contains(err.Error(), "context") || strings.Contains(err.Error(), "deadline"),
+		"expected context/deadline error, got: %v", err)
 }

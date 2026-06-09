@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
@@ -139,6 +141,91 @@ func TestXAIGenerator_Name(t *testing.T) {
 func TestXAIGenerator_RegistersWithRegistry(t *testing.T) {
 	_, ok := generators.Registry.Get("xai.XAI")
 	assert.True(t, ok, "xai.XAI should be registered in the global generators registry")
+}
+
+func TestXAIGenerator_HandlesMalformedJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"choices":[{`)) // truncated
+	}))
+	defer server.Close()
+
+	g, err := NewXAI(registry.Config{
+		"model":    "grok-4-vision",
+		"api_key":  "test-key",
+		"base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hi")
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.Error(t, err, "expected an error from malformed JSON response")
+	// openaicompat wraps with the provider name; check both phrasings
+	errStr := strings.ToLower(err.Error())
+	assert.True(t,
+		strings.Contains(errStr, "json") || strings.Contains(errStr, "unmarshal") ||
+			strings.Contains(errStr, "decode") || strings.Contains(errStr, "parse") ||
+			strings.Contains(errStr, "unexpected"),
+		"expected parse / json error, got: %v", err)
+}
+
+func TestXAIGenerator_Handles500Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":{"message":"internal error","type":"server_error"}}`))
+	}))
+	defer server.Close()
+
+	g, err := NewXAI(registry.Config{
+		"model":    "grok-4-vision",
+		"api_key":  "test-key",
+		"base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hi")
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.Error(t, err)
+	// openaicompat's error wrapping varies; accept any signal of HTTP failure.
+	errStr := strings.ToLower(err.Error())
+	assert.True(t,
+		strings.Contains(errStr, "500") || strings.Contains(errStr, "server") ||
+			strings.Contains(errStr, "internal"),
+		"expected 5xx signal in error, got: %v", err)
+}
+
+func TestXAIGenerator_ContextCancellation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+	}))
+	defer server.Close()
+
+	g, err := NewXAI(registry.Config{
+		"model":    "grok-4-vision",
+		"api_key":  "test-key",
+		"base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hi")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err = g.Generate(ctx, conv, 1)
+	require.Error(t, err)
+	assert.True(t,
+		strings.Contains(err.Error(), "context") || strings.Contains(err.Error(), "deadline"),
+		"expected context/deadline error, got: %v", err)
 }
 
 // readAllBody is a tiny helper to read an http.Request body without pulling in io.

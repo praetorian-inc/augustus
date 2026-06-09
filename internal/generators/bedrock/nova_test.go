@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -271,4 +272,34 @@ func TestBedrockGenerator_Generate_NovaWithMultipleImages(t *testing.T) {
 		formats = append(formats, c["image"].(map[string]any)["format"].(string))
 	}
 	assert.Equal(t, []string{"png", "jpeg", "webp"}, formats)
+}
+
+// TestBedrockGenerator_NovaHandlesMalformedJSON verifies the Nova response
+// parser surfaces a wrapped parse error when the API returns invalid JSON.
+// (5xx and context-cancellation paths are covered by the Claude-targeted
+// equivalents in bedrock_test.go since both share the Generate codepath.)
+func TestBedrockGenerator_NovaHandlesMalformedJSON(t *testing.T) {
+	setFakeAWSCredentials(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"output":{"message":{`)) // truncated
+	}))
+	defer server.Close()
+
+	g, err := NewBedrock(registry.Config{
+		"model":    "amazon.nova-micro-v1:0",
+		"region":   "us-east-1",
+		"endpoint": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hi")
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.Error(t, err)
+	// bedrock.go wraps parse errors with "failed to parse response"
+	assert.Contains(t, strings.ToLower(err.Error()), "parse",
+		"expected parse failure in error, got: %v", err)
 }

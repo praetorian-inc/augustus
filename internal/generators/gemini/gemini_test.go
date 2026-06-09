@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
@@ -258,4 +259,62 @@ func TestGeminiGenerator_RegistersWithRegistry(t *testing.T) {
 	// init() in gemini.go calls generators.Register, so the factory must be available.
 	_, ok := generators.Registry.Get("gemini.Gemini")
 	assert.True(t, ok, "gemini.Gemini should be registered in the global generators registry")
+}
+
+func TestGeminiGenerator_HandlesMalformedJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"candidates": [{"content":`)) // truncated
+	}))
+	defer server.Close()
+
+	g := newTestGenerator(t, server.URL)
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hi")
+
+	_, err := g.Generate(context.Background(), conv, 1)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse response",
+		"expected error to wrap parse failure, got: %v", err)
+}
+
+func TestGeminiGenerator_Handles500Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"error":{"code":500,"message":"internal","status":"INTERNAL"}}`))
+	}))
+	defer server.Close()
+
+	g := newTestGenerator(t, server.URL)
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hi")
+
+	_, err := g.Generate(context.Background(), conv, 1)
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "server error",
+		"expected 5xx classified as server error, got: %v", err)
+}
+
+func TestGeminiGenerator_ContextCancellation(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+	}))
+	defer server.Close()
+
+	g := newTestGenerator(t, server.URL)
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hi")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err := g.Generate(ctx, conv, 1)
+	require.Error(t, err)
+	assert.True(t,
+		strings.Contains(err.Error(), "context") || strings.Contains(err.Error(), "deadline"),
+		"expected context/deadline error, got: %v", err)
 }
