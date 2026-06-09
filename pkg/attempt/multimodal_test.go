@@ -15,7 +15,9 @@ func TestImage_ToBase64_WithBase64Field(t *testing.T) {
 		MimeType: "image/png",
 		Base64:   "dGVzdGRhdGE=",
 	}
-	assert.Equal(t, "dGVzdGRhdGE=", img.ToBase64())
+	got, err := img.ToBase64()
+	require.NoError(t, err)
+	assert.Equal(t, "dGVzdGRhdGE=", got)
 }
 
 func TestImage_ToBase64_WithDataField(t *testing.T) {
@@ -25,7 +27,9 @@ func TestImage_ToBase64_WithDataField(t *testing.T) {
 		Data:     raw,
 	}
 	expected := base64.StdEncoding.EncodeToString(raw)
-	assert.Equal(t, expected, img.ToBase64())
+	got, err := img.ToBase64()
+	require.NoError(t, err)
+	assert.Equal(t, expected, got)
 }
 
 func TestImage_ToBase64_Base64TakesPriorityOverData(t *testing.T) {
@@ -35,7 +39,9 @@ func TestImage_ToBase64_Base64TakesPriorityOverData(t *testing.T) {
 		Data:     []byte("fromdata"),
 	}
 	// Base64 field has priority
-	assert.Equal(t, "frombase64", img.ToBase64())
+	got, err := img.ToBase64()
+	require.NoError(t, err)
+	assert.Equal(t, "frombase64", got)
 }
 
 func TestImage_ToBase64_WithPathField(t *testing.T) {
@@ -49,12 +55,16 @@ func TestImage_ToBase64_WithPathField(t *testing.T) {
 		Path:     fpath,
 	}
 	expected := base64.StdEncoding.EncodeToString(content)
-	assert.Equal(t, expected, img.ToBase64())
+	got, err := img.ToBase64()
+	require.NoError(t, err)
+	assert.Equal(t, expected, got)
 }
 
 func TestImage_ToBase64_Empty(t *testing.T) {
 	img := &Image{MimeType: "image/png"}
-	assert.Equal(t, "", img.ToBase64())
+	got, err := img.ToBase64()
+	require.NoError(t, err)
+	assert.Equal(t, "", got)
 }
 
 func TestImage_ToBase64_InvalidPath(t *testing.T) {
@@ -62,19 +72,27 @@ func TestImage_ToBase64_InvalidPath(t *testing.T) {
 		MimeType: "image/png",
 		Path:     "/nonexistent/path/image.png",
 	}
-	assert.Equal(t, "", img.ToBase64())
+	// A configured-but-unreadable Path must surface the I/O error rather than
+	// silently returning an empty string (which would ship an empty image part).
+	got, err := img.ToBase64()
+	require.Error(t, err)
+	assert.Empty(t, got)
 }
 
 func TestAudio_ToBase64_AllSources(t *testing.T) {
 	// Base64 field takes precedence over Data; Data over Path.
 	t.Run("Base64 field", func(t *testing.T) {
 		a := &Audio{MimeType: "audio/wav", Base64: "QUJDRA=="}
-		assert.Equal(t, "QUJDRA==", a.ToBase64())
+		got, err := a.ToBase64()
+		require.NoError(t, err)
+		assert.Equal(t, "QUJDRA==", got)
 	})
 	t.Run("Data field", func(t *testing.T) {
 		raw := []byte("wavdata")
 		a := &Audio{MimeType: "audio/wav", Data: raw}
-		assert.Equal(t, base64.StdEncoding.EncodeToString(raw), a.ToBase64())
+		got, err := a.ToBase64()
+		require.NoError(t, err)
+		assert.Equal(t, base64.StdEncoding.EncodeToString(raw), got)
 	})
 	t.Run("Path field", func(t *testing.T) {
 		tmp := t.TempDir()
@@ -82,27 +100,37 @@ func TestAudio_ToBase64_AllSources(t *testing.T) {
 		content := []byte("riff-fake")
 		require.NoError(t, os.WriteFile(fpath, content, 0644))
 		a := &Audio{MimeType: "audio/wav", Path: fpath}
-		assert.Equal(t, base64.StdEncoding.EncodeToString(content), a.ToBase64())
+		got, err := a.ToBase64()
+		require.NoError(t, err)
+		assert.Equal(t, base64.StdEncoding.EncodeToString(content), got)
 	})
 	t.Run("Empty", func(t *testing.T) {
 		a := &Audio{MimeType: "audio/wav"}
-		assert.Equal(t, "", a.ToBase64())
+		got, err := a.ToBase64()
+		require.NoError(t, err)
+		assert.Equal(t, "", got)
 	})
 	t.Run("Base64 takes priority over Data", func(t *testing.T) {
 		a := &Audio{Base64: "frombase64", Data: []byte("fromdata")}
-		assert.Equal(t, "frombase64", a.ToBase64())
+		got, err := a.ToBase64()
+		require.NoError(t, err)
+		assert.Equal(t, "frombase64", got)
 	})
 }
 
 func TestDocument_ToBase64_AllSources(t *testing.T) {
 	t.Run("Base64 field", func(t *testing.T) {
 		d := &Document{MimeType: "application/pdf", Base64: "JVBERi0="}
-		assert.Equal(t, "JVBERi0=", d.ToBase64())
+		got, err := d.ToBase64()
+		require.NoError(t, err)
+		assert.Equal(t, "JVBERi0=", got)
 	})
 	t.Run("Data field", func(t *testing.T) {
 		raw := []byte("%PDF-1.4")
 		d := &Document{MimeType: "application/pdf", Data: raw}
-		assert.Equal(t, base64.StdEncoding.EncodeToString(raw), d.ToBase64())
+		got, err := d.ToBase64()
+		require.NoError(t, err)
+		assert.Equal(t, base64.StdEncoding.EncodeToString(raw), got)
 	})
 	t.Run("Path field", func(t *testing.T) {
 		tmp := t.TempDir()
@@ -110,14 +138,20 @@ func TestDocument_ToBase64_AllSources(t *testing.T) {
 		content := []byte("%PDF-fake")
 		require.NoError(t, os.WriteFile(fpath, content, 0644))
 		d := &Document{MimeType: "application/pdf", Path: fpath}
-		assert.Equal(t, base64.StdEncoding.EncodeToString(content), d.ToBase64())
+		got, err := d.ToBase64()
+		require.NoError(t, err)
+		assert.Equal(t, base64.StdEncoding.EncodeToString(content), got)
 	})
 	t.Run("Empty", func(t *testing.T) {
 		d := &Document{MimeType: "application/pdf"}
-		assert.Equal(t, "", d.ToBase64())
+		got, err := d.ToBase64()
+		require.NoError(t, err)
+		assert.Equal(t, "", got)
 	})
 	t.Run("Base64 takes priority over Data", func(t *testing.T) {
 		d := &Document{Base64: "p1", Data: []byte("p2")}
-		assert.Equal(t, "p1", d.ToBase64())
+		got, err := d.ToBase64()
+		require.NoError(t, err)
+		assert.Equal(t, "p1", got)
 	})
 }

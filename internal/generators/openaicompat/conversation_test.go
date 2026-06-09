@@ -13,7 +13,10 @@ func TestConversationToMessages_TextOnly(t *testing.T) {
 	conv := attempt.NewConversation()
 	conv.AddPrompt("hello world")
 
-	msgs := ConversationToMessages(conv)
+	msgs, err := ConversationToMessages(conv)
+	if err != nil {
+		t.Fatalf("ConversationToMessages returned error: %v", err)
+	}
 
 	if len(msgs) != 1 {
 		t.Fatalf("Expected 1 message, got %d", len(msgs))
@@ -37,7 +40,10 @@ func TestConversationToMessages_WithImages(t *testing.T) {
 	})
 	conv.AddPromptMessage(msg)
 
-	msgs := ConversationToMessages(conv)
+	msgs, err := ConversationToMessages(conv)
+	if err != nil {
+		t.Fatalf("ConversationToMessages returned error: %v", err)
+	}
 
 	if len(msgs) != 1 {
 		t.Fatalf("Expected 1 message, got %d", len(msgs))
@@ -85,7 +91,10 @@ func TestConversationToMessages_WithMultipleImages(t *testing.T) {
 	})
 	conv.AddPromptMessage(msg)
 
-	msgs := ConversationToMessages(conv)
+	msgs, err := ConversationToMessages(conv)
+	if err != nil {
+		t.Fatalf("ConversationToMessages returned error: %v", err)
+	}
 
 	if len(msgs) != 1 {
 		t.Fatalf("Expected 1 message, got %d", len(msgs))
@@ -104,7 +113,10 @@ func TestConversationToMessages_WithSystemAndImages(t *testing.T) {
 	})
 	conv.AddPromptMessage(msg)
 
-	msgs := ConversationToMessages(conv)
+	msgs, err := ConversationToMessages(conv)
+	if err != nil {
+		t.Fatalf("ConversationToMessages returned error: %v", err)
+	}
 
 	if len(msgs) != 2 {
 		t.Fatalf("Expected 2 messages (system + user), got %d", len(msgs))
@@ -126,7 +138,10 @@ func TestConversationToMessages_MixedTurns(t *testing.T) {
 		{MimeType: "image/png", Base64: "dGVzdA=="},
 	}))
 
-	msgs := ConversationToMessages(conv)
+	msgs, err := ConversationToMessages(conv)
+	if err != nil {
+		t.Fatalf("ConversationToMessages returned error: %v", err)
+	}
 
 	if len(msgs) != 2 {
 		t.Fatalf("Expected 2 messages, got %d", len(msgs))

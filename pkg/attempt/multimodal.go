@@ -2,6 +2,7 @@ package attempt
 
 import (
 	"encoding/base64"
+	"fmt"
 	"os"
 	"time"
 )
@@ -28,22 +29,24 @@ type Image struct {
 
 // ToBase64 returns the image data as a base64-encoded string.
 // Priority: Base64 field > Data field > Path field.
-// Returns empty string if no data is available.
-func (img *Image) ToBase64() string {
+// It returns ("", nil) when no data is available, and ("", err) when a Path is
+// set but cannot be read — surfacing the I/O error rather than silently
+// shipping an empty media part to the generator.
+func (img *Image) ToBase64() (string, error) {
 	if img.Base64 != "" {
-		return img.Base64
+		return img.Base64, nil
 	}
 	if len(img.Data) > 0 {
-		return base64.StdEncoding.EncodeToString(img.Data)
+		return base64.StdEncoding.EncodeToString(img.Data), nil
 	}
 	if img.Path != "" {
 		data, err := os.ReadFile(img.Path)
 		if err != nil {
-			return ""
+			return "", fmt.Errorf("image: read %q: %w", img.Path, err)
 		}
-		return base64.StdEncoding.EncodeToString(data)
+		return base64.StdEncoding.EncodeToString(data), nil
 	}
-	return ""
+	return "", nil
 }
 
 // Audio represents an audio attachment for multimodal attacks.
@@ -71,22 +74,24 @@ type Audio struct {
 
 // ToBase64 returns the audio data as a base64-encoded string.
 // Priority: Base64 field > Data field > Path field.
-// Returns empty string if no data is available.
-func (a *Audio) ToBase64() string {
+// It returns ("", nil) when no data is available, and ("", err) when a Path is
+// set but cannot be read — surfacing the I/O error rather than silently
+// shipping an empty media part to the generator.
+func (a *Audio) ToBase64() (string, error) {
 	if a.Base64 != "" {
-		return a.Base64
+		return a.Base64, nil
 	}
 	if len(a.Data) > 0 {
-		return base64.StdEncoding.EncodeToString(a.Data)
+		return base64.StdEncoding.EncodeToString(a.Data), nil
 	}
 	if a.Path != "" {
 		data, err := os.ReadFile(a.Path)
 		if err != nil {
-			return ""
+			return "", fmt.Errorf("audio: read %q: %w", a.Path, err)
 		}
-		return base64.StdEncoding.EncodeToString(data)
+		return base64.StdEncoding.EncodeToString(data), nil
 	}
-	return ""
+	return "", nil
 }
 
 // Document represents a document attachment for multimodal attacks
@@ -113,20 +118,22 @@ type Document struct {
 
 // ToBase64 returns the document data as a base64-encoded string.
 // Priority: Base64 field > Data field > Path field.
-// Returns empty string if no data is available.
-func (d *Document) ToBase64() string {
+// It returns ("", nil) when no data is available, and ("", err) when a Path is
+// set but cannot be read — surfacing the I/O error rather than silently
+// shipping an empty media part to the generator.
+func (d *Document) ToBase64() (string, error) {
 	if d.Base64 != "" {
-		return d.Base64
+		return d.Base64, nil
 	}
 	if len(d.Data) > 0 {
-		return base64.StdEncoding.EncodeToString(d.Data)
+		return base64.StdEncoding.EncodeToString(d.Data), nil
 	}
 	if d.Path != "" {
 		data, err := os.ReadFile(d.Path)
 		if err != nil {
-			return ""
+			return "", fmt.Errorf("document: read %q: %w", d.Path, err)
 		}
-		return base64.StdEncoding.EncodeToString(data)
+		return base64.StdEncoding.EncodeToString(data), nil
 	}
-	return ""
+	return "", nil
 }

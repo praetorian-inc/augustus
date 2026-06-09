@@ -14,7 +14,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -46,9 +45,6 @@ type Bedrock struct {
 	// Configuration parameters
 	temperature float64
 	topP        float64
-
-	// Custom HTTP client for testing
-	httpClient *http.Client
 }
 
 // NewBedrock creates a new Bedrock generator from configuration.
@@ -56,7 +52,6 @@ func NewBedrock(cfg registry.Config) (generators.Generator, error) {
 	g := &Bedrock{
 		temperature: defaultTemperature,
 		maxTokens:   defaultMaxTokens,
-		httpClient:  nil, // Will use default if not set
 	}
 
 	// Required: model ID
@@ -96,13 +91,6 @@ func NewBedrock(cfg registry.Config) (generators.Generator, error) {
 	if endpoint := registry.GetString(cfg, "endpoint", ""); endpoint != "" {
 		clientOpts = append(clientOpts, func(o *bedrockruntime.Options) {
 			o.BaseEndpoint = aws.String(endpoint)
-		})
-	}
-
-	// Custom HTTP client for testing
-	if g.httpClient != nil {
-		clientOpts = append(clientOpts, func(o *bedrockruntime.Options) {
-			o.HTTPClient = g.httpClient
 		})
 	}
 

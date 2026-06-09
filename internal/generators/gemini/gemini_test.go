@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/praetorian-inc/augustus/internal/generators/googleai"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -69,11 +70,12 @@ func TestNewGemini_AcceptsEnvAPIKey(t *testing.T) {
 }
 
 func TestGeminiGenerator_Generate_TextOnly(t *testing.T) {
-	var capturedPath, capturedQuery string
+	var capturedPath, capturedQuery, capturedAPIKey string
 	var capturedBody []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedPath = r.URL.Path
 		capturedQuery = r.URL.RawQuery
+		capturedAPIKey = r.Header.Get("x-goog-api-key")
 		capturedBody, _ = io.ReadAll(r.Body)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(mockGeminiResponse("hi back"))
@@ -91,11 +93,13 @@ func TestGeminiGenerator_Generate_TextOnly(t *testing.T) {
 
 	// URL shape: {baseURL}/models/{model}:generateContent
 	assert.Contains(t, capturedPath, "/models/gemini-2.5-flash:generateContent")
-	// API key is in the query string, not the headers
-	assert.Contains(t, capturedQuery, "key=test-key")
+	// API key is sent via the x-goog-api-key header, not the query string,
+	// so it cannot leak into URLs or error strings.
+	assert.Equal(t, "test-key", capturedAPIKey)
+	assert.NotContains(t, capturedQuery, "test-key")
 
 	// Body has plain text part (no inlineData)
-	var req generateRequest
+	var req googleai.GenerateRequest
 	require.NoError(t, json.Unmarshal(capturedBody, &req))
 	require.Len(t, req.Contents, 1)
 	require.Len(t, req.Contents[0].Parts, 1)
@@ -122,7 +126,7 @@ func TestGeminiGenerator_Generate_WithImage(t *testing.T) {
 	require.Len(t, resp, 1)
 	assert.Equal(t, "I see a teapot", resp[0].Content)
 
-	var req generateRequest
+	var req googleai.GenerateRequest
 	require.NoError(t, json.Unmarshal(capturedBody, &req))
 	require.Len(t, req.Contents, 1)
 	require.Len(t, req.Contents[0].Parts, 2, "expected text + inlineData parts")
@@ -159,7 +163,7 @@ func TestGeminiGenerator_Generate_WithMultipleImages(t *testing.T) {
 	_, err := g.Generate(context.Background(), conv, 1)
 	require.NoError(t, err)
 
-	var req generateRequest
+	var req googleai.GenerateRequest
 	require.NoError(t, json.Unmarshal(capturedBody, &req))
 	require.Len(t, req.Contents[0].Parts, 4, "expected 1 text + 3 image parts")
 
@@ -189,7 +193,7 @@ func TestGeminiGenerator_Generate_WithSystemInstruction(t *testing.T) {
 	_, err := g.Generate(context.Background(), conv, 1)
 	require.NoError(t, err)
 
-	var req generateRequest
+	var req googleai.GenerateRequest
 	require.NoError(t, json.Unmarshal(capturedBody, &req))
 	require.NotNil(t, req.SystemInstruction, "system prompt should travel via systemInstruction, not contents")
 	require.Len(t, req.SystemInstruction.Parts, 1)

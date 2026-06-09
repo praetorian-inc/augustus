@@ -67,7 +67,8 @@ func TestBuildNovaContent_SkipsUnsupportedImageMIME(t *testing.T) {
 			{Data: []byte{0x03}, MimeType: "image/jpeg"}, // kept
 		},
 	}
-	blocks := buildNovaContent(msg)
+	blocks, err := buildNovaContent(msg)
+	require.NoError(t, err)
 	// text + 2 image blocks (heic dropped)
 	require.Len(t, blocks, 3)
 	assert.Equal(t, "what is this?", blocks[0].(map[string]any)["text"])

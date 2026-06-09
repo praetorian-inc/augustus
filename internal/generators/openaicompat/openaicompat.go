@@ -8,6 +8,7 @@ package openaicompat
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -73,7 +74,10 @@ var CompletionModels = map[string]bool{
 
 // ConversationToMessages converts an Augustus Conversation to OpenAI chat messages.
 // This is the canonical implementation used by all OpenAI-compatible generators.
-func ConversationToMessages(conv *attempt.Conversation) []goopenai.ChatCompletionMessage {
+// It returns an error if any image attachment cannot be resolved to base64
+// (e.g. a configured file Path that cannot be read), so callers fail loudly
+// rather than silently sending an empty image part.
+func ConversationToMessages(conv *attempt.Conversation) ([]goopenai.ChatCompletionMessage, error) {
 	messages := make([]goopenai.ChatCompletionMessage, 0)
 
 	// Add system message if present
@@ -95,7 +99,11 @@ func ConversationToMessages(conv *attempt.Conversation) []goopenai.ChatCompletio
 				Text: turn.Prompt.Content,
 			})
 			for _, img := range turn.Prompt.Images {
-				dataURL := fmt.Sprintf("data:%s;base64,%s", img.MimeType, img.ToBase64())
+				encoded, err := img.ToBase64()
+				if err != nil {
+					return nil, fmt.Errorf("openaicompat: encode image: %w", err)
+				}
+				dataURL := fmt.Sprintf("data:%s;base64,%s", img.MimeType, encoded)
 				parts = append(parts, goopenai.ChatMessagePart{
 					Type: goopenai.ChatMessagePartTypeImageURL,
 					ImageURL: &goopenai.ChatMessageImageURL{
@@ -136,7 +144,7 @@ func ConversationToMessages(conv *attempt.Conversation) []goopenai.ChatCompletio
 		}
 	}
 
-	return messages
+	return messages, nil
 }
 
 // WrapError wraps OpenAI-compatible API errors with a provider-specific prefix.
@@ -148,8 +156,11 @@ func WrapError(providerName string, err error) error {
 		return nil
 	}
 
-	// Check for specific error types
-	if apiErr, ok := err.(*goopenai.APIError); ok {
+	// Check for specific error types. Use errors.As so wrapped errors are
+	// still classified (a direct type assertion misses any APIError that has
+	// been wrapped with %w, losing 429/4xx/5xx and rate-limit detection).
+	var apiErr *goopenai.APIError
+	if errors.As(err, &apiErr) {
 		switch apiErr.HTTPStatusCode {
 		case 429:
 			return &RateLimitError{Err: fmt.Errorf("%s: rate limit exceeded: %w", providerName, err)}
@@ -186,7 +197,10 @@ func GenerateChat(
 	maxTokens int,
 	topP float32,
 ) ([]attempt.Message, error) {
-	messages := ConversationToMessages(conv)
+	messages, err := ConversationToMessages(conv)
+	if err != nil {
+		return nil, WrapError(providerName, err)
+	}
 
 	req := goopenai.ChatCompletionRequest{
 		Model:    model,

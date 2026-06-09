@@ -92,11 +92,12 @@ func NewOpenAITyped(cfg Config) (*OpenAI, error) {
 // This is the recommended entry point for Go code.
 //
 // Usage:
-//   g, err := NewOpenAIWithOptions(
-//       WithModel("gpt-4"),
-//       WithAPIKey("sk-..."),
-//       WithTemperature(0.5),
-//   )
+//
+//	g, err := NewOpenAIWithOptions(
+//	    WithModel("gpt-4"),
+//	    WithAPIKey("sk-..."),
+//	    WithTemperature(0.5),
+//	)
 func NewOpenAIWithOptions(opts ...Option) (*OpenAI, error) {
 	cfg := ApplyOptions(DefaultConfig(), opts...)
 	return NewOpenAITyped(cfg)
@@ -117,7 +118,10 @@ func (g *OpenAI) Generate(ctx context.Context, conv *attempt.Conversation, n int
 // generateChat handles chat completion requests.
 func (g *OpenAI) generateChat(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
 	// Convert conversation to OpenAI message format
-	messages := openaicompat.ConversationToMessages(conv)
+	messages, err := openaicompat.ConversationToMessages(conv)
+	if err != nil {
+		return nil, openaicompat.WrapError("openai", err)
+	}
 
 	req := goopenai.ChatCompletionRequest{
 		Model:    g.model,

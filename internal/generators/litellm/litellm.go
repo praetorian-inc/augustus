@@ -126,7 +126,10 @@ func (g *LiteLLM) Generate(ctx context.Context, conv *attempt.Conversation, n in
 
 // generateWithN uses the n parameter for a single API call.
 func (g *LiteLLM) generateWithN(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	req := g.buildRequest(conv)
+	req, err := g.buildRequest(conv)
+	if err != nil {
+		return nil, err
+	}
 
 	if !g.suppressedParams["n"] {
 		req.N = n
@@ -150,7 +153,10 @@ func (g *LiteLLM) generateMultipleCalls(ctx context.Context, conv *attempt.Conve
 	responses := make([]attempt.Message, 0, n)
 
 	for i := 0; i < n; i++ {
-		req := g.buildRequest(conv)
+		req, err := g.buildRequest(conv)
+		if err != nil {
+			return nil, err
+		}
 		req.N = 1 // Always single response per call
 
 		resp, err := g.client.CreateChatCompletion(ctx, req)
@@ -167,8 +173,11 @@ func (g *LiteLLM) generateMultipleCalls(ctx context.Context, conv *attempt.Conve
 }
 
 // buildRequest constructs the chat completion request.
-func (g *LiteLLM) buildRequest(conv *attempt.Conversation) goopenai.ChatCompletionRequest {
-	messages := openaicompat.ConversationToMessages(conv)
+func (g *LiteLLM) buildRequest(conv *attempt.Conversation) (goopenai.ChatCompletionRequest, error) {
+	messages, err := openaicompat.ConversationToMessages(conv)
+	if err != nil {
+		return goopenai.ChatCompletionRequest{}, openaicompat.WrapError("litellm", err)
+	}
 
 	req := goopenai.ChatCompletionRequest{
 		Model:    g.model,
@@ -195,7 +204,7 @@ func (g *LiteLLM) buildRequest(conv *attempt.Conversation) goopenai.ChatCompleti
 		req.Stop = g.stop
 	}
 
-	return req
+	return req, nil
 }
 
 // ClearHistory is a no-op (stateless per call).

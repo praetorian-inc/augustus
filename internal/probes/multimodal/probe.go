@@ -17,10 +17,6 @@ type BaseMultimodalProbe struct {
 	PrimaryDetector  string
 	ProbeDescription string
 	Prompts          []MultimodalPrompt
-
-	// images caches aggregated images from all prompts.
-	// Set explicitly to override the default aggregation from Prompts.
-	images []attempt.Image
 }
 
 // Probe executes the probe against the generator by iterating over all prompts.
@@ -48,13 +44,8 @@ func (p *BaseMultimodalProbe) GetPrimaryDetector() string {
 	return p.PrimaryDetector
 }
 
-// GetImages returns all images used by this probe.
-// If images were set explicitly, those are returned.
-// Otherwise images are aggregated from all prompts.
+// GetImages returns all images used by this probe, aggregated from all prompts.
 func (p *BaseMultimodalProbe) GetImages() []attempt.Image {
-	if p.images != nil {
-		return p.images
-	}
 	var imgs []attempt.Image
 	for _, mp := range p.Prompts {
 		imgs = append(imgs, mp.Images...)

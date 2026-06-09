@@ -33,7 +33,10 @@ func (g *NVMultimodal) Generate(ctx context.Context, conv *attempt.Conversation,
 	}
 
 	// Convert conversation to OpenAI message format
-	messages := openaicompat.ConversationToMessages(conv)
+	messages, err := openaicompat.ConversationToMessages(conv)
+	if err != nil {
+		return nil, openaicompat.WrapError("nim", err)
+	}
 
 	req := goopenai.ChatCompletionRequest{
 		Model:    g.Model,

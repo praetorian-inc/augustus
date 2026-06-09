@@ -2,6 +2,7 @@ package bedrock
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -46,9 +47,13 @@ import (
 func (g *Bedrock) buildNovaRequest(conv *attempt.Conversation) ([]byte, error) {
 	messages := make([]map[string]any, 0, len(conv.Turns)*2)
 	for _, turn := range conv.Turns {
+		content, err := buildNovaContent(&turn.Prompt)
+		if err != nil {
+			return nil, err
+		}
 		messages = append(messages, map[string]any{
 			"role":    "user",
-			"content": buildNovaContent(&turn.Prompt),
+			"content": content,
 		})
 		if turn.Response != nil {
 			messages = append(messages, map[string]any{
@@ -84,7 +89,7 @@ func (g *Bedrock) buildNovaRequest(conv *attempt.Conversation) ([]byte, error) {
 // attached image. Images with unsupported MIME types are skipped rather than
 // misrepresented to the API (see novaImageFormat). Documents and audio are
 // not yet wired through Nova.
-func buildNovaContent(msg *attempt.Message) []any {
+func buildNovaContent(msg *attempt.Message) ([]any, error) {
 	blocks := make([]any, 0, 1+len(msg.Images))
 	if msg.Content != "" {
 		blocks = append(blocks, map[string]any{"text": msg.Content})
@@ -96,16 +101,20 @@ func buildNovaContent(msg *attempt.Message) []any {
 			// based on the declared format and would error on mismatch.
 			continue
 		}
+		data, err := img.ToBase64()
+		if err != nil {
+			return nil, fmt.Errorf("bedrock nova: encode image: %w", err)
+		}
 		blocks = append(blocks, map[string]any{
 			"image": map[string]any{
 				"format": format,
 				"source": map[string]any{
-					"bytes": img.ToBase64(),
+					"bytes": data,
 				},
 			},
 		})
 	}
-	return blocks
+	return blocks, nil
 }
 
 // novaImageFormat maps a standard image MIME type to Nova's "format" string.

@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/praetorian-inc/augustus/internal/generators/googleai"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -50,11 +51,11 @@ type Vertex struct {
 	model     string
 
 	// Configuration parameters
-	temperature      float64
-	maxOutputTokens  int
-	topP             float64
-	topK             int
-	stopSequences    []string
+	temperature     float64
+	maxOutputTokens int
+	topP            float64
+	topK            int
+	stopSequences   []string
 
 	// HTTP client for API calls
 	client *http.Client
@@ -119,64 +120,6 @@ func NewVertexWithOptions(opts ...Option) (*Vertex, error) {
 	return NewVertexTyped(cfg)
 }
 
-// contentPart represents a part in a content block.
-type contentPart struct {
-	Text string `json:"text"`
-}
-
-// content represents a message content.
-type content struct {
-	Role  string        `json:"role"`
-	Parts []contentPart `json:"parts"`
-}
-
-// generationConfig represents generation parameters.
-type generationConfig struct {
-	Temperature     float64  `json:"temperature,omitempty"`
-	MaxOutputTokens int      `json:"maxOutputTokens,omitempty"`
-	TopP            float64  `json:"topP,omitempty"`
-	TopK            int      `json:"topK,omitempty"`
-	StopSequences   []string `json:"stopSequences,omitempty"`
-}
-
-// generateRequest represents the Vertex AI generateContent API request.
-type generateRequest struct {
-	Contents          []content         `json:"contents"`
-	SystemInstruction *content          `json:"systemInstruction,omitempty"`
-	GenerationConfig  *generationConfig `json:"generationConfig,omitempty"`
-}
-
-// candidate represents a response candidate.
-type candidate struct {
-	Content      content `json:"content"`
-	FinishReason string  `json:"finishReason"`
-}
-
-// usageMetadata represents token usage statistics.
-type usageMetadata struct {
-	PromptTokenCount     int `json:"promptTokenCount"`
-	CandidatesTokenCount int `json:"candidatesTokenCount"`
-	TotalTokenCount      int `json:"totalTokenCount"`
-}
-
-// generateResponse represents the Vertex AI API response.
-type generateResponse struct {
-	Candidates    []candidate   `json:"candidates"`
-	UsageMetadata usageMetadata `json:"usageMetadata"`
-}
-
-// errorResponse represents a Vertex AI API error.
-type errorResponse struct {
-	Error errorDetail `json:"error"`
-}
-
-// errorDetail contains error information.
-type errorDetail struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Status  string `json:"status"`
-}
-
 // Generate sends the conversation to Vertex AI and returns responses.
 func (g *Vertex) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
 	if n <= 0 {
@@ -199,21 +142,21 @@ func (g *Vertex) Generate(ctx context.Context, conv *attempt.Conversation, n int
 // generateOne performs a single API call and returns one response.
 func (g *Vertex) generateOne(ctx context.Context, conv *attempt.Conversation) (attempt.Message, error) {
 	// Build request
-	req := generateRequest{
+	req := googleai.GenerateRequest{
 		Contents: g.conversationToContents(conv),
 	}
 
 	// Add system instruction if present
 	if conv.System != nil {
-		req.SystemInstruction = &content{
-			Parts: []contentPart{
+		req.SystemInstruction = &googleai.Content{
+			Parts: []googleai.ContentPart{
 				{Text: conv.System.Content},
 			},
 		}
 	}
 
 	// Add generation config
-	genConfig := generationConfig{
+	genConfig := googleai.GenerationConfig{
 		Temperature:     g.temperature,
 		MaxOutputTokens: g.maxOutputTokens,
 	}
@@ -269,11 +212,11 @@ func (g *Vertex) generateOne(ctx context.Context, conv *attempt.Conversation) (a
 
 	// Handle errors
 	if httpResp.StatusCode != http.StatusOK {
-		return attempt.Message{}, g.handleError(httpResp.StatusCode, respBody)
+		return attempt.Message{}, googleai.HandleError("vertex", httpResp.StatusCode, respBody)
 	}
 
 	// Parse successful response
-	var resp generateResponse
+	var resp googleai.GenerateResponse
 	if err := json.Unmarshal(respBody, &resp); err != nil {
 		return attempt.Message{}, fmt.Errorf("vertex: failed to parse response: %w", err)
 	}
@@ -292,26 +235,26 @@ func (g *Vertex) generateOne(ctx context.Context, conv *attempt.Conversation) (a
 }
 
 // conversationToContents converts an Augustus Conversation to Vertex AI contents.
-func (g *Vertex) conversationToContents(conv *attempt.Conversation) []content {
-	contents := make([]content, 0)
+func (g *Vertex) conversationToContents(conv *attempt.Conversation) []googleai.Content {
+	contents := make([]googleai.Content, 0)
 
 	// Note: System message is NOT included in contents array for Vertex AI
 	// It's passed as a separate systemInstruction parameter
 
 	for _, turn := range conv.Turns {
 		// Add user message
-		contents = append(contents, content{
+		contents = append(contents, googleai.Content{
 			Role: "user",
-			Parts: []contentPart{
+			Parts: []googleai.ContentPart{
 				{Text: turn.Prompt.Content},
 			},
 		})
 
 		// Add model response if present
 		if turn.Response != nil {
-			contents = append(contents, content{
+			contents = append(contents, googleai.Content{
 				Role: "model",
-				Parts: []contentPart{
+				Parts: []googleai.ContentPart{
 					{Text: turn.Response.Content},
 				},
 			})
@@ -319,33 +262,6 @@ func (g *Vertex) conversationToContents(conv *attempt.Conversation) []content {
 	}
 
 	return contents
-}
-
-// handleError processes API error responses.
-func (g *Vertex) handleError(statusCode int, body []byte) error {
-	var errResp errorResponse
-	if err := json.Unmarshal(body, &errResp); err != nil {
-		return fmt.Errorf("vertex: HTTP %d: %s", statusCode, string(body))
-	}
-
-	errCode := errResp.Error.Code
-	errMsg := errResp.Error.Message
-	errStatus := errResp.Error.Status
-
-	switch statusCode {
-	case http.StatusTooManyRequests:
-		return fmt.Errorf("vertex: rate limit exceeded: %s", errMsg)
-	case http.StatusBadRequest:
-		return fmt.Errorf("vertex: bad request (%s): %s", errStatus, errMsg)
-	case http.StatusUnauthorized:
-		return fmt.Errorf("vertex: authentication error: %s", errMsg)
-	case http.StatusForbidden:
-		return fmt.Errorf("vertex: permission denied: %s", errMsg)
-	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-		return fmt.Errorf("vertex: server error (%d): %s", statusCode, errMsg)
-	default:
-		return fmt.Errorf("vertex: API error (%d, %s): %s", errCode, errStatus, errMsg)
-	}
 }
 
 // ClearHistory is a no-op for Vertex generator (stateless per call).

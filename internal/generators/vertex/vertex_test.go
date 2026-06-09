@@ -347,10 +347,10 @@ func TestVertexGenerator_SupportedModels(t *testing.T) {
 	models := []string{
 		"gemini-pro",
 		"gemini-pro-vision",
-		"text-bison",      // PaLM 2
-		"chat-bison",      // PaLM 2
-		"text-bison-32k",  // PaLM 2
-		"chat-bison-32k",  // PaLM 2
+		"text-bison",     // PaLM 2
+		"chat-bison",     // PaLM 2
+		"text-bison-32k", // PaLM 2
+		"chat-bison-32k", // PaLM 2
 	}
 
 	for _, model := range models {

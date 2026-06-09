@@ -27,10 +27,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
+	"github.com/praetorian-inc/augustus/internal/generators/googleai"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -106,74 +106,6 @@ func NewGeminiWithOptions(opts ...Option) (*Gemini, error) {
 	return NewGeminiTyped(cfg)
 }
 
-// inlineData represents a base64-encoded media attachment in a Gemini part.
-// Field names are snake_case per the canonical Gemini REST spec
-// (https://ai.google.dev/api/generate-content). Proto3 JSON acceptance
-// allows camelCase too, but we emit the canonical form.
-type inlineData struct {
-	MimeType string `json:"mime_type"`
-	Data     string `json:"data"`
-}
-
-// contentPart represents a single part within a content block.
-// Exactly one of Text or InlineData is set per part.
-type contentPart struct {
-	Text       string      `json:"text,omitempty"`
-	InlineData *inlineData `json:"inline_data,omitempty"`
-}
-
-// content represents a message turn in the contents array.
-type content struct {
-	Role  string        `json:"role"`
-	Parts []contentPart `json:"parts"`
-}
-
-// generationConfig represents Gemini's sampling parameters.
-type generationConfig struct {
-	Temperature     float64  `json:"temperature,omitempty"`
-	MaxOutputTokens int      `json:"maxOutputTokens,omitempty"`
-	TopP            float64  `json:"topP,omitempty"`
-	TopK            int      `json:"topK,omitempty"`
-	StopSequences   []string `json:"stopSequences,omitempty"`
-}
-
-// generateRequest represents the :generateContent request body.
-type generateRequest struct {
-	Contents          []content         `json:"contents"`
-	SystemInstruction *content          `json:"systemInstruction,omitempty"`
-	GenerationConfig  *generationConfig `json:"generationConfig,omitempty"`
-}
-
-// candidate represents one response candidate.
-type candidate struct {
-	Content      content `json:"content"`
-	FinishReason string  `json:"finishReason"`
-}
-
-// usageMetadata is Gemini's token-usage block.
-type usageMetadata struct {
-	PromptTokenCount     int `json:"promptTokenCount"`
-	CandidatesTokenCount int `json:"candidatesTokenCount"`
-	TotalTokenCount      int `json:"totalTokenCount"`
-}
-
-// generateResponse represents the :generateContent response body.
-type generateResponse struct {
-	Candidates    []candidate   `json:"candidates"`
-	UsageMetadata usageMetadata `json:"usageMetadata"`
-}
-
-// errorResponse represents a Gemini API error envelope.
-type errorResponse struct {
-	Error errorDetail `json:"error"`
-}
-
-type errorDetail struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Status  string `json:"status"`
-}
-
 // Generate sends the conversation to Gemini and returns n responses.
 func (g *Gemini) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
 	if n <= 0 {
@@ -191,17 +123,21 @@ func (g *Gemini) Generate(ctx context.Context, conv *attempt.Conversation, n int
 }
 
 func (g *Gemini) generateOne(ctx context.Context, conv *attempt.Conversation) (attempt.Message, error) {
-	req := generateRequest{
-		Contents: g.conversationToContents(conv),
+	contents, err := g.conversationToContents(conv)
+	if err != nil {
+		return attempt.Message{}, err
+	}
+	req := googleai.GenerateRequest{
+		Contents: contents,
 	}
 
 	if conv.System != nil {
-		req.SystemInstruction = &content{
-			Parts: []contentPart{{Text: conv.System.Content}},
+		req.SystemInstruction = &googleai.Content{
+			Parts: []googleai.ContentPart{{Text: conv.System.Content}},
 		}
 	}
 
-	genConfig := generationConfig{
+	genConfig := googleai.GenerationConfig{
 		Temperature:     g.temperature,
 		MaxOutputTokens: g.maxOutputTokens,
 	}
@@ -221,11 +157,12 @@ func (g *Gemini) generateOne(ctx context.Context, conv *attempt.Conversation) (a
 		return attempt.Message{}, fmt.Errorf("gemini: failed to marshal request: %w", err)
 	}
 
-	// Build URL: {baseURL}/models/{model}:generateContent?key={apiKey}
-	endpoint := fmt.Sprintf("%s/models/%s:generateContent?key=%s",
+	// Build URL: {baseURL}/models/{model}:generateContent
+	// The API key is sent via the x-goog-api-key header rather than a ?key=
+	// query parameter so it cannot leak into net/url error strings or logs.
+	endpoint := fmt.Sprintf("%s/models/%s:generateContent",
 		strings.TrimSuffix(g.baseURL, "/"),
 		g.model,
-		url.QueryEscape(g.apiKey),
 	)
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
@@ -233,6 +170,7 @@ func (g *Gemini) generateOne(ctx context.Context, conv *attempt.Conversation) (a
 		return attempt.Message{}, fmt.Errorf("gemini: failed to create request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("x-goog-api-key", g.apiKey)
 
 	httpResp, err := g.client.Do(httpReq)
 	if err != nil {
@@ -246,10 +184,10 @@ func (g *Gemini) generateOne(ctx context.Context, conv *attempt.Conversation) (a
 	}
 
 	if httpResp.StatusCode != http.StatusOK {
-		return attempt.Message{}, g.handleError(httpResp.StatusCode, respBody)
+		return attempt.Message{}, googleai.HandleError("gemini", httpResp.StatusCode, respBody)
 	}
 
-	var resp generateResponse
+	var resp googleai.GenerateResponse
 	if err := json.Unmarshal(respBody, &resp); err != nil {
 		return attempt.Message{}, fmt.Errorf("gemini: failed to parse response: %w", err)
 	}
@@ -268,64 +206,48 @@ func (g *Gemini) generateOne(ctx context.Context, conv *attempt.Conversation) (a
 // contents array. Images on user turns are emitted as inlineData parts
 // (base64). System prompts are NOT included here — they live in the
 // request's systemInstruction field.
-func (g *Gemini) conversationToContents(conv *attempt.Conversation) []content {
-	contents := make([]content, 0, len(conv.Turns)*2)
+func (g *Gemini) conversationToContents(conv *attempt.Conversation) ([]googleai.Content, error) {
+	contents := make([]googleai.Content, 0, len(conv.Turns)*2)
 	for _, turn := range conv.Turns {
-		contents = append(contents, content{
+		parts, err := buildParts(turn.Prompt.Content, turn.Prompt.Images)
+		if err != nil {
+			return nil, err
+		}
+		contents = append(contents, googleai.Content{
 			Role:  "user",
-			Parts: buildParts(turn.Prompt.Content, turn.Prompt.Images),
+			Parts: parts,
 		})
 		if turn.Response != nil {
-			contents = append(contents, content{
+			contents = append(contents, googleai.Content{
 				Role:  "model",
-				Parts: []contentPart{{Text: turn.Response.Content}},
+				Parts: []googleai.ContentPart{{Text: turn.Response.Content}},
 			})
 		}
 	}
-	return contents
+	return contents, nil
 }
 
 // buildParts assembles a Gemini parts list: text first (if non-empty), then
-// one inlineData part per image. Used by user-message construction.
-func buildParts(text string, images []attempt.Image) []contentPart {
-	parts := make([]contentPart, 0, 1+len(images))
+// one inlineData part per image. Used by user-message construction. It returns
+// an error if an image cannot be resolved to base64 (e.g. an unreadable Path).
+func buildParts(text string, images []attempt.Image) ([]googleai.ContentPart, error) {
+	parts := make([]googleai.ContentPart, 0, 1+len(images))
 	if text != "" {
-		parts = append(parts, contentPart{Text: text})
+		parts = append(parts, googleai.ContentPart{Text: text})
 	}
 	for _, img := range images {
-		parts = append(parts, contentPart{
-			InlineData: &inlineData{
+		data, err := img.ToBase64()
+		if err != nil {
+			return nil, fmt.Errorf("gemini: encode image: %w", err)
+		}
+		parts = append(parts, googleai.ContentPart{
+			InlineData: &googleai.InlineData{
 				MimeType: img.MimeType,
-				Data:     img.ToBase64(),
+				Data:     data,
 			},
 		})
 	}
-	return parts
-}
-
-func (g *Gemini) handleError(statusCode int, body []byte) error {
-	var errResp errorResponse
-	if err := json.Unmarshal(body, &errResp); err != nil {
-		return fmt.Errorf("gemini: HTTP %d: %s", statusCode, string(body))
-	}
-	errCode := errResp.Error.Code
-	errMsg := errResp.Error.Message
-	errStatus := errResp.Error.Status
-
-	switch statusCode {
-	case http.StatusTooManyRequests:
-		return fmt.Errorf("gemini: rate limit exceeded: %s", errMsg)
-	case http.StatusBadRequest:
-		return fmt.Errorf("gemini: bad request (%s): %s", errStatus, errMsg)
-	case http.StatusUnauthorized:
-		return fmt.Errorf("gemini: authentication error: %s", errMsg)
-	case http.StatusForbidden:
-		return fmt.Errorf("gemini: permission denied: %s", errMsg)
-	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-		return fmt.Errorf("gemini: server error (%d): %s", statusCode, errMsg)
-	default:
-		return fmt.Errorf("gemini: API error (%d, %s): %s", errCode, errStatus, errMsg)
-	}
+	return parts, nil
 }
 
 func (g *Gemini) ClearHistory() {}

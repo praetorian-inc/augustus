@@ -77,22 +77,30 @@ func buildContent(msg *attempt.Message) (json.RawMessage, error) {
 		})
 	}
 	for _, img := range msg.Images {
+		data, err := img.ToBase64()
+		if err != nil {
+			return nil, fmt.Errorf("anthropic: encode image: %w", err)
+		}
 		blocks = append(blocks, map[string]any{
 			"type": "image",
 			"source": map[string]any{
 				"type":       "base64",
 				"media_type": img.MimeType,
-				"data":       img.ToBase64(),
+				"data":       data,
 			},
 		})
 	}
 	for _, doc := range msg.Documents {
+		data, err := doc.ToBase64()
+		if err != nil {
+			return nil, fmt.Errorf("anthropic: encode document: %w", err)
+		}
 		blocks = append(blocks, map[string]any{
 			"type": "document",
 			"source": map[string]any{
 				"type":       "base64",
 				"media_type": doc.MimeType,
-				"data":       doc.ToBase64(),
+				"data":       data,
 			},
 		})
 	}
