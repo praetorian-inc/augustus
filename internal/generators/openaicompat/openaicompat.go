@@ -20,46 +20,46 @@ import (
 // ChatModels is the set of models that use the chat completions API.
 // This is shared between the openai and azure generators.
 var ChatModels = map[string]bool{
-	"chatgpt-4o-latest":               true,
-	"gpt-3.5-turbo":                   true,
-	"gpt-3.5-turbo-0125":              true,
-	"gpt-3.5-turbo-1106":              true,
-	"gpt-3.5-turbo-16k":               true,
-	"gpt-4":                           true,
-	"gpt-4-0125-preview":              true,
-	"gpt-4-0314":                      true,
-	"gpt-4-0613":                      true,
-	"gpt-4-1106-preview":              true,
-	"gpt-4-1106-vision-preview":       true,
-	"gpt-4-32k":                       true,
-	"gpt-4-32k-0314":                  true,
-	"gpt-4-32k-0613":                  true,
-	"gpt-4-turbo":                     true,
-	"gpt-4-turbo-2024-04-09":          true,
-	"gpt-4-turbo-preview":             true,
-	"gpt-4-vision-preview":            true,
-	"gpt-4o":                          true,
-	"gpt-4o-2024-05-13":               true,
-	"gpt-4o-2024-08-06":               true,
-	"gpt-4o-2024-11-20":               true,
-	"gpt-4o-audio-preview":            true,
-	"gpt-4o-audio-preview-2024-12-17": true,
-	"gpt-4o-audio-preview-2024-10-01": true,
-	"gpt-4o-mini":                     true,
-	"gpt-4o-mini-2024-07-18":          true,
-	"gpt-4o-mini-audio-preview":                   true,
-	"gpt-4o-mini-audio-preview-2024-12-17":        true,
-	"gpt-4o-mini-realtime-preview":                true,
-	"gpt-4o-mini-realtime-preview-2024-12-17":     true,
-	"gpt-4o-realtime-preview":                     true,
-	"gpt-4o-realtime-preview-2024-12-17":          true,
-	"gpt-4o-realtime-preview-2024-10-01":          true,
-	"o1-mini":              true,
-	"o1-mini-2024-09-12":   true,
-	"o1-preview":           true,
-	"o1-preview-2024-09-12": true,
-	"o3-mini":              true,
-	"o3-mini-2025-01-31":   true,
+	"chatgpt-4o-latest":                       true,
+	"gpt-3.5-turbo":                           true,
+	"gpt-3.5-turbo-0125":                      true,
+	"gpt-3.5-turbo-1106":                      true,
+	"gpt-3.5-turbo-16k":                       true,
+	"gpt-4":                                   true,
+	"gpt-4-0125-preview":                      true,
+	"gpt-4-0314":                              true,
+	"gpt-4-0613":                              true,
+	"gpt-4-1106-preview":                      true,
+	"gpt-4-1106-vision-preview":               true,
+	"gpt-4-32k":                               true,
+	"gpt-4-32k-0314":                          true,
+	"gpt-4-32k-0613":                          true,
+	"gpt-4-turbo":                             true,
+	"gpt-4-turbo-2024-04-09":                  true,
+	"gpt-4-turbo-preview":                     true,
+	"gpt-4-vision-preview":                    true,
+	"gpt-4o":                                  true,
+	"gpt-4o-2024-05-13":                       true,
+	"gpt-4o-2024-08-06":                       true,
+	"gpt-4o-2024-11-20":                       true,
+	"gpt-4o-audio-preview":                    true,
+	"gpt-4o-audio-preview-2024-12-17":         true,
+	"gpt-4o-audio-preview-2024-10-01":         true,
+	"gpt-4o-mini":                             true,
+	"gpt-4o-mini-2024-07-18":                  true,
+	"gpt-4o-mini-audio-preview":               true,
+	"gpt-4o-mini-audio-preview-2024-12-17":    true,
+	"gpt-4o-mini-realtime-preview":            true,
+	"gpt-4o-mini-realtime-preview-2024-12-17": true,
+	"gpt-4o-realtime-preview":                 true,
+	"gpt-4o-realtime-preview-2024-12-17":      true,
+	"gpt-4o-realtime-preview-2024-10-01":      true,
+	"o1-mini":                                 true,
+	"o1-mini-2024-09-12":                      true,
+	"o1-preview":                              true,
+	"o1-preview-2024-09-12":                   true,
+	"o3-mini":                                 true,
+	"o3-mini-2025-01-31":                      true,
 }
 
 // CompletionModels is the set of models that use the legacy completions API.
@@ -104,6 +104,18 @@ func ConversationToMessages(conv *attempt.Conversation) []goopenai.ChatCompletio
 					},
 				})
 			}
+			// NOTE: turn.Prompt.Audio is intentionally NOT emitted here.
+			// OpenAI's gpt-4o-audio-preview accepts {"type":"input_audio",
+			// "input_audio":{"data","format"}} content parts, and we already
+			// ship the spec-correct wire-format helpers in audio.go
+			// (AudioContentPart, InputAudioPayload, AudioFormatFromMime).
+			// However, the go-openai SDK (sashabaranov/go-openai v1.41.2)
+			// does not model input_audio in its typed ChatMessagePart struct
+			// (only Text + ImageURL slots), so emitting audio here would
+			// require a custom-HTTP path bypassing the SDK message builder.
+			// That integration is tracked under LAB-2367 (Audio probes);
+			// the helpers exist now so the probe ticket has correct
+			// scaffolding ready when it's picked up.
 			messages = append(messages, goopenai.ChatCompletionMessage{
 				Role:         goopenai.ChatMessageRoleUser,
 				MultiContent: parts,
