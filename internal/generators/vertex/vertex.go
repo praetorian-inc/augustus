@@ -178,7 +178,8 @@ func (g *Vertex) generateOne(ctx context.Context, conv *attempt.Conversation) (a
 	}
 
 	// Build URL
-	url := fmt.Sprintf("%s/projects/%s/locations/%s/publishers/google/models/%s:generateContent",
+	url := fmt.Sprintf(
+		"%s/projects/%s/locations/%s/publishers/google/models/%s:generateContent",
 		strings.TrimSuffix(g.baseURL, "/"),
 		g.projectID,
 		g.location,

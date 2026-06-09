@@ -5,8 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	goopenai "github.com/sashabaranov/go-openai"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
 )
 
 func TestConversationToMessages_TextOnly(t *testing.T) {

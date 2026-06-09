@@ -160,7 +160,8 @@ func (g *Gemini) generateOne(ctx context.Context, conv *attempt.Conversation) (a
 	// Build URL: {baseURL}/models/{model}:generateContent
 	// The API key is sent via the x-goog-api-key header rather than a ?key=
 	// query parameter so it cannot leak into net/url error strings or logs.
-	endpoint := fmt.Sprintf("%s/models/%s:generateContent",
+	endpoint := fmt.Sprintf(
+		"%s/models/%s:generateContent",
 		strings.TrimSuffix(g.baseURL, "/"),
 		g.model,
 	)

@@ -13,9 +13,10 @@ import (
 	"os"
 	"time"
 
+	goopenai "github.com/sashabaranov/go-openai"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	goopenai "github.com/sashabaranov/go-openai"
 )
 
 // ChatModels is the set of models that use the chat completions API.

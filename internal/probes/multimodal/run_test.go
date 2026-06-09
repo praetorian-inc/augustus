@@ -5,9 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
 )
 
 // mockGenerator implements types.Generator for testing RunMultimodalPrompts.

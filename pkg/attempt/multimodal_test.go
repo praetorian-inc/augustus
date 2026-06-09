@@ -48,7 +48,7 @@ func TestImage_ToBase64_WithPathField(t *testing.T) {
 	tmp := t.TempDir()
 	fpath := filepath.Join(tmp, "test.png")
 	content := []byte("fakepngdata")
-	require.NoError(t, os.WriteFile(fpath, content, 0644))
+	require.NoError(t, os.WriteFile(fpath, content, 0o644))
 
 	img := &Image{
 		MimeType: "image/png",
@@ -98,7 +98,7 @@ func TestAudio_ToBase64_AllSources(t *testing.T) {
 		tmp := t.TempDir()
 		fpath := filepath.Join(tmp, "test.wav")
 		content := []byte("riff-fake")
-		require.NoError(t, os.WriteFile(fpath, content, 0644))
+		require.NoError(t, os.WriteFile(fpath, content, 0o644))
 		a := &Audio{MimeType: "audio/wav", Path: fpath}
 		got, err := a.ToBase64()
 		require.NoError(t, err)
@@ -136,7 +136,7 @@ func TestDocument_ToBase64_AllSources(t *testing.T) {
 		tmp := t.TempDir()
 		fpath := filepath.Join(tmp, "test.pdf")
 		content := []byte("%PDF-fake")
-		require.NoError(t, os.WriteFile(fpath, content, 0644))
+		require.NoError(t, os.WriteFile(fpath, content, 0o644))
 		d := &Document{MimeType: "application/pdf", Path: fpath}
 		got, err := d.ToBase64()
 		require.NoError(t, err)
