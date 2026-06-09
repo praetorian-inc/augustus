@@ -44,14 +44,37 @@ func TestNovaImageFormat(t *testing.T) {
 		"image/jpg":  "jpeg",
 		"image/gif":  "gif",
 		"image/webp": "webp",
-		"image/heic": "png", // unknown → default
-		"":           "png", // empty → default
+		"image/heic": "", // unknown → empty (caller skips)
+		"":           "", // empty → empty (caller skips)
 	}
 	for in, want := range cases {
 		t.Run(in, func(t *testing.T) {
 			assert.Equal(t, want, novaImageFormat(in))
 		})
 	}
+}
+
+// TestBuildNovaContent_SkipsUnsupportedImageMIME verifies that images with
+// MIME types Nova doesn't accept are dropped rather than relabeled.
+func TestBuildNovaContent_SkipsUnsupportedImageMIME(t *testing.T) {
+	msg := &attempt.Message{
+		Role:    attempt.RoleUser,
+		Content: "what is this?",
+		Images: []attempt.Image{
+			{Data: []byte{0x01}, MimeType: "image/png"},  // kept
+			{Data: []byte{0x02}, MimeType: "image/heic"}, // dropped
+			{Data: []byte{0x03}, MimeType: "image/jpeg"}, // kept
+		},
+	}
+	blocks := buildNovaContent(msg)
+	// text + 2 image blocks (heic dropped)
+	require.Len(t, blocks, 3)
+	assert.Equal(t, "what is this?", blocks[0].(map[string]any)["text"])
+	formats := []string{}
+	for _, b := range blocks[1:] {
+		formats = append(formats, b.(map[string]any)["image"].(map[string]any)["format"].(string))
+	}
+	assert.Equal(t, []string{"png", "jpeg"}, formats)
 }
 
 func TestBedrockGenerator_NovaSupported(t *testing.T) {

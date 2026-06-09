@@ -81,16 +81,24 @@ func (g *Bedrock) buildNovaRequest(conv *attempt.Conversation) ([]byte, error) {
 
 // buildNovaContent assembles a Nova content array from a Message: one
 // {text: ...} block (if non-empty), followed by one {image: {...}} block per
-// attached image. Documents and audio are not yet wired through Nova.
+// attached image. Images with unsupported MIME types are skipped rather than
+// misrepresented to the API (see novaImageFormat). Documents and audio are
+// not yet wired through Nova.
 func buildNovaContent(msg *attempt.Message) []any {
 	blocks := make([]any, 0, 1+len(msg.Images))
 	if msg.Content != "" {
 		blocks = append(blocks, map[string]any{"text": msg.Content})
 	}
 	for _, img := range msg.Images {
+		format := novaImageFormat(img.MimeType)
+		if format == "" {
+			// Skip rather than mislabel the bytes — Nova will decode
+			// based on the declared format and would error on mismatch.
+			continue
+		}
 		blocks = append(blocks, map[string]any{
 			"image": map[string]any{
-				"format": novaImageFormat(img.MimeType),
+				"format": format,
 				"source": map[string]any{
 					"bytes": img.ToBase64(),
 				},
@@ -101,10 +109,9 @@ func buildNovaContent(msg *attempt.Message) []any {
 }
 
 // novaImageFormat maps a standard image MIME type to Nova's "format" string.
-// Nova accepts: "png", "jpeg", "gif", "webp". Returns "png" as a safe default
-// for unrecognized types (most embedded probe assets are PNG anyway, and a
-// wrong-format string is rejected with a clear API error rather than corrupting
-// data silently).
+// Nova accepts: "png", "jpeg", "gif", "webp". Returns "" for unrecognized
+// types so callers can skip the image rather than misrepresent its format
+// (Nova decodes based on the declared format — a wrong label corrupts data).
 func novaImageFormat(mime string) string {
 	switch strings.ToLower(strings.TrimSpace(mime)) {
 	case "image/png":
@@ -116,7 +123,7 @@ func novaImageFormat(mime string) string {
 	case "image/webp":
 		return "webp"
 	default:
-		return "png"
+		return ""
 	}
 }
 

@@ -107,8 +107,11 @@ func NewGeminiWithOptions(opts ...Option) (*Gemini, error) {
 }
 
 // inlineData represents a base64-encoded media attachment in a Gemini part.
+// Field names are snake_case per the canonical Gemini REST spec
+// (https://ai.google.dev/api/generate-content). Proto3 JSON acceptance
+// allows camelCase too, but we emit the canonical form.
 type inlineData struct {
-	MimeType string `json:"mimeType"`
+	MimeType string `json:"mime_type"`
 	Data     string `json:"data"`
 }
 
@@ -116,7 +119,7 @@ type inlineData struct {
 // Exactly one of Text or InlineData is set per part.
 type contentPart struct {
 	Text       string      `json:"text,omitempty"`
-	InlineData *inlineData `json:"inlineData,omitempty"`
+	InlineData *inlineData `json:"inline_data,omitempty"`
 }
 
 // content represents a message turn in the contents array.

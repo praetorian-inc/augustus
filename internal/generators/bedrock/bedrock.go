@@ -176,6 +176,11 @@ func (g *Bedrock) generateOne(ctx context.Context, conv *attempt.Conversation) (
 		text, err = g.parseTitanResponse(output.Body)
 	} else if strings.HasPrefix(g.modelID, "meta.llama") {
 		text, err = g.parseLlamaResponse(output.Body)
+	} else {
+		// Symmetric with the build-side dispatch at line ~148. Adding a new
+		// model family requires updating BOTH dispatches; this guard makes
+		// the second omission a loud error instead of a silent empty response.
+		return attempt.Message{}, fmt.Errorf("bedrock: no response parser for model family: %s", g.modelID)
 	}
 
 	if err != nil {
