@@ -179,11 +179,8 @@ func (t *ProbeTemplate) validateStatic() error {
 		}
 	}
 	// Validate mode values if present.
-	validModes := map[string]bool{"native": true, "chat": true, "agent_loop": true}
-	for _, m := range t.Info.Mode {
-		if !validModes[m] {
-			return fmt.Errorf("template validation failed: invalid mode '%s' for template '%s' (valid: native, chat, agent_loop)", m, t.ID)
-		}
+	if err := t.validateMode(); err != nil {
+		return err
 	}
 	// Validate secondary_detectors entries.
 	if err := t.validateSecondaryDetectors(); err != nil {
@@ -234,9 +231,23 @@ func (t *ProbeTemplate) validateMultiTurn() error {
 		strings.TrimSpace(t.Strategy.Turn) == "" {
 		return fmt.Errorf("%w (template '%s')", ErrMissingStrategyPrompt, t.ID)
 	}
-	// secondary_detectors apply to multi-turn templates too (the probe runs them
-	// alongside the primary detector), so validate them the same way as static.
+	// mode and secondary_detectors apply to multi-turn templates too, so validate
+	// them the same way as static (CodeRabbit: don't skip mode validation here).
+	if err := t.validateMode(); err != nil {
+		return err
+	}
 	return t.validateSecondaryDetectors()
+}
+
+// validateMode checks info.mode values. Shared by static and multi-turn validation.
+func (t *ProbeTemplate) validateMode() error {
+	validModes := map[string]bool{"native": true, "chat": true, "agent_loop": true}
+	for _, m := range t.Info.Mode {
+		if !validModes[m] {
+			return fmt.Errorf("template validation failed: invalid mode '%s' for template '%s' (valid: native, chat, agent_loop)", m, t.ID)
+		}
+	}
+	return nil
 }
 
 // validateSecondaryDetectors checks info.secondary_detectors entries for empty

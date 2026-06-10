@@ -2,6 +2,7 @@ package runtimetemplates
 
 import (
 	"maps"
+	"strings"
 
 	"github.com/praetorian-inc/augustus/internal/multiturn"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -126,7 +127,9 @@ func secondaryDetectorsFromTemplate(tmpl *templates.ProbeTemplate) []types.Secon
 	}
 	out := make([]types.SecondaryDetector, len(tmpl.Info.SecondaryDetectors))
 	for i, s := range tmpl.Info.SecondaryDetectors {
-		out[i] = types.SecondaryDetector{Name: s.Name, Config: s.Config}
+		// Trim the name so it matches validateSecondaryDetectors()'s trimmed
+		// checks and resolves cleanly in the detector registry.
+		out[i] = types.SecondaryDetector{Name: strings.TrimSpace(s.Name), Config: s.Config}
 	}
 	return out
 }

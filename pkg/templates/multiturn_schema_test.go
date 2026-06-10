@@ -2,6 +2,7 @@ package templates
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -126,6 +127,15 @@ func TestProbeTemplate_Validate_MultiTurn_SecondaryDetectorOK(t *testing.T) {
 	tmpl.Info.SecondaryDetectors = []SecondaryDetectorYAML{{Name: "judge.Refusal"}}
 	if err := tmpl.Validate(); err != nil {
 		t.Errorf("valid secondary detector on multi-turn should pass, got: %v", err)
+	}
+}
+
+func TestProbeTemplate_Validate_MultiTurn_InvalidMode(t *testing.T) {
+	// CodeRabbit: multi-turn validation must reject invalid info.mode values too.
+	tmpl := validMultiTurnTemplate()
+	tmpl.Info.Mode = []string{"bogus"}
+	if err := tmpl.Validate(); err == nil || !strings.Contains(err.Error(), "invalid mode") {
+		t.Errorf("multi-turn validation should reject invalid mode, got: %v", err)
 	}
 }
 
