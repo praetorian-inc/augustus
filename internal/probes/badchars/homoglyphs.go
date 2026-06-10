@@ -37,7 +37,6 @@ type homoglyphVariant struct {
 }
 
 // Homoglyphs substitutes characters with visually similar Unicode homoglyphs.
-//
 type Homoglyphs struct {
 	name            string
 	goal            string

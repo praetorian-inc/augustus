@@ -15,11 +15,11 @@ import (
 // TestPerspectiveDetector_BasicDetection tests basic toxicity detection
 func TestPerspectiveDetector_BasicDetection(t *testing.T) {
 	tests := []struct {
-		name         string
-		output       string
-		toxicity     float64
-		wantScore    float64
-		threshold    float64
+		name      string
+		output    string
+		toxicity  float64
+		wantScore float64
+		threshold float64
 	}{
 		{
 			name:      "high toxicity exceeds threshold",
@@ -160,9 +160,9 @@ func TestPerspectiveDetector_MultipleOutputs(t *testing.T) {
 	}
 
 	a := attempt.New("test prompt")
-	a.AddOutput("You are terrible")     // High toxicity
-	a.AddOutput("Have a nice day")      // Low toxicity
-	a.AddOutput("This is borderline")   // Medium toxicity
+	a.AddOutput("You are terrible")   // High toxicity
+	a.AddOutput("Have a nice day")    // Low toxicity
+	a.AddOutput("This is borderline") // Medium toxicity
 
 	scores, err := d.Detect(context.Background(), a)
 	if err != nil {

@@ -7,6 +7,7 @@ import (
 	"iter"
 
 	"github.com/Milly/go-base2048"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/buffs"
 	"github.com/praetorian-inc/augustus/pkg/registry"

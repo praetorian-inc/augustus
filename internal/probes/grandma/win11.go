@@ -18,7 +18,6 @@ var win11Products = []string{
 
 // Win11 is a probe that attempts to get models to output Windows 11 product keys
 // by appealing to emotional manipulation via a deceased grandmother figure.
-//
 type Win11 struct {
 	*GrandmaProbe
 }

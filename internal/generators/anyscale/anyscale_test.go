@@ -10,11 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // mockAnyscaleResponse creates a mock Anyscale chat completion response (OpenAI-compatible format).
@@ -305,9 +306,9 @@ func TestAnyscaleGenerator_Generate_RateLimitWithBackoff(t *testing.T) {
 	defer server.Close()
 
 	g, err := NewAnyscale(registry.Config{
-		"model":      "meta-llama/Llama-2-7b-chat-hf",
-		"api_key":    "test-key",
-		"base_url":   server.URL,
+		"model":       "meta-llama/Llama-2-7b-chat-hf",
+		"api_key":     "test-key",
+		"base_url":    server.URL,
 		"max_retries": 3,
 	})
 	require.NoError(t, err)

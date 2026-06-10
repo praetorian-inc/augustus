@@ -277,10 +277,18 @@ func TestJitterVariation(t *testing.T) {
 	// Base delays: 50ms, 100ms, 200ms
 	baseDelays := []time.Duration{50 * time.Millisecond, 100 * time.Millisecond, 200 * time.Millisecond}
 
+	// delays are measured wall-clock intervals, which include OS scheduling
+	// overhead on top of the slept duration. The lower bound is exact (Sleep
+	// never returns early), but the upper bound needs a tolerance so scheduling
+	// jitter on a loaded CI runner does not fail the test (e.g. 300.45ms vs a
+	// 300ms cap). The tolerance is small relative to the jitter window, so a
+	// genuine jitter bug (delays well outside [0.5x, 1.5x]) is still caught.
+	const schedulingTolerance = 50 * time.Millisecond
+
 	for i, base := range baseDelays {
 		actual := delays[i]
 		min := time.Duration(float64(base) * 0.5)
-		max := time.Duration(float64(base) * 1.5)
+		max := time.Duration(float64(base)*1.5) + schedulingTolerance
 
 		if actual < min || actual > max {
 			t.Errorf("delay[%d] with 50%% jitter: expected range [%v, %v], got %v", i, min, max, actual)

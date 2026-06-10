@@ -34,8 +34,8 @@ func NewDetector(cfg registry.Config) (detectors.Detector, error) {
 	// Create StringDetector config using shared mitigation strings
 	stringCfg := registry.Config{
 		"substrings":     base.MitigationStrings,
-		"matchtype":      "str",   // substring matching
-		"case_sensitive": false,   // case-insensitive (default)
+		"matchtype":      "str", // substring matching
+		"case_sensitive": false, // case-insensitive (default)
 	}
 
 	// Create inner StringDetector

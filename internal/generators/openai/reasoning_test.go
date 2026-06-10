@@ -5,10 +5,11 @@ import (
 	"os"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 func TestNewOpenAIReasoning(t *testing.T) {
@@ -18,13 +19,13 @@ func TestNewOpenAIReasoning(t *testing.T) {
 	}
 
 	cfg := ReasoningConfig{
-		Model:                 "o1-mini",
-		APIKey:                os.Getenv("OPENAI_API_KEY"),
-		MaxCompletionTokens:   1500,
-		TopP:                  1.0,
-		FrequencyPenalty:      0.0,
-		PresencePenalty:       0.0,
-		Stop:                  []string{"#", ";"},
+		Model:               "o1-mini",
+		APIKey:              os.Getenv("OPENAI_API_KEY"),
+		MaxCompletionTokens: 1500,
+		TopP:                1.0,
+		FrequencyPenalty:    0.0,
+		PresencePenalty:     0.0,
+		Stop:                []string{"#", ";"},
 	}
 
 	gen, err := NewOpenAIReasoningTyped(cfg)
@@ -39,7 +40,7 @@ func TestNewOpenAIReasoningFromConfig(t *testing.T) {
 	}
 
 	cfgMap := registry.Config{
-		"model":  "o1-mini",
+		"model":   "o1-mini",
 		"api_key": os.Getenv("OPENAI_API_KEY"),
 	}
 
@@ -54,9 +55,9 @@ func TestOpenAIReasoning_Generate(t *testing.T) {
 	}
 
 	cfg := ReasoningConfig{
-		Model:                 "o1-mini",
-		APIKey:                os.Getenv("OPENAI_API_KEY"),
-		MaxCompletionTokens:   100,
+		Model:               "o1-mini",
+		APIKey:              os.Getenv("OPENAI_API_KEY"),
+		MaxCompletionTokens: 100,
 	}
 
 	gen, err := NewOpenAIReasoningTyped(cfg)
@@ -131,11 +132,11 @@ func TestReasoningConfigFromMap_Defaults(t *testing.T) {
 
 func TestReasoningConfigFromMap_CustomValues(t *testing.T) {
 	cfgMap := registry.Config{
-		"model":                  "o1-preview",
-		"api_key":                "test-key",
-		"max_completion_tokens":  2000,
-		"top_p":                  0.9,
-		"stop":                   []any{"STOP"},
+		"model":                 "o1-preview",
+		"api_key":               "test-key",
+		"max_completion_tokens": 2000,
+		"top_p":                 0.9,
+		"stop":                  []any{"STOP"},
 	}
 
 	cfg, err := ReasoningConfigFromMap(cfgMap)

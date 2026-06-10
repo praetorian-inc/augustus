@@ -5,9 +5,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 func TestOllamaConfigDefaults(t *testing.T) {

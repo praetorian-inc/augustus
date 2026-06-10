@@ -50,6 +50,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/tap"
 	_ "github.com/praetorian-inc/augustus/internal/probes/test"
 	_ "github.com/praetorian-inc/augustus/internal/probes/toolcoercion"
+	_ "github.com/praetorian-inc/augustus/internal/probes/tooluse"
 	_ "github.com/praetorian-inc/augustus/internal/probes/treesearch"
 	_ "github.com/praetorian-inc/augustus/internal/probes/webinjection"
 )

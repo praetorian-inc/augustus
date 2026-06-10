@@ -11,12 +11,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/hooks"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestRestGenerator_Name(t *testing.T) {
@@ -307,8 +308,8 @@ func TestRestGenerator_Generate_Headers(t *testing.T) {
 
 func TestRestGenerator_Generate_HTTPMethods(t *testing.T) {
 	tests := []struct {
-		method       string
-		wantMethod   string
+		method     string
+		wantMethod string
 	}{
 		{"get", "GET"},
 		{"GET", "GET"},
@@ -1759,6 +1760,75 @@ func TestRestGenerator_SSEConfigurable_MissingTextField(t *testing.T) {
 	}
 }
 
+func TestRestGenerator_SSEDefault_PlainJSONStrings(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: started\n"))
+		_, _ = w.Write([]byte("data: \"Hello \"\n\n"))
+		_, _ = w.Write([]byte("event: chunk\n"))
+		_, _ = w.Write([]byte("data: \"World!\"\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri": server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if len(responses) != 1 {
+		t.Fatalf("Generate() returned %d responses, want 1", len(responses))
+	}
+
+	expected := "Hello World!"
+	if responses[0].Content != expected {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
+	}
+}
+
+func TestRestGenerator_SSEDefault_MixedObjectsAndStrings(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"delta\":{\"text\":\"From object\"}}\n\n"))
+		_, _ = w.Write([]byte("data: \"From string\"\n\n"))
+		_, _ = w.Write([]byte("data: {\"text\":\"Direct\"}\n\n"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri": server.URL,
+	})
+	if err != nil {
+		t.Fatalf("NewRest() error = %v", err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	if err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	if len(responses) != 1 {
+		t.Fatalf("Generate() returned %d responses, want 1", len(responses))
+	}
+
+	expected := "From objectFrom stringDirect"
+	if responses[0].Content != expected {
+		t.Errorf("Generate() content = %q, want %q", responses[0].Content, expected)
+	}
+}
+
 func TestRestGeneratorHookVarSubstitution(t *testing.T) {
 	// Create a test server that echoes the request body back
 	var receivedBody string
@@ -2097,4 +2167,3 @@ func TestConversationToJSON(t *testing.T) {
 		assert.Equal(t, "user", msgs[3].Role)
 	})
 }
-

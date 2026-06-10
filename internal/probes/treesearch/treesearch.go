@@ -9,7 +9,6 @@
 //
 // This is used for iterative jailbreak attacks where each response
 // informs which branches of the attack tree to explore.
-//
 package treesearch
 
 import (

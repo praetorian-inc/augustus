@@ -29,9 +29,9 @@ func TestPassDetector_Description(t *testing.T) {
 
 func TestPassDetector_Detect(t *testing.T) {
 	tests := []struct {
-		name        string
-		outputs     []string
-		wantScores  []float64
+		name          string
+		outputs       []string
+		wantScores    []float64
 		wantNumScores int
 	}{
 		{

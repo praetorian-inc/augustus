@@ -38,7 +38,6 @@ func init() {
 
 // Fast is a CPU-friendly paraphrase buff based on Humarin's T5 paraphraser.
 // It generates 5 paraphrased variants using diversity beam search.
-//
 type Fast struct {
 	// Model is the HuggingFace model name.
 	Model string
@@ -204,13 +203,13 @@ func (f *Fast) getParaphrases(text string) ([]string, error) {
 	payload := map[string]any{
 		"inputs": input,
 		"parameters": map[string]any{
-			"max_length":            f.MaxLength,
-			"num_return_sequences":  f.NumReturnSequences,
-			"num_beams":             f.NumBeams,
-			"num_beam_groups":       f.NumBeamGroups,
-			"repetition_penalty":    f.RepetitionPenalty,
-			"diversity_penalty":     f.DiversityPenalty,
-			"no_repeat_ngram_size":  f.NoRepeatNgramSize,
+			"max_length":           f.MaxLength,
+			"num_return_sequences": f.NumReturnSequences,
+			"num_beams":            f.NumBeams,
+			"num_beam_groups":      f.NumBeamGroups,
+			"repetition_penalty":   f.RepetitionPenalty,
+			"diversity_penalty":    f.DiversityPenalty,
+			"no_repeat_ngram_size": f.NoRepeatNgramSize,
 		},
 	}
 

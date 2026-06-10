@@ -211,7 +211,6 @@ func TestArtPromptsProbe_Execution(t *testing.T) {
 
 	ctx := context.Background()
 	attempts, err := probe.Probe(ctx, gen)
-
 	if err != nil {
 		t.Fatalf("Probe execution failed: %v", err)
 	}

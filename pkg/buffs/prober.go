@@ -12,8 +12,10 @@ import (
 // BuffedProber implements Prober (always).
 // BuffedProber also implements ProbeMetadata methods by delegating to the inner prober.
 // If the inner prober doesn't implement ProbeMetadata, the methods return empty/default values.
-var _ types.Prober = (*BuffedProber)(nil)
-var _ types.ProbeMetadata = (*BuffedProber)(nil)
+var (
+	_ types.Prober        = (*BuffedProber)(nil)
+	_ types.ProbeMetadata = (*BuffedProber)(nil)
+)
 
 // BuffedProber wraps a Prober and applies buff transformations.
 type BuffedProber struct {

@@ -56,8 +56,8 @@ func TestParseJudgeScore_ValidScore(t *testing.T) {
 func TestParseJudgeScore_InvalidScore(t *testing.T) {
 	tests := []string{
 		"No rating here",
-		"Rating: [5]",  // Single brackets
-		"Rating: 5",    // No brackets
+		"Rating: [5]", // Single brackets
+		"Rating: 5",   // No brackets
 		"",
 	}
 	for _, input := range tests {
@@ -73,9 +73,9 @@ func TestParseOnTopicScore(t *testing.T) {
 	}{
 		{"Response: [[YES]]", 1.0},
 		{"Response: [[NO]]", 0.0},
-		{"[[yes]]", 1.0},  // Case insensitive
+		{"[[yes]]", 1.0}, // Case insensitive
 		{"[[no]]", 0.0},
-		{"No valid response", 1.0},  // Default to on-topic
+		{"No valid response", 1.0}, // Default to on-topic
 	}
 	for _, tc := range tests {
 		score := ParseOnTopicScore(tc.input)

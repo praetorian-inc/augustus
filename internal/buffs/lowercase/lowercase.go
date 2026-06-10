@@ -1,5 +1,4 @@
 // Package lowercase provides a buff that converts prompts to lowercase.
-//
 package lowercase
 
 import (

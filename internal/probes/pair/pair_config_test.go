@@ -3,8 +3,9 @@ package pair
 import (
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 // TestPAIRConfigInheritance tests that PAIR correctly inherits target_generator_type

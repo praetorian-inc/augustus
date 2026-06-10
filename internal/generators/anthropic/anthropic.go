@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/praetorian-inc/augustus/internal/attackengine"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -30,11 +31,11 @@ func init() {
 
 // Default configuration values matching litellm patterns.
 const (
-	defaultMaxTokens      = 150
-	defaultTemperature    = 0.7
-	defaultAPIVersion     = "2023-06-01"
-	defaultBaseURL        = "https://api.anthropic.com/v1"
-	defaultTimeout        = 90 * time.Second
+	defaultMaxTokens   = 150
+	defaultTemperature = 0.7
+	defaultAPIVersion  = "2023-06-01"
+	defaultBaseURL     = "https://api.anthropic.com/v1"
+	defaultTimeout     = 90 * time.Second
 )
 
 // Anthropic is a generator that wraps the Anthropic Messages API.
@@ -109,37 +110,60 @@ func NewAnthropicWithOptions(opts ...Option) (*Anthropic, error) {
 
 // messageRequest represents the Anthropic Messages API request format.
 type messageRequest struct {
-	Model         string            `json:"model"`
-	MaxTokens     int               `json:"max_tokens"`
-	Messages      []anthropicMsg    `json:"messages"`
-	System        string            `json:"system,omitempty"`
-	Temperature   float64           `json:"temperature,omitempty"`
-	TopP          float64           `json:"top_p,omitempty"`
-	TopK          int               `json:"top_k,omitempty"`
-	StopSequences []string          `json:"stop_sequences,omitempty"`
+	Model         string               `json:"model"`
+	MaxTokens     int                  `json:"max_tokens"`
+	Messages      []anthropicMsg       `json:"messages"`
+	System        string               `json:"system,omitempty"`
+	Temperature   float64              `json:"temperature,omitempty"`
+	TopP          float64              `json:"top_p,omitempty"`
+	TopK          int                  `json:"top_k,omitempty"`
+	StopSequences []string             `json:"stop_sequences,omitempty"`
+	Tools         []anthropicTool      `json:"tools,omitempty"`
+	ToolChoice    *anthropicToolChoice `json:"tool_choice,omitempty"`
 }
 
 // anthropicMsg represents a message in the Anthropic format.
+// Content is any to support both plain string and structured content blocks
+// (required for assistant tool_use and user tool_result messages).
 type anthropicMsg struct {
 	Role    string `json:"role"`
-	Content string `json:"content"`
+	Content any    `json:"content"`
+}
+
+// anthropicTool is the Anthropic API tool definition format.
+type anthropicTool struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	InputSchema map[string]any `json:"input_schema"`
+}
+
+// anthropicToolChoice controls how Claude selects tools.
+type anthropicToolChoice struct {
+	Type string `json:"type"`           // "auto", "any", or "tool"
+	Name string `json:"name,omitempty"` // only when type="tool"
 }
 
 // messageResponse represents the Anthropic Messages API response format.
 type messageResponse struct {
-	ID           string           `json:"id"`
-	Type         string           `json:"type"`
-	Role         string           `json:"role"`
-	Content      []contentBlock   `json:"content"`
-	StopReason   string           `json:"stop_reason"`
-	StopSequence *string          `json:"stop_sequence"`
-	Usage        usageStats       `json:"usage"`
+	ID           string         `json:"id"`
+	Type         string         `json:"type"`
+	Role         string         `json:"role"`
+	Content      []contentBlock `json:"content"`
+	StopReason   string         `json:"stop_reason"`
+	StopSequence *string        `json:"stop_sequence"`
+	Usage        usageStats     `json:"usage"`
 }
 
 // contentBlock represents a content block in the response.
+// For text blocks, Type is "text" and Text carries the content.
+// For tool_use blocks, Type is "tool_use", Name is the function name,
+// Input is the arguments object, and ID is the tool call identifier.
 type contentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type  string          `json:"type"`
+	Text  string          `json:"text"`
+	Name  string          `json:"name"`
+	Input json.RawMessage `json:"input"`
+	ID    string          `json:"id"`
 }
 
 // usageStats represents token usage statistics.
@@ -207,6 +231,43 @@ func (g *Anthropic) generateOne(ctx context.Context, conv *attempt.Conversation)
 		req.StopSequences = g.stopSequences
 	}
 
+	// Wire tool definitions from probe into the API request.
+	if len(conv.Tools) > 0 {
+		req.Tools = make([]anthropicTool, len(conv.Tools))
+		for i, t := range conv.Tools {
+			name, ok := t["name"].(string)
+			if !ok || name == "" {
+				return attempt.Message{}, fmt.Errorf("anthropic: tool at index %d missing valid string name", i)
+			}
+			at := anthropicTool{
+				Name: name,
+			}
+			if desc, ok := t["description"].(string); ok {
+				at.Description = desc
+			}
+			if params, ok := t["parameters"].(map[string]any); ok {
+				at.InputSchema = params
+			} else {
+				at.InputSchema = map[string]any{"type": "object"}
+			}
+			req.Tools[i] = at
+		}
+		if conv.ToolChoice != "" {
+			switch conv.ToolChoice {
+			case "auto":
+				req.ToolChoice = &anthropicToolChoice{Type: "auto"}
+			case "required":
+				req.ToolChoice = &anthropicToolChoice{Type: "any"}
+			case "none":
+				// Anthropic doesn't have "none" — omit tools instead.
+				req.Tools = nil
+				req.ToolChoice = nil
+			default:
+				req.ToolChoice = &anthropicToolChoice{Type: "tool", Name: conv.ToolChoice}
+			}
+		}
+	}
+
 	// Serialize request
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -249,15 +310,28 @@ func (g *Anthropic) generateOne(ctx context.Context, conv *attempt.Conversation)
 		return attempt.Message{}, fmt.Errorf("anthropic: failed to parse response: %w", err)
 	}
 
-	// Extract text from content blocks
+	// Extract text and tool_use blocks from content.
 	var text string
+	toolUseBlocks := make([]attackengine.AnthropicToolUseBlock, 0, len(resp.Content))
 	for _, block := range resp.Content {
-		if block.Type == "text" {
+		switch block.Type {
+		case "text":
 			text += block.Text
+		case "tool_use":
+			toolUseBlocks = append(toolUseBlocks, attackengine.AnthropicToolUseBlock{
+				Type:  block.Type,
+				ID:    block.ID,
+				Name:  block.Name,
+				Input: block.Input,
+			})
 		}
 	}
 
-	return attempt.NewAssistantMessage(text), nil
+	msg := attempt.NewAssistantMessage(text)
+	if toolCalls := attackengine.NormalizeAnthropicToolUseBlocks(toolUseBlocks); toolCalls != nil {
+		msg.ToolCalls = toolCalls
+	}
+	return msg, nil
 }
 
 // conversationToMessages converts an Augustus Conversation to Anthropic messages.
@@ -268,19 +342,77 @@ func (g *Anthropic) conversationToMessages(conv *attempt.Conversation) []anthrop
 	// Note: System message is NOT included in messages array for Anthropic
 	// It's passed as a separate parameter
 
-	for _, turn := range conv.Turns {
-		// Add user message
-		messages = append(messages, anthropicMsg{
-			Role:    "user",
-			Content: turn.Prompt.Content,
-		})
-
-		// Add assistant response if present
-		if turn.Response != nil {
+	for i, turn := range conv.Turns {
+		switch turn.Prompt.Role {
+		case attempt.RoleTool:
+			// Coalesce consecutive RoleTool turns into a single user message.
+			// Anthropic rejects consecutive same-role messages (HTTP 400) and
+			// requires all tool_result blocks for one assistant turn to be sent
+			// in a single user message. RunTwoTurnPrompts adds a separate
+			// RoleTool turn per tool call, so we must merge them here.
+			//
+			// Only emit a new user message when this is the FIRST RoleTool in a
+			// consecutive run; subsequent ones append to the last message.
+			block := map[string]any{
+				"type":        "tool_result",
+				"tool_use_id": turn.Prompt.ToolCallID,
+				"content":     turn.Prompt.Content,
+			}
+			if i > 0 && conv.Turns[i-1].Prompt.Role == attempt.RoleTool {
+				// Append to the existing last user message (guaranteed to be tool_result).
+				last := &messages[len(messages)-1]
+				blocks, _ := last.Content.([]any)
+				last.Content = append(blocks, block)
+			} else {
+				messages = append(messages, anthropicMsg{
+					Role:    "user",
+					Content: []any{block},
+				})
+			}
+		default:
 			messages = append(messages, anthropicMsg{
-				Role:    "assistant",
-				Content: turn.Response.Content,
+				Role:    "user",
+				Content: turn.Prompt.Content,
 			})
+		}
+
+		if turn.Response != nil {
+			if len(turn.Response.ToolCalls) > 0 {
+				// Assistant with tool_use blocks: structured content.
+				content := make([]any, 0)
+				if turn.Response.Content != "" {
+					content = append(content, map[string]any{
+						"type": "text",
+						"text": turn.Response.Content,
+					})
+				}
+				for _, tc := range turn.Response.ToolCalls {
+					name, _ := tc["name"].(string)
+					id, _ := tc["id"].(string)
+					if id == "" {
+						id = "toolu_" + name
+					}
+					args, _ := tc["args"].(map[string]any)
+					if args == nil {
+						args = map[string]any{}
+					}
+					content = append(content, map[string]any{
+						"type":  "tool_use",
+						"id":    id,
+						"name":  name,
+						"input": args,
+					})
+				}
+				messages = append(messages, anthropicMsg{
+					Role:    "assistant",
+					Content: content,
+				})
+			} else {
+				messages = append(messages, anthropicMsg{
+					Role:    "assistant",
+					Content: turn.Response.Content,
+				})
+			}
 		}
 	}
 

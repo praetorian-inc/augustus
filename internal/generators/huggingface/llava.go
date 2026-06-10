@@ -2,7 +2,6 @@
 //
 // This package implements the Generator interface for HuggingFace's hosted
 // inference endpoints, including LLaVA vision-language models.
-//
 package huggingface
 
 import (

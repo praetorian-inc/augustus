@@ -6,10 +6,11 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 // mockTranslator implements the Translator interface for testing.
@@ -28,13 +29,13 @@ func newMockTranslator() *mockTranslator {
 			"SK": {"Hello, how are you?": "Ahoj, ako sa máš?"},
 			"SL": {"Hello, how are you?": "Zdravo, kako si?"},
 			"EN-US": {
-				"Tere, kuidas läheb?":      "Hello, how are you?",
-				"Halo, apa kabar?":         "Hello, how are you?",
-				"Sveiki, kā jums klājas?":  "Hello, how are you?",
-				"Ahoj, ako sa máš?":        "Hello, how are you?",
-				"Zdravo, kako si?":         "Hello, how are you?",
-				"Vastus eesti keeles":      "Response in Estonian",
-				"Jawaban dalam bahasa":     "Response in Indonesian",
+				"Tere, kuidas läheb?":     "Hello, how are you?",
+				"Halo, apa kabar?":        "Hello, how are you?",
+				"Sveiki, kā jums klājas?": "Hello, how are you?",
+				"Ahoj, ako sa máš?":       "Hello, how are you?",
+				"Zdravo, kako si?":        "Hello, how are you?",
+				"Vastus eesti keeles":     "Response in Estonian",
+				"Jawaban dalam bahasa":    "Response in Indonesian",
 			},
 		},
 	}

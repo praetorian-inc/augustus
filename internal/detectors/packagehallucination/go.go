@@ -82,9 +82,11 @@ var goStdlib = map[string]bool{
 }
 
 // Regex to match Go import statements
-var goImportPattern = regexp.MustCompile(`import\s+"([^"]+)"`)
-var goImportBlockPattern = regexp.MustCompile(`import\s+\(\s*([^)]+)\s*\)`)
-var goImportLinePattern = regexp.MustCompile(`"([^"]+)"`)
+var (
+	goImportPattern      = regexp.MustCompile(`import\s+"([^"]+)"`)
+	goImportBlockPattern = regexp.MustCompile(`import\s+\(\s*([^)]+)\s*\)`)
+	goImportLinePattern  = regexp.MustCompile(`"([^"]+)"`)
+)
 
 // NewGo creates a new Go detector.
 func NewGo(cfg registry.Config) (detectors.Detector, error) {

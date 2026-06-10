@@ -23,10 +23,19 @@ var (
 	// ErrEmptyPrompts is returned when template validation fails due to empty prompts array.
 	ErrEmptyPrompts = errors.New("template validation failed: 'prompts' cannot be empty")
 
+	// ErrEmptySecondaryDetectorName is returned when a secondary_detectors entry has an empty name.
+	ErrEmptySecondaryDetectorName = errors.New("template validation failed: secondary_detectors entry must have a non-empty name")
+
+	// ErrDuplicateSecondaryDetectorName is returned when secondary_detectors contains duplicate names.
+	ErrDuplicateSecondaryDetectorName = errors.New("template validation failed: secondary_detectors contains duplicate name")
+
+	// ErrSecondaryDetectorSelfReference is returned when a secondary detector name equals the primary.
+	ErrSecondaryDetectorSelfReference = errors.New("template validation failed: secondary_detectors entry name must not equal the primary detector")
+
 	// Classification validation regexes compiled once at package init
-	cwePattern    = regexp.MustCompile(`^CWE-\d+$`)
-	mitrePattern  = regexp.MustCompile(`^(T\d{4}(\.\d{3})?|AML\.T\d{4}(\.\d{3})?)$`)
-	owaspPattern  = regexp.MustCompile(`^A\d{2}:\d{4}$`)
+	cwePattern   = regexp.MustCompile(`^CWE-\d+$`)
+	mitrePattern = regexp.MustCompile(`^(T\d{4}(\.\d{3})?|AML\.T\d{4}(\.\d{3})?)$`)
+	owaspPattern = regexp.MustCompile(`^A\d{2}:\d{4}$`)
 )
 
 // ProbeTemplate defines the YAML structure for probe templates.
@@ -65,6 +74,58 @@ func (t *ProbeTemplate) Validate() error {
 	for i, prompt := range t.Prompts {
 		if strings.TrimSpace(prompt) == "" {
 			return fmt.Errorf("template validation failed: prompt %d is empty for template '%s'", i+1, t.ID)
+		}
+	}
+	// Validate mode values if present.
+	validModes := map[string]bool{"native": true, "chat": true, "agent_loop": true}
+	for _, m := range t.Info.Mode {
+		if !validModes[m] {
+			return fmt.Errorf("template validation failed: invalid mode '%s' for template '%s' (valid: native, chat, agent_loop)", m, t.ID)
+		}
+	}
+	// Validate secondary_detectors entries.
+	primary := strings.TrimSpace(t.Info.Detector)
+	seen := make(map[string]bool, len(t.Info.SecondaryDetectors))
+	for _, sd := range t.Info.SecondaryDetectors {
+		name := strings.TrimSpace(sd.Name)
+		if name == "" {
+			return fmt.Errorf("%w for template '%s'", ErrEmptySecondaryDetectorName, t.ID)
+		}
+		if name == primary {
+			return fmt.Errorf("%w: '%s' for template '%s'", ErrSecondaryDetectorSelfReference, name, t.ID)
+		}
+		if seen[name] {
+			return fmt.Errorf("%w: '%s' for template '%s'", ErrDuplicateSecondaryDetectorName, name, t.ID)
+		}
+		seen[name] = true
+	}
+	// Validate tool definitions if present.
+	toolNames := make(map[string]bool, len(t.Info.Tools))
+	for _, tool := range t.Info.Tools {
+		if tool.Name == "" {
+			return fmt.Errorf("template validation failed: tools entry must have a non-empty name for template '%s'", t.ID)
+		}
+		if toolNames[tool.Name] {
+			return fmt.Errorf("template validation failed: duplicate tool name '%s' for template '%s'", tool.Name, t.ID)
+		}
+		toolNames[tool.Name] = true
+	}
+	// Validate tool_choice if present.
+	if tc := t.Info.ToolChoice; tc != "" {
+		validChoices := map[string]bool{"auto": true, "required": true, "none": true}
+		if !validChoices[tc] && !toolNames[tc] {
+			return fmt.Errorf("template validation failed: tool_choice '%s' is not 'auto', 'required', 'none', or a declared tool name for template '%s'", tc, t.ID)
+		}
+	}
+	// Validate tool_results cross-references if present.
+	if len(t.Info.ToolResults) > 0 {
+		if len(toolNames) == 0 {
+			return fmt.Errorf("template validation failed: tool_results requires at least one declared tool for template '%s'", t.ID)
+		}
+		for resultTool := range t.Info.ToolResults {
+			if !toolNames[resultTool] {
+				return fmt.Errorf("template validation failed: tool_results references undeclared tool '%s' for template '%s'", resultTool, t.ID)
+			}
 		}
 	}
 	return nil
@@ -106,6 +167,11 @@ type ProbeInfo struct {
 	// Author identifies who created the template
 	Author string `yaml:"author"`
 
+	// Mode declares which deployment surfaces this probe targets.
+	// Valid values: "native" (structured tool calls), "chat" (text-only),
+	// "agent_loop" (multi-turn with tool execution).
+	Mode []string `yaml:"mode,omitempty"`
+
 	// Description explains what the probe does
 	Description string `yaml:"description"`
 
@@ -125,4 +191,48 @@ type ProbeInfo struct {
 	CWEIDs      []string `yaml:"cwe,omitempty"`
 	MITREAttack []string `yaml:"mitre_attack,omitempty"`
 	OWASPTopTen []string `yaml:"owasp,omitempty"`
+
+	// DetectorConfig holds per-probe detector overrides for the primary detector.
+	// Keys and values are passed directly to the detector factory,
+	// overriding any global or YAML-level detector settings.
+	// Supported keys depend on the detector; common keys:
+	//   forbidden_keys     []string - field names to flag in tool call args
+	//   forbidden_patterns []string - regex patterns to match in tool call args
+	DetectorConfig map[string]any `yaml:"detector_config,omitempty"`
+
+	// SecondaryDetectors lists additional detectors to run alongside the primary.
+	// Each entry carries a detector name and optional per-detector config overrides.
+	// Omit or leave empty for single-detector probes (default behavior unchanged).
+	SecondaryDetectors []SecondaryDetectorYAML `yaml:"secondary_detectors,omitempty"`
+
+	// Tools declares tool schemas sent to LLM APIs for native function calling.
+	// Generators translate this to provider-specific wire formats.
+	Tools []ToolDefinition `yaml:"tools,omitempty"`
+
+	// ToolChoice controls tool selection: "auto" (default), "required", "none",
+	// or a specific tool name.
+	ToolChoice string `yaml:"tool_choice,omitempty"`
+
+	// ToolResults maps tool names to canned results for 2-turn probing.
+	// When present, after the model's first tool call, the canned result is
+	// injected as the tool's response and the model generates a follow-up.
+	ToolResults map[string]string `yaml:"tool_results,omitempty"`
+}
+
+// SecondaryDetectorYAML is the YAML schema for a secondary detector entry
+// inside a probe template's info block.
+type SecondaryDetectorYAML struct {
+	// Name is the fully qualified detector name (e.g., "agent.ArgumentExfiltration").
+	Name string `yaml:"name"`
+	// Config holds optional per-detector configuration overrides merged on top
+	// of the global/YAML detector config for this detector name.
+	Config map[string]any `yaml:"config,omitempty"`
+}
+
+// ToolDefinition describes a tool for structured function calling.
+// Generators translate this to provider-specific wire formats.
+type ToolDefinition struct {
+	Name        string         `yaml:"name" json:"name"`
+	Description string         `yaml:"description" json:"description"`
+	Parameters  map[string]any `yaml:"parameters" json:"parameters"`
 }

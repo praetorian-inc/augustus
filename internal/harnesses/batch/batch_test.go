@@ -71,7 +71,7 @@ func (m *mockProbe) Probe(ctx context.Context, gen probes.Generator) ([]*attempt
 // mockGenerator for testing
 type mockGenerator struct{}
 
-func (m *mockGenerator) Name() string { return "mock" }
+func (m *mockGenerator) Name() string        { return "mock" }
 func (m *mockGenerator) Description() string { return "mock generator" }
 func (m *mockGenerator) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
 	return []attempt.Message{
@@ -83,7 +83,7 @@ func (m *mockGenerator) ClearHistory() {}
 // mockDetector for testing
 type mockDetector struct{}
 
-func (m *mockDetector) Name() string { return "mock" }
+func (m *mockDetector) Name() string        { return "mock" }
 func (m *mockDetector) Description() string { return "mock detector" }
 func (m *mockDetector) Detect(ctx context.Context, a *attempt.Attempt) ([]float64, error) {
 	return []float64{0.5}, nil

@@ -49,7 +49,6 @@ func NewCrescendo(cfg registry.Config) (probes.Prober, error) {
 	}, nil
 }
 
-
 // NewCrescendoWithGenerators creates a CrescendoProbe with pre-built generators.
 // This is primarily for testing where mock generators need to be injected.
 func NewCrescendoWithGenerators(attacker, judge probes.Generator, cfg multiturn.Config) *CrescendoProbe {

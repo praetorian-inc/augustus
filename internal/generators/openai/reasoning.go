@@ -5,11 +5,12 @@ import (
 	"context"
 	"fmt"
 
+	goopenai "github.com/sashabaranov/go-openai"
+
 	"github.com/praetorian-inc/augustus/internal/generators/openaicompat"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	goopenai "github.com/sashabaranov/go-openai"
 )
 
 func init() {
@@ -27,10 +28,10 @@ type OpenAIReasoning struct {
 
 	// Configuration parameters
 	maxCompletionTokens int
-	topP                 float32
-	frequencyPenalty     float32
-	presencePenalty      float32
-	stop                 []string
+	topP                float32
+	frequencyPenalty    float32
+	presencePenalty     float32
+	stop                []string
 }
 
 // NewOpenAIReasoning creates a new OpenAI Reasoning generator from legacy registry.Config.
@@ -53,13 +54,13 @@ func NewOpenAIReasoningTyped(cfg ReasoningConfig) (*OpenAIReasoning, error) {
 	}
 
 	return &OpenAIReasoning{
-		client:               goopenai.NewClientWithConfig(clientCfg),
-		model:                cfg.Model,
-		maxCompletionTokens:  cfg.MaxCompletionTokens,
-		topP:                 cfg.TopP,
-		frequencyPenalty:     cfg.FrequencyPenalty,
-		presencePenalty:      cfg.PresencePenalty,
-		stop:                 cfg.Stop,
+		client:              goopenai.NewClientWithConfig(clientCfg),
+		model:               cfg.Model,
+		maxCompletionTokens: cfg.MaxCompletionTokens,
+		topP:                cfg.TopP,
+		frequencyPenalty:    cfg.FrequencyPenalty,
+		presencePenalty:     cfg.PresencePenalty,
+		stop:                cfg.Stop,
 	}, nil
 }
 

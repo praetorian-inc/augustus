@@ -3,8 +3,9 @@ package main
 import (
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 // TestCreateProbes_InjectsTargetGeneratorType tests that createProbes injects

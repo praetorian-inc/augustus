@@ -5,10 +5,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/detectors"
 )
 
 // mockDetector implements detectors.Detector for testing.
@@ -220,4 +221,66 @@ func TestApplyDetectors_PrePopulatedMixedWithExternal(t *testing.T) {
 	assert.Equal(t, []float64{0.3}, a.DetectorResults["judge.Judge"])
 	// External detector results should also be stored
 	assert.Equal(t, []float64{0.9}, a.DetectorResults["other.Detector"])
+}
+
+func TestApplyDetectors_ProbeDetectorTakesPriority(t *testing.T) {
+	ctx := context.Background()
+	a := attempt.New("test prompt")
+
+	// Simulate a probe that set its primary detector on the attempt
+	a.Detector = "probe.SpecificDetector"
+
+	detectorList := []detectors.Detector{
+		&mockDetector{name: "probe.SpecificDetector", scores: []float64{0.0}}, // Probe's detector says safe
+		&mockDetector{name: "generic.Glitch", scores: []float64{1.0}},         // Generic detector says vulnerable
+	}
+
+	err := ApplyDetectors(ctx, a, detectorList, SkipOnError)
+	require.NoError(t, err)
+
+	// Probe's own detector should win even though generic scored higher
+	assert.Equal(t, "probe.SpecificDetector", a.Detector)
+	assert.Equal(t, []float64{0.0}, a.Scores)
+
+	// Both detector results should still be stored
+	assert.Len(t, a.DetectorResults, 2)
+	assert.Equal(t, []float64{0.0}, a.DetectorResults["probe.SpecificDetector"])
+	assert.Equal(t, []float64{1.0}, a.DetectorResults["generic.Glitch"])
+}
+
+func TestApplyDetectors_ProbeDetectorNotInList_FallsBack(t *testing.T) {
+	ctx := context.Background()
+	a := attempt.New("test prompt")
+
+	// Probe set a detector that isn't in the detector list
+	a.Detector = "missing.Detector"
+
+	detectorList := []detectors.Detector{
+		&mockDetector{name: "available.Detector", scores: []float64{0.7}},
+	}
+
+	err := ApplyDetectors(ctx, a, detectorList, SkipOnError)
+	require.NoError(t, err)
+
+	// Should fall back to highest-scoring available detector
+	assert.Equal(t, "available.Detector", a.Detector)
+	assert.Equal(t, []float64{0.7}, a.Scores)
+}
+
+func TestApplyDetectors_NoProbeDetector_HighestScoreWins(t *testing.T) {
+	ctx := context.Background()
+	a := attempt.New("test prompt")
+
+	// No probe detector set (a.Detector is empty)
+	detectorList := []detectors.Detector{
+		&mockDetector{name: "low.Detector", scores: []float64{0.2}},
+		&mockDetector{name: "high.Detector", scores: []float64{0.8}},
+	}
+
+	err := ApplyDetectors(ctx, a, detectorList, SkipOnError)
+	require.NoError(t, err)
+
+	// Should behave like before: highest score wins
+	assert.Equal(t, "high.Detector", a.Detector)
+	assert.Equal(t, []float64{0.8}, a.Scores)
 }

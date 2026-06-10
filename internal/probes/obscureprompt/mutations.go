@@ -29,16 +29,16 @@ const (
 
 // MutationConfig configures how mutations are generated.
 type MutationConfig struct {
-	Strategy      MutationStrategy
-	Diversity     float64 // 0.0-1.0, higher = more diverse mutations
-	PreserveIntent bool   // Whether to strictly preserve malicious intent
+	Strategy       MutationStrategy
+	Diversity      float64 // 0.0-1.0, higher = more diverse mutations
+	PreserveIntent bool    // Whether to strictly preserve malicious intent
 }
 
 // DefaultMutationConfig returns sensible defaults for mutation generation.
 func DefaultMutationConfig() MutationConfig {
 	return MutationConfig{
-		Strategy:      StrategyDefault,
-		Diversity:     0.8,
+		Strategy:       StrategyDefault,
+		Diversity:      0.8,
 		PreserveIntent: true,
 	}
 }

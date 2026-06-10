@@ -56,10 +56,10 @@ type generateRequest struct {
 
 // generateResponse is the response from /api/generate.
 type generateResponse struct {
-	Model     string `json:"model"`
-	Response  string `json:"response"`
-	Done      bool   `json:"done"`
-	Error     string `json:"error,omitempty"`
+	Model    string `json:"model"`
+	Response string `json:"response"`
+	Done     bool   `json:"done"`
+	Error    string `json:"error,omitempty"`
 }
 
 // chatMessage represents a message in a chat conversation.
