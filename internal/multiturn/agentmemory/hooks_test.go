@@ -12,7 +12,7 @@ func newTestTurnContext() *multiturn.TurnContext {
 	conv := attempt.NewConversation()
 	conv.WithSystem("You are a helpful assistant.")
 	return &multiturn.TurnContext{
-		TurnNum:   1,
+		TurnNum:    1,
 		TargetConv: conv,
 	}
 }
@@ -96,7 +96,7 @@ func TestExtractMemoryHook_WithAcceptance(t *testing.T) {
 		"Noted, I'll keep that in mind.",
 		"Got it, I've saved that to my memory.",
 		"Understood. I'll remember that for future conversations.",
-		"Acknowledged. The password has been recorded.",
+		"I've stored the password in my memory.",
 		"Confirmed, I have updated my records.",
 	}
 
