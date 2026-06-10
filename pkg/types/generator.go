@@ -24,3 +24,19 @@ type Generator interface {
 	// Description returns a human-readable description.
 	Description() string
 }
+
+// VisionCapable is an optional interface a Generator implements to declare that
+// its request builder can transmit image attachments to the backing model.
+//
+// Multimodal image probes use this to skip generators whose wire layer cannot
+// carry images, rather than silently sending a text-only request and
+// mis-reporting the target as safe — a false negative is the worst outcome for
+// a vulnerability scanner.
+//
+// SupportsVision reports STRUCTURAL capability (the generator emits image
+// content blocks), not per-model support. An OpenAI-compatible generator
+// returns true even though, say, gpt-3.5 ignores images, because choosing which
+// model to point at is the operator's responsibility, not the harness's.
+type VisionCapable interface {
+	SupportsVision() bool
+}

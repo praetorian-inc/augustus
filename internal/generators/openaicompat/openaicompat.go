@@ -110,6 +110,9 @@ func ConversationToMessages(conv *attempt.Conversation) ([]goopenai.ChatCompleti
 					Text: turn.Prompt.Content,
 				})
 				for _, img := range turn.Prompt.Images {
+					if img.MimeType == "" {
+						return nil, fmt.Errorf("openaicompat: image has empty MIME type (a data: URI requires a media type, e.g. image/png)")
+					}
 					encoded, err := img.ToBase64()
 					if err != nil {
 						return nil, fmt.Errorf("openaicompat: encode image: %w", err)
@@ -398,6 +401,13 @@ func (g *CompatGenerator) Name() string { return g.name }
 
 // Description returns a human-readable description.
 func (g *CompatGenerator) Description() string { return g.description }
+
+// SupportsVision reports that the OpenAI-compatible chat path transmits image
+// content blocks (data: URI image_url parts). This covers every provider built
+// on NewGenerator (xai, groq, together, fireworks, deepinfra, anyscale,
+// mistral, nemo, nim). Whether the chosen model accepts images is the
+// operator's responsibility. See types.VisionCapable.
+func (g *CompatGenerator) SupportsVision() bool { return true }
 
 // Client returns the underlying OpenAI client for advanced usage.
 func (g *CompatGenerator) Client() *goopenai.Client { return g.client }

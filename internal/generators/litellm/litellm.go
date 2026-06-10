@@ -216,6 +216,11 @@ func (g *LiteLLM) Name() string {
 	return "litellm.LiteLLM"
 }
 
+// SupportsVision reports that the LiteLLM proxy path transmits image content
+// blocks; whether the proxied model accepts them is the operator's choice.
+// See types.VisionCapable.
+func (g *LiteLLM) SupportsVision() bool { return true }
+
 // Description returns a human-readable description.
 func (g *LiteLLM) Description() string {
 	return "LiteLLM proxy generator for 100+ LLM providers (OpenAI, Anthropic, Azure, etc.)"

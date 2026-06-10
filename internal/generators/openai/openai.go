@@ -257,6 +257,10 @@ func (g *OpenAI) Name() string {
 	return "openai.OpenAI"
 }
 
+// SupportsVision reports that the OpenAI chat path transmits image content
+// blocks (e.g. for gpt-4o). See types.VisionCapable.
+func (g *OpenAI) SupportsVision() bool { return true }
+
 // Description returns a human-readable description.
 func (g *OpenAI) Description() string {
 	return "OpenAI API generator for GPT models (chat and completion)"

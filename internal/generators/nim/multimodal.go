@@ -78,6 +78,10 @@ func (g *NVMultimodal) Name() string {
 	return "nim.NVMultimodal"
 }
 
+// SupportsVision reports that this NIM endpoint transmits image content blocks.
+// nim.Vision embeds *NVMultimodal and inherits this. See types.VisionCapable.
+func (g *NVMultimodal) SupportsVision() bool { return true }
+
 // Description returns a human-readable description.
 func (g *NVMultimodal) Description() string {
 	return "NVIDIA NIM multimodal generator for text and image inputs"

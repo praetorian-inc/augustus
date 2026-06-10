@@ -32,6 +32,24 @@ func (m *mockGenerator) Description() string {
 	return "Mock generator for testing"
 }
 
+// SupportsVision marks the mock as vision-capable so the pre-flight gate in
+// RunMultimodalPrompts lets it through. See types.VisionCapable.
+func (m *mockGenerator) SupportsVision() bool { return true }
+
+// textOnlyGenerator is a generator that does NOT implement types.VisionCapable,
+// used to verify multimodal probes skip image-blind targets.
+type textOnlyGenerator struct {
+	callCount int
+}
+
+func (g *textOnlyGenerator) Generate(_ context.Context, _ *attempt.Conversation, _ int) ([]attempt.Message, error) {
+	g.callCount++
+	return []attempt.Message{{Content: "ok"}}, nil
+}
+func (g *textOnlyGenerator) ClearHistory()       {}
+func (g *textOnlyGenerator) Name() string        { return "text.Only" }
+func (g *textOnlyGenerator) Description() string { return "Text-only generator for testing" }
+
 func TestRunMultimodalPrompts_HappyPath(t *testing.T) {
 	gen := &mockGenerator{
 		responses: []attempt.Message{
@@ -110,4 +128,22 @@ func TestRunMultimodalPrompts_EmptyPrompts(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, attempts)
 	assert.Equal(t, 0, gen.callCount)
+}
+
+func TestRunMultimodalPrompts_SkipsNonVisionGenerator(t *testing.T) {
+	gen := &textOnlyGenerator{}
+
+	prompts := []MultimodalPrompt{
+		{Text: "prompt 1", Images: []attempt.Image{{Data: []byte("img"), MimeType: "image/png"}}},
+	}
+
+	attempts, err := RunMultimodalPrompts(context.Background(), gen, prompts, "test.Probe", "test.Detector")
+
+	// The probe must fail loudly (ErrVisionUnsupported), never silently run the
+	// image attack as a text-only request and report the target as safe.
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrVisionUnsupported)
+	assert.Contains(t, err.Error(), "text.Only", "error should name the generator")
+	assert.Nil(t, attempts, "no attempts should be produced for a skipped probe")
+	assert.Equal(t, 0, gen.callCount, "generator must not be called at all")
 }

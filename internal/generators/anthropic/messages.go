@@ -146,6 +146,9 @@ func buildContent(msg *attempt.Message) (json.RawMessage, error) {
 		})
 	}
 	for _, img := range msg.Images {
+		if img.MimeType == "" {
+			return nil, fmt.Errorf("anthropic: image has empty MIME type (want image/jpeg, image/png, image/gif, or image/webp)")
+		}
 		data, err := img.ToBase64()
 		if err != nil {
 			return nil, fmt.Errorf("anthropic: encode image: %w", err)
@@ -160,6 +163,9 @@ func buildContent(msg *attempt.Message) (json.RawMessage, error) {
 		})
 	}
 	for _, doc := range msg.Documents {
+		if doc.MimeType == "" {
+			return nil, fmt.Errorf("anthropic: document has empty MIME type (want application/pdf)")
+		}
 		data, err := doc.ToBase64()
 		if err != nil {
 			return nil, fmt.Errorf("anthropic: encode document: %w", err)

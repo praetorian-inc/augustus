@@ -229,25 +229,20 @@ func (g *Gemini) conversationToContents(conv *attempt.Conversation) ([]googleai.
 }
 
 // buildParts assembles a Gemini parts list: text first (if non-empty), then
-// one inlineData part per image. Used by user-message construction. It returns
-// an error if an image cannot be resolved to base64 (e.g. an unreadable Path).
+// one inlineData part per image. Image parts are built by the shared
+// googleai.BuildImageParts helper (also used by vertex) so the two Gemini-schema
+// generators cannot diverge on multimodal handling. It returns an error if an
+// image has an unset/unsupported MIME type or cannot be resolved to base64.
 func buildParts(text string, images []attempt.Image) ([]googleai.ContentPart, error) {
 	parts := make([]googleai.ContentPart, 0, 1+len(images))
 	if text != "" {
 		parts = append(parts, googleai.ContentPart{Text: text})
 	}
-	for _, img := range images {
-		data, err := img.ToBase64()
-		if err != nil {
-			return nil, fmt.Errorf("gemini: encode image: %w", err)
-		}
-		parts = append(parts, googleai.ContentPart{
-			InlineData: &googleai.InlineData{
-				MimeType: img.MimeType,
-				Data:     data,
-			},
-		})
+	imgParts, err := googleai.BuildImageParts(images)
+	if err != nil {
+		return nil, err
 	}
+	parts = append(parts, imgParts...)
 	return parts, nil
 }
 
@@ -256,6 +251,10 @@ func (g *Gemini) ClearHistory() {}
 func (g *Gemini) Name() string {
 	return "gemini.Gemini"
 }
+
+// SupportsVision reports that the Gemini path transmits inlineData image parts.
+// See types.VisionCapable.
+func (g *Gemini) SupportsVision() bool { return true }
 
 func (g *Gemini) Description() string {
 	return "Google Gemini API generator (direct API, key-auth; multimodal text + image)"

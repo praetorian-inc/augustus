@@ -143,8 +143,12 @@ func (g *Vertex) Generate(ctx context.Context, conv *attempt.Conversation, n int
 // generateOne performs a single API call and returns one response.
 func (g *Vertex) generateOne(ctx context.Context, conv *attempt.Conversation) (attempt.Message, error) {
 	// Build request
+	contents, err := g.conversationToContents(conv)
+	if err != nil {
+		return attempt.Message{}, err
+	}
 	req := googleai.GenerateRequest{
-		Contents: g.conversationToContents(conv),
+		Contents: contents,
 	}
 
 	// Add system instruction if present
@@ -286,7 +290,11 @@ func (g *Vertex) generateOne(ctx context.Context, conv *attempt.Conversation) (a
 }
 
 // conversationToContents converts an Augustus Conversation to Vertex AI contents.
-func (g *Vertex) conversationToContents(conv *attempt.Conversation) []googleai.Content {
+// Images on user turns are emitted as inlineData parts via the shared
+// googleai.BuildImageParts helper (same path as gemini.Gemini); an unset or
+// unsupported image MIME type returns an error rather than silently dropping
+// the attachment and running the probe as a text-only request.
+func (g *Vertex) conversationToContents(conv *attempt.Conversation) ([]googleai.Content, error) {
 	contents := make([]googleai.Content, 0)
 
 	// Note: System message is NOT included in contents array for Vertex AI
@@ -310,12 +318,20 @@ func (g *Vertex) conversationToContents(conv *attempt.Conversation) []googleai.C
 				}},
 			})
 		default:
-			// Standard user message
+			// Standard user message: text part (if non-empty) followed by one
+			// inlineData part per image.
+			parts := make([]googleai.ContentPart, 0, 1+len(turn.Prompt.Images))
+			if turn.Prompt.Content != "" {
+				parts = append(parts, googleai.ContentPart{Text: turn.Prompt.Content})
+			}
+			imgParts, err := googleai.BuildImageParts(turn.Prompt.Images)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, imgParts...)
 			contents = append(contents, googleai.Content{
-				Role: "user",
-				Parts: []googleai.ContentPart{
-					{Text: turn.Prompt.Content},
-				},
+				Role:  "user",
+				Parts: parts,
 			})
 		}
 
@@ -340,7 +356,7 @@ func (g *Vertex) conversationToContents(conv *attempt.Conversation) []googleai.C
 		}
 	}
 
-	return contents
+	return contents, nil
 }
 
 // ClearHistory is a no-op for Vertex generator (stateless per call).
@@ -350,6 +366,10 @@ func (g *Vertex) ClearHistory() {}
 func (g *Vertex) Name() string {
 	return "vertex.Vertex"
 }
+
+// SupportsVision reports that the Vertex AI path transmits inlineData image
+// parts (Gemini vision). See types.VisionCapable.
+func (g *Vertex) SupportsVision() bool { return true }
 
 // Description returns a human-readable description.
 func (g *Vertex) Description() string {

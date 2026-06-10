@@ -360,6 +360,10 @@ func (g *Bedrock) Name() string {
 	return "bedrock.Bedrock"
 }
 
+// SupportsVision reports that the Bedrock path transmits image content blocks
+// (Claude vision and Amazon Nova). See types.VisionCapable.
+func (g *Bedrock) SupportsVision() bool { return true }
+
 // Description returns a human-readable description.
 func (g *Bedrock) Description() string {
 	return "AWS Bedrock generator supporting Claude, Titan, and Llama models"

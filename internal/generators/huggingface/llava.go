@@ -219,6 +219,10 @@ func (g *LLaVA) Name() string {
 	return "huggingface.LLaVA"
 }
 
+// SupportsVision reports that LLaVA is a vision-language generator that
+// transmits image inputs. See types.VisionCapable.
+func (g *LLaVA) SupportsVision() bool { return true }
+
 // Description returns a human-readable description.
 func (g *LLaVA) Description() string {
 	return "HuggingFace LLaVA vision-language model generator"

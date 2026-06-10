@@ -248,6 +248,10 @@ func (g *AzureOpenAI) Name() string {
 	return "azure.AzureOpenAI"
 }
 
+// SupportsVision reports that the Azure OpenAI chat path transmits image
+// content blocks (e.g. for gpt-4o deployments). See types.VisionCapable.
+func (g *AzureOpenAI) SupportsVision() bool { return true }
+
 // Description returns a human-readable description.
 func (g *AzureOpenAI) Description() string {
 	return "Azure OpenAI API generator for GPT models (chat and completion)"
