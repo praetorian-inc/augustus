@@ -1,0 +1,28 @@
+# golangci-lint v2 configuration.
+#
+# Scope (Tier 1): formatting enforcement only. The linters section keeps the
+# default "standard" set (errcheck, govet, ineffassign, staticcheck, unused),
+# which the codebase already passes. The formatters block is what makes CI
+# enforce a clean `gofmt`/`gofumpt`/`goimports` tree.
+#
+# CI runs this via praetorian-inc/public-workflows .github/workflows/go-ci.yml
+# (golangci-lint v2.12.2, enable-lint defaults to true). No workflow change is
+# needed — ci.yml and security.yml already watch `.golangci*`.
+#
+# To extend with bug-catching linters later (Tier 2: bodyclose, errorlint,
+# copyloopvar, usestdlibvars, nilerr), add them under `linters.enable` and
+# clear the resulting findings in a dedicated PR. gosec is intentionally left
+# out — it already runs via the separate go-sec.yml workflow.
+version: "2"
+
+linters:
+  default: standard
+
+formatters:
+  enable:
+    - gofumpt   # strict superset of gofmt
+    - goimports # enforce import grouping/ordering
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/praetorian-inc/augustus

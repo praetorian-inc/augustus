@@ -6,18 +6,19 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 func TestDartDetector_Detect(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		realPackages := map[string]bool{
-			"/api/packages/flutter":    true,
-			"/api/packages/http":       true,
-			"/api/packages/provider":   true,
+			"/api/packages/flutter":  true,
+			"/api/packages/http":     true,
+			"/api/packages/provider": true,
 		}
 		if realPackages[r.URL.Path] {
 			w.WriteHeader(http.StatusOK)

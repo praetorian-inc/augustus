@@ -3,9 +3,10 @@ package obscureprompt
 import (
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 func TestObscurePromptConfigFromMap(t *testing.T) {

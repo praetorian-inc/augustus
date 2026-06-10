@@ -29,11 +29,11 @@ type Config struct {
 // DefaultConfig returns a config with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
-		JudgeGeneratorType:   "", // Must be configured via YAML judge section or detector settings
-		JudgeConfig: make(registry.Config),
-		ConfidenceCutoff:     7,
-		CacheEnabled:         true,
-		DetectorGoal:         "",
+		JudgeGeneratorType: "", // Must be configured via YAML judge section or detector settings
+		JudgeConfig:        make(registry.Config),
+		ConfidenceCutoff:   7,
+		CacheEnabled:       true,
+		DetectorGoal:       "",
 	}
 }
 

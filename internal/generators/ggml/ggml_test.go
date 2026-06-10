@@ -6,9 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
 )
 
 func TestNewGgml_RequiresModelPath(t *testing.T) {
@@ -35,12 +36,12 @@ func TestNewGgml_ValidatesGgufMagic(t *testing.T) {
 	// Create a temporary invalid file
 	tmpDir := t.TempDir()
 	invalidFile := filepath.Join(tmpDir, "invalid.gguf")
-	err := os.WriteFile(invalidFile, []byte("not a gguf file"), 0644)
+	err := os.WriteFile(invalidFile, []byte("not a gguf file"), 0o644)
 	require.NoError(t, err)
 
 	// Create a fake executable
 	fakeExec := filepath.Join(tmpDir, "fake_llama")
-	err = os.WriteFile(fakeExec, []byte("#!/bin/sh\necho test"), 0755)
+	err = os.WriteFile(fakeExec, []byte("#!/bin/sh\necho test"), 0o755)
 	require.NoError(t, err)
 
 	cfg := Config{
@@ -58,12 +59,12 @@ func TestNewGgml_ValidatesGgufMagicBytes(t *testing.T) {
 	tmpDir := t.TempDir()
 	validFile := filepath.Join(tmpDir, "valid.gguf")
 	ggufMagic := []byte{0x47, 0x47, 0x55, 0x46} // "GGUF"
-	err := os.WriteFile(validFile, ggufMagic, 0644)
+	err := os.WriteFile(validFile, ggufMagic, 0o644)
 	require.NoError(t, err)
 
 	// Create a fake executable
 	fakeExec := filepath.Join(tmpDir, "fake_llama")
-	err = os.WriteFile(fakeExec, []byte("#!/bin/sh\necho test"), 0755)
+	err = os.WriteFile(fakeExec, []byte("#!/bin/sh\necho test"), 0o755)
 	require.NoError(t, err)
 
 	cfg := Config{
@@ -81,11 +82,11 @@ func TestNewGgml_FromEnvironment(t *testing.T) {
 	tmpDir := t.TempDir()
 	modelFile := filepath.Join(tmpDir, "model.gguf")
 	ggufMagic := []byte{0x47, 0x47, 0x55, 0x46}
-	err := os.WriteFile(modelFile, ggufMagic, 0644)
+	err := os.WriteFile(modelFile, ggufMagic, 0o644)
 	require.NoError(t, err)
 
 	execFile := filepath.Join(tmpDir, "llama")
-	err = os.WriteFile(execFile, []byte("#!/bin/sh\necho test"), 0755)
+	err = os.WriteFile(execFile, []byte("#!/bin/sh\necho test"), 0o755)
 	require.NoError(t, err)
 
 	// Set environment variable
@@ -104,11 +105,11 @@ func TestNewGgml_DefaultParameters(t *testing.T) {
 	tmpDir := t.TempDir()
 	modelFile := filepath.Join(tmpDir, "model.gguf")
 	ggufMagic := []byte{0x47, 0x47, 0x55, 0x46}
-	err := os.WriteFile(modelFile, ggufMagic, 0644)
+	err := os.WriteFile(modelFile, ggufMagic, 0o644)
 	require.NoError(t, err)
 
 	execFile := filepath.Join(tmpDir, "llama")
-	err = os.WriteFile(execFile, []byte("#!/bin/sh\necho test"), 0755)
+	err = os.WriteFile(execFile, []byte("#!/bin/sh\necho test"), 0o755)
 	require.NoError(t, err)
 
 	cfg := Config{
@@ -130,11 +131,11 @@ func TestNewGgml_CustomParameters(t *testing.T) {
 	tmpDir := t.TempDir()
 	modelFile := filepath.Join(tmpDir, "model.gguf")
 	ggufMagic := []byte{0x47, 0x47, 0x55, 0x46}
-	err := os.WriteFile(modelFile, ggufMagic, 0644)
+	err := os.WriteFile(modelFile, ggufMagic, 0o644)
 	require.NoError(t, err)
 
 	execFile := filepath.Join(tmpDir, "llama")
-	err = os.WriteFile(execFile, []byte("#!/bin/sh\necho test"), 0755)
+	err = os.WriteFile(execFile, []byte("#!/bin/sh\necho test"), 0o755)
 	require.NoError(t, err)
 
 	cfg := Config{
@@ -159,11 +160,11 @@ func TestGgml_Name(t *testing.T) {
 	tmpDir := t.TempDir()
 	modelFile := filepath.Join(tmpDir, "model.gguf")
 	ggufMagic := []byte{0x47, 0x47, 0x55, 0x46}
-	err := os.WriteFile(modelFile, ggufMagic, 0644)
+	err := os.WriteFile(modelFile, ggufMagic, 0o644)
 	require.NoError(t, err)
 
 	execFile := filepath.Join(tmpDir, "llama")
-	err = os.WriteFile(execFile, []byte("#!/bin/sh\necho test"), 0755)
+	err = os.WriteFile(execFile, []byte("#!/bin/sh\necho test"), 0o755)
 	require.NoError(t, err)
 
 	cfg := Config{
@@ -181,11 +182,11 @@ func TestGgml_Description(t *testing.T) {
 	tmpDir := t.TempDir()
 	modelFile := filepath.Join(tmpDir, "model.gguf")
 	ggufMagic := []byte{0x47, 0x47, 0x55, 0x46}
-	err := os.WriteFile(modelFile, ggufMagic, 0644)
+	err := os.WriteFile(modelFile, ggufMagic, 0o644)
 	require.NoError(t, err)
 
 	execFile := filepath.Join(tmpDir, "llama")
-	err = os.WriteFile(execFile, []byte("#!/bin/sh\necho test"), 0755)
+	err = os.WriteFile(execFile, []byte("#!/bin/sh\necho test"), 0o755)
 	require.NoError(t, err)
 
 	cfg := Config{
@@ -205,11 +206,11 @@ func TestGgml_ClearHistory(t *testing.T) {
 	tmpDir := t.TempDir()
 	modelFile := filepath.Join(tmpDir, "model.gguf")
 	ggufMagic := []byte{0x47, 0x47, 0x55, 0x46}
-	err := os.WriteFile(modelFile, ggufMagic, 0644)
+	err := os.WriteFile(modelFile, ggufMagic, 0o644)
 	require.NoError(t, err)
 
 	execFile := filepath.Join(tmpDir, "llama")
-	err = os.WriteFile(execFile, []byte("#!/bin/sh\necho test"), 0755)
+	err = os.WriteFile(execFile, []byte("#!/bin/sh\necho test"), 0o755)
 	require.NoError(t, err)
 
 	cfg := Config{
@@ -228,11 +229,11 @@ func TestGgml_Generate_NoTokens(t *testing.T) {
 	tmpDir := t.TempDir()
 	modelFile := filepath.Join(tmpDir, "model.gguf")
 	ggufMagic := []byte{0x47, 0x47, 0x55, 0x46}
-	err := os.WriteFile(modelFile, ggufMagic, 0644)
+	err := os.WriteFile(modelFile, ggufMagic, 0o644)
 	require.NoError(t, err)
 
 	execFile := filepath.Join(tmpDir, "llama")
-	err = os.WriteFile(execFile, []byte("#!/bin/sh\necho test"), 0755)
+	err = os.WriteFile(execFile, []byte("#!/bin/sh\necho test"), 0o755)
 	require.NoError(t, err)
 
 	cfg := Config{

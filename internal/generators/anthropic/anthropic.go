@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/praetorian-inc/augustus/internal/attackengine"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -109,14 +110,29 @@ func NewAnthropicWithOptions(opts ...Option) (*Anthropic, error) {
 
 // messageRequest represents the Anthropic Messages API request format.
 type messageRequest struct {
-	Model         string    `json:"model"`
-	MaxTokens     int       `json:"max_tokens"`
-	Messages      []Message `json:"messages"`
-	System        string    `json:"system,omitempty"`
-	Temperature   float64   `json:"temperature,omitempty"`
-	TopP          float64   `json:"top_p,omitempty"`
-	TopK          int       `json:"top_k,omitempty"`
-	StopSequences []string  `json:"stop_sequences,omitempty"`
+	Model         string               `json:"model"`
+	MaxTokens     int                  `json:"max_tokens"`
+	Messages      []Message            `json:"messages"`
+	System        string               `json:"system,omitempty"`
+	Temperature   float64              `json:"temperature,omitempty"`
+	TopP          float64              `json:"top_p,omitempty"`
+	TopK          int                  `json:"top_k,omitempty"`
+	StopSequences []string             `json:"stop_sequences,omitempty"`
+	Tools         []anthropicTool      `json:"tools,omitempty"`
+	ToolChoice    *anthropicToolChoice `json:"tool_choice,omitempty"`
+}
+
+// anthropicTool is the Anthropic API tool definition format.
+type anthropicTool struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	InputSchema map[string]any `json:"input_schema"`
+}
+
+// anthropicToolChoice controls how Claude selects tools.
+type anthropicToolChoice struct {
+	Type string `json:"type"`           // "auto", "any", or "tool"
+	Name string `json:"name,omitempty"` // only when type="tool"
 }
 
 // messageResponse represents the Anthropic Messages API response format.
@@ -131,9 +147,15 @@ type messageResponse struct {
 }
 
 // contentBlock represents a content block in the response.
+// For text blocks, Type is "text" and Text carries the content.
+// For tool_use blocks, Type is "tool_use", Name is the function name,
+// Input is the arguments object, and ID is the tool call identifier.
 type contentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type  string          `json:"type"`
+	Text  string          `json:"text"`
+	Name  string          `json:"name"`
+	Input json.RawMessage `json:"input"`
+	ID    string          `json:"id"`
 }
 
 // usageStats represents token usage statistics.
@@ -201,6 +223,43 @@ func (g *Anthropic) generateOne(ctx context.Context, conv *attempt.Conversation)
 		req.StopSequences = g.stopSequences
 	}
 
+	// Wire tool definitions from probe into the API request.
+	if len(conv.Tools) > 0 {
+		req.Tools = make([]anthropicTool, len(conv.Tools))
+		for i, t := range conv.Tools {
+			name, ok := t["name"].(string)
+			if !ok || name == "" {
+				return attempt.Message{}, fmt.Errorf("anthropic: tool at index %d missing valid string name", i)
+			}
+			at := anthropicTool{
+				Name: name,
+			}
+			if desc, ok := t["description"].(string); ok {
+				at.Description = desc
+			}
+			if params, ok := t["parameters"].(map[string]any); ok {
+				at.InputSchema = params
+			} else {
+				at.InputSchema = map[string]any{"type": "object"}
+			}
+			req.Tools[i] = at
+		}
+		if conv.ToolChoice != "" {
+			switch conv.ToolChoice {
+			case "auto":
+				req.ToolChoice = &anthropicToolChoice{Type: "auto"}
+			case "required":
+				req.ToolChoice = &anthropicToolChoice{Type: "any"}
+			case "none":
+				// Anthropic doesn't have "none" — omit tools instead.
+				req.Tools = nil
+				req.ToolChoice = nil
+			default:
+				req.ToolChoice = &anthropicToolChoice{Type: "tool", Name: conv.ToolChoice}
+			}
+		}
+	}
+
 	// Serialize request
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -243,15 +302,28 @@ func (g *Anthropic) generateOne(ctx context.Context, conv *attempt.Conversation)
 		return attempt.Message{}, fmt.Errorf("anthropic: failed to parse response: %w", err)
 	}
 
-	// Extract text from content blocks
+	// Extract text and tool_use blocks from content.
 	var text string
+	toolUseBlocks := make([]attackengine.AnthropicToolUseBlock, 0, len(resp.Content))
 	for _, block := range resp.Content {
-		if block.Type == "text" {
+		switch block.Type {
+		case "text":
 			text += block.Text
+		case "tool_use":
+			toolUseBlocks = append(toolUseBlocks, attackengine.AnthropicToolUseBlock{
+				Type:  block.Type,
+				ID:    block.ID,
+				Name:  block.Name,
+				Input: block.Input,
+			})
 		}
 	}
 
-	return attempt.NewAssistantMessage(text), nil
+	msg := attempt.NewAssistantMessage(text)
+	if toolCalls := attackengine.NormalizeAnthropicToolUseBlocks(toolUseBlocks); toolCalls != nil {
+		msg.ToolCalls = toolCalls
+	}
+	return msg, nil
 }
 
 // handleError processes API error responses.

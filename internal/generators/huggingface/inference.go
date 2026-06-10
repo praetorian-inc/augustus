@@ -2,7 +2,6 @@
 //
 // This package implements the Generator interface for HuggingFace's hosted
 // inference endpoints. It supports text generation models via the messages API.
-//
 package huggingface
 
 import (

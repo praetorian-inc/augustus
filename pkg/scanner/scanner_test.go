@@ -8,11 +8,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/metrics"
 	"github.com/praetorian-inc/augustus/pkg/scanner"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // mockProbe is a test probe that returns attempts or errors based on configuration
@@ -39,11 +40,11 @@ func (m *mockProbe) Probe(ctx context.Context, gen scanner.Generator) ([]*attemp
 	return m.attempts, nil
 }
 
-func (m *mockProbe) Name() string        { return m.name }
-func (m *mockProbe) Description() string { return m.name + " description" }
-func (m *mockProbe) Goal() string        { return m.name + " goal" }
+func (m *mockProbe) Name() string               { return m.name }
+func (m *mockProbe) Description() string        { return m.name + " description" }
+func (m *mockProbe) Goal() string               { return m.name + " goal" }
 func (m *mockProbe) GetPrimaryDetector() string { return "test.Detector" }
-func (m *mockProbe) GetPrompts() []string { return []string{"test prompt"} }
+func (m *mockProbe) GetPrompts() []string       { return []string{"test prompt"} }
 
 // mockGenerator is a test generator
 type mockGenerator struct{}
@@ -92,8 +93,8 @@ func TestScanner_Run_ConcurrencyLimit(t *testing.T) {
 	probes := make([]scanner.Prober, 10)
 	for i := 0; i < 10; i++ {
 		probes[i] = &mockProbe{
-			name:  fmt.Sprintf("probe%d", i),
-			delay: 50 * time.Millisecond,
+			name:     fmt.Sprintf("probe%d", i),
+			delay:    50 * time.Millisecond,
 			attempts: []*attempt.Attempt{{ID: fmt.Sprintf("test%d", i)}},
 		}
 	}
@@ -358,11 +359,11 @@ func (r *retryableProbe) Probe(ctx context.Context, gen scanner.Generator) ([]*a
 	return r.attempts, nil
 }
 
-func (r *retryableProbe) Name() string                { return r.name }
-func (r *retryableProbe) Description() string         { return r.name + " description" }
-func (r *retryableProbe) Goal() string                { return r.name + " goal" }
-func (r *retryableProbe) GetPrimaryDetector() string  { return "test.Detector" }
-func (r *retryableProbe) GetPrompts() []string        { return []string{"test prompt"} }
+func (r *retryableProbe) Name() string               { return r.name }
+func (r *retryableProbe) Description() string        { return r.name + " description" }
+func (r *retryableProbe) Goal() string               { return r.name + " goal" }
+func (r *retryableProbe) GetPrimaryDetector() string { return "test.Detector" }
+func (r *retryableProbe) GetPrompts() []string       { return []string{"test prompt"} }
 
 func TestScanner_Run_RetriesOnFailure(t *testing.T) {
 	// Test that Scanner retries failed probes according to RetryCount
@@ -381,7 +382,7 @@ func TestScanner_Run_RetriesOnFailure(t *testing.T) {
 	opts := scanner.Options{
 		Concurrency:  1,
 		Timeout:      10 * time.Second,
-		RetryCount:   3,                    // Retry up to 3 times
+		RetryCount:   3,                     // Retry up to 3 times
 		RetryBackoff: 10 * time.Millisecond, // Short backoff for tests
 	}
 

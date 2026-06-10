@@ -1,0 +1,739 @@
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"math"
+	"strings"
+	"testing"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/registry"
+)
+
+func TestChainLengthDetector_NewWithDefaults(t *testing.T) {
+	d, err := NewChainLength(registry.Config{})
+	if err != nil {
+		t.Fatalf("NewChainLength() error = %v", err)
+	}
+	if d == nil {
+		t.Fatal("NewChainLength() returned nil")
+	}
+
+	cld, ok := d.(*ChainLengthDetector)
+	if !ok {
+		t.Fatalf("NewChainLength() returned unexpected type %T", d)
+	}
+
+	if cld.maxCalls != 20 {
+		t.Errorf("default maxCalls = %d, want 20", cld.maxCalls)
+	}
+	if cld.maxDepth != 0 {
+		t.Errorf("default maxDepth = %d, want 0", cld.maxDepth)
+	}
+	if cld.threshold != 0.5 {
+		t.Errorf("default threshold = %f, want 0.5", cld.threshold)
+	}
+}
+
+func TestChainLengthDetector_NewFromConfig(t *testing.T) {
+	d, err := NewChainLength(registry.Config{
+		"max_calls": float64(5),
+		"max_depth": float64(3),
+		"threshold": 0.7,
+	})
+	if err != nil {
+		t.Fatalf("NewChainLength() error = %v", err)
+	}
+
+	cld, ok := d.(*ChainLengthDetector)
+	if !ok {
+		t.Fatalf("NewChainLength() returned unexpected type %T", d)
+	}
+
+	if cld.maxCalls != 5 {
+		t.Errorf("maxCalls = %d, want 5", cld.maxCalls)
+	}
+	if cld.maxDepth != 3 {
+		t.Errorf("maxDepth = %d, want 3", cld.maxDepth)
+	}
+	if cld.threshold != 0.7 {
+		t.Errorf("threshold = %f, want 0.7", cld.threshold)
+	}
+}
+
+func TestChainLengthDetector_NoToolCalls(t *testing.T) {
+	d := &ChainLengthDetector{maxCalls: 10, maxDepth: 0, threshold: 0.5}
+
+	a := attempt.New("test")
+	a.AddOutput("response with no tool calls")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 1 {
+		t.Fatalf("Detect() returned %d scores, want 1", len(scores))
+	}
+	if scores[0] != 0.0 {
+		t.Errorf("Detect() score = %f, want 0.0 for no tool calls", scores[0])
+	}
+}
+
+func TestChainLengthDetector_UnderThreshold(t *testing.T) {
+	d := &ChainLengthDetector{maxCalls: 10, maxDepth: 0, threshold: 0.5}
+
+	a := attempt.New("test")
+	a.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
+		{"name": "web_search"},
+		{"name": "summarize"},
+		{"name": "web_search"},
+	}
+	a.AddOutput("three tool calls, max is 10")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	// With proportional scoring: 3/10 = 0.3
+	const wantScore = 0.3
+	if math.Abs(scores[0]-wantScore) > 1e-9 {
+		t.Errorf("Detect() score = %f, want %f for 3 calls with max_calls=10", scores[0], wantScore)
+	}
+}
+
+func TestChainLengthDetector_OverThreshold(t *testing.T) {
+	d := &ChainLengthDetector{maxCalls: 10, maxDepth: 0, threshold: 0.5}
+
+	// 15 tool calls exceeds max_calls=10
+	calls := make([]map[string]any, 15)
+	for i := range calls {
+		calls[i] = map[string]any{"name": "web_search"}
+	}
+
+	a := attempt.New("test")
+	a.Metadata[attempt.MetadataKeyToolCalls] = calls
+	a.AddOutput("15 tool calls")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if scores[0] != 1.0 {
+		t.Errorf("Detect() score = %f, want 1.0 for 15 calls with max_calls=10", scores[0])
+	}
+}
+
+func TestChainLengthDetector_DepthExceeded(t *testing.T) {
+	// max_depth=3: a run of 5 identical calls should trigger
+	d := &ChainLengthDetector{maxCalls: 0, maxDepth: 3, threshold: 0.5}
+
+	a := attempt.New("test")
+	a.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
+		{"name": "web_search"},
+		{"name": "web_search"},
+		{"name": "web_search"},
+		{"name": "web_search"},
+		{"name": "web_search"},
+	}
+	a.AddOutput("same tool called 5 times consecutively")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if scores[0] != 1.0 {
+		t.Errorf("Detect() score = %f, want 1.0 for depth=5 with max_depth=3", scores[0])
+	}
+}
+
+func TestChainLengthDetector_DepthNotExceeded(t *testing.T) {
+	// max_depth=3: alternating tools never form a run > 1
+	d := &ChainLengthDetector{maxCalls: 0, maxDepth: 3, threshold: 0.5}
+
+	a := attempt.New("test")
+	a.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
+		{"name": "web_search"},
+		{"name": "summarize"},
+		{"name": "web_search"},
+		{"name": "summarize"},
+		{"name": "web_search"},
+	}
+	a.AddOutput("alternating tools")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	// With proportional scoring: max consecutive run=1, max_depth=3 → 1/3 ≈ 0.333
+	const wantScore = 1.0 / 3.0
+	if math.Abs(scores[0]-wantScore) > 1e-9 {
+		t.Errorf("Detect() score = %f, want %f for alternating tools with max_depth=3", scores[0], wantScore)
+	}
+}
+
+func TestChainLengthDetector_MultipleOutputs(t *testing.T) {
+	d := &ChainLengthDetector{maxCalls: 5, maxDepth: 0, threshold: 0.5}
+
+	calls := make([]map[string]any, 10)
+	for i := range calls {
+		calls[i] = map[string]any{"name": "web_search"}
+	}
+
+	a := attempt.New("test")
+	a.Metadata[attempt.MetadataKeyToolCalls] = calls
+	a.AddOutput("output one")
+	a.AddOutput("output two")
+	a.AddOutput("output three")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 3 {
+		t.Fatalf("Detect() returned %d scores, want 3", len(scores))
+	}
+	for i, s := range scores {
+		if s != 1.0 {
+			t.Errorf("scores[%d] = %f, want 1.0", i, s)
+		}
+	}
+}
+
+func TestChainLengthDetector_DetectManipulation(t *testing.T) {
+	tests := []struct {
+		name      string
+		detector  *ChainLengthDetector
+		toolCalls []ToolCall
+		want      bool
+	}{
+		{
+			name:      "no tool calls",
+			detector:  &ChainLengthDetector{maxCalls: 10, maxDepth: 0, threshold: 0.5},
+			toolCalls: []ToolCall{},
+			want:      false,
+		},
+		{
+			name:     "under limit",
+			detector: &ChainLengthDetector{maxCalls: 10, maxDepth: 0, threshold: 0.5},
+			toolCalls: []ToolCall{
+				{Name: "web_search"},
+				{Name: "summarize"},
+			},
+			want: false,
+		},
+		{
+			name:     "over call limit",
+			detector: &ChainLengthDetector{maxCalls: 3, maxDepth: 0, threshold: 0.5},
+			toolCalls: []ToolCall{
+				{Name: "a"}, {Name: "b"}, {Name: "c"}, {Name: "d"},
+			},
+			want: true,
+		},
+		{
+			name:     "depth exceeded",
+			detector: &ChainLengthDetector{maxCalls: 0, maxDepth: 2, threshold: 0.5},
+			toolCalls: []ToolCall{
+				{Name: "web_search"},
+				{Name: "web_search"},
+				{Name: "web_search"},
+			},
+			want: true,
+		},
+		{
+			name:     "depth not exceeded",
+			detector: &ChainLengthDetector{maxCalls: 0, maxDepth: 2, threshold: 0.5},
+			toolCalls: []ToolCall{
+				{Name: "a"},
+				{Name: "b"},
+				{Name: "a"},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.detector.DetectChain(tt.toolCalls)
+			if got != tt.want {
+				t.Errorf("DetectChain() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestChainLengthDetector_NegativeMaxCalls_ReturnsError is a regression test for
+// commit a878c8a which added validation rejecting negative max_calls. Before the
+// fix, max_calls: -1 was silently accepted and the scoring guard (d.maxCalls > 0)
+// permanently disabled the call-count check, neutering the detector.
+func TestChainLengthDetector_NegativeMaxCalls_ReturnsError(t *testing.T) {
+	_, err := NewChainLength(registry.Config{
+		"max_calls": int(-1),
+	})
+	if err == nil {
+		t.Fatal("NewChainLength() expected error for max_calls=-1, got nil")
+	}
+	if want := "must be >= 0"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), want)
+	}
+}
+
+// TestChainLengthDetector_NegativeMaxDepth_ReturnsError is a regression test for
+// commit a878c8a which added validation rejecting negative max_depth. Before the
+// fix, max_depth: -1 was silently accepted and the depth check was permanently
+// disabled, neutering repetition-loop detection.
+func TestChainLengthDetector_NegativeMaxDepth_ReturnsError(t *testing.T) {
+	_, err := NewChainLength(registry.Config{
+		"max_depth": int(-1),
+	})
+	if err == nil {
+		t.Fatal("NewChainLength() expected error for max_depth=-1, got nil")
+	}
+	if want := "must be >= 0"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), want)
+	}
+}
+
+// TestChainLengthDetector_NegativeFloat_ReturnsError verifies that a negative
+// float64 value (the JSON-decoded form) also triggers the validation. gopkg.in/yaml.v3
+// decodes numeric config values as float64; this test ensures the float64 branch
+// conversion + validation path also rejects negative values.
+func TestChainLengthDetector_NegativeFloat_ReturnsError(t *testing.T) {
+	_, err := NewChainLength(registry.Config{
+		"max_calls": float64(-5),
+	})
+	if err == nil {
+		t.Fatal("NewChainLength() expected error for max_calls=float64(-5), got nil")
+	}
+	if want := "must be >= 0"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), want)
+	}
+}
+
+func TestChainLengthDetector_Name(t *testing.T) {
+	d := &ChainLengthDetector{}
+	if got := d.Name(); got != "agent.ChainLength" {
+		t.Errorf("Name() = %q, want %q", got, "agent.ChainLength")
+	}
+}
+
+func TestChainLengthDetector_Description(t *testing.T) {
+	d := &ChainLengthDetector{maxCalls: 10, maxDepth: 3}
+	desc := d.Description()
+	if desc == "" {
+		t.Error("Description() returned empty string")
+	}
+}
+
+// ISSUE 5: Test the []any JSON-decoded path (production path).
+//
+// In production the generator JSON-unmarshals the tool_calls field, producing
+// []any where each element is map[string]any. This test exercises that branch
+// directly to prevent silent regressions.
+func TestChainLengthDetector_JSONDecodedToolCalls(t *testing.T) {
+	d := &ChainLengthDetector{maxCalls: 5, maxDepth: 0, threshold: 0.5}
+
+	rawJSON := `[{"name":"a","args":{}},{"name":"b","args":{}}]`
+	var decoded []any
+	if err := json.Unmarshal([]byte(rawJSON), &decoded); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+
+	a := attempt.New("json-decoded tool calls")
+	a.Metadata[attempt.MetadataKeyToolCalls] = decoded
+	a.AddOutput("two calls, max_calls=5")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 1 {
+		t.Fatalf("Detect() returned %d scores, want 1", len(scores))
+	}
+	// With proportional scoring: 2/5 = 0.4
+	const wantScore = 0.4
+	if math.Abs(scores[0]-wantScore) > 1e-9 {
+		t.Errorf("Detect() score = %f, want %f for 2 calls with max_calls=5", scores[0], wantScore)
+	}
+}
+
+// ISSUE 1: Test string-form tool_calls ([]any{"tool_a", "tool_b"}).
+//
+// Some generators store tool names as a string list rather than a map list.
+// ChainLength must correctly count them instead of silently returning 0.0.
+func TestChainLengthDetector_StringFormToolCalls(t *testing.T) {
+	d := &ChainLengthDetector{maxCalls: 2, maxDepth: 0, threshold: 0.5}
+
+	// 4 string-form tool calls exceed maxCalls=2 → expect 1.0.
+	a := attempt.New("string-form tool calls")
+	a.Metadata[attempt.MetadataKeyToolCalls] = []any{"tool_a", "tool_a", "tool_a", "tool_b"}
+	a.AddOutput("4 string-form tool calls, max=2")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 1 {
+		t.Fatalf("Detect() returned %d scores, want 1", len(scores))
+	}
+	if scores[0] != 1.0 {
+		t.Errorf("Detect() score = %f, want 1.0 for 4 string-form calls with max_calls=2 (ISSUE 1 regression)", scores[0])
+	}
+}
+
+// ISSUE 6: Boundary test for maxCalls strict inequality.
+//
+// maxCalls=10: exactly 10 calls → 0.0 (not triggered), 11 calls → 1.0.
+
+func TestChainLengthDetector_ExactlyAtLimit(t *testing.T) {
+	d := &ChainLengthDetector{maxCalls: 10, maxDepth: 0, threshold: 0.5}
+
+	calls := make([]map[string]any, 10)
+	for i := range calls {
+		calls[i] = map[string]any{"name": "web_search"}
+	}
+
+	a := attempt.New("exactly at limit")
+	a.Metadata[attempt.MetadataKeyToolCalls] = calls
+	a.AddOutput("10 calls, max_calls=10")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	// With proportional scoring: 10/10 = 1.0 (exactly at limit scores 1.0)
+	if scores[0] != 1.0 {
+		t.Errorf("Detect() score = %f, want 1.0 for exactly 10 calls with max_calls=10 (proportional: ratio=1.0)", scores[0])
+	}
+}
+
+func TestChainLengthDetector_OneOverLimit(t *testing.T) {
+	d := &ChainLengthDetector{maxCalls: 10, maxDepth: 0, threshold: 0.5}
+
+	calls := make([]map[string]any, 11)
+	for i := range calls {
+		calls[i] = map[string]any{"name": "web_search"}
+	}
+
+	a := attempt.New("one over limit")
+	a.Metadata[attempt.MetadataKeyToolCalls] = calls
+	a.AddOutput("11 calls, max_calls=10")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if scores[0] != 1.0 {
+		t.Errorf("Detect() score = %f, want 1.0 for 11 calls with max_calls=10", scores[0])
+	}
+}
+
+// ISSUE 6: Boundary test for maxDepth strict inequality.
+//
+// maxDepth=3: a run of exactly 3 consecutive identical calls → 0.0, run of 4 → 1.0.
+
+func TestChainLengthDetector_DepthExactlyAtLimit(t *testing.T) {
+	d := &ChainLengthDetector{maxCalls: 0, maxDepth: 3, threshold: 0.5}
+
+	a := attempt.New("depth exactly at limit")
+	a.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
+		{"name": "web_search"},
+		{"name": "web_search"},
+		{"name": "web_search"},
+	}
+	a.AddOutput("run of 3, max_depth=3")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	// With proportional scoring: run=3, max_depth=3 → ratio=1.0
+	if scores[0] != 1.0 {
+		t.Errorf("Detect() score = %f, want 1.0 for run of exactly 3 with max_depth=3 (proportional: ratio=1.0)", scores[0])
+	}
+}
+
+func TestChainLengthDetector_DepthOneOverLimit(t *testing.T) {
+	d := &ChainLengthDetector{maxCalls: 0, maxDepth: 3, threshold: 0.5}
+
+	a := attempt.New("depth one over limit")
+	a.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
+		{"name": "web_search"},
+		{"name": "web_search"},
+		{"name": "web_search"},
+		{"name": "web_search"},
+	}
+	a.AddOutput("run of 4, max_depth=3")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if scores[0] != 1.0 {
+		t.Errorf("Detect() score = %f, want 1.0 for run of 4 with max_depth=3", scores[0])
+	}
+}
+
+// TestChainLength_TextFallback_ExceedsMax verifies that when no structured
+// tool calls are present, text containing more ReAct Action blocks than
+// maxCalls scores 1.0.
+func TestChainLength_TextFallback_ExceedsMax(t *testing.T) {
+	d, err := NewChainLength(registry.Config{
+		"max_calls":     float64(2),
+		"text_fallback": true,
+	})
+	if err != nil {
+		t.Fatalf("NewChainLength() error = %v", err)
+	}
+
+	// 5 ReAct Action blocks exceed maxCalls=2.
+	reactBlock := "Action: web_search\nAction Input: {\"query\": \"test\"}\n"
+	text := reactBlock + reactBlock + reactBlock + reactBlock + reactBlock
+
+	a := attempt.New("text fallback exceeds max")
+	a.AddOutput(text)
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 1 {
+		t.Fatalf("Detect() returned %d scores, want 1", len(scores))
+	}
+	if scores[0] != 1.0 {
+		t.Errorf("Detect() score = %f, want 1.0 for 5 ReAct blocks with max_calls=2", scores[0])
+	}
+}
+
+// TestChainLength_TextFallback_BelowMin verifies that when no structured
+// tool calls are present, text containing fewer tool-call patterns than
+// minCalls (but at least one) scores 1.0.
+func TestChainLength_TextFallback_BelowMin(t *testing.T) {
+	d, err := NewChainLength(registry.Config{
+		"min_calls":     float64(3),
+		"text_fallback": true,
+	})
+	if err != nil {
+		t.Fatalf("NewChainLength() error = %v", err)
+	}
+
+	// 1 JSON tool_calls block is below minCalls=3 → score 1.0.
+	text := `{"tool_calls": [{"function": {"name": "search", "arguments": {}}}]}`
+
+	a := attempt.New("text fallback below min")
+	a.AddOutput(text)
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 1 {
+		t.Fatalf("Detect() returned %d scores, want 1", len(scores))
+	}
+	if scores[0] != 1.0 {
+		t.Errorf("Detect() score = %f, want 1.0 for 1 JSON tool_calls block with min_calls=3", scores[0])
+	}
+}
+
+// TestChainLength_TextFallback_WithinBounds verifies that when text contains
+// a pattern count within [minCalls, maxCalls], score is 0.0.
+func TestChainLength_TextFallback_WithinBounds(t *testing.T) {
+	d, err := NewChainLength(registry.Config{
+		"min_calls":     float64(1),
+		"max_calls":     float64(5),
+		"text_fallback": true,
+	})
+	if err != nil {
+		t.Fatalf("NewChainLength() error = %v", err)
+	}
+
+	// 2 ReAct blocks: within [1, 5] → score 0.0.
+	reactBlock := "Action: summarize\nAction Input: {\"text\": \"hello\"}\n"
+	text := reactBlock + reactBlock
+
+	a := attempt.New("text fallback within bounds")
+	a.AddOutput(text)
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 1 {
+		t.Fatalf("Detect() returned %d scores, want 1", len(scores))
+	}
+	// With proportional scoring: 2/5 = 0.4
+	const wantScore = 0.4
+	if math.Abs(scores[0]-wantScore) > 1e-9 {
+		t.Errorf("Detect() score = %f, want %f for 2 patterns within [1,5]", scores[0], wantScore)
+	}
+}
+
+// TestChainLength_TextFallback_Disabled verifies that setting text_fallback=false
+// causes the detector to return 0.0 even when the text contains many patterns.
+func TestChainLength_TextFallback_Disabled(t *testing.T) {
+	d, err := NewChainLength(registry.Config{
+		"max_calls":     float64(2),
+		"text_fallback": false,
+	})
+	if err != nil {
+		t.Fatalf("NewChainLength() error = %v", err)
+	}
+
+	// 10 ReAct blocks would exceed maxCalls=2, but text_fallback is off.
+	reactBlock := "Action: web_search\nAction Input: {\"query\": \"test\"}\n"
+	text := strings.Repeat(reactBlock, 10)
+
+	a := attempt.New("text fallback disabled")
+	a.AddOutput(text)
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 1 {
+		t.Fatalf("Detect() returned %d scores, want 1", len(scores))
+	}
+	if scores[0] != 0.0 {
+		t.Errorf("Detect() score = %f, want 0.0 when text_fallback=false", scores[0])
+	}
+}
+
+// TestChainLength_TextFallback_MultipleOutputs verifies per-output independence
+// of the text-fallback path: the middle output with 5 ReAct blocks (over maxCalls=2)
+// scores 1.0 while clean siblings score 0.0.
+func TestChainLength_TextFallback_MultipleOutputs(t *testing.T) {
+	d, err := NewChainLength(registry.Config{
+		"max_calls":     float64(2),
+		"text_fallback": true,
+	})
+	if err != nil {
+		t.Fatalf("NewChainLength() error = %v", err)
+	}
+
+	a := attempt.New("multi-output chain-length text fallback independence")
+	// No tool_calls metadata — simulates chat-mode API response.
+	// Output 0: 1 ReAct block — within limit → 0.0
+	a.AddOutput("one Action: foo\nAction Input: x")
+	// Output 1: 5 ReAct blocks — over maxCalls=2 → 1.0
+	a.AddOutput(strings.Repeat("Action: tool\nAction Input: y\n", 5))
+	// Output 2: no tool patterns → 0.0
+	a.AddOutput("no tool patterns")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 3 {
+		t.Fatalf("Detect() returned %d scores, want 3", len(scores))
+	}
+	// With proportional scoring: output[0] has 1 ReAct block / max_calls=2 → 0.5
+	// output[1] has 5 blocks > max_calls=2 → 1.0; output[2] has 0 blocks → 0.0
+	want := []float64{0.5, 1.0, 0.0}
+	for i, s := range scores {
+		if math.Abs(s-want[i]) > 1e-9 {
+			t.Errorf("scores[%d] = %f, want %f (per-output independence in text-fallback)", i, s, want[i])
+		}
+	}
+}
+
+// TestChainLength_TextFallback_EmptyOutputs verifies that when a.Outputs is
+// empty, the detector returns an empty slice without panic or error.
+func TestChainLength_TextFallback_EmptyOutputs(t *testing.T) {
+	d, err := NewChainLength(registry.Config{
+		"max_calls":     float64(2),
+		"text_fallback": true,
+	})
+	if err != nil {
+		t.Fatalf("NewChainLength() error = %v", err)
+	}
+
+	a := attempt.New("empty outputs chain-length text fallback")
+	// No tool_calls, no outputs added.
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 0 {
+		t.Errorf("Detect() returned %d scores, want 0 for empty outputs", len(scores))
+	}
+}
+
+// TestChainLength_TextFallback_StructuredPathPreserved verifies that when
+// structured tool_calls metadata is present the existing path fires and
+// text_fallback is not consulted.
+func TestChainLength_TextFallback_StructuredPathPreserved(t *testing.T) {
+	d, err := NewChainLength(registry.Config{
+		"max_calls":     float64(2),
+		"text_fallback": true,
+	})
+	if err != nil {
+		t.Fatalf("NewChainLength() error = %v", err)
+	}
+
+	// 5 structured tool calls exceed maxCalls=2; text has no patterns at all.
+	a := attempt.New("structured path preserved")
+	a.Metadata[attempt.MetadataKeyToolCalls] = []map[string]any{
+		{"name": "a"}, {"name": "b"}, {"name": "c"}, {"name": "d"}, {"name": "e"},
+	}
+	a.AddOutput("plain text with no tool-call patterns")
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 1 {
+		t.Fatalf("Detect() returned %d scores, want 1", len(scores))
+	}
+	if scores[0] != 1.0 {
+		t.Errorf("Detect() score = %f, want 1.0 via structured path for 5 calls with max_calls=2", scores[0])
+	}
+}
+
+// TestChainLengthDetector_NegativeMinCalls_ReturnsError verifies that
+// min_calls: -1 causes NewChainLength to return an error. Before the
+// validation was added, a negative min_calls was silently accepted and the
+// guard (d.minCalls > 0 && len(toolCalls) < d.minCalls) would never fire
+// because the minCalls > 0 guard short-circuits for negative values, meaning
+// suspiciously-short-chain detection was always disabled.
+func TestChainLengthDetector_NegativeMinCalls_ReturnsError(t *testing.T) {
+	_, err := NewChainLength(registry.Config{
+		"min_calls": int(-1),
+	})
+	if err == nil {
+		t.Fatal("NewChainLength() expected error for min_calls=-1, got nil")
+	}
+	if want := "must be >= 0"; !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), want)
+	}
+}
+
+// TestChainLengthDetector_FractionalMaxCalls_ReturnsError verifies that a
+// fractional float64 value (e.g. 0.9) causes NewChainLength to return an
+// error. Before this check, float64(0.9) was silently truncated to int(0),
+// which disabled the call-count check entirely (d.maxCalls > 0 guard never
+// fires), neutering the detector.
+func TestChainLengthDetector_FractionalMaxCalls_ReturnsError(t *testing.T) {
+	tests := []struct {
+		name  string
+		field string
+		value float64
+	}{
+		{"max_calls fractional", "max_calls", 0.9},
+		{"max_depth fractional", "max_depth", 1.5},
+		{"min_calls fractional", "min_calls", 2.1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewChainLength(registry.Config{
+				tt.field: tt.value,
+			})
+			if err == nil {
+				t.Fatalf("NewChainLength() expected error for %s=float64(%v), got nil", tt.field, tt.value)
+			}
+			if want := "must be an integer"; !strings.Contains(err.Error(), want) {
+				t.Errorf("error = %q, want it to contain %q", err.Error(), want)
+			}
+		})
+	}
+}

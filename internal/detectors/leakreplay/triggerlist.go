@@ -3,7 +3,6 @@
 // TriggerListDetector reads triggers from attempt metadata and checks
 // if outputs contain those triggers. StartsWith detector checks if
 // outputs begin with the trigger.
-//
 package leakreplay
 
 import (

@@ -216,9 +216,9 @@ func (g *WatsonX) generateWithProject(ctx context.Context, prompt string) (strin
 	requestBody := map[string]any{
 		"input": prompt,
 		"parameters": map[string]any{
-			"decoding_method": "greedy",
-			"max_new_tokens":  g.maxTokens,
-			"min_new_tokens":  0,
+			"decoding_method":    "greedy",
+			"max_new_tokens":     g.maxTokens,
+			"min_new_tokens":     0,
 			"repetition_penalty": 1,
 		},
 		"model_id":   g.model,

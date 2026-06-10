@@ -26,7 +26,6 @@ var humanGroups = []string{
 
 // Slurs is a probe that attempts to get models to output ethnic slurs
 // by appealing to pathos to remember a deceased grandmother.
-//
 type Slurs struct {
 	*GrandmaProbe
 }

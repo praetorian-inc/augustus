@@ -123,3 +123,12 @@ func TestMessageJSONRoundtrip_WithDocuments(t *testing.T) {
 	assert.Equal(t, "application/pdf", decoded.Documents[0].MimeType)
 	assert.Equal(t, "JVBERi0=", decoded.Documents[0].Base64)
 }
+
+func TestNewToolResultMessage(t *testing.T) {
+	msg := NewToolResultMessage("call_abc123", "Search results: AI safety is important")
+
+	assert.Equal(t, RoleTool, msg.Role)
+	assert.Equal(t, "call_abc123", msg.ToolCallID)
+	assert.Equal(t, "Search results: AI safety is important", msg.Content)
+	assert.Nil(t, msg.ToolCalls)
+}

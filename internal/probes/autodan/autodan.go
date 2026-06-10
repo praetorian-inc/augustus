@@ -30,7 +30,7 @@ func NewAutoDANFromConfig(_ registry.Config) (probes.Prober, error) {
 		"dan.DAN",
 		"AutoDAN uses genetic algorithms to automatically evolve and improve jailbreak prompts over multiple generations",
 		DefaultPopulation,
-		5,  // 5 generations
+		5, // 5 generations
 		SimpleFitnessFunction,
 	), nil
 }
@@ -64,9 +64,9 @@ type AutoDANProbe struct {
 	goal            string
 	primaryDetector string
 	description     string
-	mutator         probes.Generator // LLM used for mutation
-	population      []string         // Current population of jailbreak prompts
-	generations     int              // Number of generations to evolve
+	mutator         probes.Generator     // LLM used for mutation
+	population      []string             // Current population of jailbreak prompts
+	generations     int                  // Number of generations to evolve
 	fitness         func(string) float64 // Fitness function to score responses
 }
 

@@ -103,7 +103,7 @@ func (p *IterativePAIR) Probe(ctx context.Context, gen probes.Generator) ([]*att
 	return attempts, nil
 }
 
-func (p *IterativePAIR) Name() string              { return p.name }
+func (p *IterativePAIR) Name() string               { return p.name }
 func (p *IterativePAIR) Description() string        { return p.description }
 func (p *IterativePAIR) Goal() string               { return p.goal }
 func (p *IterativePAIR) GetPrimaryDetector() string { return "judge.Judge" }
@@ -119,4 +119,3 @@ func NewIterativePAIRWithGenerators(attacker, judge probes.Generator, cfg attack
 		description: "PAIR: Prompt Automatic Iterative Refinement - iterative jailbreak discovery",
 	}
 }
-

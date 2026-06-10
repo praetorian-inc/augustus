@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/praetorian-inc/augustus/internal/attackengine"
 	"github.com/praetorian-inc/augustus/internal/generators/googleai"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
@@ -171,6 +172,43 @@ func (g *Vertex) generateOne(ctx context.Context, conv *attempt.Conversation) (a
 	}
 	req.GenerationConfig = &genConfig
 
+	// Wire tool definitions from the probe into the API request.
+	if len(conv.Tools) > 0 {
+		decls := make([]googleai.FunctionDeclaration, len(conv.Tools))
+		for i, t := range conv.Tools {
+			name, ok := t["name"].(string)
+			if !ok || name == "" {
+				return attempt.Message{}, fmt.Errorf("vertex: tool at index %d missing valid string name", i)
+			}
+			fd := googleai.FunctionDeclaration{Name: name}
+			if desc, ok := t["description"].(string); ok {
+				fd.Description = desc
+			}
+			if params, ok := t["parameters"]; ok {
+				fd.Parameters = params
+			}
+			decls[i] = fd
+		}
+		req.Tools = []googleai.ToolDeclaration{{FunctionDeclarations: decls}}
+
+		if conv.ToolChoice != "" {
+			switch conv.ToolChoice {
+			case "auto":
+				req.ToolConfig = &googleai.ToolConfig{FunctionCallingConfig: &googleai.FunctionCallingConfig{Mode: "AUTO"}}
+			case "required":
+				req.ToolConfig = &googleai.ToolConfig{FunctionCallingConfig: &googleai.FunctionCallingConfig{Mode: "ANY"}}
+			case "none":
+				req.Tools = nil
+				req.ToolConfig = &googleai.ToolConfig{FunctionCallingConfig: &googleai.FunctionCallingConfig{Mode: "NONE"}}
+			default:
+				req.ToolConfig = &googleai.ToolConfig{FunctionCallingConfig: &googleai.FunctionCallingConfig{
+					Mode:                 "ANY",
+					AllowedFunctionNames: []string{conv.ToolChoice},
+				}}
+			}
+		}
+	}
+
 	// Serialize request
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -178,8 +216,7 @@ func (g *Vertex) generateOne(ctx context.Context, conv *attempt.Conversation) (a
 	}
 
 	// Build URL
-	url := fmt.Sprintf(
-		"%s/projects/%s/locations/%s/publishers/google/models/%s:generateContent",
+	url := fmt.Sprintf("%s/projects/%s/locations/%s/publishers/google/models/%s:generateContent",
 		strings.TrimSuffix(g.baseURL, "/"),
 		g.projectID,
 		g.location,
@@ -222,17 +259,30 @@ func (g *Vertex) generateOne(ctx context.Context, conv *attempt.Conversation) (a
 		return attempt.Message{}, fmt.Errorf("vertex: failed to parse response: %w", err)
 	}
 
-	// Extract text from first candidate
+	// Extract text and function calls from first candidate
 	if len(resp.Candidates) == 0 {
 		return attempt.Message{}, fmt.Errorf("vertex: no candidates in response")
 	}
 
 	var text string
+	var funcCalls []attackengine.GeminiFunctionCall
 	for _, part := range resp.Candidates[0].Content.Parts {
-		text += part.Text
+		if part.Text != "" {
+			text += part.Text
+		}
+		if part.FunctionCall != nil {
+			funcCalls = append(funcCalls, attackengine.GeminiFunctionCall{
+				Name: part.FunctionCall.Name,
+				Args: part.FunctionCall.Args,
+			})
+		}
 	}
 
-	return attempt.NewAssistantMessage(text), nil
+	msg := attempt.NewAssistantMessage(text)
+	if toolCalls := attackengine.NormalizeGeminiFunctionCalls(funcCalls); toolCalls != nil {
+		msg.ToolCalls = toolCalls
+	}
+	return msg, nil
 }
 
 // conversationToContents converts an Augustus Conversation to Vertex AI contents.
@@ -243,22 +293,50 @@ func (g *Vertex) conversationToContents(conv *attempt.Conversation) []googleai.C
 	// It's passed as a separate systemInstruction parameter
 
 	for _, turn := range conv.Turns {
-		// Add user message
-		contents = append(contents, googleai.Content{
-			Role: "user",
-			Parts: []googleai.ContentPart{
-				{Text: turn.Prompt.Content},
-			},
-		})
+		switch turn.Prompt.Role {
+		case attempt.RoleTool:
+			// Tool result: "function" role with a functionResponse part.
+			// Gemini matches responses to calls by the function name (not call ID).
+			var respData map[string]any
+			if err := json.Unmarshal([]byte(turn.Prompt.Content), &respData); err != nil {
+				respData = map[string]any{"result": turn.Prompt.Content}
+			}
+			// ToolCallID holds the function name for Gemini tool results.
+			name := turn.Prompt.ToolCallID
+			contents = append(contents, googleai.Content{
+				Role: "function",
+				Parts: []googleai.ContentPart{{
+					FunctionResponse: &googleai.FunctionResponse{Name: name, Response: respData},
+				}},
+			})
+		default:
+			// Standard user message
+			contents = append(contents, googleai.Content{
+				Role: "user",
+				Parts: []googleai.ContentPart{
+					{Text: turn.Prompt.Content},
+				},
+			})
+		}
 
 		// Add model response if present
 		if turn.Response != nil {
-			contents = append(contents, googleai.Content{
-				Role: "model",
-				Parts: []googleai.ContentPart{
-					{Text: turn.Response.Content},
-				},
-			})
+			parts := []googleai.ContentPart{}
+			if turn.Response.Content != "" {
+				parts = append(parts, googleai.ContentPart{Text: turn.Response.Content})
+			}
+			for _, tc := range turn.Response.ToolCalls {
+				name, _ := tc["name"].(string)
+				args, _ := tc["args"].(map[string]any)
+				if name != "" {
+					parts = append(parts, googleai.ContentPart{
+						FunctionCall: &googleai.FunctionCall{Name: name, Args: args},
+					})
+				}
+			}
+			if len(parts) > 0 {
+				contents = append(contents, googleai.Content{Role: "model", Parts: parts})
+			}
 		}
 	}
 

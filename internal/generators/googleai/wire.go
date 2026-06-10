@@ -29,11 +29,49 @@ type InlineData struct {
 	Data     string `json:"data"`
 }
 
-// ContentPart is a single part within a content block. Exactly one of Text or
-// InlineData is set per part.
+// ContentPart is a single part within a content block. Exactly one of Text,
+// InlineData, FunctionCall, or FunctionResponse is set per part.
 type ContentPart struct {
-	Text       string      `json:"text,omitempty"`
-	InlineData *InlineData `json:"inline_data,omitempty"`
+	Text             string            `json:"text,omitempty"`
+	InlineData       *InlineData       `json:"inline_data,omitempty"`
+	FunctionCall     *FunctionCall     `json:"functionCall,omitempty"`
+	FunctionResponse *FunctionResponse `json:"functionResponse,omitempty"`
+}
+
+// FunctionCall represents a function call made by the model.
+type FunctionCall struct {
+	Name string         `json:"name"`
+	Args map[string]any `json:"args"`
+}
+
+// FunctionResponse represents a function (tool) result sent back to the model.
+// Gemini matches responses to calls by function name (not by call ID).
+type FunctionResponse struct {
+	Name     string         `json:"name"`
+	Response map[string]any `json:"response"`
+}
+
+// ToolDeclaration holds the function declarations for a set of tools.
+type ToolDeclaration struct {
+	FunctionDeclarations []FunctionDeclaration `json:"functionDeclarations"`
+}
+
+// FunctionDeclaration describes a single callable function.
+type FunctionDeclaration struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Parameters  any    `json:"parameters,omitempty"`
+}
+
+// ToolConfig controls how the model selects tools.
+type ToolConfig struct {
+	FunctionCallingConfig *FunctionCallingConfig `json:"functionCallingConfig,omitempty"`
+}
+
+// FunctionCallingConfig specifies the tool selection mode.
+type FunctionCallingConfig struct {
+	Mode                 string   `json:"mode"`
+	AllowedFunctionNames []string `json:"allowedFunctionNames,omitempty"`
 }
 
 // Content is a single message turn in the contents array.
@@ -56,6 +94,8 @@ type GenerateRequest struct {
 	Contents          []Content         `json:"contents"`
 	SystemInstruction *Content          `json:"systemInstruction,omitempty"`
 	GenerationConfig  *GenerationConfig `json:"generationConfig,omitempty"`
+	Tools             []ToolDeclaration `json:"tools,omitempty"`
+	ToolConfig        *ToolConfig       `json:"toolConfig,omitempty"`
 }
 
 // Candidate is one response candidate.

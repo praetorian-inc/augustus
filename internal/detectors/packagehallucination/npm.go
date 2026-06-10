@@ -96,8 +96,8 @@ var nodeBuiltins = map[string]bool{
 
 // Regex patterns for extracting npm package imports (using js prefix to avoid conflicts)
 var (
-	jsRequirePattern = regexp.MustCompile(`require\(['"]([^'"]+)['"]\)`)
-	jsImportPattern = regexp.MustCompile(`import\s+.*?\s+from\s+['"]([^'"]+)['"]`)
+	jsRequirePattern       = regexp.MustCompile(`require\(['"]([^'"]+)['"]\)`)
+	jsImportPattern        = regexp.MustCompile(`import\s+.*?\s+from\s+['"]([^'"]+)['"]`)
 	jsDynamicImportPattern = regexp.MustCompile(`import\(['"]([^'"]+)['"]\)`)
 )
 

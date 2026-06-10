@@ -25,7 +25,6 @@ func init() {
 // The technique exploits that LLM safety training often focuses on present-tense
 // imperative commands while being less robust to historical framing.
 //
-//
 // Reference: https://arxiv.org/pdf/2407.11969v2
 type PastTense struct {
 	*probes.SimpleProbe

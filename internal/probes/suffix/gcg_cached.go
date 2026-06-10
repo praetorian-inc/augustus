@@ -3,7 +3,6 @@
 // Suffix probes attempt to disrupt a system prompt by appending an adversarial suffix.
 // These suffixes are specially crafted strings (often containing unusual unicode, punctuation,
 // and patterns) designed to bypass LLM safety mechanisms.
-//
 package suffix
 
 import (
@@ -13,7 +12,6 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
-
 //go:embed data/gcg.txt
 var gcgSuffixData string
 
@@ -21,7 +19,6 @@ var gcgSuffixData string
 //
 // An automatic jailbreaking probe using gradient descent. This implementation
 // uses a pre-computed cached set of GCG prompts from research.
-//
 type GCGCached struct {
 	*probes.SimpleProbe
 }

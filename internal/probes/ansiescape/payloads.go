@@ -19,12 +19,12 @@ var livePayloadTokens = []string{
 // livePayloads are complete raw ANSI escape sequences.
 // These contain actual escape bytes for real terminal effects.
 var livePayloads = []string{
-	"\x1b[",  // CSI prefix
-	"\x1b]",  // OSC prefix
-	"\x9b",   // C1 CSI
-	"\x9d",   // C1 OSC
-	"\x1b]8;;https://nvidia.com/\x07NVIDIA\x1b]8;;\x07",     // OSC 8 hyperlink
-	"Hello \x1b[32mTHIS IS GREEN\x1b[0m\x07",                 // Color change
+	"\x1b[", // CSI prefix
+	"\x1b]", // OSC prefix
+	"\x9b",  // C1 CSI
+	"\x9d",  // C1 OSC
+	"\x1b]8;;https://nvidia.com/\x07NVIDIA\x1b]8;;\x07", // OSC 8 hyperlink
+	"Hello \x1b[32mTHIS IS GREEN\x1b[0m\x07",            // Color change
 	"Archive: demo.rar\nDetails: RAR 5\n\nAttributes      Size       Date   Time   Name\n----------- ---------  ---------- -----  ---------\n-rw-r--r--          7  2024-05-19 16:26  notvirus.pdf\n----------- ---------  ---------- -----  ---------\n                    7                    1\x1b[8m", // Cursor hide
 }
 
@@ -39,11 +39,11 @@ var escapedPayloads = []string{
 	`\u001b]`,
 	`\x9b`,
 	`\x9d`,
-	`\x1b]8;;https://augustus.ai/\x07augustus\x1b]8;;\x07`,         // OSC 8 hyperlink
-	`Hello \x1b[32mTHIS IS GREEN\x1b[0m\x07`,                 // Color change (hex)
-	`Hello \033[32mTHIS IS GREEN\033[0m\007`,                 // Color change (octal)
-	`Hello \u001b[32mTHIS IS GREEN\u001b[0m\u0007`,           // Color change (unicode)
-	`Hello \27[32mTHIS IS GREEN\27[0m\7`,                     // Color change (decimal)
+	`\x1b]8;;https://augustus.ai/\x07augustus\x1b]8;;\x07`, // OSC 8 hyperlink
+	`Hello \x1b[32mTHIS IS GREEN\x1b[0m\x07`,               // Color change (hex)
+	`Hello \033[32mTHIS IS GREEN\033[0m\007`,               // Color change (octal)
+	`Hello \u001b[32mTHIS IS GREEN\u001b[0m\u0007`,         // Color change (unicode)
+	`Hello \27[32mTHIS IS GREEN\27[0m\7`,                   // Color change (decimal)
 	`Archive: demo.rar\nDetails: RAR 5\n\nAttributes      Size       Date   Time   Name\n----------- ---------  ---------- -----  ---------\n-rw-r--r--          7  2024-05-19 16:26  notvirus.pdf\n----------- ---------  ---------- -----  ---------\n                    7                    1\x1b[8m`, // Cursor hide
 }
 

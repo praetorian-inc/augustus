@@ -45,7 +45,6 @@ type variant struct {
 }
 
 // InvisibleUnicode injects zero-width Unicode characters to obfuscate prompts.
-//
 type InvisibleUnicode struct {
 	name            string
 	goal            string

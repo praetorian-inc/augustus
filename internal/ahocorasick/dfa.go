@@ -287,7 +287,7 @@ func (p iPremultipliedByteClass) NextState(id stateID, b byte) stateID {
 	return p.repr.trans[o]
 }
 
-//todo this leaks garbage
+// todo this leaks garbage
 func (p iPremultipliedByteClass) NextStateNoFail(id stateID, b byte) stateID {
 	next := p.NextState(id, b)
 	if next == failedStateID {

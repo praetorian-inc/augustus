@@ -40,22 +40,91 @@ func BuildMessages(conv *attempt.Conversation) ([]Message, string, error) {
 		system = conv.System.Content
 	}
 
-	messages := make([]Message, 0, len(conv.Turns)*2)
-	for _, turn := range conv.Turns {
-		userContent, err := buildContent(&turn.Prompt)
-		if err != nil {
-			return nil, "", fmt.Errorf("anthropic: build user content: %w", err)
+	// Build an intermediate slice whose Content is `any` so that consecutive
+	// tool_result turns can be coalesced into a single user message (Anthropic
+	// rejects consecutive same-role messages and requires all tool_result blocks
+	// for one assistant turn to be sent in a single user message). Each entry is
+	// marshaled to json.RawMessage at the end to produce the wire-format
+	// []Message.
+	type intermediate struct {
+		Role    string
+		Content any
+	}
+
+	built := make([]intermediate, 0, len(conv.Turns)*2)
+	for i := range conv.Turns {
+		turn := &conv.Turns[i]
+		switch turn.Prompt.Role {
+		case attempt.RoleTool:
+			// Tool result: append a tool_result block, coalescing consecutive
+			// RoleTool turns into a single user message.
+			block := map[string]any{
+				"type":        "tool_result",
+				"tool_use_id": turn.Prompt.ToolCallID,
+				"content":     turn.Prompt.Content,
+			}
+			if i > 0 && conv.Turns[i-1].Prompt.Role == attempt.RoleTool {
+				last := &built[len(built)-1]
+				blocks, _ := last.Content.([]any)
+				last.Content = append(blocks, block)
+			} else {
+				built = append(built, intermediate{Role: "user", Content: []any{block}})
+			}
+		default:
+			// Standard user prompt with optional text/image/document blocks.
+			userContent, err := buildContent(&turn.Prompt)
+			if err != nil {
+				return nil, "", fmt.Errorf("anthropic: build user content: %w", err)
+			}
+			built = append(built, intermediate{Role: "user", Content: userContent})
 		}
-		messages = append(messages, Message{Role: "user", Content: userContent})
 
 		if turn.Response != nil {
-			// Assistant responses are always plain text in Augustus.
-			respContent, err := json.Marshal(turn.Response.Content)
-			if err != nil {
-				return nil, "", fmt.Errorf("anthropic: marshal assistant content: %w", err)
+			if len(turn.Response.ToolCalls) > 0 {
+				// Assistant with tool_use blocks: structured content.
+				content := make([]any, 0, 1+len(turn.Response.ToolCalls))
+				if turn.Response.Content != "" {
+					content = append(content, map[string]any{
+						"type": "text",
+						"text": turn.Response.Content,
+					})
+				}
+				for _, tc := range turn.Response.ToolCalls {
+					name, _ := tc["name"].(string)
+					id, _ := tc["id"].(string)
+					if id == "" {
+						id = "toolu_" + name
+					}
+					args, _ := tc["args"].(map[string]any)
+					if args == nil {
+						args = map[string]any{}
+					}
+					content = append(content, map[string]any{
+						"type":  "tool_use",
+						"id":    id,
+						"name":  name,
+						"input": args,
+					})
+				}
+				built = append(built, intermediate{Role: "assistant", Content: content})
+			} else {
+				// Plain text assistant response.
+				built = append(built, intermediate{Role: "assistant", Content: turn.Response.Content})
 			}
-			messages = append(messages, Message{Role: "assistant", Content: respContent})
 		}
+	}
+
+	messages := make([]Message, 0, len(built))
+	for _, m := range built {
+		raw, ok := m.Content.(json.RawMessage)
+		if !ok {
+			marshaled, err := json.Marshal(m.Content)
+			if err != nil {
+				return nil, "", fmt.Errorf("anthropic: marshal %s content: %w", m.Role, err)
+			}
+			raw = marshaled
+		}
+		messages = append(messages, Message{Role: m.Role, Content: raw})
 	}
 	return messages, system, nil
 }

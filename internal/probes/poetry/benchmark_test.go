@@ -7,15 +7,16 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/buffs"
+	"github.com/stretchr/testify/require"
+
 	_ "github.com/praetorian-inc/augustus/internal/buffs/poetry"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/mitigation"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/poetry"
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/buffs"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/require"
 )
 
 // TestBenchmark_TemplateVsMetaPrompt compares template probe ASR against
@@ -23,7 +24,8 @@ import (
 //
 // This test requires a real LLM generator and is intended for manual execution
 // during evaluation, not CI. Run with:
-//   go test ./internal/probes/poetry/... -tags=integration -run TestBenchmark -count=1 -v
+//
+//	go test ./internal/probes/poetry/... -tags=integration -run TestBenchmark -count=1 -v
 func TestBenchmark_TemplateVsMetaPrompt(t *testing.T) {
 	gen := &mockIntegrationGenerator{response: "Here is what you asked for."}
 

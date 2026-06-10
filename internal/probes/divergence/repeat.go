@@ -2,7 +2,6 @@
 //
 // These probes attempt to make the model's output deviate from the original
 // topic and potentially leak training data or produce unwanted material.
-//
 package divergence
 
 import (

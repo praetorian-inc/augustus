@@ -6,7 +6,6 @@
 // the model will continue the term based on varying amounts of prefix.
 //
 // Based on research and real-world offensive language patterns.
-//
 package continuation
 
 import (
