@@ -3,6 +3,7 @@ package runtimetemplates
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/praetorian-inc/augustus/pkg/probes"
@@ -41,7 +42,7 @@ prompts:
   - "second prompt"
 `)
 
-	ids, err := RegisterFromPath(dir)
+	ids, err := RegisterFromPath(dir, false)
 	if err != nil {
 		t.Fatalf("RegisterFromPath() error: %v", err)
 	}
@@ -86,7 +87,7 @@ strategy:
   turn: "Turn {{.TurnNum}} of {{.MaxTurns}}: ask about {{.Goal}}"
 `)
 
-	ids, err := RegisterFromPath(dir)
+	ids, err := RegisterFromPath(dir, false)
 	if err != nil {
 		t.Fatalf("RegisterFromPath() error: %v", err)
 	}
@@ -121,13 +122,79 @@ prompts:
   - "x"
 `) // missing detector
 
-	if _, err := RegisterFromPath(dir); err == nil {
+	if _, err := RegisterFromPath(dir, false); err == nil {
 		t.Error("RegisterFromPath() should error on invalid template (missing detector)")
 	}
 }
 
 func TestRegisterFromPath_MissingDirErrors(t *testing.T) {
-	if _, err := RegisterFromPath(filepath.Join(t.TempDir(), "does-not-exist")); err == nil {
+	if _, err := RegisterFromPath(filepath.Join(t.TempDir(), "does-not-exist"), false); err == nil {
 		t.Error("RegisterFromPath() should error for missing directory")
+	}
+}
+
+func TestRegisterFromPath_RefusesOverrideWithoutForce(t *testing.T) {
+	dir := t.TempDir()
+	writeTemplate(t, dir, "first.yaml", `
+id: runtimetest.OverrideTarget
+info: {name: First, severity: low, detector: judge.Judge}
+prompts: ["one"]
+`)
+	// First registration succeeds (no collision yet).
+	if _, err := RegisterFromPath(dir, false); err != nil {
+		t.Fatalf("first RegisterFromPath() error: %v", err)
+	}
+
+	// Second registration of the same ID must be refused without force.
+	dir2 := t.TempDir()
+	writeTemplate(t, dir2, "again.yaml", `
+id: runtimetest.OverrideTarget
+info: {name: Second, severity: low, detector: judge.Judge}
+prompts: ["two"]
+`)
+	_, err := RegisterFromPath(dir2, false)
+	if err == nil {
+		t.Fatal("RegisterFromPath() should refuse to override an existing probe without force")
+	}
+	if !strings.Contains(err.Error(), "runtimetest.OverrideTarget") {
+		t.Errorf("error should name the colliding ID, got: %v", err)
+	}
+
+	// With force, the override succeeds.
+	if _, err := RegisterFromPath(dir2, true); err != nil {
+		t.Fatalf("RegisterFromPath() with force should override, got: %v", err)
+	}
+}
+
+func TestRegisterFromPath_AtomicOnRefusedCollision(t *testing.T) {
+	// A dir containing one fresh probe and one colliding probe must register
+	// NOTHING when the collision is refused (atomic, fail-closed).
+	dir := t.TempDir()
+	writeTemplate(t, dir, "seed.yaml", `
+id: runtimetest.AtomicSeed
+info: {name: Seed, severity: low, detector: judge.Judge}
+prompts: ["seed"]
+`)
+	if _, err := RegisterFromPath(dir, false); err != nil {
+		t.Fatalf("seed registration: %v", err)
+	}
+
+	dir2 := t.TempDir()
+	writeTemplate(t, dir2, "fresh.yaml", `
+id: runtimetest.AtomicFresh
+info: {name: Fresh, severity: low, detector: judge.Judge}
+prompts: ["fresh"]
+`)
+	writeTemplate(t, dir2, "collides.yaml", `
+id: runtimetest.AtomicSeed
+info: {name: Collides, severity: low, detector: judge.Judge}
+prompts: ["collide"]
+`)
+	if _, err := RegisterFromPath(dir2, false); err == nil {
+		t.Fatal("expected refusal due to collision")
+	}
+	// The non-colliding probe must NOT have been registered.
+	if _, exists := probes.Get("runtimetest.AtomicFresh"); exists {
+		t.Error("RegisterFromPath() should be atomic: no probe registered when a collision is refused")
 	}
 }

@@ -57,7 +57,7 @@ func (s *ScanCmd) execute() error {
 	// Load runtime probe templates before glob expansion so they are selectable
 	// by name and by --probes-glob without rebuilding the binary.
 	if s.TemplatesDir != "" {
-		ids, err := runtimetemplates.RegisterFromPath(s.TemplatesDir)
+		ids, err := runtimetemplates.RegisterFromPath(s.TemplatesDir, s.Force)
 		if err != nil {
 			return fmt.Errorf("failed to load probe templates from %s: %w", s.TemplatesDir, err)
 		}
