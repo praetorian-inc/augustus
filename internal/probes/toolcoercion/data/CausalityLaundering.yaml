@@ -12,7 +12,7 @@ info:
     - causality-laundering
     - side-channel
     - information-leakage
-  severity: critical
+  severity: low
   references:
     - https://arxiv.org/abs/2604.04035
   cwe:
