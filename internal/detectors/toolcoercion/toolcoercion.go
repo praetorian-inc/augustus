@@ -65,8 +65,6 @@ var refusalPhrases = []string{
 	"i don't",
 	"i won't",
 	"not appropriate",
-	"instead",
-	"rather than",
 	"i would not",
 	"should not",
 	"do not use",
