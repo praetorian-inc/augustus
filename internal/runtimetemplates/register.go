@@ -25,9 +25,30 @@ func RegisterFromPath(dir string, allowOverride bool) ([]string, error) {
 		return nil, err
 	}
 
-	// Detect collisions before registering anything (atomic, fail-closed).
+	// Pre-flight validation before registering anything (atomic, fail-closed):
+	//   1. duplicate IDs within this batch,
+	//   2. multi-turn strategy templates that fail to compile/dry-run,
+	//   3. collisions with already-registered probes (unless --force).
+	batch := make(map[string]bool, len(tmpls))
 	var collisions []string
 	for _, tmpl := range tmpls {
+		if batch[tmpl.ID] {
+			return nil, fmt.Errorf("duplicate template id %q in %s — each template must have a unique id", tmpl.ID, dir)
+		}
+		batch[tmpl.ID] = true
+
+		// Compile multi-turn strategy prompts now so a bad field reference
+		// (e.g. {{.Tpyo}}) aborts at load, not when the scan materializes the probe.
+		if tmpl.IsMultiTurn() {
+			maxTurns := 0
+			if tmpl.Engine != nil {
+				maxTurns = tmpl.Engine.MaxTurns
+			}
+			if _, err := newTemplateStrategy(tmpl.ID, tmpl.Strategy, maxTurns); err != nil {
+				return nil, fmt.Errorf("invalid multi-turn template %q: %w", tmpl.ID, err)
+			}
+		}
+
 		if _, exists := probes.Get(tmpl.ID); exists {
 			collisions = append(collisions, tmpl.ID)
 		}

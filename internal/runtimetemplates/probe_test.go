@@ -14,9 +14,10 @@ import (
 
 // Compile-time assertions that MultiTurnTemplateProbe satisfies the probe interfaces.
 var (
-	_ types.Prober              = (*MultiTurnTemplateProbe)(nil)
-	_ types.ProbeMetadata       = (*MultiTurnTemplateProbe)(nil)
-	_ types.ProbeDetectorConfig = (*MultiTurnTemplateProbe)(nil)
+	_ types.Prober                  = (*MultiTurnTemplateProbe)(nil)
+	_ types.ProbeMetadata           = (*MultiTurnTemplateProbe)(nil)
+	_ types.ProbeDetectorConfig     = (*MultiTurnTemplateProbe)(nil)
+	_ types.ProbeSecondaryDetectors = (*MultiTurnTemplateProbe)(nil)
 )
 
 // mockGen is a minimal scripted generator for probe tests.
@@ -134,6 +135,33 @@ func TestNewMultiTurnProbe_CarriesDetectorConfig(t *testing.T) {
 	}
 	if pdc.GetDetectorConfig()["detector_goal"] != "custom rubric goal" {
 		t.Errorf("detector_config not threaded from template: %v", pdc.GetDetectorConfig())
+	}
+}
+
+// TestNewMultiTurnProbe_CarriesSecondaryDetectors verifies the factory threads
+// info.secondary_detectors into the probe (C2/S2).
+func TestNewMultiTurnProbe_CarriesSecondaryDetectors(t *testing.T) {
+	tmpl := &templates.ProbeTemplate{
+		ID:   "custom.WithSecondary",
+		Type: templates.TypeMultiTurn,
+		Info: templates.ProbeInfo{
+			Name: "x", Severity: "high", Detector: "base.StringDetector", Goal: "g",
+			SecondaryDetectors: []templates.SecondaryDetectorYAML{{Name: "judge.Judge"}},
+		},
+		Engine:   &templates.EngineConfig{AttackerGeneratorType: "test.Single", JudgeGeneratorType: "test.Single"},
+		Strategy: &templates.StrategyConfig{AttackerSystem: "sys {{.Goal}}", Turn: "turn {{.TurnNum}}"},
+	}
+	probe, err := newMultiTurnProbe(tmpl, nil)
+	if err != nil {
+		t.Fatalf("newMultiTurnProbe: %v", err)
+	}
+	psd, ok := probe.(types.ProbeSecondaryDetectors)
+	if !ok {
+		t.Fatal("multi-turn probe should implement ProbeSecondaryDetectors")
+	}
+	sds := psd.GetSecondaryDetectors()
+	if len(sds) != 1 || sds[0].Name != "judge.Judge" {
+		t.Errorf("secondary detectors not threaded: %v", sds)
 	}
 }
 

@@ -32,13 +32,22 @@ also work with `--probes-glob "runtime.*"` and `--all`.
 - ❌ New detector or generator *implementations*, or a fundamentally new engine
   control-flow — those are Go and still require a rebuild.
 
-## Detector vs. judge
+## Detector vs. judge (multi-turn)
 
-A multi-turn template has two independent judge-shaped knobs:
+A multi-turn template has two judge-shaped knobs:
 
-- `info.detector` — the post-hoc **verdict** detector (the run's reported score).
-- `engine.judge_generator_type` — the in-loop **steering** judge that drives
-  early-exit and attacker feedback.
+- `engine.judge_generator_type` — the in-loop **steering** judge that scores each
+  turn (drives early-exit and attacker feedback).
+- `info.detector` (+ `info.secondary_detectors`) — **post-hoc** detector(s) run
+  on the recorded attempt.
+
+Important: the unified engine always records its in-loop judge score under
+`judge.Judge`, and an attempt's verdict is the **maximum score across all
+detectors** (the in-loop judge *plus* your configured detector(s)). So
+`info.detector` **adds** a verdict signal rather than replacing the in-loop
+judge — either can flag the attempt vulnerable. Tune the in-loop judge with
+`engine.success_threshold`. (Static templates have no in-loop judge, so for them
+`info.detector` is the sole verdict.)
 
 ## Validation
 

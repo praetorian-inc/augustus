@@ -112,6 +112,23 @@ func TestProbeTemplate_Validate_MultiTurn_MissingStrategy(t *testing.T) {
 	}
 }
 
+func TestProbeTemplate_Validate_MultiTurn_SecondaryDetectorSelfRef(t *testing.T) {
+	// C2/S2: secondary_detectors must be validated on multi-turn templates too.
+	tmpl := validMultiTurnTemplate()
+	tmpl.Info.SecondaryDetectors = []SecondaryDetectorYAML{{Name: tmpl.Info.Detector}}
+	if err := tmpl.Validate(); !errors.Is(err, ErrSecondaryDetectorSelfReference) {
+		t.Errorf("multi-turn validation should reject secondary detector self-reference, got: %v", err)
+	}
+}
+
+func TestProbeTemplate_Validate_MultiTurn_SecondaryDetectorOK(t *testing.T) {
+	tmpl := validMultiTurnTemplate()
+	tmpl.Info.SecondaryDetectors = []SecondaryDetectorYAML{{Name: "judge.Refusal"}}
+	if err := tmpl.Validate(); err != nil {
+		t.Errorf("valid secondary detector on multi-turn should pass, got: %v", err)
+	}
+}
+
 func TestProbeTemplate_Validate_InvalidType(t *testing.T) {
 	tmpl := validMultiTurnTemplate()
 	tmpl.Type = "bogus"

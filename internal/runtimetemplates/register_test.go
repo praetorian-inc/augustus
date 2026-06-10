@@ -133,6 +133,50 @@ func TestRegisterFromPath_MissingDirErrors(t *testing.T) {
 	}
 }
 
+func TestRegisterFromPath_MultiTurnBadFieldFailsAtLoad(t *testing.T) {
+	// C1: a bad field reference in a multi-turn strategy must abort at LOAD
+	// (RegisterFromPath), not later when the scan materializes the probe.
+	dir := t.TempDir()
+	writeTemplate(t, dir, "bad.yaml", `
+id: runtimetest.BadStrategyField
+type: multiturn
+info: {name: Bad, severity: high, detector: judge.Judge, goal: g}
+engine: {attacker_generator_type: test.Single, judge_generator_type: test.Single}
+strategy:
+  attacker_system: "pursue {{.Goal}}"
+  turn: "ask {{.NoSuchField}}"
+`)
+	if _, err := RegisterFromPath(dir, false); err == nil {
+		t.Fatal("RegisterFromPath should reject a multi-turn template with a bad field reference at load")
+	}
+	if _, exists := probes.Get("runtimetest.BadStrategyField"); exists {
+		t.Error("a template that fails load validation must not be registered")
+	}
+}
+
+func TestRegisterFromPath_DuplicateIDsInBatch(t *testing.T) {
+	// S1: two files with the same id in one dir must be rejected, not silently
+	// overwritten.
+	dir := t.TempDir()
+	writeTemplate(t, dir, "a.yaml", `
+id: runtimetest.DupBatch
+info: {name: A, severity: low, detector: judge.Judge}
+prompts: ["a"]
+`)
+	writeTemplate(t, dir, "b.yaml", `
+id: runtimetest.DupBatch
+info: {name: B, severity: low, detector: judge.Judge}
+prompts: ["b"]
+`)
+	_, err := RegisterFromPath(dir, false)
+	if err == nil {
+		t.Fatal("RegisterFromPath should reject duplicate template IDs within one dir")
+	}
+	if !strings.Contains(err.Error(), "duplicate template id") {
+		t.Errorf("error should mention duplicate id, got: %v", err)
+	}
+}
+
 func TestRegisterFromPath_RefusesOverrideWithoutForce(t *testing.T) {
 	dir := t.TempDir()
 	writeTemplate(t, dir, "first.yaml", `

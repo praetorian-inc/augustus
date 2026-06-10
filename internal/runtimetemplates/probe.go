@@ -15,7 +15,8 @@ import (
 // per-template detector config.
 type MultiTurnTemplateProbe struct {
 	multiturn.BaseMultiTurnProbe
-	detectorConfig map[string]any
+	detectorConfig     map[string]any
+	secondaryDetectors []types.SecondaryDetector
 }
 
 // GetDetectorConfig returns per-template detector configuration overrides
@@ -23,6 +24,13 @@ type MultiTurnTemplateProbe struct {
 // templates are as self-contained as static ones. Returns nil when unset.
 func (p *MultiTurnTemplateProbe) GetDetectorConfig() map[string]any {
 	return p.detectorConfig
+}
+
+// GetSecondaryDetectors returns additional detectors to run alongside the
+// primary (info.secondary_detectors). Implements types.ProbeSecondaryDetectors
+// so multi-turn templates honor secondary detectors like static ones do.
+func (p *MultiTurnTemplateProbe) GetSecondaryDetectors() []types.SecondaryDetector {
+	return p.secondaryDetectors
 }
 
 // newMultiTurnProbeWithGenerators builds a probe from pre-constructed components.
@@ -102,8 +110,23 @@ func newMultiTurnProbe(tmpl *templates.ProbeTemplate, cfg registry.Config) (type
 		return nil, err
 	}
 
-	return newMultiTurnProbeWithGenerators(
+	probe := newMultiTurnProbeWithGenerators(
 		tmpl.ID, tmpl.Info.Description, tmpl.Info.Detector, tmpl.Info.DetectorConfig,
 		strategy, attacker, judge, engineCfg,
-	), nil
+	)
+	probe.secondaryDetectors = secondaryDetectorsFromTemplate(tmpl)
+	return probe, nil
+}
+
+// secondaryDetectorsFromTemplate converts a template's info.secondary_detectors
+// into the runtime type. Returns nil when none are declared.
+func secondaryDetectorsFromTemplate(tmpl *templates.ProbeTemplate) []types.SecondaryDetector {
+	if len(tmpl.Info.SecondaryDetectors) == 0 {
+		return nil
+	}
+	out := make([]types.SecondaryDetector, len(tmpl.Info.SecondaryDetectors))
+	for i, s := range tmpl.Info.SecondaryDetectors {
+		out[i] = types.SecondaryDetector{Name: s.Name, Config: s.Config}
+	}
+	return out
 }

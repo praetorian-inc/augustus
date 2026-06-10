@@ -186,20 +186,8 @@ func (t *ProbeTemplate) validateStatic() error {
 		}
 	}
 	// Validate secondary_detectors entries.
-	primary := strings.TrimSpace(t.Info.Detector)
-	seen := make(map[string]bool, len(t.Info.SecondaryDetectors))
-	for _, sd := range t.Info.SecondaryDetectors {
-		name := strings.TrimSpace(sd.Name)
-		if name == "" {
-			return fmt.Errorf("%w for template '%s'", ErrEmptySecondaryDetectorName, t.ID)
-		}
-		if name == primary {
-			return fmt.Errorf("%w: '%s' for template '%s'", ErrSecondaryDetectorSelfReference, name, t.ID)
-		}
-		if seen[name] {
-			return fmt.Errorf("%w: '%s' for template '%s'", ErrDuplicateSecondaryDetectorName, name, t.ID)
-		}
-		seen[name] = true
+	if err := t.validateSecondaryDetectors(); err != nil {
+		return err
 	}
 	// Validate tool definitions if present.
 	toolNames := make(map[string]bool, len(t.Info.Tools))
@@ -245,6 +233,30 @@ func (t *ProbeTemplate) validateMultiTurn() error {
 		strings.TrimSpace(t.Strategy.AttackerSystem) == "" ||
 		strings.TrimSpace(t.Strategy.Turn) == "" {
 		return fmt.Errorf("%w (template '%s')", ErrMissingStrategyPrompt, t.ID)
+	}
+	// secondary_detectors apply to multi-turn templates too (the probe runs them
+	// alongside the primary detector), so validate them the same way as static.
+	return t.validateSecondaryDetectors()
+}
+
+// validateSecondaryDetectors checks info.secondary_detectors entries for empty
+// names, self-reference to the primary detector, and duplicates. Shared by both
+// static and multi-turn validation.
+func (t *ProbeTemplate) validateSecondaryDetectors() error {
+	primary := strings.TrimSpace(t.Info.Detector)
+	seen := make(map[string]bool, len(t.Info.SecondaryDetectors))
+	for _, sd := range t.Info.SecondaryDetectors {
+		name := strings.TrimSpace(sd.Name)
+		if name == "" {
+			return fmt.Errorf("%w for template '%s'", ErrEmptySecondaryDetectorName, t.ID)
+		}
+		if name == primary {
+			return fmt.Errorf("%w: '%s' for template '%s'", ErrSecondaryDetectorSelfReference, name, t.ID)
+		}
+		if seen[name] {
+			return fmt.Errorf("%w: '%s' for template '%s'", ErrDuplicateSecondaryDetectorName, name, t.ID)
+		}
+		seen[name] = true
 	}
 	return nil
 }
