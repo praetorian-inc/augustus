@@ -25,7 +25,7 @@ func (m *mockGenerator) Description() string { return "mock" }
 func TestReasoningProbesRegistered(t *testing.T) {
 	expected := []string{
 		"reasoning.HCoT",
-		"reasoning.ShadowCoT",
+		"reasoning.AdversarialLogic",
 		"reasoning.OverThink",
 		"reasoning.DecisionHijack",
 	}
@@ -45,7 +45,7 @@ func TestReasoningProbesRegistered(t *testing.T) {
 func TestReasoningProbeCreation(t *testing.T) {
 	names := []string{
 		"reasoning.HCoT",
-		"reasoning.ShadowCoT",
+		"reasoning.AdversarialLogic",
 		"reasoning.OverThink",
 		"reasoning.DecisionHijack",
 	}
@@ -69,7 +69,7 @@ func TestReasoningProbeMetadata(t *testing.T) {
 		detector string
 	}{
 		{"reasoning.HCoT", "reasoning.ReasoningHijack"},
-		{"reasoning.ShadowCoT", "reasoning.ReasoningHijack"},
+		{"reasoning.AdversarialLogic", "reasoning.ReasoningHijack"},
 		{"reasoning.OverThink", "reasoning.OutputInflation"},
 		{"reasoning.DecisionHijack", "reasoning.ReasoningHijack"},
 	}
@@ -95,7 +95,7 @@ func TestReasoningProbePromptCount(t *testing.T) {
 		count int
 	}{
 		{"reasoning.HCoT", 3},
-		{"reasoning.ShadowCoT", 3},
+		{"reasoning.AdversarialLogic", 3},
 		{"reasoning.OverThink", 3},
 		{"reasoning.DecisionHijack", 3},
 	}

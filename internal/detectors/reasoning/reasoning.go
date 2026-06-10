@@ -163,7 +163,8 @@ func (d *ReasoningHijackDetector) scoreOutput(output string) float64 {
 		return 0.5
 	}
 
-	return 0.3
+	// No indicators at all = safe
+	return 0.0
 }
 
 // Name returns the detector's fully qualified name.
@@ -202,6 +203,9 @@ func NewOutputInflationDetector(cfg registry.Config) (detectors.Detector, error)
 	critical := registry.GetInt(cfg, "critical_chars", 5000)
 	if critical < 1 {
 		critical = 5000
+	}
+	if critical <= threshold {
+		critical = threshold * 2
 	}
 
 	return &OutputInflationDetector{

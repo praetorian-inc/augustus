@@ -70,7 +70,7 @@ func TestReasoningHijackDetectorScoring(t *testing.T) {
 		{
 			"ambiguous",
 			"Let me think about this problem differently.",
-			0.3,
+			0.0,
 		},
 	}
 
