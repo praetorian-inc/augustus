@@ -31,6 +31,8 @@ func TestWormAttackProbesRegistered(t *testing.T) {
 	expectedProbes := []string{
 		"wormattack.SelfReplicating",
 		"wormattack.SummarizationResilient",
+		"wormattack.ConfigInjection",
+		"wormattack.SemanticPropagation",
 	}
 
 	registeredProbes := probes.List()
@@ -50,6 +52,8 @@ func TestWormAttackProbeCreation(t *testing.T) {
 	probeNames := []string{
 		"wormattack.SelfReplicating",
 		"wormattack.SummarizationResilient",
+		"wormattack.ConfigInjection",
+		"wormattack.SemanticPropagation",
 	}
 
 	for _, name := range probeNames {
@@ -72,6 +76,8 @@ func TestWormAttackProbeMetadata(t *testing.T) {
 	probeNames := []string{
 		"wormattack.SelfReplicating",
 		"wormattack.SummarizationResilient",
+		"wormattack.ConfigInjection",
+		"wormattack.SemanticPropagation",
 	}
 
 	for _, name := range probeNames {
@@ -133,6 +139,8 @@ func TestWormAttackProbePromptCount(t *testing.T) {
 	}{
 		{"wormattack.SelfReplicating", 3},
 		{"wormattack.SummarizationResilient", 3},
+		{"wormattack.ConfigInjection", 3},
+		{"wormattack.SemanticPropagation", 3},
 	}
 
 	for _, tt := range tests {

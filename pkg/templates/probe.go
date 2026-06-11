@@ -21,7 +21,18 @@ func NewTemplateProbe(tmpl *ProbeTemplate) *TemplateProbe {
 // Probe executes the probe against the generator.
 // Implements types.Prober interface.
 func (t *TemplateProbe) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
-	return probes.RunPrompts(ctx, gen, t.template.Prompts, t.Name(), t.GetPrimaryDetector(), nil)
+	metadataFn := func(_ int, _ string, a *attempt.Attempt) {
+		// Pass the goal to the attempt so detectors (e.g., judge.Judge) can use it.
+		// Prefer detector_goal if set, otherwise fall back to the probe goal.
+		goal := t.template.Info.DetectorGoal
+		if goal == "" {
+			goal = t.template.Info.Goal
+		}
+		if goal != "" {
+			a.Metadata["goal"] = goal
+		}
+	}
+	return probes.RunPrompts(ctx, gen, t.template.Prompts, t.Name(), t.GetPrimaryDetector(), metadataFn)
 }
 
 // Name returns the probe's fully qualified name.
@@ -42,6 +53,11 @@ func (t *TemplateProbe) Goal() string {
 // GetPrimaryDetector returns the recommended detector.
 func (t *TemplateProbe) GetPrimaryDetector() string {
 	return t.template.Info.Detector
+}
+
+// GetDetectorGoal returns the detector-specific goal, if set.
+func (t *TemplateProbe) GetDetectorGoal() string {
+	return t.template.Info.DetectorGoal
 }
 
 // GetPrompts returns the prompts used by this probe.

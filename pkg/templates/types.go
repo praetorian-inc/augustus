@@ -24,9 +24,9 @@ var (
 	ErrEmptyPrompts = errors.New("template validation failed: 'prompts' cannot be empty")
 
 	// Classification validation regexes compiled once at package init
-	cwePattern    = regexp.MustCompile(`^CWE-\d+$`)
-	mitrePattern  = regexp.MustCompile(`^(T\d{4}(\.\d{3})?|AML\.T\d{4}(\.\d{3})?)$`)
-	owaspPattern  = regexp.MustCompile(`^A\d{2}:\d{4}$`)
+	cwePattern   = regexp.MustCompile(`^CWE-\d+$`)
+	mitrePattern = regexp.MustCompile(`^(T\d{4}(\.\d{3})?|AML\.T\d{4}(\.\d{3})?)$`)
+	owaspPattern = regexp.MustCompile(`^A\d{2}:\d{4}$`)
 )
 
 // ProbeTemplate defines the YAML structure for probe templates.
@@ -114,6 +114,10 @@ type ProbeInfo struct {
 
 	// Detector is the recommended detector for this probe
 	Detector string `yaml:"detector"`
+
+	// DetectorGoal overrides the probe goal for the detector (e.g., judge.Judge).
+	// If empty, the detector falls back to the probe Goal.
+	DetectorGoal string `yaml:"detector_goal,omitempty"`
 
 	// Tags for categorization and filtering
 	Tags []string `yaml:"tags"`
