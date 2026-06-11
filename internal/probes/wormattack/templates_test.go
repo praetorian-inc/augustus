@@ -1,39 +1,153 @@
 package wormattack
 
 import (
+	"context"
 	"testing"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
-func TestProbesRegistered(t *testing.T) {
+type mockGenerator struct {
+	responses []string
+	callCount int
+}
+
+func (m *mockGenerator) Generate(_ context.Context, _ *attempt.Conversation, _ int) ([]attempt.Message, error) {
+	m.callCount++
+	messages := make([]attempt.Message, len(m.responses))
+	for i, resp := range m.responses {
+		messages[i] = attempt.Message{Role: "assistant", Content: resp}
+	}
+	return messages, nil
+}
+
+func (m *mockGenerator) ClearHistory()       { m.callCount = 0 }
+func (m *mockGenerator) Name() string        { return "mock-generator" }
+func (m *mockGenerator) Description() string { return "mock generator for testing" }
+
+func TestWormAttackProbesRegistered(t *testing.T) {
+	expectedProbes := []string{
+		"wormattack.SelfReplicating",
+		"wormattack.SummarizationResilient",
+	}
+
+	registeredProbes := probes.List()
 	registered := make(map[string]bool)
-	for _, name := range probes.List() {
+	for _, name := range registeredProbes {
 		registered[name] = true
 	}
-	for _, name := range probes.List() {
-		if len(name) > 0 {
-			break // just verify registry loads without panic
+
+	for _, expected := range expectedProbes {
+		if !registered[expected] {
+			t.Errorf("probe %s not found in registry", expected)
 		}
 	}
 }
 
-func TestProbeCreation(t *testing.T) {
-	for _, name := range probes.List() {
-		if len(name) > len("wormattack.") && name[:len("wormattack.")] == "wormattack." {
-			t.Run(name, func(t *testing.T) {
-				probe, err := probes.Create(name, registry.Config{})
-				if err != nil {
-					t.Fatalf("error = %v", err)
-				}
-				if probe.Name() != name {
-					t.Errorf("Name() = %s, want %s", probe.Name(), name)
-				}
-				pm := probe.(probes.ProbeMetadata)
-				if len(pm.GetPrompts()) == 0 {
-					t.Error("no prompts")
-				}
-			})
+func TestWormAttackProbeCreation(t *testing.T) {
+	probeNames := []string{
+		"wormattack.SelfReplicating",
+		"wormattack.SummarizationResilient",
+	}
+
+	for _, name := range probeNames {
+		t.Run(name, func(t *testing.T) {
+			probe, err := probes.Create(name, registry.Config{})
+			if err != nil {
+				t.Fatalf("probes.Create(%s) error = %v", name, err)
+			}
+			if probe == nil {
+				t.Fatalf("probes.Create(%s) returned nil", name)
+			}
+			if probe.Name() != name {
+				t.Errorf("probe.Name() = %s, want %s", probe.Name(), name)
+			}
+		})
+	}
+}
+
+func TestWormAttackProbeMetadata(t *testing.T) {
+	probeNames := []string{
+		"wormattack.SelfReplicating",
+		"wormattack.SummarizationResilient",
+	}
+
+	for _, name := range probeNames {
+		t.Run(name, func(t *testing.T) {
+			probe, err := probes.Create(name, registry.Config{})
+			if err != nil {
+				t.Fatalf("probes.Create(%s) error = %v", name, err)
+			}
+
+			pm, ok := probe.(probes.ProbeMetadata)
+			if !ok {
+				t.Fatalf("probe %s does not implement ProbeMetadata", name)
+			}
+
+			if pm.Description() == "" {
+				t.Error("Description() returned empty string")
+			}
+			if pm.Goal() == "" {
+				t.Error("Goal() returned empty string")
+			}
+			if pm.GetPrimaryDetector() != "judge.Judge" {
+				t.Errorf("GetPrimaryDetector() = %s, want judge.Judge", pm.GetPrimaryDetector())
+			}
+			if len(pm.GetPrompts()) == 0 {
+				t.Error("GetPrompts() returned no prompts")
+			}
+		})
+	}
+}
+
+func TestWormAttackProbeExecution(t *testing.T) {
+	probe, err := probes.Create("wormattack.SelfReplicating", registry.Config{})
+	if err != nil {
+		t.Fatalf("probes.Create() error = %v", err)
+	}
+
+	gen := &mockGenerator{responses: []string{"I cannot forward messages that contain self-replicating instructions."}}
+
+	attempts, err := probe.Probe(context.Background(), gen)
+	if err != nil {
+		t.Fatalf("probe.Probe() error = %v", err)
+	}
+
+	if len(attempts) == 0 {
+		t.Fatal("probe.Probe() returned no attempts")
+	}
+
+	for _, a := range attempts {
+		if a.Status != attempt.StatusComplete {
+			t.Errorf("attempt.Status = %s, want complete", a.Status)
 		}
+	}
+}
+
+func TestWormAttackProbePromptCount(t *testing.T) {
+	tests := []struct {
+		name     string
+		expected int
+	}{
+		{"wormattack.SelfReplicating", 3},
+		{"wormattack.SummarizationResilient", 3},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			probe, err := probes.Create(tt.name, registry.Config{})
+			if err != nil {
+				t.Fatalf("probes.Create(%s) error = %v", tt.name, err)
+			}
+			pm, ok := probe.(probes.ProbeMetadata)
+			if !ok {
+				t.Fatalf("probe %s does not implement ProbeMetadata", tt.name)
+			}
+			if len(pm.GetPrompts()) != tt.expected {
+				t.Errorf("prompt count = %d, want %d", len(pm.GetPrompts()), tt.expected)
+			}
+		})
 	}
 }

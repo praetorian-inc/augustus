@@ -47,5 +47,4 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/detectors/unsafecontent"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/visualjailbreak"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/webinjection"
-	_ "github.com/praetorian-inc/augustus/internal/detectors/wormattack"
 )
