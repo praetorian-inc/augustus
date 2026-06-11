@@ -172,8 +172,8 @@ func TestTokenize(t *testing.T) {
 	if !words["hello"] || !words["world"] || !words["this"] || !words["test"] {
 		t.Errorf("missing expected words: %v", words)
 	}
-	if words["a"] || words["is"] {
-		// single chars are filtered
+	if words["a"] {
+		t.Error("single-char word 'a' should be filtered")
 	}
 }
 
