@@ -12,6 +12,7 @@ func TestProbesRegistered(t *testing.T) {
 		"stegoattack.Acrostic",
 		"stegoattack.WordInitial",
 		"stegoattack.TagSmuggling",
+		"stegoattack.SemanticStego",
 	}
 
 	registered := make(map[string]bool)
@@ -31,6 +32,7 @@ func TestProbeCreation(t *testing.T) {
 		"stegoattack.Acrostic",
 		"stegoattack.WordInitial",
 		"stegoattack.TagSmuggling",
+		"stegoattack.SemanticStego",
 	}
 
 	for _, name := range expected {
