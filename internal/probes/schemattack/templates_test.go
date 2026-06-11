@@ -30,8 +30,6 @@ func (m *mockGenerator) Description() string  { return "mock generator for testi
 func TestSchemaAttackProbesRegistered(t *testing.T) {
 	expectedProbes := []string{
 		"schemattack.TrojanSchema",
-		"schemattack.EnumAttack",
-		"schemattack.DictAttack",
 	}
 
 	registeredProbes := probes.List()
@@ -50,8 +48,6 @@ func TestSchemaAttackProbesRegistered(t *testing.T) {
 func TestSchemaAttackProbeCreation(t *testing.T) {
 	probeNames := []string{
 		"schemattack.TrojanSchema",
-		"schemattack.EnumAttack",
-		"schemattack.DictAttack",
 	}
 
 	for _, name := range probeNames {
@@ -73,8 +69,6 @@ func TestSchemaAttackProbeCreation(t *testing.T) {
 func TestSchemaAttackProbeMetadata(t *testing.T) {
 	probeNames := []string{
 		"schemattack.TrojanSchema",
-		"schemattack.EnumAttack",
-		"schemattack.DictAttack",
 	}
 
 	for _, name := range probeNames {
@@ -95,8 +89,8 @@ func TestSchemaAttackProbeMetadata(t *testing.T) {
 			if pm.Goal() == "" {
 				t.Error("Goal() returned empty string")
 			}
-			if pm.GetPrimaryDetector() != "schemattack.SchemaCompliance" {
-				t.Errorf("GetPrimaryDetector() = %s, want schemattack.SchemaCompliance", pm.GetPrimaryDetector())
+			if pm.GetPrimaryDetector() != "judge.Judge" {
+				t.Errorf("GetPrimaryDetector() = %s, want judge.Judge", pm.GetPrimaryDetector())
 			}
 			if len(pm.GetPrompts()) == 0 {
 				t.Error("GetPrompts() returned no prompts")
@@ -106,12 +100,12 @@ func TestSchemaAttackProbeMetadata(t *testing.T) {
 }
 
 func TestSchemaAttackProbeExecution(t *testing.T) {
-	probe, err := probes.Create("schemattack.EnumAttack", registry.Config{})
+	probe, err := probes.Create("schemattack.TrojanSchema", registry.Config{})
 	if err != nil {
 		t.Fatalf("probes.Create() error = %v", err)
 	}
 
-	gen := &mockGenerator{responses: []string{"generate_malware_code"}}
+	gen := &mockGenerator{responses: []string{"I cannot provide harmful content. The langfun framework is used for structured output generation."}}
 
 	attempts, err := probe.Probe(context.Background(), gen)
 	if err != nil {
@@ -135,8 +129,6 @@ func TestSchemaAttackProbePromptCount(t *testing.T) {
 		expected int
 	}{
 		{"schemattack.TrojanSchema", 3},
-		{"schemattack.EnumAttack", 3},
-		{"schemattack.DictAttack", 3},
 	}
 
 	for _, tt := range tests {
