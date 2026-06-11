@@ -17,6 +17,7 @@ import (
 //	Phase 3 (Verification): Session reset, memory persists, still injected
 func TestFullAttackFlow(t *testing.T) {
 	store := New()
+	store.MaxRetrieved = 0 // dump-all for this test (verifies basic flow)
 	injectHook := InjectMemoryHook(store)
 	extractHook := ExtractMemoryHook(store)
 	ctx := context.Background()

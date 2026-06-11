@@ -50,16 +50,30 @@ func init() {
 // prepend retrieved memories to the context window on every turn.
 func InjectMemoryHook(store *Store) multiturn.Hook {
 	return func(_ context.Context, tc *multiturn.TurnContext) error {
-		formatted := store.Format()
+		// Retrieve memories relevant to the current question,
+		// simulating similarity-based retrieval in real agents.
+		query := tc.Question
+		if query == "" && tc.TargetConv.System != nil {
+			query = tc.TargetConv.System.Content
+		}
+
+		var formatted string
+		if store.MaxRetrieved > 0 {
+			memories := store.Retrieve(query, store.MaxRetrieved)
+			formatted = FormatRetrieved(memories)
+		} else {
+			formatted = store.Format()
+		}
+
 		if formatted == "" {
 			return nil
 		}
 
-		slog.Debug("agentmemory: injecting memories into target system prompt",
-			"memory_count", store.Len(),
+		slog.Debug("agentmemory: injecting retrieved memories into target system prompt",
+			"retrieved", store.MaxRetrieved,
+			"total", store.Len(),
 			"turn", tc.TurnNum)
 
-		// Prepend memories to the target's system message.
 		if tc.TargetConv.System != nil {
 			tc.TargetConv.System.Content = formatted + "\n\n" + tc.TargetConv.System.Content
 		} else {
