@@ -23,9 +23,9 @@ func (m *mockGenerator) Generate(_ context.Context, _ *attempt.Conversation, _ i
 	return messages, nil
 }
 
-func (m *mockGenerator) ClearHistory()        { m.callCount = 0 }
-func (m *mockGenerator) Name() string         { return "mock-generator" }
-func (m *mockGenerator) Description() string  { return "mock generator for testing" }
+func (m *mockGenerator) ClearHistory()       { m.callCount = 0 }
+func (m *mockGenerator) Name() string        { return "mock-generator" }
+func (m *mockGenerator) Description() string { return "mock generator for testing" }
 
 func TestSchemaAttackProbesRegistered(t *testing.T) {
 	expectedProbes := []string{
