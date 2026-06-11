@@ -3,7 +3,7 @@
 //
 // These probes test vulnerabilities in the thinking/reasoning mechanism:
 //   - H-CoT: adversarial chain-of-thought prefix injection
-//   - ShadowCoT: logically coherent but adversarially steered reasoning
+//   - AdversarialLogic: logically coherent but adversarially steered reasoning
 //   - OverThink: computational DoS via excessive reasoning token usage
 //   - DecisionHijack: spurious decision criteria injection
 package reasoning
