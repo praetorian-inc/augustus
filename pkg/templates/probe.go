@@ -38,10 +38,16 @@ func (t *TemplateProbe) Probe(ctx context.Context, gen types.Generator) ([]*atte
 
 	// Use 2-turn mode when both tools and tool_results are defined.
 	if len(tools) > 0 && len(toolResults) > 0 {
-		return probes.RunTwoTurnPrompts(
+		attempts, err := probes.RunTwoTurnPrompts(
 			ctx, gen, t.template.Prompts, t.Name(), t.GetPrimaryDetector(),
 			tools, t.GetToolChoice(), toolResults,
 		)
+		// Apply goal metadata to 2-turn attempts (RunTwoTurnPrompts doesn't
+		// accept metadataFn, so we apply it post-hoc).
+		for i, a := range attempts {
+			metadataFn(i, a.Prompt, a)
+		}
+		return attempts, err
 	}
 
 	// Standard single-turn mode.
