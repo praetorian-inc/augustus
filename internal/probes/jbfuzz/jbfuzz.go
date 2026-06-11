@@ -108,7 +108,7 @@ func NewFuzzProbe(cfg registry.Config) (probes.Prober, error) {
 	if s, ok := cfg["seed"].(float64); ok {
 		seed = int64(s)
 	}
-	return &FuzzProbe{numVariants: variants, rng: rand.New(rand.NewSource(seed))}, nil
+	return &FuzzProbe{numVariants: variants, rng: rand.New(rand.NewSource(seed))}, nil // #nosec G404 -- deterministic seeding for reproducibility
 }
 
 // mutationWeights tracks cumulative scores per mutation strategy for feedback-guided selection.
@@ -320,13 +320,18 @@ func (ct *coverageTracker) coverage() float64 {
 	return float64(len(ct.triggered)) / float64(len(refusalCategories))
 }
 
-func (f *FuzzProbe) Name() string              { return "jbfuzz.Fuzz" }
-func (f *FuzzProbe) Description() string        { return "Feedback-guided jailbreak fuzzer with mutation scoring and refinement" }
+func (f *FuzzProbe) Name() string { return "jbfuzz.Fuzz" }
+
+func (f *FuzzProbe) Description() string {
+	return "Feedback-guided jailbreak fuzzer with mutation scoring and refinement"
+}
+
 func (f *FuzzProbe) Goal() string               { return "Bypass safety filters via feedback-guided prompt mutation" }
 func (f *FuzzProbe) GetPrimaryDetector() string { return "mitigation.MitigationBypass" }
+
 func (f *FuzzProbe) GetPrompts() []string {
 	prompts := make([]string, 0, len(mutations))
-	rng := rand.New(rand.NewSource(42))
+	rng := rand.New(rand.NewSource(42)) // #nosec G404 -- deterministic preview
 	for _, m := range mutations {
 		prompts = append(prompts, m(seedPrompts[0], mutationTargets[0], rng))
 	}
