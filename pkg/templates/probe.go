@@ -55,11 +55,6 @@ func (t *TemplateProbe) GetPrimaryDetector() string {
 	return t.template.Info.Detector
 }
 
-// GetDetectorGoal returns the detector-specific goal, if set.
-func (t *TemplateProbe) GetDetectorGoal() string {
-	return t.template.Info.DetectorGoal
-}
-
 // GetPrompts returns the prompts used by this probe.
 func (t *TemplateProbe) GetPrompts() []string {
 	return t.template.Prompts

@@ -76,3 +76,50 @@ func TestTemplateProbeProbe(t *testing.T) {
 	assert.Equal(t, "test.Detector", attempts[0].Detector)
 	assert.Contains(t, attempts[0].Outputs, "response 1")
 }
+
+func TestTemplateProbeGoalMetadata(t *testing.T) {
+	t.Run("detector_goal set", func(t *testing.T) {
+		tmpl := &ProbeTemplate{
+			ID: "test.GoalProbe",
+			Info: ProbeInfo{
+				Name:         "Goal Probe",
+				Goal:         "probe goal",
+				Detector:     "judge.Judge",
+				DetectorGoal: "specific detector goal",
+			},
+			Prompts: []string{"prompt 1"},
+		}
+
+		probe := NewTemplateProbe(tmpl)
+		gen := &mockGenerator{responses: []string{"response"}}
+
+		attempts, err := probe.Probe(context.Background(), gen)
+		require.NoError(t, err)
+		require.Len(t, attempts, 1)
+
+		assert.Equal(t, "specific detector goal", attempts[0].Metadata["goal"],
+			"detector_goal should take precedence over probe goal")
+	})
+
+	t.Run("detector_goal empty falls back to probe goal", func(t *testing.T) {
+		tmpl := &ProbeTemplate{
+			ID: "test.FallbackProbe",
+			Info: ProbeInfo{
+				Name:     "Fallback Probe",
+				Goal:     "probe goal",
+				Detector: "judge.Judge",
+			},
+			Prompts: []string{"prompt 1"},
+		}
+
+		probe := NewTemplateProbe(tmpl)
+		gen := &mockGenerator{responses: []string{"response"}}
+
+		attempts, err := probe.Probe(context.Background(), gen)
+		require.NoError(t, err)
+		require.Len(t, attempts, 1)
+
+		assert.Equal(t, "probe goal", attempts[0].Metadata["goal"],
+			"should fall back to probe goal when detector_goal is empty")
+	})
+}
