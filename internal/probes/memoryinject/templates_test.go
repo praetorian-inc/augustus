@@ -22,16 +22,16 @@ func (m *mockGenerator) ClearHistory()       {}
 func (m *mockGenerator) Name() string        { return "mock" }
 func (m *mockGenerator) Description() string { return "mock" }
 
-func TestMINJARegistered(t *testing.T) {
+func TestIndirectInjectionRegistered(t *testing.T) {
 	found := false
 	for _, name := range probes.List() {
-		if name == "memoryinject.MINJA" {
+		if name == "memoryinject.IndirectInjection" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Error("memoryinject.MINJA not found in registry")
+		t.Error("memoryinject.IndirectInjection not found in registry")
 	}
 }
 
@@ -48,8 +48,8 @@ func TestPersistentInjectionRegistered(t *testing.T) {
 	}
 }
 
-func TestMINJAExecution(t *testing.T) {
-	probe, err := probes.Create("memoryinject.MINJA", registry.Config{})
+func TestIndirectInjectionExecution(t *testing.T) {
+	probe, err := probes.Create("memoryinject.IndirectInjection", registry.Config{})
 	if err != nil {
 		t.Fatalf("error = %v", err)
 	}
