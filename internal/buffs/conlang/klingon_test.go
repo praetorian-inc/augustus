@@ -5,11 +5,12 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/buffs"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // mockGenerator implements the generators.Generator interface for testing.
@@ -437,8 +438,8 @@ func TestNewKlingonBuff_ConfigIsolation(t *testing.T) {
 	// With transform_generator but invalid generator name should error at generator creation
 	_, err = NewKlingonBuff(registry.Config{
 		"transform_generator": "nonexistent.Generator",
-		"rate_limit":          5.0,     // buff-specific, should NOT go to generator
-		"burst_size":          10.0,    // buff-specific, should NOT go to generator
+		"rate_limit":          5.0,  // buff-specific, should NOT go to generator
+		"burst_size":          10.0, // buff-specific, should NOT go to generator
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "nonexistent.Generator")

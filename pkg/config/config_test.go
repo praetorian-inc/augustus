@@ -39,7 +39,7 @@ output:
   path: ./results
 `
 
-	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	// Load the config
@@ -78,7 +78,7 @@ output:
   format: json
   path: ./results
 `
-	err := os.WriteFile(baseConfig, []byte(baseYAML), 0644)
+	err := os.WriteFile(baseConfig, []byte(baseYAML), 0o644)
 	require.NoError(t, err)
 
 	// Site config (overrides some base values)
@@ -97,7 +97,7 @@ output:
   format: jsonl  # Override format
   # path inherited from base
 `
-	err = os.WriteFile(siteConfig, []byte(siteYAML), 0644)
+	err = os.WriteFile(siteConfig, []byte(siteYAML), 0o644)
 	require.NoError(t, err)
 
 	// Load with hierarchical merge
@@ -106,12 +106,12 @@ output:
 	require.NotNil(t, cfg)
 
 	// Verify merged values
-	assert.Equal(t, 5, cfg.Run.MaxAttempts)           // From site (overridden)
-	assert.Equal(t, "20s", cfg.Run.Timeout)           // From base (inherited)
-	assert.Equal(t, "gpt2", cfg.Generators["huggingface"].Model) // From base (inherited)
+	assert.Equal(t, 5, cfg.Run.MaxAttempts)                         // From site (overridden)
+	assert.Equal(t, "20s", cfg.Run.Timeout)                         // From base (inherited)
+	assert.Equal(t, "gpt2", cfg.Generators["huggingface"].Model)    // From base (inherited)
 	assert.Equal(t, 0.7, cfg.Generators["huggingface"].Temperature) // From site (overridden)
-	assert.Equal(t, "jsonl", cfg.Output.Format)       // From site (overridden)
-	assert.Equal(t, "./results", cfg.Output.Path)     // From base (inherited)
+	assert.Equal(t, "jsonl", cfg.Output.Format)                     // From site (overridden)
+	assert.Equal(t, "./results", cfg.Output.Path)                   // From base (inherited)
 }
 
 // TestEnvironmentVariableInterpolation tests ${VAR} expansion
@@ -138,7 +138,7 @@ output:
   format: json
 `
 
-	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	// Load config with env var interpolation
@@ -165,7 +165,7 @@ generators:
     api_key: ${AUGUSTUS_MISSING_VAR}
 `
 
-	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	// Loading should fail with helpful error
@@ -218,7 +218,7 @@ output:
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
 			configPath := filepath.Join(tmpDir, "config.yaml")
-			err := os.WriteFile(configPath, []byte(tt.yaml), 0644)
+			err := os.WriteFile(configPath, []byte(tt.yaml), 0o644)
 			require.NoError(t, err)
 
 			cfg, err := LoadConfig(configPath)
@@ -265,7 +265,7 @@ output:
   format: json
 `
 
-	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	// Test loading production profile
@@ -303,7 +303,7 @@ generators:
   huggingface
 `
 
-	err := os.WriteFile(configPath, []byte(invalidYAML), 0644)
+	err := os.WriteFile(configPath, []byte(invalidYAML), 0o644)
 	require.NoError(t, err)
 
 	cfg, err := LoadConfig(configPath)
@@ -340,7 +340,7 @@ output:
   format: json
 `
 
-	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	// Load the config
@@ -394,7 +394,7 @@ run:
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
 			configPath := filepath.Join(tmpDir, "config.yaml")
-			err := os.WriteFile(configPath, []byte(tt.yaml), 0644)
+			err := os.WriteFile(configPath, []byte(tt.yaml), 0o644)
 			require.NoError(t, err)
 
 			cfg, err := LoadConfig(configPath)
@@ -460,7 +460,7 @@ run:
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
 			configPath := filepath.Join(tmpDir, "config.yaml")
-			err := os.WriteFile(configPath, []byte(tt.yaml), 0644)
+			err := os.WriteFile(configPath, []byte(tt.yaml), 0o644)
 			require.NoError(t, err)
 
 			cfg, err := LoadConfig(configPath)
@@ -497,7 +497,7 @@ generators:
     model: gpt-4
     temperature: 0.5
 `
-	err := os.WriteFile(baseConfig, []byte(baseYAML), 0644)
+	err := os.WriteFile(baseConfig, []byte(baseYAML), 0o644)
 	require.NoError(t, err)
 
 	// Override config (overrides some base values)
@@ -512,7 +512,7 @@ generators:
   openai:
     temperature: 0.8
 `
-	err = os.WriteFile(overrideConfig, []byte(overrideYAML), 0644)
+	err = os.WriteFile(overrideConfig, []byte(overrideYAML), 0o644)
 	require.NoError(t, err)
 
 	// Load with hierarchical merge
@@ -521,11 +521,11 @@ generators:
 	require.NotNil(t, cfg)
 
 	// Verify merged values
-	assert.Equal(t, 5, cfg.Run.MaxAttempts)       // From override
-	assert.Equal(t, "20m", cfg.Run.Timeout)       // From base (inherited)
-	assert.Equal(t, 25, cfg.Run.Concurrency)      // From override
-	assert.Equal(t, "5m", cfg.Run.ProbeTimeout)   // From base (inherited)
-	assert.Equal(t, "gpt-4", cfg.Generators["openai"].Model) // From base
+	assert.Equal(t, 5, cfg.Run.MaxAttempts)                    // From override
+	assert.Equal(t, "20m", cfg.Run.Timeout)                    // From base (inherited)
+	assert.Equal(t, 25, cfg.Run.Concurrency)                   // From override
+	assert.Equal(t, "5m", cfg.Run.ProbeTimeout)                // From base (inherited)
+	assert.Equal(t, "gpt-4", cfg.Generators["openai"].Model)   // From base
 	assert.Equal(t, 0.8, cfg.Generators["openai"].Temperature) // From override
 }
 
@@ -548,7 +548,7 @@ output:
   format: json
 `
 
-	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	cfg, err := LoadConfig(configPath)
@@ -556,8 +556,8 @@ output:
 	require.NotNil(t, cfg)
 
 	// Verify defaults are applied (0 values since not specified in YAML)
-	assert.Equal(t, 0, cfg.Run.Concurrency)    // 0 means "not set", default applied in scanner
-	assert.Equal(t, "", cfg.Run.ProbeTimeout)  // empty means "not set", default applied in scanner
+	assert.Equal(t, 0, cfg.Run.Concurrency)   // 0 means "not set", default applied in scanner
+	assert.Equal(t, "", cfg.Run.ProbeTimeout) // empty means "not set", default applied in scanner
 }
 
 // TestBuffsYAML tests loading buff configuration from YAML
@@ -577,7 +577,7 @@ buffs:
       burst_size: 10.0
 `
 
-	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	cfg, err := LoadConfig(configPath)
@@ -699,9 +699,9 @@ func TestResolveProbeConfig(t *testing.T) {
 			},
 			probeName: "tap.IterativeTAP",
 			wantKeys: map[string]any{
-				"attacker_generator_type": "local.Ollama",                       // overridden
-				"attacker_config":         map[string]any{"model": "gpt-4"},     // preserved
-				"judge_generator_type":    "anthropic.Anthropic",                // preserved
+				"attacker_generator_type": "local.Ollama",                           // overridden
+				"attacker_config":         map[string]any{"model": "gpt-4"},         // preserved
+				"judge_generator_type":    "anthropic.Anthropic",                    // preserved
 				"judge_config":            map[string]any{"model": "claude-sonnet"}, // preserved
 			},
 		},
@@ -803,8 +803,8 @@ func TestResolveDetectorConfig(t *testing.T) {
 			},
 			detectorName: "judge.Judge",
 			wantKeys: map[string]any{
-				"judge_generator_type":   "anthropic.Anthropic",
-				"judge_config": map[string]any{"model": "claude-3-haiku", "api_key": "test-key"},
+				"judge_generator_type": "anthropic.Anthropic",
+				"judge_config":         map[string]any{"model": "claude-3-haiku", "api_key": "test-key"},
 			},
 		},
 		{
@@ -824,8 +824,8 @@ func TestResolveDetectorConfig(t *testing.T) {
 			},
 			detectorName: "judge.Judge",
 			wantKeys: map[string]any{
-				"judge_generator_type":   "anthropic.Anthropic",
-				"judge_config": map[string]any{"model": "gpt-4o-mini"},
+				"judge_generator_type": "anthropic.Anthropic",
+				"judge_config":         map[string]any{"model": "gpt-4o-mini"},
 			},
 		},
 	}
@@ -923,7 +923,7 @@ detectors:
         api_key: ${AUGUSTUS_ANTHROPIC_KEY}
 `
 
-	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	cfg, err := LoadConfig(configPath)
@@ -1067,7 +1067,7 @@ hooks:
   cleanup: "echo done"
 `
 
-	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	cfg, err := LoadConfig(configPath)

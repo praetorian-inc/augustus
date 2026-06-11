@@ -5,14 +5,15 @@ package templates_test
 import (
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/probes"
+	"github.com/stretchr/testify/assert"
+
 	_ "github.com/praetorian-inc/augustus/internal/probes/advpatch"
 	_ "github.com/praetorian-inc/augustus/internal/probes/dan"
 	_ "github.com/praetorian-inc/augustus/internal/probes/goodside"
 	_ "github.com/praetorian-inc/augustus/internal/probes/latentinjection"
 	_ "github.com/praetorian-inc/augustus/internal/probes/pair"
 	_ "github.com/praetorian-inc/augustus/internal/probes/tap"
-	"github.com/stretchr/testify/assert"
+	"github.com/praetorian-inc/augustus/pkg/probes"
 )
 
 func TestAllProbesRegistered(t *testing.T) {

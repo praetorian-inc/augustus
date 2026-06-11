@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/internal/detectors/base"
+	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 

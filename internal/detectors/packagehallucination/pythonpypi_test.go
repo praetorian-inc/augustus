@@ -7,10 +7,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 // TestExtractPackageReferences tests the regex extraction of Python packages.
@@ -97,12 +98,12 @@ func TestPythonPypiDetector_Detect(t *testing.T) {
 		path := r.URL.Path
 		// Real packages return 200
 		realPackages := map[string]bool{
-			"/pypi/requests/json":    true,
-			"/pypi/numpy/json":       true,
-			"/pypi/flask/json":       true,
-			"/pypi/pandas/json":      true,
-			"/pypi/django/json":      true,
-			"/pypi/tensorflow/json":  true,
+			"/pypi/requests/json":     true,
+			"/pypi/numpy/json":        true,
+			"/pypi/flask/json":        true,
+			"/pypi/pandas/json":       true,
+			"/pypi/django/json":       true,
+			"/pypi/tensorflow/json":   true,
 			"/pypi/scikit-learn/json": true,
 		}
 		if realPackages[path] {

@@ -8,11 +8,12 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/buffs"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // TestPegasusT5Registration verifies the buff registers correctly.

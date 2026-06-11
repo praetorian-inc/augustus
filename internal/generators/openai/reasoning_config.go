@@ -15,21 +15,21 @@ type ReasoningConfig struct {
 
 	// Optional with defaults
 	MaxCompletionTokens int // Used instead of max_tokens for reasoning models
-	TopP                 float32
-	FrequencyPenalty     float32
-	PresencePenalty      float32
-	Stop                 []string
-	BaseURL              string
+	TopP                float32
+	FrequencyPenalty    float32
+	PresencePenalty     float32
+	Stop                []string
+	BaseURL             string
 }
 
 // DefaultReasoningConfig returns a ReasoningConfig with defaults.
 func DefaultReasoningConfig() ReasoningConfig {
 	return ReasoningConfig{
 		MaxCompletionTokens: 1500,
-		TopP:                 1.0,
-		FrequencyPenalty:     0.0,
-		PresencePenalty:      0.0,
-		Stop:                 []string{"#", ";"},
+		TopP:                1.0,
+		FrequencyPenalty:    0.0,
+		PresencePenalty:     0.0,
+		Stop:                []string{"#", ";"},
 	}
 }
 

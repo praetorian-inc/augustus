@@ -597,8 +597,8 @@ func (e *UnifiedEngine) handleRefusalRetry(
 		targetConv.AddTurn(attempt.NewTurn(currentQuestion))
 		msgs, err := target.Generate(ctx, targetConv, 1)
 		if err != nil {
-		slog.Warn("[multiturn] target error during refusal retry", "error", err)
-		targetConv.Turns = targetConv.Turns[:len(targetConv.Turns)-1]
+			slog.Warn("[multiturn] target error during refusal retry", "error", err)
+			targetConv.Turns = targetConv.Turns[:len(targetConv.Turns)-1]
 			return "", false
 		}
 		if len(msgs) == 0 {
@@ -728,9 +728,9 @@ func (e *UnifiedEngine) handleUnblocking(ctx context.Context, tc *TurnContext, t
 	msgs, err := e.attacker.Generate(ctx, tc.AttackerConv, 1)
 	if err != nil || len(msgs) == 0 {
 		if err != nil {
-		slog.Warn("[multiturn] attacker error during unblocking", "error", err)
-	}
-	tc.AttackerConv.Turns = tc.AttackerConv.Turns[:len(tc.AttackerConv.Turns)-1]
+			slog.Warn("[multiturn] attacker error during unblocking", "error", err)
+		}
+		tc.AttackerConv.Turns = tc.AttackerConv.Turns[:len(tc.AttackerConv.Turns)-1]
 		return false
 	}
 

@@ -8,11 +8,12 @@ import (
 	"os"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // mockMistralResponse creates a mock Mistral chat completion response.

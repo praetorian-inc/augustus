@@ -461,7 +461,7 @@ func (s *startBytesBuilder) build() prefilter {
 	bytes := [3]byte{}
 
 	for b := 0; b < 256; b++ {
-		//todo case insensitive is not set in byteset
+		// todo case insensitive is not set in byteset
 		if !s.byteset[b] {
 			continue
 		}
@@ -527,8 +527,10 @@ func newStartBytesBuilder(asciiCaseInsensitive bool) startBytesBuilder {
 	}
 }
 
-const minSkips int = 40
-const minAvgFactor int = 2
+const (
+	minSkips     int = 40
+	minAvgFactor int = 2
+)
 
 type prefilterState struct {
 	skips       int

@@ -25,7 +25,6 @@ func init() {
 // This buff transforms the prompt text into base64 and wraps it with an
 // instruction prefix. This is a jailbreak technique - LLMs trained on safety
 // may not recognize encoded harmful prompts.
-//
 type Base64 struct{}
 
 // NewBase64 creates a new Base64 buff.

@@ -3,9 +3,10 @@ package pair
 import (
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/probes"
 )
 
 func TestPAIRYAMLTemplatesLoaded(t *testing.T) {

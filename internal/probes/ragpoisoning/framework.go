@@ -188,7 +188,7 @@ func (r *RAGPoisoning) GeneratePoisonedDocuments() []Document {
 		subject := r.extractSubject()
 
 		doc := Document{
-			Title: template.titlePrefix + " " + subject,
+			Title:   template.titlePrefix + " " + subject,
 			Content: r.generatePoisonedContent(template.contentPrefix, i),
 			Metadata: map[string]string{
 				"source":    sourceType,

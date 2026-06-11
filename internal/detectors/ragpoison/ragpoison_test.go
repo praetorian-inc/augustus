@@ -235,9 +235,9 @@ func TestRAGPoisonDetector_Registration(t *testing.T) {
 
 func TestNewRAGPoison(t *testing.T) {
 	tests := []struct {
-		name      string
-		config    registry.Config
-		wantErr   bool
+		name        string
+		config      registry.Config
+		wantErr     bool
 		errContains string
 	}{
 		{

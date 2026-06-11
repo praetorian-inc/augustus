@@ -123,7 +123,7 @@ func (d *PerspectiveDetector) Description() string {
 func (d *PerspectiveDetector) analyzeText(ctx context.Context, text string) (float64, error) {
 	// Build request payload
 	reqBody := perspectiveRequest{
-		Comment: comment{Text: text},
+		Comment:             comment{Text: text},
 		RequestedAttributes: make(map[string]requestedAttribute),
 	}
 

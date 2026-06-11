@@ -14,22 +14,21 @@
 //  1. Install Docker
 //  2. Pull and run TGI:
 //     docker run --gpus all -p 8080:80 \
-//       ghcr.io/huggingface/text-generation-inference:latest \
-//       --model-id meta-llama/Llama-2-7b-chat-hf
+//     ghcr.io/huggingface/text-generation-inference:latest \
+//     --model-id meta-llama/Llama-2-7b-chat-hf
 //  3. Configure generator with host (default: http://127.0.0.1:8080)
 //
 // Configuration:
 //
-//   model: Required. The model ID (e.g., "meta-llama/Llama-2-7b-chat-hf")
-//   host: Optional. TGI server address (default: http://127.0.0.1:8080)
-//   max_tokens: Optional. Maximum tokens to generate
-//   temperature: Optional. Sampling temperature
-//   top_p: Optional. Nucleus sampling parameter
+//	model: Required. The model ID (e.g., "meta-llama/Llama-2-7b-chat-hf")
+//	host: Optional. TGI server address (default: http://127.0.0.1:8080)
+//	max_tokens: Optional. Maximum tokens to generate
+//	temperature: Optional. Sampling temperature
+//	top_p: Optional. Nucleus sampling parameter
 //
 // Environment Variables:
 //
-//   TGI_HOST: Override default TGI host
-//
+//	TGI_HOST: Override default TGI host
 package huggingface
 
 import (

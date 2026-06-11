@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"sync"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/retry"
 	"github.com/praetorian-inc/augustus/pkg/types"
-	"golang.org/x/sync/errgroup"
 )
 
 // errRetryableAttack is a sentinel error indicating the attacker LLM

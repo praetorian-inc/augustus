@@ -6,11 +6,12 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/metrics"
 	"github.com/praetorian-inc/augustus/pkg/retry"
 	"github.com/praetorian-inc/augustus/pkg/types"
-	"golang.org/x/sync/errgroup"
 )
 
 // Generator is a type alias for backward compatibility.

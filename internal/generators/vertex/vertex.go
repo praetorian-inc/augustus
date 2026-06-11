@@ -24,6 +24,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/praetorian-inc/augustus/internal/attackengine"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -50,11 +51,11 @@ type Vertex struct {
 	model     string
 
 	// Configuration parameters
-	temperature      float64
-	maxOutputTokens  int
-	topP             float64
-	topK             int
-	stopSequences    []string
+	temperature     float64
+	maxOutputTokens int
+	topP            float64
+	topK            int
+	stopSequences   []string
 
 	// HTTP client for API calls
 	client *http.Client
@@ -120,8 +121,46 @@ func NewVertexWithOptions(opts ...Option) (*Vertex, error) {
 }
 
 // contentPart represents a part in a content block.
+// Supports text, function call, and function response parts.
 type contentPart struct {
-	Text string `json:"text"`
+	Text             string        `json:"text,omitempty"`
+	FunctionCall     *functionCall `json:"functionCall,omitempty"`
+	FunctionResponse *functionResp `json:"functionResponse,omitempty"`
+}
+
+// functionCall represents a function call made by the model.
+type functionCall struct {
+	Name string         `json:"name"`
+	Args map[string]any `json:"args"`
+}
+
+// functionResp represents a function response sent to the model.
+type functionResp struct {
+	Name     string         `json:"name"`
+	Response map[string]any `json:"response"`
+}
+
+// toolDeclaration holds function declarations for a set of tools.
+type toolDeclaration struct {
+	FunctionDeclarations []functionDeclaration `json:"functionDeclarations"`
+}
+
+// functionDeclaration describes a single callable function.
+type functionDeclaration struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Parameters  any    `json:"parameters,omitempty"`
+}
+
+// toolConfig controls how the model selects tools.
+type toolConfig struct {
+	FunctionCallingConfig *functionCallingConfig `json:"functionCallingConfig,omitempty"`
+}
+
+// functionCallingConfig specifies the tool selection mode.
+type functionCallingConfig struct {
+	Mode                 string   `json:"mode"`
+	AllowedFunctionNames []string `json:"allowedFunctionNames,omitempty"`
 }
 
 // content represents a message content.
@@ -144,6 +183,8 @@ type generateRequest struct {
 	Contents          []content         `json:"contents"`
 	SystemInstruction *content          `json:"systemInstruction,omitempty"`
 	GenerationConfig  *generationConfig `json:"generationConfig,omitempty"`
+	Tools             []toolDeclaration `json:"tools,omitempty"`
+	ToolConfig        *toolConfig       `json:"toolConfig,omitempty"`
 }
 
 // candidate represents a response candidate.
@@ -228,6 +269,43 @@ func (g *Vertex) generateOne(ctx context.Context, conv *attempt.Conversation) (a
 	}
 	req.GenerationConfig = &genConfig
 
+	// Wire tool definitions from probe into the API request.
+	if len(conv.Tools) > 0 {
+		decls := make([]functionDeclaration, len(conv.Tools))
+		for i, t := range conv.Tools {
+			name, ok := t["name"].(string)
+			if !ok || name == "" {
+				return attempt.Message{}, fmt.Errorf("vertex: tool at index %d missing valid string name", i)
+			}
+			fd := functionDeclaration{Name: name}
+			if desc, ok := t["description"].(string); ok {
+				fd.Description = desc
+			}
+			if params, ok := t["parameters"]; ok {
+				fd.Parameters = params
+			}
+			decls[i] = fd
+		}
+		req.Tools = []toolDeclaration{{FunctionDeclarations: decls}}
+
+		if conv.ToolChoice != "" {
+			switch conv.ToolChoice {
+			case "auto":
+				req.ToolConfig = &toolConfig{FunctionCallingConfig: &functionCallingConfig{Mode: "AUTO"}}
+			case "required":
+				req.ToolConfig = &toolConfig{FunctionCallingConfig: &functionCallingConfig{Mode: "ANY"}}
+			case "none":
+				req.Tools = nil
+				req.ToolConfig = &toolConfig{FunctionCallingConfig: &functionCallingConfig{Mode: "NONE"}}
+			default:
+				req.ToolConfig = &toolConfig{FunctionCallingConfig: &functionCallingConfig{
+					Mode:                 "ANY",
+					AllowedFunctionNames: []string{conv.ToolChoice},
+				}}
+			}
+		}
+	}
+
 	// Serialize request
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -278,17 +356,30 @@ func (g *Vertex) generateOne(ctx context.Context, conv *attempt.Conversation) (a
 		return attempt.Message{}, fmt.Errorf("vertex: failed to parse response: %w", err)
 	}
 
-	// Extract text from first candidate
+	// Extract text and function calls from first candidate
 	if len(resp.Candidates) == 0 {
 		return attempt.Message{}, fmt.Errorf("vertex: no candidates in response")
 	}
 
 	var text string
+	var funcCalls []attackengine.GeminiFunctionCall
 	for _, part := range resp.Candidates[0].Content.Parts {
-		text += part.Text
+		if part.Text != "" {
+			text += part.Text
+		}
+		if part.FunctionCall != nil {
+			funcCalls = append(funcCalls, attackengine.GeminiFunctionCall{
+				Name: part.FunctionCall.Name,
+				Args: part.FunctionCall.Args,
+			})
+		}
 	}
 
-	return attempt.NewAssistantMessage(text), nil
+	msg := attempt.NewAssistantMessage(text)
+	if toolCalls := attackengine.NormalizeGeminiFunctionCalls(funcCalls); toolCalls != nil {
+		msg.ToolCalls = toolCalls
+	}
+	return msg, nil
 }
 
 // conversationToContents converts an Augustus Conversation to Vertex AI contents.
@@ -299,22 +390,50 @@ func (g *Vertex) conversationToContents(conv *attempt.Conversation) []content {
 	// It's passed as a separate systemInstruction parameter
 
 	for _, turn := range conv.Turns {
-		// Add user message
-		contents = append(contents, content{
-			Role: "user",
-			Parts: []contentPart{
-				{Text: turn.Prompt.Content},
-			},
-		})
+		switch turn.Prompt.Role {
+		case attempt.RoleTool:
+			// Tool result: "function" role with functionResponse part.
+			// Gemini uses the function name (not call ID) to match responses.
+			var respData map[string]any
+			if err := json.Unmarshal([]byte(turn.Prompt.Content), &respData); err != nil {
+				respData = map[string]any{"result": turn.Prompt.Content}
+			}
+			// ToolCallID holds the function name for Gemini tool results.
+			name := turn.Prompt.ToolCallID
+			contents = append(contents, content{
+				Role: "function",
+				Parts: []contentPart{{
+					FunctionResponse: &functionResp{Name: name, Response: respData},
+				}},
+			})
+		default:
+			// Standard user message
+			contents = append(contents, content{
+				Role: "user",
+				Parts: []contentPart{
+					{Text: turn.Prompt.Content},
+				},
+			})
+		}
 
 		// Add model response if present
 		if turn.Response != nil {
-			contents = append(contents, content{
-				Role: "model",
-				Parts: []contentPart{
-					{Text: turn.Response.Content},
-				},
-			})
+			parts := []contentPart{}
+			if turn.Response.Content != "" {
+				parts = append(parts, contentPart{Text: turn.Response.Content})
+			}
+			for _, tc := range turn.Response.ToolCalls {
+				name, _ := tc["name"].(string)
+				args, _ := tc["args"].(map[string]any)
+				if name != "" {
+					parts = append(parts, contentPart{
+						FunctionCall: &functionCall{Name: name, Args: args},
+					})
+				}
+			}
+			if len(parts) > 0 {
+				contents = append(contents, content{Role: "model", Parts: parts})
+			}
 		}
 	}
 

@@ -82,7 +82,7 @@ func TestTAPProbeBasicTreeSearch(t *testing.T) {
 	cfg := attackengine.TAPDefaults()
 	cfg.Goal = "test goal"
 	cfg.TargetStr = "Sure"
-	cfg.Depth = 1        // Single iteration
+	cfg.Depth = 1           // Single iteration
 	cfg.BranchingFactor = 2 // 2 candidates per iteration
 	cfg.Width = 10
 
@@ -313,7 +313,7 @@ func TestTAPProbeEarlyExit(t *testing.T) {
 	cfg := attackengine.TAPDefaults()
 	cfg.Goal = "test early exit"
 	cfg.TargetStr = "Sure"
-	cfg.Depth = 10            // Would iterate 10 times
+	cfg.Depth = 10 // Would iterate 10 times
 	cfg.BranchingFactor = 1
 	cfg.Pruning = false
 	cfg.JudgeSuccessScore = 10 // Exit on score 10

@@ -20,6 +20,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -158,7 +159,6 @@ func (g *Bedrock) generateOne(ctx context.Context, conv *attempt.Conversation) (
 		ContentType: aws.String("application/json"),
 		Accept:      aws.String("application/json"),
 	})
-
 	if err != nil {
 		return attempt.Message{}, g.handleError(err)
 	}

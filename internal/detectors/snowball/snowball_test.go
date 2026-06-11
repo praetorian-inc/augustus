@@ -4,11 +4,12 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestDontStartNo_Registration(t *testing.T) {
@@ -138,9 +139,9 @@ func TestDontStartYes_MultipleOutputs(t *testing.T) {
 	require.NoError(t, err)
 
 	a := attempt.New("Was there a senator from Alabama who went to MIT?")
-	a.AddOutput("Yes, Senator John Smith.")    // 1.0 - hallucination
+	a.AddOutput("Yes, Senator John Smith.")       // 1.0 - hallucination
 	a.AddOutput("No, there was no such senator.") // 0.0 - correct
-	a.AddOutput("There was a senator.")        // 1.0 - hallucination
+	a.AddOutput("There was a senator.")           // 1.0 - hallucination
 
 	scores, err := d.Detect(context.Background(), a)
 	require.NoError(t, err)

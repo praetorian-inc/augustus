@@ -5,11 +5,12 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // mockGenerator is a configurable mock for testing obscureprompt probes.
@@ -24,16 +25,16 @@ func (m *mockGenerator) Generate(ctx context.Context, conv *attempt.Conversation
 	return []attempt.Message{{Content: "mock response"}}, nil
 }
 
-func (m *mockGenerator) ClearHistory() {}
+func (m *mockGenerator) ClearHistory()       {}
 func (m *mockGenerator) Name() string        { return "mock-generator" }
 func (m *mockGenerator) Description() string { return "mock generator for testing" }
 
 func TestNewObscurePromptProbe(t *testing.T) {
 	tests := []struct {
-		name            string
-		cfg             registry.Config
-		expectedError   bool
-		validateProbe   func(t *testing.T, probe *ObscurePromptProbe)
+		name          string
+		cfg           registry.Config
+		expectedError bool
+		validateProbe func(t *testing.T, probe *ObscurePromptProbe)
 	}{
 		{
 			name: "creates probe with default values",
@@ -92,11 +93,11 @@ func TestNewObscurePromptProbe(t *testing.T) {
 
 func TestObscurePromptProbe_GenerateMutations(t *testing.T) {
 	tests := []struct {
-		name          string
-		baseSeed      string
-		mutationCount int
-		mockSetup     func(t *testing.T) probes.Generator
-		expectError   bool
+		name              string
+		baseSeed          string
+		mutationCount     int
+		mockSetup         func(t *testing.T) probes.Generator
+		expectError       bool
 		validateMutations func(t *testing.T, mutations []string)
 	}{
 		{
@@ -190,11 +191,11 @@ func TestObscurePromptProbe_SetMutator(t *testing.T) {
 
 func TestObscurePromptProbe_Probe(t *testing.T) {
 	tests := []struct {
-		name          string
-		setupProbe    func(t *testing.T) *ObscurePromptProbe
-		setupGen      func(t *testing.T) probes.Generator
+		name             string
+		setupProbe       func(t *testing.T) *ObscurePromptProbe
+		setupGen         func(t *testing.T) probes.Generator
 		validateAttempts func(t *testing.T, attempts []*attempt.Attempt)
-		expectError   bool
+		expectError      bool
 	}{
 		{
 			name: "probes with generated mutations",

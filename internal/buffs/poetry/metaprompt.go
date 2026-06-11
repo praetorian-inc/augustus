@@ -211,7 +211,6 @@ func (m *MetaPromptBuff) templateTransform(text string) string {
 	}
 }
 
-
 // wordOverlapRatio calculates what fraction of original words appear in the transformed text.
 // This is a simple heuristic for intent preservation — higher overlap suggests the
 // transformation retained more of the original content.

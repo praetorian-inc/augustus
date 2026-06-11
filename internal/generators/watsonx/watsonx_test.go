@@ -8,24 +8,25 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 // mockWatsonXTextGenResponse creates a mock Watson X text generation response.
 func mockWatsonXTextGenResponse(content string) map[string]any {
 	return map[string]any{
-		"model_id":     "ibm/granite-13b-chat-v2",
+		"model_id":      "ibm/granite-13b-chat-v2",
 		"model_version": "1.0.0",
 		"created_at":    "2024-01-01T00:00:00.000Z",
 		"results": []map[string]any{
 			{
-				"generated_text": content,
+				"generated_text":        content,
 				"generated_token_count": 50,
-				"input_token_count": 10,
-				"stop_reason": "eos_token",
+				"input_token_count":     10,
+				"stop_reason":           "eos_token",
 			},
 		},
 	}
@@ -34,9 +35,9 @@ func mockWatsonXTextGenResponse(content string) map[string]any {
 func TestWatsonXGenerator_RequiresAPIKey(t *testing.T) {
 	// Should error without API key
 	_, err := NewWatsonX(registry.Config{
-		"model": "ibm/granite-13b-chat-v2",
+		"model":      "ibm/granite-13b-chat-v2",
 		"project_id": "test-project",
-		"region": "us-south",
+		"region":     "us-south",
 	})
 	assert.Error(t, err, "should require API key")
 	assert.Contains(t, err.Error(), "api_key")
@@ -46,8 +47,8 @@ func TestWatsonXGenerator_RequiresProjectIDOrDeploymentID(t *testing.T) {
 	// Should error without project_id or deployment_id
 	_, err := NewWatsonX(registry.Config{
 		"api_key": "test-key",
-		"model": "ibm/granite-13b-chat-v2",
-		"region": "us-south",
+		"model":   "ibm/granite-13b-chat-v2",
+		"region":  "us-south",
 	})
 	assert.Error(t, err, "should require project_id or deployment_id")
 	assert.Contains(t, err.Error(), "project_id")
@@ -56,9 +57,9 @@ func TestWatsonXGenerator_RequiresProjectIDOrDeploymentID(t *testing.T) {
 func TestWatsonXGenerator_RequiresModel(t *testing.T) {
 	// Should error without model
 	_, err := NewWatsonX(registry.Config{
-		"api_key": "test-key",
+		"api_key":    "test-key",
 		"project_id": "test-project",
-		"region": "us-south",
+		"region":     "us-south",
 	})
 	assert.Error(t, err, "should require model")
 	assert.Contains(t, err.Error(), "model")
@@ -67,8 +68,8 @@ func TestWatsonXGenerator_RequiresModel(t *testing.T) {
 func TestWatsonXGenerator_RequiresRegion(t *testing.T) {
 	// Should error without region
 	_, err := NewWatsonX(registry.Config{
-		"api_key": "test-key",
-		"model": "ibm/granite-13b-chat-v2",
+		"api_key":    "test-key",
+		"model":      "ibm/granite-13b-chat-v2",
 		"project_id": "test-project",
 	})
 	assert.Error(t, err, "should require region")
@@ -89,7 +90,7 @@ func TestWatsonXGenerator_GenerateWithProjectID(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"access_token": "test-bearer-token",
-				"expires_in": 3600,
+				"expires_in":   3600,
 			})
 			return
 		}
@@ -107,12 +108,12 @@ func TestWatsonXGenerator_GenerateWithProjectID(t *testing.T) {
 
 	// Create generator with project_id
 	gen, err := NewWatsonX(registry.Config{
-		"api_key": "test-api-key",
-		"model": "ibm/granite-13b-chat-v2",
+		"api_key":    "test-api-key",
+		"model":      "ibm/granite-13b-chat-v2",
 		"project_id": "test-project-id",
-		"region": "us-south",
-		"url": server.URL,
-		"iam_url": server.URL + "/identity/token",
+		"region":     "us-south",
+		"url":        server.URL,
+		"iam_url":    server.URL + "/identity/token",
 	})
 	require.NoError(t, err)
 
@@ -142,7 +143,7 @@ func TestWatsonXGenerator_GenerateWithDeploymentID(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"access_token": "test-bearer-token",
-				"expires_in": 3600,
+				"expires_in":   3600,
 			})
 			return
 		}
@@ -161,12 +162,12 @@ func TestWatsonXGenerator_GenerateWithDeploymentID(t *testing.T) {
 
 	// Create generator with deployment_id
 	gen, err := NewWatsonX(registry.Config{
-		"api_key": "test-api-key",
-		"model": "ibm/granite-13b-chat-v2",
+		"api_key":       "test-api-key",
+		"model":         "ibm/granite-13b-chat-v2",
 		"deployment_id": "test-deployment-id",
-		"region": "us-south",
-		"url": server.URL,
-		"iam_url": server.URL + "/identity/token",
+		"region":        "us-south",
+		"url":           server.URL,
+		"iam_url":       server.URL + "/identity/token",
 	})
 	require.NoError(t, err)
 
@@ -205,12 +206,12 @@ func TestWatsonXGenerator_GenerateMultiple(t *testing.T) {
 	defer server.Close()
 
 	gen, err := NewWatsonX(registry.Config{
-		"api_key": "test-key",
-		"model": "ibm/granite-13b-chat-v2",
+		"api_key":    "test-key",
+		"model":      "ibm/granite-13b-chat-v2",
 		"project_id": "test-project",
-		"region": "us-south",
-		"url": server.URL,
-		"iam_url": server.URL + "/identity/token",
+		"region":     "us-south",
+		"url":        server.URL,
+		"iam_url":    server.URL + "/identity/token",
 	})
 	require.NoError(t, err)
 
@@ -260,12 +261,12 @@ func TestWatsonXGenerator_EmptyPromptHandling(t *testing.T) {
 	defer server.Close()
 
 	gen, err := NewWatsonX(registry.Config{
-		"api_key": "test-key",
-		"model": "ibm/granite-13b-chat-v2",
+		"api_key":    "test-key",
+		"model":      "ibm/granite-13b-chat-v2",
 		"project_id": "test-project",
-		"region": "us-south",
-		"url": server.URL,
-		"iam_url": server.URL + "/identity/token",
+		"region":     "us-south",
+		"url":        server.URL,
+		"iam_url":    server.URL + "/identity/token",
 	})
 	require.NoError(t, err)
 
@@ -295,13 +296,13 @@ func TestWatsonXGenerator_MaxTokensConfiguration(t *testing.T) {
 	defer server.Close()
 
 	gen, err := NewWatsonX(registry.Config{
-		"api_key": "test-key",
-		"model": "ibm/granite-13b-chat-v2",
+		"api_key":    "test-key",
+		"model":      "ibm/granite-13b-chat-v2",
 		"project_id": "test-project",
-		"region": "us-south",
+		"region":     "us-south",
 		"max_tokens": 500,
-		"url": server.URL,
-		"iam_url": server.URL + "/identity/token",
+		"url":        server.URL,
+		"iam_url":    server.URL + "/identity/token",
 	})
 	require.NoError(t, err)
 

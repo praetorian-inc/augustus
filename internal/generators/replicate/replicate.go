@@ -23,10 +23,11 @@ import (
 	"fmt"
 	"strings"
 
+	replicatego "github.com/replicate/replicate-go"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	replicatego "github.com/replicate/replicate-go"
 )
 
 func init() {

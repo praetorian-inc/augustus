@@ -66,25 +66,25 @@ func (d *fileIsExecutableDetector) Detect(_ context.Context, a *attempt.Attempt)
 func (d *fileIsExecutableDetector) testFile(filename string) (float64, error) {
 	// Simplified implementation - checks for shell script shebang
 	// Full implementation would use magic library like python-magic
-	
+
 	// Read first 100 bytes to check for shebang
 	f, err := os.Open(filename)
 	if err != nil {
 		return 0.0, err
 	}
 	defer func() { _ = f.Close() }()
-	
+
 	header := make([]byte, 100)
 	n, err := f.Read(header)
 	if err != nil && n == 0 {
 		return 0.0, err
 	}
-	
+
 	// Check for shebang (#!)
 	if n >= 2 && header[0] == '#' && header[1] == '!' {
 		return 1.0, nil
 	}
-	
+
 	return 0.0, nil
 }
 

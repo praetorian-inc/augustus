@@ -75,3 +75,38 @@ func TestIsVulnerable_UsesDefaultThreshold(t *testing.T) {
 		t.Error("Expected IsVulnerable(0.7) to return false for score 0.6")
 	}
 }
+
+// TestGetEffectiveScores_SecondaryDetectorMaxWins verifies that when a secondary
+// detector scores higher than the primary, GetEffectiveScores reflects the max
+// across ALL DetectorResults so the verdict is VULNERABLE (not safe).
+//
+// This is the Codex P1 / reviewer-confirmed bug: a probe with primary
+// "agent.ToolManipulation" scoring [0.0] and secondary
+// "agent.ArgumentExfiltration" scoring [1.0] must produce an effective score
+// of 1.0, not 0.0.
+func TestGetEffectiveScores_SecondaryDetectorMaxWins(t *testing.T) {
+	a := &Attempt{
+		Detector: "agent.ToolManipulation",
+		Scores:   []float64{0.0}, // primary's scores synced by ApplyDetectors
+		DetectorResults: map[string][]float64{
+			"agent.ToolManipulation":     {0.0}, // primary: safe
+			"agent.ArgumentExfiltration": {1.0}, // secondary: VULNERABLE
+		},
+	}
+
+	scores := a.GetEffectiveScores()
+
+	// Must reflect the secondary's 1.0 — attempt is VULNERABLE
+	if len(scores) == 0 {
+		t.Fatal("GetEffectiveScores returned empty slice; expected at least one score")
+	}
+	maxScore := 0.0
+	for _, s := range scores {
+		if s > maxScore {
+			maxScore = s
+		}
+	}
+	if maxScore != 1.0 {
+		t.Errorf("Expected max effective score 1.0 (secondary detector catches vulnerability), got %f (scores=%v)", maxScore, scores)
+	}
+}

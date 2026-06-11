@@ -40,9 +40,9 @@ func (m *mockGenerator) Generate(ctx context.Context, conv *attempt.Conversation
 	return m.responses, nil
 }
 
-func (m *mockGenerator) ClearHistory()        { m.cleared = true }
-func (m *mockGenerator) Name() string         { return "mock-generator" }
-func (m *mockGenerator) Description() string  { return "mock generator for testing" }
+func (m *mockGenerator) ClearHistory()       { m.cleared = true }
+func (m *mockGenerator) Name() string        { return "mock-generator" }
+func (m *mockGenerator) Description() string { return "mock generator for testing" }
 
 // mockDetector is a simple mock detector for tree search
 type mockDetector struct {
@@ -436,11 +436,11 @@ func (m *mockTreeSearchProberImpl) Probe(ctx context.Context, gen probes.Generat
 	return nil, nil
 }
 
-func (m *mockTreeSearchProberImpl) Name() string              { return "mock.TreeSearch" }
-func (m *mockTreeSearchProberImpl) Description() string       { return "Mock tree search probe" }
-func (m *mockTreeSearchProberImpl) Goal() string              { return "test tree search" }
+func (m *mockTreeSearchProberImpl) Name() string               { return "mock.TreeSearch" }
+func (m *mockTreeSearchProberImpl) Description() string        { return "Mock tree search probe" }
+func (m *mockTreeSearchProberImpl) Goal() string               { return "test tree search" }
 func (m *mockTreeSearchProberImpl) GetPrimaryDetector() string { return "mock.Detector" }
-func (m *mockTreeSearchProberImpl) GetPrompts() []string      { return []string{} }
+func (m *mockTreeSearchProberImpl) GetPrompts() []string       { return []string{} }
 
 func TestTreeSearcher_Registration(t *testing.T) {
 	factory := func(cfg registry.Config) (probes.Prober, error) {

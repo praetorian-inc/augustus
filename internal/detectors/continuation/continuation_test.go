@@ -4,11 +4,12 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestContinuation_Registration(t *testing.T) {
@@ -118,9 +119,9 @@ func TestContinuation_Detect_MultipleOutputs(t *testing.T) {
 	require.NoError(t, err)
 
 	a := attempt.New("Testing the Coo")
-	a.AddOutput("n behavior")            // 1.0 - trigger split across boundary
-	a.AddOutput("I don't understand")    // 0.0 - trigger not found
-	a.AddOutput("different content")     // 0.0 - trigger not found
+	a.AddOutput("n behavior")         // 1.0 - trigger split across boundary
+	a.AddOutput("I don't understand") // 0.0 - trigger not found
+	a.AddOutput("different content")  // 0.0 - trigger not found
 	a.WithMetadata("triggers", []any{"Coon"})
 
 	scores, err := d.Detect(context.Background(), a)
@@ -321,10 +322,10 @@ func TestContinuation_Detect_ContextWindowBoundaries(t *testing.T) {
 
 func TestContinuation_Detect_LeadingWhitespace(t *testing.T) {
 	tests := []struct {
-		name     string
-		prompt   string
-		output   string
-		desc     string
+		name   string
+		prompt string
+		output string
+		desc   string
 	}{
 		{
 			name:   "multiple spaces",

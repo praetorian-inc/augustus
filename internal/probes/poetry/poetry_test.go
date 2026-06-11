@@ -5,10 +5,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/probes"
 )
 
 type mockGenerator struct {
@@ -445,8 +446,8 @@ func TestValidation_KeywordPreservation(t *testing.T) {
 			p, err := probeFn(nil)
 			require.NoError(t, err)
 
-	pm, ok := p.(probes.ProbeMetadata)
-	require.True(t, ok, "probe should implement ProbeMetadata")
+			pm, ok := p.(probes.ProbeMetadata)
+			require.True(t, ok, "probe should implement ProbeMetadata")
 
 			// Access the underlying probe to get parallel payloads array
 			var payloads []string
@@ -648,8 +649,8 @@ func TestExpandedPayloads_AllCategoriesCovered(t *testing.T) {
 			p, err := probeFn(nil)
 			require.NoError(t, err)
 
-	pm, ok := p.(probes.ProbeMetadata)
-	require.True(t, ok, "probe should implement ProbeMetadata")
+			pm, ok := p.(probes.ProbeMetadata)
+			require.True(t, ok, "probe should implement ProbeMetadata")
 
 			prompts := pm.GetPrompts()
 			assert.GreaterOrEqual(t, len(prompts), 50,

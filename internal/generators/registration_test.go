@@ -3,8 +3,9 @@ package generators_test
 import (
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/praetorian-inc/augustus/pkg/generators"
 
 	// Import all generators to trigger registration
 	_ "github.com/praetorian-inc/augustus/internal/generators/function"
@@ -31,4 +32,3 @@ func TestPhase3GeneratorsRegistered(t *testing.T) {
 		assert.NotNil(t, factory, "Generator %s factory should not be nil", name)
 	}
 }
-

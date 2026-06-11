@@ -4,9 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
 )
 
 // TestGeneric tests the generic fallback detector.
@@ -67,7 +68,7 @@ func TestGeneric_MultipleOutputs(t *testing.T) {
 	scores, err := detector.Detect(context.Background(), a)
 	require.NoError(t, err)
 	require.Len(t, scores, 3)
-	
+
 	// All should return 0.0 (pass) since we can't verify unknown language packages
 	for i, score := range scores {
 		assert.Equal(t, 0.0, score, "Output %d should return 0.0", i)

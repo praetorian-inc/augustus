@@ -203,7 +203,6 @@ func TestGCGProbe_Probe(t *testing.T) {
 
 	ctx := context.Background()
 	attempts, err := probe.Probe(ctx, mockGen)
-
 	if err != nil {
 		t.Fatalf("Probe() failed: %v", err)
 	}

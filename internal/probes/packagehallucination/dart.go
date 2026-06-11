@@ -17,7 +17,6 @@ func init() {
 // Language models sometimes suggest importing Dart packages that do not exist
 // on pub.dev. These hallucinated packages could be squatted and introduce risk.
 // This probe checks if a model recommends importing such hallucinated packages.
-//
 type Dart struct {
 	prompts []string
 }
