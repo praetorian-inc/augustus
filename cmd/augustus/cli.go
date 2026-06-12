@@ -14,8 +14,9 @@ var CLI struct {
 	Version    VersionCmd    `cmd:"" help:"Print version information."`
 	Help       HelpCmd       `cmd:"" hidden:"" default:"1"`
 	List       ListCmd       `cmd:"" help:"List available probes, detectors, generators."`
-	Scan       ScanCmd       `cmd:"" help:"Run vulnerability scan against LLM."`
-	Completion CompletionCmd `cmd:"" help:"Generate shell completion scripts."`
+	Scan           ScanCmd           `cmd:"" help:"Run vulnerability scan against LLM."`
+	ExtractContext ExtractContextCmd `cmd:"" help:"Extract system context from target LLM." name:"extract-context"`
+	Completion     CompletionCmd     `cmd:"" help:"Generate shell completion scripts."`
 }
 
 // VersionCmd prints version information.
@@ -66,6 +67,9 @@ type ScanCmd struct {
 	// Buff selection
 	Buff      []string `help:"Buff names to apply (repeatable)." short:"b" name:"buff"`
 	BuffsGlob string   `help:"Comma-separated buff glob patterns (e.g., 'encoding.*')." name:"buffs-glob"`
+
+	// Context
+	ContextFile string `help:"Extracted context YAML file for downstream probes." type:"existingfile" name:"context-file"`
 
 	// Configuration
 	ConfigFile string `help:"YAML config file path." type:"existingfile" name:"config-file"`

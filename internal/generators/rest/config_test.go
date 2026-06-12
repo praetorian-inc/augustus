@@ -163,6 +163,63 @@ func TestConfigFromMap_RateLimitNegative(t *testing.T) {
 	}
 }
 
+func TestConfigFromMap_TimeoutKey(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   registry.Config
+		expected time.Duration
+	}{
+		{
+			name: "timeout as float64",
+			config: registry.Config{
+				"uri":     "https://api.example.com",
+				"timeout": 60.0,
+			},
+			expected: 60 * time.Second,
+		},
+		{
+			name: "timeout as int",
+			config: registry.Config{
+				"uri":     "https://api.example.com",
+				"timeout": 45,
+			},
+			expected: 45 * time.Second,
+		},
+		{
+			name: "timeout takes precedence over request_timeout",
+			config: registry.Config{
+				"uri":             "https://api.example.com",
+				"timeout":         60.0,
+				"request_timeout": 30.0,
+			},
+			expected: 60 * time.Second,
+		},
+		{
+			name: "request_timeout still works as fallback",
+			config: registry.Config{
+				"uri":             "https://api.example.com",
+				"request_timeout": 30.0,
+			},
+			expected: 30 * time.Second,
+		},
+		{
+			name: "default timeout when neither set",
+			config: registry.Config{
+				"uri": "https://api.example.com",
+			},
+			expected: 20 * time.Second,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := ConfigFromMap(tt.config)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, cfg.RequestTimeout)
+		})
+	}
+}
+
 func TestConfigFromMap_SSEFields(t *testing.T) {
 	m := registry.Config{
 		"uri":              "https://api.example.com",

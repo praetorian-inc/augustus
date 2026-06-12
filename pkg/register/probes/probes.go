@@ -6,6 +6,7 @@
 package probes
 
 import (
+	_ "github.com/praetorian-inc/augustus/internal/probes/access_control"
 	_ "github.com/praetorian-inc/augustus/internal/probes/advpatch"
 	_ "github.com/praetorian-inc/augustus/internal/probes/ansiescape"
 	_ "github.com/praetorian-inc/augustus/internal/probes/apikey"
@@ -14,6 +15,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/avspamscanning"
 	_ "github.com/praetorian-inc/augustus/internal/probes/badchars"
 	_ "github.com/praetorian-inc/augustus/internal/probes/browsing"
+	_ "github.com/praetorian-inc/augustus/internal/probes/context"
 	_ "github.com/praetorian-inc/augustus/internal/probes/continuation"
 	_ "github.com/praetorian-inc/augustus/internal/probes/crescendo"
 	_ "github.com/praetorian-inc/augustus/internal/probes/dan"
@@ -46,6 +48,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/ragpoisoning"
 	_ "github.com/praetorian-inc/augustus/internal/probes/realtoxicityprompts"
 	_ "github.com/praetorian-inc/augustus/internal/probes/snowball"
+	_ "github.com/praetorian-inc/augustus/internal/probes/ssrf"
 	_ "github.com/praetorian-inc/augustus/internal/probes/suffix"
 	_ "github.com/praetorian-inc/augustus/internal/probes/tap"
 	_ "github.com/praetorian-inc/augustus/internal/probes/test"

@@ -24,3 +24,12 @@ type Generator interface {
 	// Description returns a human-readable description.
 	Description() string
 }
+
+// ReauthGenerator is implemented by generators that support creating a copy
+// of themselves with a different Authorization header value. This allows
+// access control probes to derive target variants for different roles
+// without duplicating the full generator configuration.
+type ReauthGenerator interface {
+	Generator
+	WithIdentity(token string) (Generator, error)
+}

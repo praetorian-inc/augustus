@@ -42,6 +42,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/detectors/ragpoisoning"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/shields"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/snowball"
+	_ "github.com/praetorian-inc/augustus/internal/detectors/ssrf"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/tap"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/toolcoercion"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/toxiccomment"

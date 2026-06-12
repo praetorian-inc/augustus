@@ -88,27 +88,18 @@ func (g *OpenAIReasoning) Generate(ctx context.Context, conv *attempt.Conversati
 	// Convert conversation to OpenAI messages
 	messages := convToOpenAIMessages(conv)
 
-	// Build request - reasoning models use max_completion_tokens, not max_tokens
+	// Build request - reasoning models use max_completion_tokens, not max_tokens.
+	// Note: o3 and newer reasoning models do NOT support top_p, stop,
+	// frequency_penalty, or presence_penalty. Only send model + messages +
+	// max_completion_tokens to maximise compatibility.
 	req := goopenai.ChatCompletionRequest{
 		Model:    g.model,
 		Messages: messages,
-		TopP:     g.topP,
 	}
 
 	// Only set max_completion_tokens if configured
 	if g.maxCompletionTokens > 0 {
 		req.MaxCompletionTokens = g.maxCompletionTokens
-	}
-
-	// Add optional parameters
-	if g.frequencyPenalty != 0 {
-		req.FrequencyPenalty = g.frequencyPenalty
-	}
-	if g.presencePenalty != 0 {
-		req.PresencePenalty = g.presencePenalty
-	}
-	if len(g.stop) > 0 {
-		req.Stop = g.stop
 	}
 
 	// Call OpenAI API

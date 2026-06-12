@@ -49,6 +49,12 @@ func NewUnifiedEngine(strategy Strategy, attacker, judge types.Generator, cfg Co
 	return e
 }
 
+// SetGoal overrides the engine's goal. Used by probes that compute the goal
+// at runtime (e.g., BOLA's buildCompositeGoal) after the engine is constructed.
+func (e *UnifiedEngine) SetGoal(goal string) {
+	e.cfg.Goal = goal
+}
+
 // SetTurnCallback sets an optional callback fired after each completed turn.
 func (e *UnifiedEngine) SetTurnCallback(cb func(TurnRecord)) {
 	e.onTurn = cb
@@ -539,6 +545,7 @@ func (e *UnifiedEngine) generateQuestion(ctx context.Context, attackerConv *atte
 	}, func() error {
 		msgs, err := e.attacker.Generate(ctx, attackerConv, 1)
 		if err != nil {
+			slog.Warn("[multiturn] attacker Generate error", "error", err)
 			if isContextLengthError(err) {
 				trimConversation(attackerConv, e.contextLimit())
 				return errRetryableAttack
@@ -546,6 +553,7 @@ func (e *UnifiedEngine) generateQuestion(ctx context.Context, attackerConv *atte
 			return err
 		}
 		if len(msgs) == 0 {
+			slog.Warn("[multiturn] attacker returned 0 messages")
 			return errRetryableAttack
 		}
 		*lastRawOutput = msgs[0].Content
@@ -659,7 +667,11 @@ func (e *UnifiedEngine) checkRefusal(ctx context.Context, question, response str
 // evaluateResponse uses the judge LLM to score a target response.
 func (e *UnifiedEngine) evaluateResponse(ctx context.Context, question, response string, history []TurnRecord) SuccessJudgeResult {
 	conv := attempt.NewConversation()
-	conv.WithSystem(SuccessJudgeSystemPrompt(e.cfg.Goal))
+	if e.cfg.JudgeSystemPrompt != "" {
+		conv.WithSystem(e.cfg.JudgeSystemPrompt)
+	} else {
+		conv.WithSystem(SuccessJudgeSystemPrompt(e.cfg.Goal))
+	}
 	conv.AddTurn(attempt.NewTurn(SuccessJudgePrompt(question, response, history)))
 
 	msgs, err := e.judge.Generate(ctx, conv, 1)
@@ -788,7 +800,11 @@ func (e *UnifiedEngine) buildUnifiedResult(s *runState) []*attempt.Attempt {
 		}
 	}
 	a.AddScore(maxScore)
-	a.SetDetectorResults(DetectorJudge, []float64{maxScore})
+	detectorName := DetectorJudge
+	if e.cfg.DetectorName != "" {
+		detectorName = e.cfg.DetectorName
+	}
+	a.SetDetectorResults(detectorName, []float64{maxScore})
 
 	a.WithMetadata("attack_type", e.strategy.Name())
 	a.WithMetadata("goal", e.cfg.Goal)

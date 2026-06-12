@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	pkgcontext "github.com/praetorian-inc/augustus/internal/probes/context"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/buffs"
 	"github.com/praetorian-inc/augustus/pkg/cli"
@@ -34,6 +35,7 @@ type scanConfig struct {
 	buffNames     []string
 	harnessName   string
 	configFile    string // YAML config file path
+	contextFile   string // Extracted context YAML file
 	configJSON    string
 	outputFormat  string
 	outputFile    string // JSONL output file path
@@ -111,6 +113,7 @@ func (s *ScanCmd) loadScanConfig() *scanConfig {
 		buffNames:     s.Buff,
 		harnessName:   s.Harness,
 		configFile:    s.ConfigFile,
+		contextFile:   s.ContextFile,
 		configJSON:    s.Config,
 		outputFormat:  s.Format,
 		outputFile:    s.Output,
@@ -677,6 +680,21 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 		return err
 	}
 
+	// Inject extracted context into context-aware probes
+	if cfg.contextFile != "" {
+		ec, loadErr := pkgcontext.LoadExtractedContext(cfg.contextFile)
+		if loadErr != nil {
+			return fmt.Errorf("failed to load context file: %w", loadErr)
+		}
+		probeCtx := &types.ProbeContext{Extracted: ec}
+		for _, probe := range probeList {
+			if cap, ok := probe.(types.ContextAwareProbe); ok {
+				cap.SetProbeContext(probeCtx)
+			}
+		}
+		slog.Info("loaded extracted context", "file", cfg.contextFile, "tools", len(ec.Tools))
+	}
+
 	// Create detectors
 	detectorList, err := createDetectors(cfg.detectorNames, probeList, yamlCfg)
 	if err != nil {
@@ -716,6 +734,15 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	harness, err := harnesses.Create(cfg.harnessName, harnessConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create harness %s: %w", cfg.harnessName, err)
+	}
+
+	// Propagate setup hook variables through the scan context so nested
+	// generators created by probes (e.g. BFLA high_priv_generator, RBAC
+	// role_generators, judge.Judge's own generator) can resolve $VAR
+	// placeholders in headers/templates. The HookedGenerator only wraps the
+	// main generator; anything a probe instantiates directly bypasses it.
+	if len(setupVars) > 0 {
+		ctx = types.WithHookVars(ctx, setupVars)
 	}
 
 	// Run the scan

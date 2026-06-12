@@ -51,6 +51,14 @@ type Config struct {
 	// AttackerModel is the model name used by the attacker generator.
 	// Used to determine the context window size for conversation trimming.
 	AttackerModel string
+
+	// DetectorName overrides the detector key used in attempt.DetectorResults.
+	// Defaults to DetectorJudge ("judge.Judge") if empty.
+	DetectorName string
+
+	// JudgeSystemPrompt overrides the judge system prompt used by evaluateResponse.
+	// If empty, the default SuccessJudgeSystemPrompt is used.
+	JudgeSystemPrompt string
 }
 
 // Defaults returns a Config with sensible defaults for multi-turn attacks.
@@ -83,6 +91,8 @@ func FromMap(m registry.Config, defaults Config) Config {
 	cfg.Stateful = registry.GetBool(m, "stateful", cfg.Stateful)
 	cfg.ExcludeTargetOutput = registry.GetBool(m, "exclude_target_output", cfg.ExcludeTargetOutput)
 	cfg.AttackerModel = registry.GetString(m, "attacker_model", cfg.AttackerModel)
+	cfg.DetectorName = registry.GetString(m, "detector_name", cfg.DetectorName)
+	cfg.JudgeSystemPrompt = registry.GetString(m, "judge_system_prompt", cfg.JudgeSystemPrompt)
 	if cfg.AttackerModel == "" {
 		if ac, ok := m["attacker_config"].(map[string]any); ok {
 			if model, ok := ac["model"].(string); ok {
