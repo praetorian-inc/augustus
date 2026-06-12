@@ -29,9 +29,9 @@ func (m *mockGenerator) Description() string { return "mock generator for testin
 
 func TestFontInjectProbesRegistered(t *testing.T) {
 	expectedProbes := []string{
-		"fontinject.Homoglyph",
-		"fontinject.InvisibleText",
 		"fontinject.DocumentInjection",
+		"fontinject.PriorContextBoost",
+		"fontinject.FormatExploitation",
 	}
 
 	registeredProbes := probes.List()
@@ -49,9 +49,9 @@ func TestFontInjectProbesRegistered(t *testing.T) {
 
 func TestFontInjectProbeCreation(t *testing.T) {
 	probeNames := []string{
-		"fontinject.Homoglyph",
-		"fontinject.InvisibleText",
 		"fontinject.DocumentInjection",
+		"fontinject.PriorContextBoost",
+		"fontinject.FormatExploitation",
 	}
 
 	for _, name := range probeNames {
@@ -72,9 +72,9 @@ func TestFontInjectProbeCreation(t *testing.T) {
 
 func TestFontInjectProbeMetadata(t *testing.T) {
 	probeNames := []string{
-		"fontinject.Homoglyph",
-		"fontinject.InvisibleText",
 		"fontinject.DocumentInjection",
+		"fontinject.PriorContextBoost",
+		"fontinject.FormatExploitation",
 	}
 
 	for _, name := range probeNames {
@@ -134,9 +134,9 @@ func TestFontInjectProbePromptCount(t *testing.T) {
 		name     string
 		expected int
 	}{
-		{"fontinject.Homoglyph", 3},
-		{"fontinject.InvisibleText", 3},
 		{"fontinject.DocumentInjection", 3},
+		{"fontinject.PriorContextBoost", 3},
+		{"fontinject.FormatExploitation", 3},
 	}
 
 	for _, tt := range tests {
