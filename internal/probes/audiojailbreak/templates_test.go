@@ -32,6 +32,7 @@ func TestAudioJailbreakProbesRegistered(t *testing.T) {
 		"audiojailbreak.AudioTranscription",
 		"audiojailbreak.MultiAccent",
 		"audiojailbreak.MultilingualBypass",
+		"audiojailbreak.CodeSwitching",
 	}
 
 	registeredProbes := probes.List()
@@ -52,6 +53,7 @@ func TestAudioJailbreakProbeCreation(t *testing.T) {
 		"audiojailbreak.AudioTranscription",
 		"audiojailbreak.MultiAccent",
 		"audiojailbreak.MultilingualBypass",
+		"audiojailbreak.CodeSwitching",
 	}
 
 	for _, name := range probeNames {
@@ -75,6 +77,7 @@ func TestAudioJailbreakProbeMetadata(t *testing.T) {
 		"audiojailbreak.AudioTranscription",
 		"audiojailbreak.MultiAccent",
 		"audiojailbreak.MultilingualBypass",
+		"audiojailbreak.CodeSwitching",
 	}
 
 	for _, name := range probeNames {
@@ -136,7 +139,8 @@ func TestAudioJailbreakProbePromptCount(t *testing.T) {
 	}{
 		{"audiojailbreak.AudioTranscription", 3},
 		{"audiojailbreak.MultiAccent", 3},
-		{"audiojailbreak.MultilingualBypass", 3},
+		{"audiojailbreak.MultilingualBypass", 6},
+		{"audiojailbreak.CodeSwitching", 3},
 	}
 
 	for _, tt := range tests {
