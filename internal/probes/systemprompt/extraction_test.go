@@ -58,12 +58,21 @@ func TestExtraction_Probe(t *testing.T) {
 	}
 }
 
-// TestExtraction_CustomPrompts verifies prompts are overridable via config.
+// TestExtraction_CustomPrompts verifies prompts are overridable via config,
+// both as a native Go []string and as the []any shape config takes after
+// YAML/JSON unmarshaling.
 func TestExtraction_CustomPrompts(t *testing.T) {
-	cfg := map[string]any{"prompts": []string{"only one prompt"}}
-	p, err := probes.Create("systemprompt.Extraction", cfg)
-	require.NoError(t, err)
-	pm, ok := p.(probes.ProbeMetadata)
-	require.True(t, ok)
-	assert.Equal(t, []string{"only one prompt"}, pm.GetPrompts())
+	cases := map[string]any{
+		"native []string":   []string{"only one prompt"},
+		"file-loaded []any": []any{"only one prompt"},
+	}
+	for name, prompts := range cases {
+		t.Run(name, func(t *testing.T) {
+			p, err := probes.Create("systemprompt.Extraction", map[string]any{"prompts": prompts})
+			require.NoError(t, err)
+			pm, ok := p.(probes.ProbeMetadata)
+			require.True(t, ok)
+			assert.Equal(t, []string{"only one prompt"}, pm.GetPrompts())
+		})
+	}
 }

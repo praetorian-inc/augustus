@@ -45,7 +45,9 @@ type Extraction struct {
 // overridable via the "prompts" config key.
 func NewExtraction(cfg registry.Config) (probes.Prober, error) {
 	prompts := extractionPrompts
-	if p, ok := cfg["prompts"].([]string); ok && len(p) > 0 {
+	// GetStringSlice coerces the []any shape config takes after YAML/JSON
+	// unmarshaling, so a file-supplied prompt override is honored.
+	if p := registry.GetStringSlice(cfg, "prompts", nil); len(p) > 0 {
 		prompts = p
 	}
 
