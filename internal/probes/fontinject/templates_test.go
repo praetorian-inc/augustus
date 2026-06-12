@@ -32,6 +32,7 @@ func TestFontInjectProbesRegistered(t *testing.T) {
 		"fontinject.DocumentInjection",
 		"fontinject.PriorContextBoost",
 		"fontinject.FormatExploitation",
+		"fontinject.TrustBoundary",
 	}
 
 	registeredProbes := probes.List()
@@ -52,6 +53,7 @@ func TestFontInjectProbeCreation(t *testing.T) {
 		"fontinject.DocumentInjection",
 		"fontinject.PriorContextBoost",
 		"fontinject.FormatExploitation",
+		"fontinject.TrustBoundary",
 	}
 
 	for _, name := range probeNames {
@@ -75,6 +77,7 @@ func TestFontInjectProbeMetadata(t *testing.T) {
 		"fontinject.DocumentInjection",
 		"fontinject.PriorContextBoost",
 		"fontinject.FormatExploitation",
+		"fontinject.TrustBoundary",
 	}
 
 	for _, name := range probeNames {
@@ -137,6 +140,7 @@ func TestFontInjectProbePromptCount(t *testing.T) {
 		{"fontinject.DocumentInjection", 3},
 		{"fontinject.PriorContextBoost", 3},
 		{"fontinject.FormatExploitation", 3},
+		{"fontinject.TrustBoundary", 3},
 	}
 
 	for _, tt := range tests {
