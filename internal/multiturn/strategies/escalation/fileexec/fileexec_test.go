@@ -39,3 +39,16 @@ func TestUploadFilename_Override(t *testing.T) {
 		t.Errorf("turn prompt does not reference override filename %q", custom)
 	}
 }
+
+// TestRungPacing_SmallMaxTurns verifies turn 1 still maps to the first rung for
+// a small turn budget (zero-based progress), rather than skipping ahead — the
+// turnNum/maxTurns pacing would have started a 3-turn run on a later rung.
+func TestRungPacing_SmallMaxTurns(t *testing.T) {
+	for _, maxTurns := range []int{2, 3, 5} {
+		s := &Strategy{MaxTurns: maxTurns}
+		turn1 := s.GenerateTurnPrompt("goal", nil, 1)
+		if !strings.Contains(turn1, "ESTABLISH FILE WORK") {
+			t.Errorf("turn 1 with MaxTurns=%d should be the ESTABLISH FILE WORK rung, got:\n%s", maxTurns, turn1)
+		}
+	}
+}
