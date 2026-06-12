@@ -16,12 +16,27 @@
 // and attempt building; this strategy only supplies the attacker prompts that
 // drive the escalation ladder (benign file work -> introduce content -> defeat
 // the type gate -> execute -> surface output). The prompts teach the technique
-// generically and never name a specific target, tool, file, or payload.
+// generically and never name a specific target, tool, or payload.
+//
+// Auxiliary requirement — a pre-uploaded file. The attack assumes the operator
+// has already uploaded a file carrying the attacker's content into the target
+// agent's workspace; the prompts reference that file by name and drive the agent
+// to rename/run it. The filename is supplied via the probe's "upload_filename"
+// config and defaults to defaultUploadFilename. Without that upload the probe
+// still exercises the agent's willingness to author/rename/run local content,
+// but against a target that only executes genuinely uploaded files it will
+// under-report.
 package fileexec
 
 import (
 	"github.com/praetorian-inc/augustus/internal/multiturn"
 )
+
+// defaultUploadFilename is the workspace filename the prompts reference when no
+// override is supplied. The probe expects the operator to have pre-uploaded a
+// file by this name (carrying the attacker's content) into the target agent's
+// workspace; the attacker LLM then drives the agent to rename/run THAT file.
+const defaultUploadFilename = "notes.txt"
 
 // Strategy implements the untrusted-file execution escalation attack.
 type Strategy struct {
@@ -31,6 +46,11 @@ type Strategy struct {
 
 	// MaxTurns is used for rung pacing in prompts.
 	MaxTurns int
+
+	// UploadFilename is the name of the file the operator pre-uploaded to the
+	// target agent's workspace; the prompts reference it so the attacker anchors
+	// the escalation on that file. Defaults to defaultUploadFilename when empty.
+	UploadFilename string
 }
 
 // Name returns the strategy identifier.
@@ -41,12 +61,12 @@ func (s *Strategy) SetMaxTurns(n int) { s.MaxTurns = n }
 
 // AttackerSystemPrompt returns the untrusted-file execution escalation system prompt.
 func (s *Strategy) AttackerSystemPrompt(goal string) string {
-	return attackerSystemPrompt
+	return attackerSystemPrompt(s.uploadFilename())
 }
 
 // GenerateTurnPrompt builds the prompt asking for the next escalation message.
 func (s *Strategy) GenerateTurnPrompt(goal string, turnHistory []multiturn.TurnRecord, turnNum int) string {
-	return turnPrompt(goal, turnHistory, turnNum, s.maxTurns(), s.charBudget())
+	return turnPrompt(goal, turnHistory, turnNum, s.maxTurns(), s.charBudget(), s.uploadFilename())
 }
 
 // RephrasePrompt builds a prompt to rephrase a refused message.
@@ -67,6 +87,14 @@ func (s *Strategy) ParseAttackerResponse(output string) *multiturn.QuestionResul
 // charBudget returns the per-response character budget based on attacker model.
 func (s *Strategy) charBudget() int {
 	return multiturn.ResponseCharBudget(s.AttackerModel)
+}
+
+// uploadFilename returns UploadFilename with a default fallback.
+func (s *Strategy) uploadFilename() string {
+	if s.UploadFilename != "" {
+		return s.UploadFilename
+	}
+	return defaultUploadFilename
 }
 
 // maxTurns returns MaxTurns with a default fallback.
