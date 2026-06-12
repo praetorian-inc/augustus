@@ -3,6 +3,7 @@ package runtimetemplates
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -18,15 +19,6 @@ func writeTemplate(t *testing.T, dir, name, content string) {
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 		t.Fatalf("write template: %v", err)
 	}
-}
-
-func contains(ids []string, want string) bool {
-	for _, id := range ids {
-		if id == want {
-			return true
-		}
-	}
-	return false
 }
 
 func TestRegisterFromPath_Static(t *testing.T) {
@@ -46,7 +38,7 @@ prompts:
 	if err != nil {
 		t.Fatalf("RegisterFromPath() error: %v", err)
 	}
-	if !contains(ids, "runtimetest.Static") {
+	if !slices.Contains(ids, "runtimetest.Static") {
 		t.Fatalf("expected runtimetest.Static in registered ids, got %v", ids)
 	}
 
@@ -91,7 +83,7 @@ strategy:
 	if err != nil {
 		t.Fatalf("RegisterFromPath() error: %v", err)
 	}
-	if !contains(ids, "runtimetest.MultiTurn") {
+	if !slices.Contains(ids, "runtimetest.MultiTurn") {
 		t.Fatalf("expected runtimetest.MultiTurn registered, got %v", ids)
 	}
 
@@ -207,6 +199,20 @@ prompts: ["two"]
 	// With force, the override succeeds.
 	if _, err := RegisterFromPath(dir2, true); err != nil {
 		t.Fatalf("RegisterFromPath() with force should override, got: %v", err)
+	}
+
+	// Verify the override actually replaced the probe.
+	probe, err := probes.Create("runtimetest.OverrideTarget", nil)
+	if err != nil {
+		t.Fatalf("probes.Create() after force override: %v", err)
+	}
+	pm, ok := probe.(types.ProbeMetadata)
+	if !ok {
+		t.Fatal("overridden probe should implement ProbeMetadata")
+	}
+	prompts := pm.GetPrompts()
+	if len(prompts) != 1 || prompts[0] != "two" {
+		t.Fatalf("force override did not replace template content, prompts=%v", prompts)
 	}
 }
 

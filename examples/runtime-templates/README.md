@@ -9,7 +9,9 @@ augustus scan openai.OpenAI --templates-dir ./examples/runtime-templates \
 ```
 
 Templates are registered into the probe registry before probe selection, so they
-also work with `--probes-glob "runtime.*"` and `--all`.
+also work with `--probes-glob "runtime.*"` and `--all`. If a runtime template ID
+collides with an existing probe ID, loading fails by default; pass `--force` to
+explicitly allow overriding built-in/registered IDs.
 
 ## Two kinds of template
 
