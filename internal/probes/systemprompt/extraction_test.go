@@ -4,12 +4,13 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	_ "github.com/praetorian-inc/augustus/internal/detectors/systemprompt" // registers the detector
 	_ "github.com/praetorian-inc/augustus/internal/probes/systemprompt"    // registers the probe
 	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestExtraction_Registration(t *testing.T) {

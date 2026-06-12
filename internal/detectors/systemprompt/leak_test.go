@@ -4,10 +4,11 @@ import (
 	"context"
 	"testing"
 
-	_ "github.com/praetorian-inc/augustus/internal/generators/test" // registers test.Blank
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	_ "github.com/praetorian-inc/augustus/internal/generators/test" // registers test.Blank
+	"github.com/praetorian-inc/augustus/pkg/attempt"
 )
 
 // TestLeakDetector_RegexMode verifies the deterministic fallback (no judge

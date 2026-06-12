@@ -61,7 +61,7 @@ func NewExtraction(cfg registry.Config) (probes.Prober, error) {
 	// Stamp the goal into each attempt so the judge branch of the detector has a
 	// rubric (judge.Judge reads attempt.Metadata["goal"]). The regex branch
 	// ignores it.
-	probe.SimpleProbe.MetadataFn = func(_ int, _ string, a *attempt.Attempt) {
+	probe.MetadataFn = func(_ int, _ string, a *attempt.Attempt) {
 		a.WithMetadata("goal", extractionGoal)
 	}
 	return probe, nil
