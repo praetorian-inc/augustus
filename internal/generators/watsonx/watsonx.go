@@ -258,10 +258,10 @@ func (g *WatsonX) generateWithProject(ctx context.Context, prompt string) (strin
 	}
 
 	var result struct {
-		InputTokenCount int `json:"input_token_count"`
-		Results         []struct {
+		Results []struct {
 			GeneratedText       string `json:"generated_text"`
 			GeneratedTokenCount int    `json:"generated_token_count"`
+			InputTokenCount     int    `json:"input_token_count"`
 		} `json:"results"`
 	}
 
@@ -273,7 +273,7 @@ func (g *WatsonX) generateWithProject(ctx context.Context, prompt string) (strin
 		return "", 0, fmt.Errorf("watsonx: no results in response")
 	}
 
-	tokens := int64(result.InputTokenCount + result.Results[0].GeneratedTokenCount)
+	tokens := int64(result.Results[0].InputTokenCount + result.Results[0].GeneratedTokenCount)
 	return result.Results[0].GeneratedText, tokens, nil
 }
 
@@ -317,10 +317,10 @@ func (g *WatsonX) generateWithDeployment(ctx context.Context, prompt string) (st
 	}
 
 	var result struct {
-		InputTokenCount int `json:"input_token_count"`
-		Results         []struct {
+		Results []struct {
 			GeneratedText       string `json:"generated_text"`
 			GeneratedTokenCount int    `json:"generated_token_count"`
+			InputTokenCount     int    `json:"input_token_count"`
 		} `json:"results"`
 	}
 
@@ -332,7 +332,7 @@ func (g *WatsonX) generateWithDeployment(ctx context.Context, prompt string) (st
 		return "", 0, fmt.Errorf("watsonx: no results in response")
 	}
 
-	tokens := int64(result.InputTokenCount + result.Results[0].GeneratedTokenCount)
+	tokens := int64(result.Results[0].InputTokenCount + result.Results[0].GeneratedTokenCount)
 	return result.Results[0].GeneratedText, tokens, nil
 }
 

@@ -279,6 +279,113 @@ func TestWatsonXGenerator_EmptyPromptHandling(t *testing.T) {
 	assert.Len(t, responses, 1)
 }
 
+// TestWatsonXGenerator_AccumulatesTokenUsage is a regression test for the
+// token-accounting bug where input_token_count was read at the top level of
+// the JSON response instead of from inside results[].  The mock already places
+// input_token_count:10 and generated_token_count:50 inside results[0], so the
+// fixed code must return 60 (10+50).  Under the old buggy code the input
+// tokens were always 0 (missing at top level), giving 50.  Both the project
+// path and the deployment path use the same decode struct, so both are covered.
+func TestWatsonXGenerator_AccumulatesTokenUsage(t *testing.T) {
+	t.Run("project path accumulates input+generated tokens", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "/identity/token") {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"access_token": "test-bearer-token",
+					"expires_in":   3600,
+				})
+				return
+			}
+
+			if strings.Contains(r.URL.Path, "/ml/v1/text/generation") {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(mockWatsonXTextGenResponse("response"))
+				return
+			}
+
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		// NewWatsonX returns the Generator interface; keep the concrete *WatsonX
+		// so we can call AccumulatedTokens() without a type assertion.
+		watsonxGen, err := NewWatsonX(registry.Config{
+			"api_key":    "test-api-key",
+			"model":      "ibm/granite-13b-chat-v2",
+			"project_id": "test-project-id",
+			"region":     "us-south",
+			"url":        server.URL,
+			"iam_url":    server.URL + "/identity/token",
+		})
+		require.NoError(t, err)
+
+		// Type-assert to *WatsonX for AccumulatedTokens() access.
+		concreteGen, ok := watsonxGen.(*WatsonX)
+		require.True(t, ok, "NewWatsonX must return *WatsonX")
+
+		conv := attempt.NewConversation()
+		conv.AddPrompt("Hello")
+
+		responses, err := concreteGen.Generate(context.Background(), conv, 1)
+		require.NoError(t, err)
+		require.Len(t, responses, 1)
+
+		// mock: input_token_count=10 + generated_token_count=50 = 60
+		// buggy code would give 50 (input always decoded as 0 from top-level field)
+		assert.Equal(t, int64(60), concreteGen.AccumulatedTokens(),
+			"AccumulatedTokens should be 60 (10 input + 50 generated); "+
+				"50 would indicate the old bug where input_token_count was read from the top level")
+	})
+
+	t.Run("deployment path accumulates input+generated tokens", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "/identity/token") {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"access_token": "test-bearer-token",
+					"expires_in":   3600,
+				})
+				return
+			}
+
+			if strings.Contains(r.URL.Path, "/ml/v1/deployments/") {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(mockWatsonXTextGenResponse("deployed response"))
+				return
+			}
+
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		watsonxGen, err := NewWatsonX(registry.Config{
+			"api_key":       "test-api-key",
+			"model":         "ibm/granite-13b-chat-v2",
+			"deployment_id": "test-deployment-id",
+			"region":        "us-south",
+			"url":           server.URL,
+			"iam_url":       server.URL + "/identity/token",
+		})
+		require.NoError(t, err)
+
+		concreteGen, ok := watsonxGen.(*WatsonX)
+		require.True(t, ok, "NewWatsonX must return *WatsonX")
+
+		conv := attempt.NewConversation()
+		conv.AddPrompt("Hello")
+
+		responses, err := concreteGen.Generate(context.Background(), conv, 1)
+		require.NoError(t, err)
+		require.Len(t, responses, 1)
+
+		// Same expectation: 10 input + 50 generated = 60
+		assert.Equal(t, int64(60), concreteGen.AccumulatedTokens(),
+			"AccumulatedTokens should be 60 (10 input + 50 generated); "+
+				"50 would indicate the old bug where input_token_count was read from the top level")
+	})
+}
+
 func TestWatsonXGenerator_MaxTokensConfiguration(t *testing.T) {
 	var requestBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
