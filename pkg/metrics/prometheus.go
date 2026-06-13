@@ -10,7 +10,10 @@ import (
 // Metrics tracks scan execution statistics. Safe for concurrent use:
 // all mutators and SnapshotLocked lock the embedded mutex.
 type Metrics struct {
-	mu              sync.Mutex // guards all fields below
+	mu sync.Mutex // guards all fields below
+	// The exported fields below are retained for backward compatibility. Direct
+	// reads/writes are NOT synchronized — during a live scan, read a consistent
+	// view via SnapshotLocked(). Deprecated: prefer SnapshotLocked()/the mutator methods.
 	ProbesTotal     int64
 	ProbesSucceeded int64
 	ProbesFailed    int64
@@ -109,6 +112,9 @@ func (e *PrometheusExporter) Export() string {
 
 	// augustus_attempts_vulnerable
 	fmt.Fprintf(&b, "augustus_attempts_vulnerable %d\n", snapshot.AttemptsVuln)
+
+	// augustus_tokens_consumed
+	fmt.Fprintf(&b, "augustus_tokens_consumed %d\n", snapshot.TokensConsumed)
 
 	// augustus_attempts_vulnerability_rate (calculated metric)
 	var vulnRate float64

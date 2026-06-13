@@ -256,6 +256,23 @@ func TestMetrics_AddTokens_Accumulates(t *testing.T) {
 	require.Equal(t, int64(35), snapshot.TokensConsumed, "AddTokens must accumulate across calls")
 }
 
+// TestPrometheusExporter_Export_TokensConsumed guards the one-line feature that
+// Export() must emit "augustus_tokens_consumed <n>". Without the corresponding
+// fmt.Fprintf line in Export(), this test fails RED; with it, GREEN.
+// It calls AddTokens (the real API) so that it cannot be satisfied by a
+// hard-coded constant in the exporter, and asserts the exact text line rather
+// than just checking the metric name.
+func TestPrometheusExporter_Export_TokensConsumed(t *testing.T) {
+	m := &Metrics{}
+	m.AddTokens(1234)
+
+	exporter := NewPrometheusExporter(m, nil)
+	output := exporter.Export()
+
+	assert.True(t, strings.Contains(output, "augustus_tokens_consumed 1234"),
+		"Export() must contain \"augustus_tokens_consumed 1234\"; got:\n%s", output)
+}
+
 // TestMetrics_RecordProbeResult_FailureIgnoresAttempts verifies that failed
 // probes do not contribute to AttemptsTotal or AttemptsVuln.
 func TestMetrics_RecordProbeResult_FailureIgnoresAttempts(t *testing.T) {

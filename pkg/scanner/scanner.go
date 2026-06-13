@@ -79,6 +79,11 @@ func (s *Scanner) GetMetricsMutex() *sync.Mutex {
 }
 
 // Run executes all probes concurrently and returns aggregated results.
+//
+// Token attribution contract: a given generator instance must be used by at
+// most ONE in-flight Run at a time. Run records this run's token usage as a
+// delta of the generator's cumulative count; two concurrent Runs sharing a
+// generator would cross-attribute that delta (and corrupt conversation state).
 func (s *Scanner) Run(ctx context.Context, probes []Prober, gen Generator) Results {
 	// Apply overall timeout if configured
 	if s.opts.Timeout > 0 {
@@ -100,7 +105,9 @@ func (s *Scanner) Run(ctx context.Context, probes []Prober, gen Generator) Resul
 	}
 
 	// Snapshot the generator's cumulative token count before dispatch so we can
-	// record only this run's delta (robust against generator reuse across Runs).
+	// record only this run's delta (robust against sequential generator reuse
+	// across Runs). This assumes a single in-flight Run per generator — see the
+	// attribution contract on Run; concurrent Runs sharing gen would cross-attribute.
 	var tokensBefore int64
 	reporter, reports := gen.(types.UsageReporter)
 	if reports {
