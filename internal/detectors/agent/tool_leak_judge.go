@@ -146,6 +146,25 @@ func (d *ToolLeakJudge) resolveGoal(a *attempt.Attempt) string {
 	return ""
 }
 
+// Opt-in probe wiring (omit entirely to stay fully deterministic — the regex
+// text-fallback in agent.ToolManipulation remains the offline default):
+//
+//	detector: agent.ToolManipulation
+//	detector_config:
+//	  text_fallback: false          # primary stays deterministic (structured calls only)
+//	secondary_detectors:
+//	  - name: agent.ToolLeakJudge   # opt-in semantic adjudication owns chat-mode
+//	    config:
+//	      judge_generator_type: openai-compatible
+//	      judge_config:
+//	        model: gpt-4o-mini
+//	      mode: always              # or "confirm" to skip obvious refusals to save cost
+//
+// The probe's `goal:` reaches the judge via attempt metadata (MetadataKeyGoal).
+// Disabling the primary's text_fallback is required: attempt verdicts are the
+// MAX across detectors (attempt.GetEffectiveScores), so without it the regex
+// false-positive (1.0) would dominate the judge's 0.0 in chat-mode.
+
 // classify runs the judge on a single output and parses the verdict.
 func (d *ToolLeakJudge) classify(ctx context.Context, goal, output string) (float64, error) {
 	conv := attempt.NewConversation().WithSystem(toolLeakJudgeSystemPrompt(goal))
