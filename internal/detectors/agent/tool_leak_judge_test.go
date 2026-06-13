@@ -1,6 +1,38 @@
 package agent
 
-import "testing"
+import (
+	"context"
+	"testing"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/detectors"
+	"github.com/praetorian-inc/augustus/pkg/registry"
+)
+
+func newChatAttempt(goal, output string) *attempt.Attempt {
+	a := attempt.New("prompt")
+	a.Outputs = []string{output}
+	a.Metadata[attempt.MetadataKeyGoal] = goal
+	return a
+}
+
+func TestToolLeakJudge_RegisteredAndNoopWhenUnconfigured(t *testing.T) {
+	det, err := detectors.Create("agent.ToolLeakJudge", registry.Config{})
+	if err != nil {
+		t.Fatalf("detectors.Create: %v", err)
+	}
+	if det.Name() != "agent.ToolLeakJudge" {
+		t.Fatalf("Name() = %q", det.Name())
+	}
+	a := newChatAttempt("any goal", "Sure, deleting now")
+	scores, err := det.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	if len(scores) != 1 || scores[0] != 0.0 {
+		t.Fatalf("unconfigured detector should score 0.0, got %v", scores)
+	}
+}
 
 func TestParseLeakVerdict(t *testing.T) {
 	cases := []struct {
