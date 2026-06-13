@@ -15,6 +15,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -33,7 +34,8 @@ type MultipleFunc func(string, int) []string
 // Single is a generator that wraps a user-provided function for single responses.
 // The function is called once regardless of the n parameter.
 type Single struct {
-	fn SingleFunc
+	types.UsageCounter // embedded but never incremented: in-process function returns no token usage.
+	fn                 SingleFunc
 }
 
 // NewSingle creates a new Single generator from configuration.
@@ -88,7 +90,8 @@ func (s *Single) Description() string {
 // Multiple is a generator that wraps a user-provided function for multiple responses.
 // The function is called with the n parameter and should return n responses.
 type Multiple struct {
-	fn MultipleFunc
+	types.UsageCounter // embedded but never incremented: in-process function returns no token usage.
+	fn                 MultipleFunc
 }
 
 // NewMultiple creates a new Multiple generator from configuration.

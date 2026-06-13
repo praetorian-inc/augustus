@@ -7,6 +7,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -15,7 +16,9 @@ func init() {
 
 // Single is a test generator that returns a fixed string and refuses multiple generations.
 // Useful for testing that generation logic properly handles single-generation constraints.
-type Single struct{}
+type Single struct {
+	types.UsageCounter // embedded but never incremented: test fake returns no token usage.
+}
 
 // NewSingle creates a new Single generator.
 func NewSingle(_ registry.Config) (generators.Generator, error) {

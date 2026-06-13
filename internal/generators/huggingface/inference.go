@@ -14,6 +14,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	libhttp "github.com/praetorian-inc/augustus/pkg/lib/http"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 const (
@@ -33,9 +34,10 @@ func init() {
 
 // InferenceAPI generates text using HuggingFace's hosted inference.
 type InferenceAPI struct {
-	client  *libhttp.Client
-	model   string
-	baseURL string
+	types.UsageCounter // embedded but never incremented: HF inference API returns no token usage.
+	client             *libhttp.Client
+	model              string
+	baseURL            string
 
 	// Configuration
 	maxTokens      int

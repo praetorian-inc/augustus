@@ -23,6 +23,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -40,6 +41,8 @@ const (
 
 // Anthropic is a generator that wraps the Anthropic Messages API.
 type Anthropic struct {
+	types.UsageCounter // embedded; provides AccumulatedTokens()
+
 	apiKey     string
 	baseURL    string
 	apiVersion string
@@ -309,6 +312,9 @@ func (g *Anthropic) generateOne(ctx context.Context, conv *attempt.Conversation)
 	if err := json.Unmarshal(respBody, &resp); err != nil {
 		return attempt.Message{}, fmt.Errorf("anthropic: failed to parse response: %w", err)
 	}
+
+	// Accumulate token usage per call (input + output).
+	g.AddTokens(int64(resp.Usage.InputTokens + resp.Usage.OutputTokens))
 
 	// Extract text and tool_use blocks from content.
 	var text string

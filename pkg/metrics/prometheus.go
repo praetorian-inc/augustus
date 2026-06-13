@@ -7,9 +7,10 @@ import (
 	"sync"
 )
 
-// Metrics tracks scan execution statistics.
-// Access to these fields must be protected by the caller's mutex.
+// Metrics tracks scan execution statistics. Safe for concurrent use:
+// all mutators and SnapshotLocked lock the embedded mutex.
 type Metrics struct {
+	mu              sync.Mutex // guards all fields below
 	ProbesTotal     int64
 	ProbesSucceeded int64
 	ProbesFailed    int64
@@ -18,12 +19,34 @@ type Metrics struct {
 	TokensConsumed  int64
 }
 
-// Snapshot returns a copy of the metrics with thread-safe access.
-// The caller must hold a mutex protecting the Metrics instance.
-func (m *Metrics) Snapshot(mu *sync.Mutex) MetricsSnapshot {
-	mu.Lock()
-	defer mu.Unlock()
+// RecordProbeResult records one probe completion under the internal lock.
+// On success it also adds the supplied attempt counts; on failure the attempt
+// counts are ignored.
+func (m *Metrics) RecordProbeResult(succeeded bool, totalAttempts, vulnAttempts int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ProbesTotal++
+	if succeeded {
+		m.ProbesSucceeded++
+		m.AttemptsTotal += totalAttempts
+		m.AttemptsVuln += vulnAttempts
+	} else {
+		m.ProbesFailed++
+	}
+}
 
+// AddTokens adds n to the cumulative token counter under the internal lock.
+func (m *Metrics) AddTokens(n int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.TokensConsumed += n
+}
+
+// SnapshotLocked returns a point-in-time copy of the metrics, taking the
+// internal lock. This is the preferred accessor; no external mutex required.
+func (m *Metrics) SnapshotLocked() MetricsSnapshot {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return MetricsSnapshot{
 		ProbesTotal:     m.ProbesTotal,
 		ProbesSucceeded: m.ProbesSucceeded,
@@ -32,6 +55,14 @@ func (m *Metrics) Snapshot(mu *sync.Mutex) MetricsSnapshot {
 		AttemptsVuln:    m.AttemptsVuln,
 		TokensConsumed:  m.TokensConsumed,
 	}
+}
+
+// Snapshot returns a copy of the metrics.
+//
+// Deprecated: the mu argument is ignored; Metrics now synchronizes internally.
+// Call SnapshotLocked instead.
+func (m *Metrics) Snapshot(_ *sync.Mutex) MetricsSnapshot {
+	return m.SnapshotLocked()
 }
 
 // MetricsSnapshot is a point-in-time copy of metrics values.
@@ -47,22 +78,22 @@ type MetricsSnapshot struct {
 // PrometheusExporter exports metrics in Prometheus text format
 type PrometheusExporter struct {
 	metrics *Metrics
-	mu      *sync.Mutex
 }
 
 // NewPrometheusExporter creates a new Prometheus exporter.
-// The provided mutex must be the same mutex used to protect metrics updates.
-func NewPrometheusExporter(m *Metrics, mu *sync.Mutex) *PrometheusExporter {
+//
+// Deprecated: the mu argument is ignored; Metrics now synchronizes internally.
+// The two-argument signature is retained only for backward compatibility.
+func NewPrometheusExporter(m *Metrics, _ *sync.Mutex) *PrometheusExporter {
 	return &PrometheusExporter{
 		metrics: m,
-		mu:      mu,
 	}
 }
 
 // Export returns metrics in Prometheus text format
 func (e *PrometheusExporter) Export() string {
-	// Get a thread-safe snapshot of metrics
-	snapshot := e.metrics.Snapshot(e.mu)
+	// Get a thread-safe snapshot of metrics via the internal lock.
+	snapshot := e.metrics.SnapshotLocked()
 
 	var b strings.Builder
 

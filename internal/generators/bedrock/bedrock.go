@@ -24,6 +24,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -38,6 +39,8 @@ const (
 
 // Bedrock is a generator that wraps the AWS Bedrock Runtime API.
 type Bedrock struct {
+	types.UsageCounter // embedded; provides AccumulatedTokens()
+
 	client    *bedrockruntime.Client
 	modelID   string
 	region    string
@@ -165,17 +168,21 @@ func (g *Bedrock) generateOne(ctx context.Context, conv *attempt.Conversation) (
 
 	// Parse response based on model type
 	var text string
+	var tokens int64
 	if strings.HasPrefix(g.modelID, "anthropic.claude") {
-		text, err = g.parseClaudeResponse(output.Body)
+		text, tokens, err = g.parseClaudeResponse(output.Body)
 	} else if strings.HasPrefix(g.modelID, "amazon.titan") {
-		text, err = g.parseTitanResponse(output.Body)
+		text, tokens, err = g.parseTitanResponse(output.Body)
 	} else if strings.HasPrefix(g.modelID, "meta.llama") {
-		text, err = g.parseLlamaResponse(output.Body)
+		text, tokens, err = g.parseLlamaResponse(output.Body)
 	}
 
 	if err != nil {
 		return attempt.Message{}, fmt.Errorf("bedrock: failed to parse response: %w", err)
 	}
+
+	// Accumulate token usage per call.
+	g.AddTokens(tokens)
 
 	return attempt.NewAssistantMessage(text), nil
 }
@@ -219,17 +226,22 @@ func (g *Bedrock) buildClaudeRequest(conv *attempt.Conversation) ([]byte, error)
 }
 
 // parseClaudeResponse parses a response from Anthropic Claude models on Bedrock.
-func (g *Bedrock) parseClaudeResponse(body []byte) (string, error) {
+// It returns the generated text and the total token usage (input + output).
+func (g *Bedrock) parseClaudeResponse(body []byte) (string, int64, error) {
 	var resp struct {
 		Content []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
 		StopReason string `json:"stop_reason"`
+		Usage      struct {
+			InputTokens  int `json:"input_tokens"`
+			OutputTokens int `json:"output_tokens"`
+		} `json:"usage"`
 	}
 
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return "", err
+		return "", 0, err
 	}
 
 	var text string
@@ -239,7 +251,7 @@ func (g *Bedrock) parseClaudeResponse(body []byte) (string, error) {
 		}
 	}
 
-	return text, nil
+	return text, int64(resp.Usage.InputTokens + resp.Usage.OutputTokens), nil
 }
 
 // buildTitanRequest builds a request for Amazon Titan models on Bedrock.
@@ -275,22 +287,30 @@ func (g *Bedrock) buildTitanRequest(conv *attempt.Conversation) ([]byte, error) 
 }
 
 // parseTitanResponse parses a response from Amazon Titan models on Bedrock.
-func (g *Bedrock) parseTitanResponse(body []byte) (string, error) {
+// It returns the generated text and the total token usage (input + output).
+func (g *Bedrock) parseTitanResponse(body []byte) (string, int64, error) {
 	var resp struct {
-		Results []struct {
+		InputTextTokenCount int `json:"inputTextTokenCount"`
+		Results             []struct {
 			OutputText string `json:"outputText"`
+			TokenCount int    `json:"tokenCount"`
 		} `json:"results"`
 	}
 
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return "", err
+		return "", 0, err
 	}
 
 	if len(resp.Results) == 0 {
-		return "", fmt.Errorf("no results in Titan response")
+		return "", 0, fmt.Errorf("no results in Titan response")
 	}
 
-	return resp.Results[0].OutputText, nil
+	tokens := int64(resp.InputTextTokenCount)
+	for _, r := range resp.Results {
+		tokens += int64(r.TokenCount)
+	}
+
+	return resp.Results[0].OutputText, tokens, nil
 }
 
 // buildLlamaRequest builds a request for Meta Llama models on Bedrock.
@@ -329,16 +349,19 @@ func (g *Bedrock) buildLlamaRequest(conv *attempt.Conversation) ([]byte, error) 
 }
 
 // parseLlamaResponse parses a response from Meta Llama models on Bedrock.
-func (g *Bedrock) parseLlamaResponse(body []byte) (string, error) {
+// It returns the generated text and the total token usage (prompt + generation).
+func (g *Bedrock) parseLlamaResponse(body []byte) (string, int64, error) {
 	var resp struct {
-		Generation string `json:"generation"`
+		Generation           string `json:"generation"`
+		PromptTokenCount     int    `json:"prompt_token_count"`
+		GenerationTokenCount int    `json:"generation_token_count"`
 	}
 
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return "", err
+		return "", 0, err
 	}
 
-	return resp.Generation, nil
+	return resp.Generation, int64(resp.PromptTokenCount + resp.GenerationTokenCount), nil
 }
 
 // handleError processes API errors.

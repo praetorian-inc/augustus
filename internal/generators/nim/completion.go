@@ -9,11 +9,13 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 // NVOpenAICompletion is a generator that wraps NVIDIA NIM completion endpoints.
 // Unlike NIM (which uses chat/completions), this uses the v1/completions endpoint.
 type NVOpenAICompletion struct {
+	types.UsageCounter // embedded; provides AccumulatedTokens()
 	Config
 }
 
@@ -56,6 +58,7 @@ func (g *NVOpenAICompletion) Generate(ctx context.Context, conv *attempt.Convers
 	if err != nil {
 		return nil, openaicompat.WrapError("nim", err)
 	}
+	g.AddTokens(int64(resp.Usage.TotalTokens))
 
 	// Extract responses from choices
 	responses := make([]attempt.Message, 0, len(resp.Choices))

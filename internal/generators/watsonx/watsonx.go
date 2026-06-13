@@ -23,6 +23,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -37,17 +38,18 @@ const (
 
 // WatsonX is a generator that wraps the IBM Watson X API.
 type WatsonX struct {
-	client       *http.Client
-	apiKey       string
-	url          string
-	iamURL       string
-	projectID    string
-	deploymentID string
-	model        string
-	region       string
-	version      string
-	maxTokens    int
-	bearerToken  string
+	types.UsageCounter // embedded; provides AccumulatedTokens()
+	client             *http.Client
+	apiKey             string
+	url                string
+	iamURL             string
+	projectID          string
+	deploymentID       string
+	model              string
+	region             string
+	version            string
+	maxTokens          int
+	bearerToken        string
 }
 
 // NewWatsonX creates a new Watson X generator from configuration.
@@ -157,17 +159,21 @@ func (g *WatsonX) generateOne(ctx context.Context, conv *attempt.Conversation) (
 
 	// Choose generation method based on configuration
 	var text string
+	var tokens int64
 	var err error
 
 	if g.deploymentID != "" {
-		text, err = g.generateWithDeployment(ctx, promptText)
+		text, tokens, err = g.generateWithDeployment(ctx, promptText)
 	} else {
-		text, err = g.generateWithProject(ctx, promptText)
+		text, tokens, err = g.generateWithProject(ctx, promptText)
 	}
 
 	if err != nil {
 		return attempt.Message{}, err
 	}
+
+	// Accumulate token usage per call (input + generated).
+	g.AddTokens(tokens)
 
 	return attempt.NewAssistantMessage(text), nil
 }
@@ -210,7 +216,8 @@ func (g *WatsonX) setBearerToken(ctx context.Context) error {
 }
 
 // generateWithProject generates text using a project ID (development/training models).
-func (g *WatsonX) generateWithProject(ctx context.Context, prompt string) (string, error) {
+// It returns the generated text and the total tokens consumed (input + generated).
+func (g *WatsonX) generateWithProject(ctx context.Context, prompt string) (string, int64, error) {
 	apiURL := fmt.Sprintf("%s/ml/v1/text/generation?version=%s", g.url, g.version)
 
 	requestBody := map[string]any{
@@ -227,12 +234,12 @@ func (g *WatsonX) generateWithProject(ctx context.Context, prompt string) (strin
 
 	bodyBytes, err := json.Marshal(requestBody)
 	if err != nil {
-		return "", fmt.Errorf("watsonx: failed to marshal request: %w", err)
+		return "", 0, fmt.Errorf("watsonx: failed to marshal request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return "", fmt.Errorf("watsonx: failed to create request: %w", err)
+		return "", 0, fmt.Errorf("watsonx: failed to create request: %w", err)
 	}
 
 	req.Header.Set("Accept", "application/json")
@@ -241,34 +248,38 @@ func (g *WatsonX) generateWithProject(ctx context.Context, prompt string) (strin
 
 	resp, err := g.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("watsonx: request failed: %w", err)
+		return "", 0, fmt.Errorf("watsonx: request failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", g.handleError(resp.StatusCode, body)
+		return "", 0, g.handleError(resp.StatusCode, body)
 	}
 
 	var result struct {
-		Results []struct {
-			GeneratedText string `json:"generated_text"`
+		InputTokenCount int `json:"input_token_count"`
+		Results         []struct {
+			GeneratedText       string `json:"generated_text"`
+			GeneratedTokenCount int    `json:"generated_token_count"`
 		} `json:"results"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("watsonx: failed to decode response: %w", err)
+		return "", 0, fmt.Errorf("watsonx: failed to decode response: %w", err)
 	}
 
 	if len(result.Results) == 0 {
-		return "", fmt.Errorf("watsonx: no results in response")
+		return "", 0, fmt.Errorf("watsonx: no results in response")
 	}
 
-	return result.Results[0].GeneratedText, nil
+	tokens := int64(result.InputTokenCount + result.Results[0].GeneratedTokenCount)
+	return result.Results[0].GeneratedText, tokens, nil
 }
 
 // generateWithDeployment generates text using a deployment ID (production models).
-func (g *WatsonX) generateWithDeployment(ctx context.Context, prompt string) (string, error) {
+// It returns the generated text and the total tokens consumed (input + generated).
+func (g *WatsonX) generateWithDeployment(ctx context.Context, prompt string) (string, int64, error) {
 	apiURL := fmt.Sprintf("%s/ml/v1/deployments/%s/text/generation?version=%s",
 		g.url, g.deploymentID, g.version)
 
@@ -282,12 +293,12 @@ func (g *WatsonX) generateWithDeployment(ctx context.Context, prompt string) (st
 
 	bodyBytes, err := json.Marshal(requestBody)
 	if err != nil {
-		return "", fmt.Errorf("watsonx: failed to marshal request: %w", err)
+		return "", 0, fmt.Errorf("watsonx: failed to marshal request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(bodyBytes))
 	if err != nil {
-		return "", fmt.Errorf("watsonx: failed to create request: %w", err)
+		return "", 0, fmt.Errorf("watsonx: failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -296,30 +307,33 @@ func (g *WatsonX) generateWithDeployment(ctx context.Context, prompt string) (st
 
 	resp, err := g.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("watsonx: request failed: %w", err)
+		return "", 0, fmt.Errorf("watsonx: request failed: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", g.handleError(resp.StatusCode, body)
+		return "", 0, g.handleError(resp.StatusCode, body)
 	}
 
 	var result struct {
-		Results []struct {
-			GeneratedText string `json:"generated_text"`
+		InputTokenCount int `json:"input_token_count"`
+		Results         []struct {
+			GeneratedText       string `json:"generated_text"`
+			GeneratedTokenCount int    `json:"generated_token_count"`
 		} `json:"results"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("watsonx: failed to decode response: %w", err)
+		return "", 0, fmt.Errorf("watsonx: failed to decode response: %w", err)
 	}
 
 	if len(result.Results) == 0 {
-		return "", fmt.Errorf("watsonx: no results in response")
+		return "", 0, fmt.Errorf("watsonx: no results in response")
 	}
 
-	return result.Results[0].GeneratedText, nil
+	tokens := int64(result.InputTokenCount + result.Results[0].GeneratedTokenCount)
+	return result.Results[0].GeneratedText, tokens, nil
 }
 
 // handleError processes API errors.
