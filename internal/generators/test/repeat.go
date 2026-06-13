@@ -6,6 +6,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -15,7 +16,8 @@ func init() {
 // Repeat is a test generator that echoes the input prompt.
 // Useful for testing probes without LLM access.
 type Repeat struct {
-	prefix string
+	types.UsageCounter // embedded but never incremented: test fake returns no token usage.
+	prefix             string
 }
 
 // NewRepeat creates a new Repeat generator.

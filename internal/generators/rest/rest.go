@@ -75,6 +75,7 @@ var (
 // Rest is a generic REST API generator that makes HTTP requests to configured endpoints.
 // It supports request templating, JSON response parsing, and various HTTP methods.
 type Rest struct {
+	types.UsageCounter // embedded but never incremented: REST endpoints return no token usage.
 	uri                string
 	method             string
 	headers            map[string]string

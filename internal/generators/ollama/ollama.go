@@ -25,6 +25,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -56,10 +57,12 @@ type generateRequest struct {
 
 // generateResponse is the response from /api/generate.
 type generateResponse struct {
-	Model    string `json:"model"`
-	Response string `json:"response"`
-	Done     bool   `json:"done"`
-	Error    string `json:"error,omitempty"`
+	Model           string `json:"model"`
+	Response        string `json:"response"`
+	Done            bool   `json:"done"`
+	PromptEvalCount int    `json:"prompt_eval_count"`
+	EvalCount       int    `json:"eval_count"`
+	Error           string `json:"error,omitempty"`
 }
 
 // chatMessage represents a message in a chat conversation.
@@ -78,14 +81,18 @@ type chatRequest struct {
 
 // chatResponse is the response from /api/chat.
 type chatResponse struct {
-	Model   string      `json:"model"`
-	Message chatMessage `json:"message"`
-	Done    bool        `json:"done"`
-	Error   string      `json:"error,omitempty"`
+	Model           string      `json:"model"`
+	Message         chatMessage `json:"message"`
+	Done            bool        `json:"done"`
+	PromptEvalCount int         `json:"prompt_eval_count"`
+	EvalCount       int         `json:"eval_count"`
+	Error           string      `json:"error,omitempty"`
 }
 
 // baseConfig holds common configuration for both Ollama generators.
 type baseConfig struct {
+	types.UsageCounter // embedded; provides AccumulatedTokens() (shared by Ollama + OllamaChat via pointer embed)
+
 	host        string
 	model       string
 	timeout     time.Duration
@@ -241,6 +248,9 @@ func (g *Ollama) callGenerate(ctx context.Context, prompt string) (attempt.Messa
 		return attempt.Message{}, fmt.Errorf("ollama: %s", genResp.Error)
 	}
 
+	// Accumulate token usage per call (prompt + generation eval counts).
+	g.AddTokens(int64(genResp.PromptEvalCount + genResp.EvalCount))
+
 	return attempt.NewAssistantMessage(genResp.Response), nil
 }
 
@@ -395,6 +405,9 @@ func (g *OllamaChat) callChat(ctx context.Context, messages []chatMessage) (atte
 	if chatResp.Error != "" {
 		return attempt.Message{}, fmt.Errorf("ollama: %s", chatResp.Error)
 	}
+
+	// Accumulate token usage per call (prompt + generation eval counts).
+	g.AddTokens(int64(chatResp.PromptEvalCount + chatResp.EvalCount))
 
 	return attempt.NewAssistantMessage(chatResp.Message.Content), nil
 }

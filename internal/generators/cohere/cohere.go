@@ -23,6 +23,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 const (
@@ -44,6 +45,8 @@ func init() {
 
 // Cohere is a generator that wraps the Cohere API.
 type Cohere struct {
+	types.UsageCounter // embedded; provides AccumulatedTokens()
+
 	client  *http.Client
 	baseURL string
 	apiKey  string
@@ -184,6 +187,9 @@ func (g *Cohere) callChatAPI(ctx context.Context, conv *attempt.Conversation) (a
 	if err := json.NewDecoder(resp.Body).Decode(&chatResp); err != nil {
 		return attempt.Message{}, fmt.Errorf("cohere: failed to decode response: %w", err)
 	}
+
+	// Accumulate token usage per call (v2: usage.tokens).
+	g.AddTokens(int64(chatResp.Usage.Tokens.InputTokens + chatResp.Usage.Tokens.OutputTokens))
 
 	// Extract text content and tool calls
 	text := g.extractChatContent(chatResp)
@@ -436,6 +442,9 @@ func (g *Cohere) callGenerateAPI(ctx context.Context, conv *attempt.Conversation
 		return nil, fmt.Errorf("cohere: failed to decode response: %w", err)
 	}
 
+	// Accumulate token usage per batch call (v1: meta.billed_units).
+	g.AddTokens(int64(genResp.Meta.BilledUnits.InputTokens + genResp.Meta.BilledUnits.OutputTokens))
+
 	// Extract generations
 	responses := make([]attempt.Message, 0, len(genResp.Generations))
 	for _, gen := range genResp.Generations {
@@ -487,6 +496,15 @@ type chatResponse struct {
 	ID           string         `json:"id"`
 	FinishReason string         `json:"finish_reason"`
 	Message      messageContent `json:"message"`
+	Usage        cohereV2Usage  `json:"usage"`
+}
+
+// cohereV2Usage represents v2 token usage (usage.tokens.{input,output}_tokens).
+type cohereV2Usage struct {
+	Tokens struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+	} `json:"tokens"`
 }
 
 // messageContent represents message content in a chat response.
@@ -519,6 +537,15 @@ type cohereResponseToolFunction struct {
 type generateResponse struct {
 	ID          string       `json:"id"`
 	Generations []generation `json:"generations"`
+	Meta        cohereV1Meta `json:"meta"`
+}
+
+// cohereV1Meta represents v1 token usage (meta.billed_units.{input,output}_tokens).
+type cohereV1Meta struct {
+	BilledUnits struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+	} `json:"billed_units"`
 }
 
 // generation represents a single generation in a v1 response.

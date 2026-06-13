@@ -12,6 +12,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -21,7 +22,8 @@ func init() {
 // Lipsum is a test generator that returns Lorem Ipsum text.
 // Useful for testing probes with non-zero, varying outputs.
 type Lipsum struct {
-	rng *rand.Rand
+	types.UsageCounter // embedded but never incremented: test fake returns no token usage.
+	rng                *rand.Rand
 }
 
 // NewLipsum creates a new Lipsum generator.

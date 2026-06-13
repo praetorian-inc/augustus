@@ -13,6 +13,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	libhttp "github.com/praetorian-inc/augustus/pkg/lib/http"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -22,9 +23,10 @@ func init() {
 // LLaVA generates text from vision-language inputs using HuggingFace's hosted LLaVA models.
 // This supports multimodal (text + image) inputs.
 type LLaVA struct {
-	client  *libhttp.Client
-	model   string
-	baseURL string
+	types.UsageCounter // embedded but never incremented: HF LLaVA returns no token usage.
+	client             *libhttp.Client
+	model              string
+	baseURL            string
 
 	// Configuration
 	maxTokens    int
