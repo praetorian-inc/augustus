@@ -261,10 +261,7 @@ func (g *AzureOpenAI) Name() string {
 // Reporting vision capability for completion models would silently drop image
 // attachments. See types.VisionCapable.
 func (g *AzureOpenAI) SupportsVision() bool {
-	if completionModels[g.model] {
-		return false
-	}
-	return true
+	return !completionModels[g.model]
 }
 
 // Description returns a human-readable description.
