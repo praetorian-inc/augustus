@@ -3,6 +3,7 @@ package bedrock
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -99,6 +100,9 @@ func buildNovaContent(msg *attempt.Message) ([]any, error) {
 		if format == "" {
 			// Skip rather than mislabel the bytes — Nova will decode
 			// based on the declared format and would error on mismatch.
+			slog.Warn("bedrock nova: dropping image attachment with unsupported MIME type; request proceeds without it (a text-only request may yield a misleading clean result)",
+				"mime", img.MimeType,
+				"supported", "image/png, image/jpeg, image/gif, image/webp")
 			continue
 		}
 		data, err := img.ToBase64()

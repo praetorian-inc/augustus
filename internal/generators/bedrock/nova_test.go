@@ -1,10 +1,12 @@
 package bedrock
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -78,6 +80,33 @@ func TestBuildNovaContent_SkipsUnsupportedImageMIME(t *testing.T) {
 		formats = append(formats, b.(map[string]any)["image"].(map[string]any)["format"].(string))
 	}
 	assert.Equal(t, []string{"png", "jpeg"}, formats)
+}
+
+// TestBuildNovaContent_UnsupportedImageWarns verifies that dropping an image
+// with an unsupported MIME type emits a warning, so a silent text-only request
+// can't masquerade as a clean (not-vulnerable) result.
+func TestBuildNovaContent_UnsupportedImageWarns(t *testing.T) {
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	msg := &attempt.Message{
+		Role:    attempt.RoleUser,
+		Content: "what is this?",
+		Images: []attempt.Image{
+			{Data: []byte{0x01}, MimeType: "image/tiff"}, // unsupported → dropped + warned
+		},
+	}
+
+	blocks, err := buildNovaContent(msg)
+	require.NoError(t, err)
+	// Only the text block survives; the unsupported image is dropped.
+	require.Len(t, blocks, 1)
+	assert.Equal(t, "what is this?", blocks[0].(map[string]any)["text"])
+
+	assert.Contains(t, buf.String(), "unsupported MIME",
+		"dropping an unsupported image must emit a warning, got: %q", buf.String())
 }
 
 func TestBedrockGenerator_NovaSupported(t *testing.T) {
