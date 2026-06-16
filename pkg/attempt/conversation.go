@@ -94,6 +94,17 @@ func (c *Conversation) LastPrompt() string {
 	return c.Turns[len(c.Turns)-1].Prompt.Content
 }
 
+// LastPromptMessage returns a pointer to the last turn's prompt Message, or nil
+// if the conversation has no turns. Unlike LastPrompt (which returns only the
+// text content), this exposes the full Message so callers can access image and
+// other multimodal attachments.
+func (c *Conversation) LastPromptMessage() *Message {
+	if len(c.Turns) == 0 {
+		return nil
+	}
+	return &c.Turns[len(c.Turns)-1].Prompt
+}
+
 // deepCopyValue recursively deep-copies a value that may be a map[string]any,
 // []any, or a scalar. Scalars are returned as-is (they are immutable or
 // value-typed in Go). This is used by deepCopyToolCalls to prevent cloned

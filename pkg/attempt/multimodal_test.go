@@ -118,6 +118,71 @@ func TestAudio_ToBase64_AllSources(t *testing.T) {
 	})
 }
 
+func TestImage_Bytes_WithDataField(t *testing.T) {
+	img := &Image{
+		MimeType: "image/png",
+		Data:     []byte("hello"),
+	}
+	got, err := img.Bytes()
+	require.NoError(t, err)
+	assert.Equal(t, []byte("hello"), got)
+}
+
+func TestImage_Bytes_WithBase64Field(t *testing.T) {
+	encoded := base64.StdEncoding.EncodeToString([]byte("hello"))
+	img := &Image{
+		MimeType: "image/png",
+		Base64:   encoded,
+		// Data intentionally nil to exercise Base64 path
+	}
+	got, err := img.Bytes()
+	require.NoError(t, err)
+	assert.Equal(t, []byte("hello"), got)
+}
+
+func TestImage_Bytes_WithPathField(t *testing.T) {
+	tmp := t.TempDir()
+	fpath := filepath.Join(tmp, "test.png")
+	content := []byte("filebytes")
+	require.NoError(t, os.WriteFile(fpath, content, 0o644))
+
+	img := &Image{
+		MimeType: "image/png",
+		Path:     fpath,
+		// Data and Base64 intentionally unset to exercise Path path
+	}
+	got, err := img.Bytes()
+	require.NoError(t, err)
+	assert.Equal(t, content, got)
+}
+
+func TestImage_Bytes_Empty(t *testing.T) {
+	img := &Image{}
+	got, err := img.Bytes()
+	require.NoError(t, err)
+	assert.Nil(t, got)
+}
+
+func TestImage_Bytes_InvalidBase64(t *testing.T) {
+	img := &Image{
+		MimeType: "image/png",
+		Base64:   "!!!not base64!!!",
+	}
+	got, err := img.Bytes()
+	require.Error(t, err)
+	assert.Nil(t, got)
+}
+
+func TestImage_Bytes_InvalidPath(t *testing.T) {
+	img := &Image{
+		MimeType: "image/png",
+		Path:     "/nonexistent/does-not-exist.png",
+	}
+	got, err := img.Bytes()
+	require.Error(t, err)
+	assert.Nil(t, got)
+}
+
 func TestDocument_ToBase64_AllSources(t *testing.T) {
 	t.Run("Base64 field", func(t *testing.T) {
 		d := &Document{MimeType: "application/pdf", Base64: "JVBERi0="}

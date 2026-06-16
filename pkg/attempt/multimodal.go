@@ -49,6 +49,33 @@ func (img *Image) ToBase64() (string, error) {
 	return "", nil
 }
 
+// Bytes returns the raw image bytes.
+// Priority: Data field > Base64 field > Path field.
+// It returns (nil, nil) when no data is available, and (nil, err) when the
+// Base64 field cannot be decoded or a Path is set but cannot be read —
+// surfacing the error rather than silently shipping empty image bytes to the
+// generator's wire layer.
+func (img *Image) Bytes() ([]byte, error) {
+	if len(img.Data) > 0 {
+		return img.Data, nil
+	}
+	if img.Base64 != "" {
+		data, err := base64.StdEncoding.DecodeString(img.Base64)
+		if err != nil {
+			return nil, fmt.Errorf("image: decode base64: %w", err)
+		}
+		return data, nil
+	}
+	if img.Path != "" {
+		data, err := os.ReadFile(img.Path)
+		if err != nil {
+			return nil, fmt.Errorf("image: read %q: %w", img.Path, err)
+		}
+		return data, nil
+	}
+	return nil, nil
+}
+
 // Audio represents an audio attachment for multimodal attacks.
 //
 // Audio can be provided in three ways:

@@ -14,7 +14,9 @@ import (
 	"io"
 	"log"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"os"
 	"sort"
@@ -70,7 +72,21 @@ func defaultTransport(proxyURL *url.URL, insecureSkipVerify bool) *http.Transpor
 var (
 	_ generators.Generator      = (*Rest)(nil)
 	_ hooks.RawResponseProvider = (*Rest)(nil)
+	_ types.VisionCapable       = (*Rest)(nil)
 )
+
+// bodyModeRawBinary is the body_mode value that sends the probe's image as the
+// raw HTTP request body (e.g. for endpoints that accept image/* directly).
+const bodyModeRawBinary = "raw_binary"
+
+// multipartConfig describes how to send the request as multipart/form-data.
+// The probe's image is attached as a file part under fileField; any additional
+// text fields are populated from templates (supporting $INPUT, $KEY, hook vars).
+type multipartConfig struct {
+	fileField string
+	filename  string
+	fields    map[string]string
+}
 
 // Rest is a generic REST API generator that makes HTTP requests to configured endpoints.
 // It supports request templating, JSON response parsing, and various HTTP methods.
@@ -95,6 +111,10 @@ type Rest struct {
 	sseMode        string // "delta" or "last"
 	sseFilterField string // JSONPath for event filtering (e.g., "$.content.type")
 	sseFilterValue string // Value to match for filter (e.g., "CHAT_TEXT")
+
+	// Multimodal image transport
+	bodyMode  string           // "" (template) or bodyModeRawBinary
+	multipart *multipartConfig // non-nil when sending multipart/form-data
 
 	// Raw response storage for runtime hooks
 	mu          sync.Mutex // protects lastRawResp
@@ -279,6 +299,11 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 		return nil, fmt.Errorf("sse_filter_field and sse_filter_value must both be set or both be empty")
 	}
 
+	// Optional: multimodal image transport.
+	if err := r.configureImageTransport(cfg); err != nil {
+		return nil, err
+	}
+
 	// Optional: Rate limiting (requests per second)
 	// Supports both float64 (from JSON) and int
 	if rateLimit, ok := cfg["rate_limit"].(float64); ok && rateLimit > 0 {
@@ -335,42 +360,18 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 	// Get hook variables from context for template substitution
 	hookVars := types.HookVarsFromContext(ctx)
 
-	// Populate request template
-	body := r.populateTemplate(r.reqTemplate, prompt, hookVars)
-
-	// Replace $MESSAGES with full conversation as a JSON array of
-	// {"role","content"} objects. Enables multi-turn probes to send
-	// conversation history to REST endpoints.
-	// Template usage: "messages": $MESSAGES  (no quotes — raw JSON)
-	// Replaced after populateTemplate to prevent $INPUT/$KEY substitution
-	// inside message content.
-	if strings.Contains(body, "$MESSAGES") {
-		body = strings.ReplaceAll(body, "$MESSAGES", conversationToJSON(conv))
+	// The first image on the last prompt (if any) is the probe-injected image.
+	// Image data never enters config — Augustus attaches it at run time.
+	var img *attempt.Image
+	if pm := conv.LastPromptMessage(); pm != nil && len(pm.Images) > 0 {
+		img = &pm.Images[0]
 	}
 
-	// Populate headers
-	headers := make(map[string]string)
-	for k, v := range r.headers {
-		headers[k] = r.populateTemplate(v, prompt, hookVars)
-	}
-
-	// Create request
-	var req *http.Request
-	var err error
-
-	if r.method == "GET" {
-		// For GET requests, append to URL as query params
-		req, err = http.NewRequestWithContext(ctx, r.method, r.uri+"?"+body, nil)
-	} else {
-		req, err = http.NewRequestWithContext(ctx, r.method, r.uri, bytes.NewBufferString(body))
-	}
+	// Build the HTTP request body and content type according to the configured
+	// wire mode (raw binary, multipart, or JSON template).
+	req, err := r.buildRequest(ctx, conv, prompt, hookVars, img)
 	if err != nil {
-		return attempt.Message{}, fmt.Errorf("rest: failed to create request: %w", err)
-	}
-
-	// Set headers
-	for k, v := range headers {
-		req.Header.Set(k, v)
+		return attempt.Message{}, err
 	}
 
 	// Execute request
@@ -428,6 +429,172 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 	}
 
 	return attempt.NewAssistantMessage(content), nil
+}
+
+// buildRequest constructs the outgoing HTTP request for a single call,
+// dispatching on the configured image-transport mode. Image bytes (when an
+// image is attached) are placed on the wire per mode; img.Bytes()/ToBase64()
+// errors are surfaced (wrapped), never silently dropped.
+func (r *Rest) buildRequest(
+	ctx context.Context,
+	conv *attempt.Conversation,
+	prompt string,
+	hookVars map[string]string,
+	img *attempt.Image,
+) (*http.Request, error) {
+	switch {
+	case r.bodyMode == bodyModeRawBinary:
+		return r.buildRawBinaryRequest(ctx, prompt, hookVars, img)
+	case r.multipart != nil:
+		return r.buildMultipartRequest(ctx, prompt, hookVars, img)
+	default:
+		return r.buildTemplateRequest(ctx, conv, prompt, hookVars, img)
+	}
+}
+
+// buildTemplateRequest builds the default JSON/template request (Mode A),
+// substituting $INPUT, $MESSAGES, and — when an image is attached — the
+// $IMAGE_DATAURI / $IMAGE_B64 / $IMAGE_MIME placeholders. The base64, data-URI,
+// and MIME values are JSON-safe, so no additional escaping is applied.
+func (r *Rest) buildTemplateRequest(
+	ctx context.Context,
+	conv *attempt.Conversation,
+	prompt string,
+	hookVars map[string]string,
+	img *attempt.Image,
+) (*http.Request, error) {
+	body := r.populateTemplate(r.reqTemplate, prompt, hookVars)
+
+	// Replace $MESSAGES with full conversation as a JSON array of
+	// {"role","content"} objects. Enables multi-turn probes to send
+	// conversation history to REST endpoints.
+	// Template usage: "messages": $MESSAGES  (no quotes — raw JSON)
+	// Replaced after populateTemplate to prevent $INPUT/$KEY substitution
+	// inside message content.
+	if strings.Contains(body, "$MESSAGES") {
+		body = strings.ReplaceAll(body, "$MESSAGES", conversationToJSON(conv))
+	}
+
+	if img != nil && strings.Contains(body, "$IMAGE_") {
+		b64, err := img.ToBase64()
+		if err != nil {
+			return nil, fmt.Errorf("rest: encode image: %w", err)
+		}
+		body = strings.ReplaceAll(body, "$IMAGE_DATAURI", "data:"+img.MimeType+";base64,"+b64)
+		body = strings.ReplaceAll(body, "$IMAGE_B64", b64)
+		body = strings.ReplaceAll(body, "$IMAGE_MIME", img.MimeType)
+	}
+
+	var req *http.Request
+	var err error
+	if r.method == "GET" {
+		// For GET requests, append to URL as query params
+		req, err = http.NewRequestWithContext(ctx, r.method, r.uri+"?"+body, nil)
+	} else {
+		req, err = http.NewRequestWithContext(ctx, r.method, r.uri, bytes.NewBufferString(body))
+	}
+	if err != nil {
+		return nil, fmt.Errorf("rest: failed to create request: %w", err)
+	}
+
+	r.applyHeaders(req, prompt, hookVars)
+	return req, nil
+}
+
+// buildRawBinaryRequest builds a request whose body is the raw image bytes
+// (Mode C). The request Content-Type defaults to the image's MIME type, but
+// configured headers are applied afterward so an explicit Content-Type header
+// can override it. $INPUT/$MESSAGES template population is skipped.
+func (r *Rest) buildRawBinaryRequest(
+	ctx context.Context,
+	prompt string,
+	hookVars map[string]string,
+	img *attempt.Image,
+) (*http.Request, error) {
+	if img == nil {
+		return nil, fmt.Errorf("rest: body_mode raw_binary requires an image attachment")
+	}
+
+	data, err := img.Bytes()
+	if err != nil {
+		return nil, fmt.Errorf("rest: read image bytes: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, r.method, r.uri, bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("rest: failed to create request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", img.MimeType)
+	r.applyHeaders(req, prompt, hookVars)
+	return req, nil
+}
+
+// buildMultipartRequest builds a multipart/form-data request (Mode B). Text
+// fields are written in sorted key order (deterministic output) from their
+// templates; when an image is attached it is added as a file part under the
+// configured file_field with the image's MIME type. The boundary-bearing
+// Content-Type is set AFTER configured headers so the boundary always matches
+// the actual body.
+func (r *Rest) buildMultipartRequest(
+	ctx context.Context,
+	prompt string,
+	hookVars map[string]string,
+	img *attempt.Image,
+) (*http.Request, error) {
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+
+	keys := make([]string, 0, len(r.multipart.fields))
+	for k := range r.multipart.fields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		value := r.populateTemplate(r.multipart.fields[k], prompt, hookVars)
+		if err := writer.WriteField(k, value); err != nil {
+			return nil, fmt.Errorf("rest: write multipart field %q: %w", k, err)
+		}
+	}
+
+	if img != nil {
+		data, err := img.Bytes()
+		if err != nil {
+			return nil, fmt.Errorf("rest: read image bytes: %w", err)
+		}
+		header := textproto.MIMEHeader{}
+		header.Set("Content-Disposition", fmt.Sprintf(
+			`form-data; name=%q; filename=%q`, r.multipart.fileField, r.multipart.filename))
+		header.Set("Content-Type", img.MimeType)
+		part, err := writer.CreatePart(header)
+		if err != nil {
+			return nil, fmt.Errorf("rest: create multipart file part: %w", err)
+		}
+		if _, err := part.Write(data); err != nil {
+			return nil, fmt.Errorf("rest: write multipart file part: %w", err)
+		}
+	}
+
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("rest: close multipart writer: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, r.method, r.uri, &buf)
+	if err != nil {
+		return nil, fmt.Errorf("rest: failed to create request: %w", err)
+	}
+
+	r.applyHeaders(req, prompt, hookVars)
+	// Set the multipart Content-Type (with boundary) last so it matches the body.
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	return req, nil
+}
+
+// applyHeaders sets the configured headers on req, substituting templates.
+func (r *Rest) applyHeaders(req *http.Request, prompt string, hookVars map[string]string) {
+	for k, v := range r.headers {
+		req.Header.Set(k, r.populateTemplate(v, prompt, hookVars))
+	}
 }
 
 // populateTemplate replaces $INPUT and $KEY placeholders in the template.
@@ -829,4 +996,65 @@ func (r *Rest) Name() string {
 // Description returns a human-readable description.
 func (r *Rest) Description() string {
 	return "Generic REST API generator for HTTP-based LLM endpoints with SSE support"
+}
+
+// SupportsVision reports whether this REST target is configured with somewhere
+// for an image to go. It implements the optional types.VisionCapable interface.
+//
+// Returning true unconditionally would let a REST target that is NOT configured
+// for images claim vision support and then silently send a text-only request —
+// exactly the silent-drop trap that finding #8 fixed. Vision is true only when
+// the configured wire shape can actually carry the image: raw-binary body,
+// multipart file part, or a JSON template containing an $IMAGE_ placeholder.
+func (r *Rest) SupportsVision() bool {
+	return r.bodyMode == bodyModeRawBinary ||
+		r.multipart != nil ||
+		strings.Contains(r.reqTemplate, "$IMAGE_")
+}
+
+// configureImageTransport parses the optional body_mode and multipart settings
+// that control how a probe's image is placed on the wire. body_mode raw_binary
+// and multipart are mutually exclusive.
+func (r *Rest) configureImageTransport(cfg registry.Config) error {
+	if mode, ok := cfg["body_mode"].(string); ok && mode != "" {
+		if mode != bodyModeRawBinary {
+			return fmt.Errorf("rest: invalid body_mode %q (only %q is supported)", mode, bodyModeRawBinary)
+		}
+		r.bodyMode = mode
+	}
+
+	mpRaw, hasMultipart := cfg["multipart"].(map[string]any)
+	if !hasMultipart {
+		return nil
+	}
+
+	if r.bodyMode == bodyModeRawBinary {
+		return fmt.Errorf("rest: body_mode %q and multipart are mutually exclusive", bodyModeRawBinary)
+	}
+
+	fileField, _ := mpRaw["file_field"].(string)
+	if fileField == "" {
+		return fmt.Errorf("rest: multipart requires a non-empty file_field")
+	}
+
+	filename := "image.png"
+	if fn, ok := mpRaw["filename"].(string); ok && fn != "" {
+		filename = fn
+	}
+
+	fields := make(map[string]string)
+	if rawFields, ok := mpRaw["fields"].(map[string]any); ok {
+		for k, v := range rawFields {
+			if vs, ok := v.(string); ok {
+				fields[k] = vs
+			}
+		}
+	}
+
+	r.multipart = &multipartConfig{
+		fileField: fileField,
+		filename:  filename,
+		fields:    fields,
+	}
+	return nil
 }
