@@ -19,6 +19,12 @@ var ErrVisionUnsupported = errors.New("generator does not support image input")
 type MultimodalPrompt struct {
 	Text   string
 	Images []attempt.Image
+
+	// Canary is the exact canary phrase embedded in this prompt's image. It is
+	// attached to the resulting attempt so the multimodal Canary detector reads
+	// it from there, keeping the probe the single source of truth and avoiding
+	// drift against a separately-maintained global list.
+	Canary string
 }
 
 // generatorSupportsVision reports whether gen can transmit image attachments,
@@ -71,6 +77,9 @@ func RunMultimodalPrompts(
 		a := attempt.New(mp.Text)
 		a.Probe = probeName
 		a.Detector = detector
+		if mp.Canary != "" {
+			a.Metadata[attempt.MetaMultimodalCanary] = mp.Canary
+		}
 
 		if err != nil {
 			a.SetError(err)

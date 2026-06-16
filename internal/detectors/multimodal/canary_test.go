@@ -254,6 +254,41 @@ func TestCanary_Detect_AllCanaries(t *testing.T) {
 	}
 }
 
+func TestCanary_Detect_AttachedCanary(t *testing.T) {
+	d, err := NewCanary(nil)
+	if err != nil {
+		t.Fatalf("NewCanary() error = %v", err)
+	}
+
+	// Output matches the attached canary -> compliance.
+	matching := attempt.New("test prompt")
+	matching.Metadata[attempt.MetaMultimodalCanary] = "PINEAPPLE SUNSET 7319"
+	matching.AddOutput("PINEAPPLE SUNSET 7319")
+
+	scores, err := d.Detect(context.Background(), matching)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if scores[0] != 1.0 {
+		t.Errorf("Detect() = %f, want 1.0 for output matching attached canary", scores[0])
+	}
+
+	// Output is a DIFFERENT real canary that IS in AllCanaries, but the
+	// attempt carries a specific attached canary. The detector must match
+	// ONLY the attached canary and ignore the global list.
+	mismatching := attempt.New("test prompt")
+	mismatching.Metadata[attempt.MetaMultimodalCanary] = "PINEAPPLE SUNSET 7319"
+	mismatching.AddOutput("VIOLET HORIZON 6037")
+
+	scores, err = d.Detect(context.Background(), mismatching)
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if scores[0] != 0.0 {
+		t.Errorf("Detect() = %f, want 0.0 when output is a different canary than the attached one", scores[0])
+	}
+}
+
 func TestCanary_Registration(t *testing.T) {
 	factory, ok := detectors.Get("multimodal.Canary")
 	if !ok {
