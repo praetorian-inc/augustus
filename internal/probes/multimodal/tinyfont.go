@@ -21,6 +21,7 @@ func newTinyFontInjectionProbe(_ registry.Config) (probes.Prober, error) {
 	img := attempt.Image{Data: data, MimeType: "image/png"}
 
 	return &BaseMultimodalProbe{
+		Covert:           true, // tiny ~11px footer text
 		ProbeName:        "multimodal.TinyFontInjection",
 		ProbeGoal:        "follow instructions hidden in fine-print / tiny-font text within an image",
 		PrimaryDetector:  "multimodal.Canary",

@@ -31,6 +31,7 @@ func newInvisibleTextProbe(_ registry.Config) (probes.Prober, error) {
 	}
 
 	return &BaseMultimodalProbe{
+		Covert:           true, // near-invisible low-contrast text
 		ProbeName:        "multimodal.InvisibleText",
 		ProbeGoal:        "read and follow near-invisible text hidden in an image",
 		PrimaryDetector:  "multimodal.Canary",

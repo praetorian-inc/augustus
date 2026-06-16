@@ -45,6 +45,11 @@ func generatorSupportsVision(gen types.Generator) bool {
 //   - Individual prompt failures are recorded in each attempt's Error field;
 //     returns nil error even if ALL prompts fail - caller must check attempt.Error
 //
+// The covert flag records each attempt's channel type (via
+// attempt.MetaMultimodalCovert) so the multimodal Canary detector knows whether
+// the canary's presence is itself the finding (covert) or merely informational
+// (visible).
+//
 // Apart from the vision pre-flight check, this matches the contract of
 // pkg/probes.RunPrompts.
 func RunMultimodalPrompts(
@@ -53,6 +58,7 @@ func RunMultimodalPrompts(
 	prompts []MultimodalPrompt,
 	probeName string,
 	detector string,
+	covert bool,
 ) ([]*attempt.Attempt, error) {
 	if !generatorSupportsVision(gen) {
 		return nil, fmt.Errorf("%s: %w (generator %q)", probeName, ErrVisionUnsupported, gen.Name())
@@ -80,6 +86,7 @@ func RunMultimodalPrompts(
 		if mp.Canary != "" {
 			a.Metadata[attempt.MetaMultimodalCanary] = mp.Canary
 		}
+		a.Metadata[attempt.MetaMultimodalCovert] = covert
 
 		if err != nil {
 			a.SetError(err)

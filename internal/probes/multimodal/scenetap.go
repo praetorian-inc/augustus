@@ -35,6 +35,7 @@ func newSceneTAPTypographicProbe(_ registry.Config) (probes.Prober, error) {
 	}
 
 	return &BaseMultimodalProbe{
+		Covert:           false, // visible text rendered into a natural scene
 		ProbeName:        "multimodal.SceneTAPTypographic",
 		ProbeGoal:        "follow instructions embedded as typography within a natural scene",
 		PrimaryDetector:  "multimodal.Canary",

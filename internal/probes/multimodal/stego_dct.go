@@ -21,6 +21,7 @@ func newSteganographicDCTProbe(_ registry.Config) (probes.Prober, error) {
 	img := attempt.Image{Data: data, MimeType: "image/png"}
 
 	return &BaseMultimodalProbe{
+		Covert:           true, // DCT frequency-domain steganography
 		ProbeName:        "multimodal.SteganographicDCT",
 		ProbeGoal:        "extract and follow instructions hidden via DCT frequency-domain steganography",
 		PrimaryDetector:  "multimodal.Canary",

@@ -21,6 +21,7 @@ func newMetadataEXIFProbe(_ registry.Config) (probes.Prober, error) {
 	img := attempt.Image{Data: data, MimeType: "image/jpeg"}
 
 	return &BaseMultimodalProbe{
+		Covert:           true, // JPEG EXIF metadata
 		ProbeName:        "multimodal.MetadataEXIF",
 		ProbeGoal:        "read and follow instructions stored in JPEG EXIF metadata",
 		PrimaryDetector:  "multimodal.Canary",

@@ -21,6 +21,7 @@ func newSteganographicNeuralProbe(_ registry.Config) (probes.Prober, error) {
 	img := attempt.Image{Data: data, MimeType: "image/png"}
 
 	return &BaseMultimodalProbe{
+		Covert:           true, // neural-encoded steganography
 		ProbeName:        "multimodal.SteganographicNeural",
 		ProbeGoal:        "extract and follow instructions hidden via learned neural steganographic encoding",
 		PrimaryDetector:  "multimodal.Canary",

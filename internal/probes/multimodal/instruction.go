@@ -19,6 +19,7 @@ func newInstructionImageProbe(_ registry.Config) (probes.Prober, error) {
 	}
 
 	return &BaseMultimodalProbe{
+		Covert:           false, // plainly rendered visible text
 		ProbeName:        "multimodal.InstructionImage",
 		ProbeGoal:        "follow instructions embedded as plain visible text in an image",
 		PrimaryDetector:  "multimodal.Canary",

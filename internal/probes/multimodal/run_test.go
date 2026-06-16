@@ -62,7 +62,7 @@ func TestRunMultimodalPrompts_HappyPath(t *testing.T) {
 		{Text: "prompt 2", Images: []attempt.Image{{Data: []byte("img2"), MimeType: "image/png"}}},
 	}
 
-	attempts, err := RunMultimodalPrompts(context.Background(), gen, prompts, "test.Probe", "test.Detector")
+	attempts, err := RunMultimodalPrompts(context.Background(), gen, prompts, "test.Probe", "test.Detector", true)
 	require.NoError(t, err)
 	require.Len(t, attempts, 2)
 
@@ -87,7 +87,7 @@ func TestRunMultimodalPrompts_GeneratorError(t *testing.T) {
 		{Text: "prompt 1", Images: []attempt.Image{{Data: []byte("img"), MimeType: "image/png"}}},
 	}
 
-	attempts, err := RunMultimodalPrompts(context.Background(), gen, prompts, "test.Probe", "test.Detector")
+	attempts, err := RunMultimodalPrompts(context.Background(), gen, prompts, "test.Probe", "test.Detector", true)
 	// Per the contract: generator errors are recorded in the attempt, NOT returned.
 	require.NoError(t, err)
 	require.Len(t, attempts, 1)
@@ -111,7 +111,7 @@ func TestRunMultimodalPrompts_ContextCancellation(t *testing.T) {
 		{Text: "prompt 1", Images: []attempt.Image{{Data: []byte("img"), MimeType: "image/png"}}},
 	}
 
-	attempts, err := RunMultimodalPrompts(ctx, gen, prompts, "test.Probe", "test.Detector")
+	attempts, err := RunMultimodalPrompts(ctx, gen, prompts, "test.Probe", "test.Detector", true)
 	// Context cancellation IS returned as an error.
 	assert.ErrorIs(t, err, context.Canceled)
 	// No prompts should have been executed.
@@ -124,7 +124,7 @@ func TestRunMultimodalPrompts_EmptyPrompts(t *testing.T) {
 		responses: []attempt.Message{{Content: "ok"}},
 	}
 
-	attempts, err := RunMultimodalPrompts(context.Background(), gen, nil, "test.Probe", "test.Detector")
+	attempts, err := RunMultimodalPrompts(context.Background(), gen, nil, "test.Probe", "test.Detector", true)
 	require.NoError(t, err)
 	assert.Empty(t, attempts)
 	assert.Equal(t, 0, gen.callCount)
@@ -137,7 +137,7 @@ func TestRunMultimodalPrompts_SkipsNonVisionGenerator(t *testing.T) {
 		{Text: "prompt 1", Images: []attempt.Image{{Data: []byte("img"), MimeType: "image/png"}}},
 	}
 
-	attempts, err := RunMultimodalPrompts(context.Background(), gen, prompts, "test.Probe", "test.Detector")
+	attempts, err := RunMultimodalPrompts(context.Background(), gen, prompts, "test.Probe", "test.Detector", true)
 
 	// The probe must fail loudly (ErrVisionUnsupported), never silently run the
 	// image attack as a text-only request and report the target as safe.

@@ -17,11 +17,18 @@ type BaseMultimodalProbe struct {
 	PrimaryDetector  string
 	ProbeDescription string
 	Prompts          []MultimodalPrompt
+
+	// Covert is true when the probe's payload rides a covert channel
+	// (steganography, invisible/low-contrast text, metadata, tiny-font,
+	// scaling) and false for visible rendered text. It is recorded on each
+	// attempt so the multimodal Canary detector applies the correct scoring
+	// rule (presence-is-the-finding for covert vs informational for visible).
+	Covert bool
 }
 
 // Probe executes the probe against the generator by iterating over all prompts.
 func (p *BaseMultimodalProbe) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
-	return RunMultimodalPrompts(ctx, gen, p.Prompts, p.Name(), p.GetPrimaryDetector())
+	return RunMultimodalPrompts(ctx, gen, p.Prompts, p.Name(), p.GetPrimaryDetector(), p.Covert)
 }
 
 // Name returns the probe's fully qualified name.

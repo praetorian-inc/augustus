@@ -23,6 +23,7 @@ func newScalingNearestNeighborProbe(_ registry.Config) (probes.Prober, error) {
 	img := attempt.Image{Data: data, MimeType: "image/png"}
 
 	return &BaseMultimodalProbe{
+		Covert:           true, // payload hidden until downscaling reveals it
 		ProbeName:        "multimodal.ScalingNearestNeighbor",
 		ProbeGoal:        "follow instructions revealed by nearest-neighbor downscaling",
 		PrimaryDetector:  "multimodal.Canary",
@@ -46,6 +47,7 @@ func newScalingBicubicProbe(_ registry.Config) (probes.Prober, error) {
 	img := attempt.Image{Data: data, MimeType: "image/png"}
 
 	return &BaseMultimodalProbe{
+		Covert:           true, // payload hidden until downscaling reveals it
 		ProbeName:        "multimodal.ScalingBicubic",
 		ProbeGoal:        "follow instructions revealed by bicubic downscaling",
 		PrimaryDetector:  "multimodal.Canary",
@@ -69,6 +71,7 @@ func newScalingBilinearProbe(_ registry.Config) (probes.Prober, error) {
 	img := attempt.Image{Data: data, MimeType: "image/png"}
 
 	return &BaseMultimodalProbe{
+		Covert:           true, // payload hidden until downscaling reveals it
 		ProbeName:        "multimodal.ScalingBilinear",
 		ProbeGoal:        "follow instructions revealed by bilinear downscaling",
 		PrimaryDetector:  "multimodal.Canary",

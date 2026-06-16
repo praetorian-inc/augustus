@@ -21,6 +21,7 @@ func newSteganographicLSBAdaptiveProbe(_ registry.Config) (probes.Prober, error)
 	img := attempt.Image{Data: data, MimeType: "image/png"}
 
 	return &BaseMultimodalProbe{
+		Covert:           true, // adaptive LSB steganography
 		ProbeName:        "multimodal.SteganographicLSBAdaptive",
 		ProbeGoal:        "extract and follow instructions hidden via adaptive LSB steganography",
 		PrimaryDetector:  "multimodal.Canary",

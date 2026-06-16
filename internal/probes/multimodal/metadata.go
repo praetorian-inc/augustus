@@ -21,6 +21,7 @@ func newMetadataInjectionProbe(_ registry.Config) (probes.Prober, error) {
 	img := attempt.Image{Data: data, MimeType: "image/png"}
 
 	return &BaseMultimodalProbe{
+		Covert:           true, // PNG tEXt metadata
 		ProbeName:        "multimodal.MetadataInjection",
 		ProbeGoal:        "read and follow instructions stored in PNG tEXt metadata",
 		PrimaryDetector:  "multimodal.Canary",
