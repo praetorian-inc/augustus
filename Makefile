@@ -1,6 +1,6 @@
 # Makefile for Augustus - LLM Vulnerability Scanner
 
-.PHONY: all build test test-cover lint clean install help
+.PHONY: all build test test-cover lint clean install help multimodal-assets-verify
 .DEFAULT_GOAL := help
 .DELETE_ON_ERROR:
 
@@ -49,6 +49,9 @@ lint: ## Run linter (requires golangci-lint)
 		echo "golangci-lint not available, running go vet..."; \
 		go vet ./...; \
 	fi
+
+multimodal-assets-verify: ## Verify multimodal probe assets carry their canaries
+	cd tools/multimodal-assets && python3 verify.py --check-committed --repo-root ../..
 
 clean: ## Remove build artifacts
 	rm -rf $(BUILD_DIR) coverage.out coverage.html
