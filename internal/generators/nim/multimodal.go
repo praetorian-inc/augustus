@@ -9,12 +9,14 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 // NVMultimodal is a generator that wraps NVIDIA NIM multimodal endpoints.
 // Supports text and image inputs via openaicompat.ConversationToMessages.
 // Audio inputs are not currently wired through this generator.
 type NVMultimodal struct {
+	types.UsageCounter // embedded; provides AccumulatedTokens() (shared by Vision via pointer embed)
 	Config
 }
 
@@ -60,6 +62,7 @@ func (g *NVMultimodal) Generate(ctx context.Context, conv *attempt.Conversation,
 	if err != nil {
 		return nil, openaicompat.WrapError("nim", err)
 	}
+	g.AddTokens(int64(resp.Usage.TotalTokens))
 
 	// Extract responses from choices
 	responses := make([]attempt.Message, 0, len(resp.Choices))

@@ -7,6 +7,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestPrometheusExporter_Export(t *testing.T) {
@@ -138,4 +141,148 @@ func formatFloatTest(f float64) string {
 	// Format to 2 decimal places, then trim trailing zeros
 	s := strings.TrimRight(strings.TrimRight(fmt.Sprintf("%.2f", f), "0"), ".")
 	return s
+}
+
+// ─── Category (i): Concurrent writes + live snapshot (race test) ─────────────
+
+// TestMetrics_ConcurrentWritesAndSnapshot guards Issue B: 50 goroutines
+// concurrently calling RecordProbeResult and AddTokens while another goroutine
+// loops SnapshotLocked. Under -race this proves writers and the live reader
+// share one lock. Would flag a data race if any write bypassed the mutex.
+func TestMetrics_ConcurrentWritesAndSnapshot(t *testing.T) {
+	const workers = 50
+	m := &Metrics{}
+
+	var wg sync.WaitGroup
+	wg.Add(workers)
+
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			m.RecordProbeResult(true, 2, 1)
+			m.AddTokens(10)
+		}()
+	}
+
+	// Concurrent reader: must not race with the writers above.
+	readerDone := make(chan struct{})
+	go func() {
+		defer close(readerDone)
+		for i := 0; i < 1000; i++ {
+			_ = m.SnapshotLocked()
+		}
+	}()
+
+	wg.Wait()
+	<-readerDone
+
+	snapshot := m.SnapshotLocked()
+	require.Equal(t, int64(workers), snapshot.ProbesTotal, "ProbesTotal must equal worker count")
+	require.Equal(t, int64(workers), snapshot.ProbesSucceeded, "ProbesSucceeded must equal worker count")
+	require.Equal(t, int64(workers*2), snapshot.AttemptsTotal, "AttemptsTotal must be 2 per worker")
+	require.Equal(t, int64(workers), snapshot.AttemptsVuln, "AttemptsVuln must be 1 per worker")
+	require.Equal(t, int64(workers*10), snapshot.TokensConsumed, "TokensConsumed must be 10 per worker")
+}
+
+// TestMetrics_ConcurrentExportDuringScan guards the live /metrics-scrape-during-scan
+// scenario at the metrics-package level: PrometheusExporter.Export calls
+// SnapshotLocked while multiple goroutines write via RecordProbeResult.
+// A missing or wrong lock would surface under -race.
+func TestMetrics_ConcurrentExportDuringScan(t *testing.T) {
+	m := &Metrics{}
+	exporter := NewPrometheusExporter(m, nil)
+
+	var wg sync.WaitGroup
+	const writers = 30
+	wg.Add(writers)
+
+	for i := 0; i < writers; i++ {
+		go func() {
+			defer wg.Done()
+			m.RecordProbeResult(false, 0, 0)
+			m.AddTokens(5)
+		}()
+	}
+
+	// Concurrent reads via Export while writers are running.
+	readerDone := make(chan struct{})
+	go func() {
+		defer close(readerDone)
+		for i := 0; i < 500; i++ {
+			out := exporter.Export()
+			// Export must always produce a non-empty output; never a zero-value partial read.
+			if !strings.Contains(out, "augustus_probes_total") {
+				panic("Export returned malformed output during concurrent writes")
+			}
+		}
+	}()
+
+	wg.Wait()
+	<-readerDone
+
+	snapshot := m.SnapshotLocked()
+	assert.Equal(t, int64(writers), snapshot.ProbesTotal)
+	assert.Equal(t, int64(writers*5), snapshot.TokensConsumed)
+}
+
+// ─── Category (vi, metrics-level): SnapshotLocked returns same data as Snapshot ──
+
+// TestMetrics_SnapshotLocked_EqualsSnapshot verifies that the new
+// SnapshotLocked() and the deprecated Snapshot(_ *sync.Mutex) return identical
+// snapshots for the same Metrics state (they share one code path).
+func TestMetrics_SnapshotLocked_EqualsSnapshot(t *testing.T) {
+	m := &Metrics{}
+	m.RecordProbeResult(true, 3, 1)
+	m.AddTokens(42)
+
+	preferred := m.SnapshotLocked()
+
+	//nolint:staticcheck // intentional deprecated-API backward-compat test
+	var freshMu sync.Mutex
+	//nolint:staticcheck // intentional deprecated-API backward-compat test
+	deprecated := m.Snapshot(&freshMu)
+
+	assert.Equal(t, preferred, deprecated, "SnapshotLocked and deprecated Snapshot must return identical data")
+}
+
+// TestMetrics_AddTokens_Accumulates verifies AddTokens is cumulative.
+func TestMetrics_AddTokens_Accumulates(t *testing.T) {
+	m := &Metrics{}
+	m.AddTokens(10)
+	m.AddTokens(20)
+	m.AddTokens(5)
+
+	snapshot := m.SnapshotLocked()
+	require.Equal(t, int64(35), snapshot.TokensConsumed, "AddTokens must accumulate across calls")
+}
+
+// TestPrometheusExporter_Export_TokensConsumed guards the one-line feature that
+// Export() must emit "augustus_tokens_consumed <n>". Without the corresponding
+// fmt.Fprintf line in Export(), this test fails RED; with it, GREEN.
+// It calls AddTokens (the real API) so that it cannot be satisfied by a
+// hard-coded constant in the exporter, and asserts the exact text line rather
+// than just checking the metric name.
+func TestPrometheusExporter_Export_TokensConsumed(t *testing.T) {
+	m := &Metrics{}
+	m.AddTokens(1234)
+
+	exporter := NewPrometheusExporter(m, nil)
+	output := exporter.Export()
+
+	assert.True(t, strings.Contains(output, "augustus_tokens_consumed 1234"),
+		"Export() must contain \"augustus_tokens_consumed 1234\"; got:\n%s", output)
+}
+
+// TestMetrics_RecordProbeResult_FailureIgnoresAttempts verifies that failed
+// probes do not contribute to AttemptsTotal or AttemptsVuln.
+func TestMetrics_RecordProbeResult_FailureIgnoresAttempts(t *testing.T) {
+	m := &Metrics{}
+	m.RecordProbeResult(false, 99, 99) // attempt counts must be ignored on failure
+
+	snapshot := m.SnapshotLocked()
+	assert.Equal(t, int64(1), snapshot.ProbesTotal)
+	assert.Equal(t, int64(0), snapshot.ProbesSucceeded)
+	assert.Equal(t, int64(1), snapshot.ProbesFailed)
+	assert.Equal(t, int64(0), snapshot.AttemptsTotal, "failed probe must not add to AttemptsTotal")
+	assert.Equal(t, int64(0), snapshot.AttemptsVuln, "failed probe must not add to AttemptsVuln")
 }

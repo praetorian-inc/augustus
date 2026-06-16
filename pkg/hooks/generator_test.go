@@ -11,7 +11,21 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
+
+// usageInnerGenerator is a test double that implements types.Generator AND
+// types.UsageReporter via the embedded types.UsageCounter.
+type usageInnerGenerator struct {
+	mockGenerator
+	types.UsageCounter
+	tokensPerCall int64
+}
+
+func (u *usageInnerGenerator) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
+	u.AddTokens(u.tokensPerCall)
+	return u.mockGenerator.Generate(ctx, conv, n)
+}
 
 // mockGenerator is a test double for types.Generator.
 type mockGenerator struct {
@@ -318,4 +332,83 @@ func TestHookedGeneratorPrepareReceivesCurrentVars(t *testing.T) {
 	vars := VarsFromContext(inner.lastCtx)
 	require.NotNil(t, vars)
 	assert.Equal(t, "conv-999", vars["ECHOED"])
+}
+
+// ─── Category (v): ClearHistory preserves UsageCounter ───────────────────────
+
+// TestHookedGenerator_ClearHistory_PreservesUsage guards that ClearHistory
+// on a HookedGenerator does not reset the inner generator's token counter.
+func TestHookedGenerator_ClearHistory_PreservesUsage(t *testing.T) {
+	inner := &usageInnerGenerator{
+		mockGenerator: mockGenerator{
+			name:      "test.UsageMock",
+			responses: []attempt.Message{attempt.NewAssistantMessage("ok")},
+		},
+		tokensPerCall: 13,
+	}
+
+	hg := NewHookedGenerator(inner, nil, nil)
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	_, err := hg.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	// inner has accumulated 13 tokens; forwarding must reflect it
+	require.Equal(t, int64(13), hg.AccumulatedTokens(), "AccumulatedTokens must forward inner's total")
+
+	hg.ClearHistory()
+
+	require.Equal(t, int64(13), hg.AccumulatedTokens(),
+		"ClearHistory must not reset the forwarded AccumulatedTokens")
+}
+
+// ─── Category (iv): Decorator forwarding ─────────────────────────────────────
+
+// TestHookedGenerator_ForwardsUsage proves that HookedGenerator forwards
+// AccumulatedTokens() to the inner generator when the inner implements
+// types.UsageReporter. This guards correction (b): without the forward,
+// scans run through a prepare hook would read 0 tokens.
+func TestHookedGenerator_ForwardsUsage(t *testing.T) {
+	const tokensPerCall = int64(7)
+	inner := &usageInnerGenerator{
+		mockGenerator: mockGenerator{
+			name:      "test.UsageMock",
+			responses: []attempt.Message{attempt.NewAssistantMessage("ok")},
+		},
+		tokensPerCall: tokensPerCall,
+	}
+
+	hg := NewHookedGenerator(inner, nil, nil)
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	// First call
+	_, err := hg.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	require.Equal(t, tokensPerCall, hg.AccumulatedTokens(),
+		"after one Generate, wrapper must forward inner's accumulated tokens")
+
+	// Second call
+	_, err = hg.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	require.Equal(t, tokensPerCall*2, hg.AccumulatedTokens(),
+		"after two Generate calls, wrapper must forward inner's cumulative total")
+}
+
+// TestHookedGenerator_InnerNoUsage_Zero ensures that when the inner generator
+// does NOT implement UsageReporter, the wrapper returns 0 without panicking.
+func TestHookedGenerator_InnerNoUsage_Zero(t *testing.T) {
+	// mockGenerator does NOT embed types.UsageCounter → does not satisfy UsageReporter.
+	inner := &mockGenerator{
+		name:      "test.Plain",
+		responses: []attempt.Message{attempt.NewAssistantMessage("ok")},
+	}
+	hg := NewHookedGenerator(inner, nil, nil)
+
+	// Compile-time assertion: HookedGenerator still satisfies UsageReporter.
+	var _ types.UsageReporter = hg
+
+	assert.Equal(t, int64(0), hg.AccumulatedTokens(),
+		"wrapper around non-UsageReporter inner must return 0 without panicking")
 }

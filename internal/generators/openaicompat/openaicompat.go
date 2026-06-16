@@ -18,6 +18,7 @@ import (
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 // ChatModels is the set of models that use the chat completions API.
@@ -242,9 +243,32 @@ func GenerateChat(
 	maxTokens int,
 	topP float32,
 ) ([]attempt.Message, error) {
+	// Delegate to the usage-aware implementation, discarding the token count to
+	// keep this function's signature backward-compatible (R4).
+	messages, _, err := GenerateChatWithUsage(ctx, client, providerName, model, conv, n, temperature, maxTokens, topP)
+	return messages, err
+}
+
+// GenerateChatWithUsage performs the same chat completion as GenerateChat but
+// also returns the total tokens reported by the provider (resp.Usage.TotalTokens).
+// CompatGenerator.Generate uses this to accumulate usage into its UsageCounter.
+func GenerateChatWithUsage(
+	ctx context.Context,
+	client *goopenai.Client,
+	providerName string,
+	model string,
+	conv *attempt.Conversation,
+	n int,
+	temperature float32,
+	maxTokens int,
+	topP float32,
+) ([]attempt.Message, int64, error) {
+	// ConversationToMessages can fail when an image attachment cannot be
+	// resolved to base64; surface that as a wrapped provider error rather than
+	// silently sending a malformed request.
 	messages, err := ConversationToMessages(conv)
 	if err != nil {
-		return nil, WrapError(providerName, err)
+		return nil, 0, WrapError(providerName, err)
 	}
 
 	req := goopenai.ChatCompletionRequest{
@@ -266,7 +290,7 @@ func GenerateChat(
 
 	resp, err := client.CreateChatCompletion(ctx, req)
 	if err != nil {
-		return nil, WrapError(providerName, err)
+		return nil, 0, WrapError(providerName, err)
 	}
 
 	// Extract responses from choices
@@ -275,7 +299,7 @@ func GenerateChat(
 		responses = append(responses, attempt.NewAssistantMessage(choice.Message.Content))
 	}
 
-	return responses, nil
+	return responses, int64(resp.Usage.TotalTokens), nil
 }
 
 // RetryConfig holds retry behavior configuration for API calls.
@@ -309,15 +333,16 @@ type ProviderConfig struct {
 // CompatGenerator is a ready-to-use generator for OpenAI-compatible providers.
 // It implements the full Generator interface using shared openaicompat functions.
 type CompatGenerator struct {
-	client      *goopenai.Client
-	provider    string
-	name        string
-	description string
-	model       string
-	temperature float32
-	maxTokens   int
-	topP        float32
-	retryConfig *RetryConfig // Optional: nil means no retry
+	types.UsageCounter // embedded; provides AccumulatedTokens()
+	client             *goopenai.Client
+	provider           string
+	name               string
+	description        string
+	model              string
+	temperature        float32
+	maxTokens          int
+	topP               float32
+	retryConfig        *RetryConfig // Optional: nil means no retry
 }
 
 // NewGenerator creates a new CompatGenerator from registry config and provider settings.
@@ -390,7 +415,12 @@ func (g *CompatGenerator) Generate(ctx context.Context, conv *attempt.Conversati
 	if n <= 0 {
 		return []attempt.Message{}, nil
 	}
-	return GenerateChat(ctx, g.client, g.provider, g.model, conv, n, g.temperature, g.maxTokens, g.topP)
+	messages, tokens, err := GenerateChatWithUsage(ctx, g.client, g.provider, g.model, conv, n, g.temperature, g.maxTokens, g.topP)
+	if err != nil {
+		return nil, err
+	}
+	g.AddTokens(tokens)
+	return messages, nil
 }
 
 // ClearHistory is a no-op (stateless per call).

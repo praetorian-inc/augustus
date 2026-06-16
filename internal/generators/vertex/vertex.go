@@ -29,6 +29,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -45,6 +46,8 @@ const (
 
 // Vertex is a generator that wraps the Google Cloud Vertex AI API.
 type Vertex struct {
+	types.UsageCounter // embedded; provides AccumulatedTokens()
+
 	apiKey    string
 	baseURL   string
 	projectID string
@@ -262,6 +265,9 @@ func (g *Vertex) generateOne(ctx context.Context, conv *attempt.Conversation) (a
 	if err := json.Unmarshal(respBody, &resp); err != nil {
 		return attempt.Message{}, fmt.Errorf("vertex: failed to parse response: %w", err)
 	}
+
+	// Accumulate token usage per call.
+	g.AddTokens(int64(resp.UsageMetadata.TotalTokenCount))
 
 	// Extract text and function calls from first candidate
 	if len(resp.Candidates) == 0 {

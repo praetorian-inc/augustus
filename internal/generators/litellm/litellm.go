@@ -12,6 +12,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -37,6 +38,8 @@ var unsupportedMultipleGenProviders = []string{
 
 // LiteLLM is a generator that connects to a LiteLLM proxy server.
 type LiteLLM struct {
+	types.UsageCounter // embedded; provides AccumulatedTokens()
+
 	client *goopenai.Client
 	model  string
 
@@ -140,6 +143,7 @@ func (g *LiteLLM) generateWithN(ctx context.Context, conv *attempt.Conversation,
 	if err != nil {
 		return nil, openaicompat.WrapError("litellm", err)
 	}
+	g.AddTokens(int64(resp.Usage.TotalTokens))
 
 	responses := make([]attempt.Message, 0, len(resp.Choices))
 	for _, choice := range resp.Choices {
@@ -164,6 +168,7 @@ func (g *LiteLLM) generateMultipleCalls(ctx context.Context, conv *attempt.Conve
 		if err != nil {
 			return nil, openaicompat.WrapError("litellm", err)
 		}
+		g.AddTokens(int64(resp.Usage.TotalTokens))
 
 		if len(resp.Choices) > 0 {
 			responses = append(responses, attempt.NewAssistantMessage(resp.Choices[0].Message.Content))

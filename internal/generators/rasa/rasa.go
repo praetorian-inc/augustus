@@ -16,6 +16,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -31,10 +32,11 @@ type Config struct {
 
 // RasaRest is a generator for Rasa chatbot framework REST API.
 type RasaRest struct {
-	baseURL string
-	model   string
-	sender  string
-	client  *http.Client
+	types.UsageCounter // embedded but never incremented: Rasa returns no token usage.
+	baseURL            string
+	model              string
+	sender             string
+	client             *http.Client
 }
 
 // NewRasaRest creates a new Rasa REST generator from configuration.

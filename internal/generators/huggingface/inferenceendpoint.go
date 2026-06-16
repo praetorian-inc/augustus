@@ -14,6 +14,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	libhttp "github.com/praetorian-inc/augustus/pkg/lib/http"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 const (
@@ -27,8 +28,9 @@ func init() {
 
 // InferenceEndpoint generates text using a custom HuggingFace Inference Endpoint.
 type InferenceEndpoint struct {
-	client      *libhttp.Client
-	endpointURL string
+	types.UsageCounter // embedded but never incremented: HF inference endpoint returns no token usage.
+	client             *libhttp.Client
+	endpointURL        string
 
 	// Configuration
 	maxTokens int

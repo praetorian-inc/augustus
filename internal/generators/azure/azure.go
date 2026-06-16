@@ -25,6 +25,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -48,6 +49,8 @@ var completionModels = openaicompat.CompletionModels
 
 // AzureOpenAI is a generator that wraps the Azure OpenAI API.
 type AzureOpenAI struct {
+	types.UsageCounter // embedded; provides AccumulatedTokens()
+
 	client *goopenai.Client
 	model  string
 	isChat bool
@@ -185,6 +188,7 @@ func (g *AzureOpenAI) generateChat(ctx context.Context, conv *attempt.Conversati
 	if err != nil {
 		return nil, openaicompat.WrapError("azure openai", err)
 	}
+	g.AddTokens(int64(resp.Usage.TotalTokens))
 
 	// Extract responses from choices
 	responses := make([]attempt.Message, 0, len(resp.Choices))
@@ -230,6 +234,7 @@ func (g *AzureOpenAI) generateCompletion(ctx context.Context, conv *attempt.Conv
 	if err != nil {
 		return nil, openaicompat.WrapError("azure openai", err)
 	}
+	g.AddTokens(int64(resp.Usage.TotalTokens))
 
 	// Extract responses from choices
 	responses := make([]attempt.Message, 0, len(resp.Choices))

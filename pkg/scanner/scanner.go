@@ -27,7 +27,7 @@ type Scanner struct {
 	opts             Options
 	progressCallback func(probeName string, completed, total int, elapsed time.Duration, err error)
 	metrics          *metrics.Metrics
-	metricsMu        sync.Mutex // Protects metrics updates and reads
+	legacyMu         sync.Mutex // Deprecated: backs GetMetricsMutex; guards nothing.
 }
 
 // Results contains the aggregated results from all probe executions.
@@ -70,13 +70,20 @@ func (s *Scanner) SetProgressCallback(callback func(probeName string, completed,
 	s.progressCallback = callback
 }
 
-// GetMetricsMutex returns a pointer to the mutex protecting metrics access.
-// This is used by PrometheusExporter to safely read metrics.
+// GetMetricsMutex returns a pointer to a mutex.
+//
+// Deprecated: Metrics now synchronizes internally; read via Metrics.SnapshotLocked().
+// The returned mutex guards nothing and is retained only for API compatibility.
 func (s *Scanner) GetMetricsMutex() *sync.Mutex {
-	return &s.metricsMu
+	return &s.legacyMu
 }
 
 // Run executes all probes concurrently and returns aggregated results.
+//
+// Token attribution contract: a given generator instance must be used by at
+// most ONE in-flight Run at a time. Run records this run's token usage as a
+// delta of the generator's cumulative count; two concurrent Runs sharing a
+// generator would cross-attribute that delta (and corrupt conversation state).
 func (s *Scanner) Run(ctx context.Context, probes []Prober, gen Generator) Results {
 	// Apply overall timeout if configured
 	if s.opts.Timeout > 0 {
@@ -95,6 +102,16 @@ func (s *Scanner) Run(ctx context.Context, probes []Prober, gen Generator) Resul
 	// Handle empty probe list
 	if len(probes) == 0 {
 		return results
+	}
+
+	// Snapshot the generator's cumulative token count before dispatch so we can
+	// record only this run's delta (robust against sequential generator reuse
+	// across Runs). This assumes a single in-flight Run per generator — see the
+	// attribution contract on Run; concurrent Runs sharing gen would cross-attribute.
+	var tokensBefore int64
+	reporter, reports := gen.(types.UsageReporter)
+	if reports {
+		tokensBefore = reporter.AccumulatedTokens()
 	}
 
 	// Thread-safe result collection
@@ -163,11 +180,8 @@ func (s *Scanner) Run(ctx context.Context, probes []Prober, gen Generator) Resul
 				currentTotal := results.Total
 				mu.Unlock()
 
-				// Update metrics separately with metricsMu
-				s.metricsMu.Lock()
-				s.metrics.ProbesTotal++
-				s.metrics.ProbesFailed++
-				s.metricsMu.Unlock()
+				// Record metrics through the self-synchronizing Metrics mutators.
+				s.metrics.RecordProbeResult(false, 0, 0)
 
 				// Call progress callback outside of mutex to avoid blocking
 				if s.progressCallback != nil {
@@ -191,22 +205,17 @@ func (s *Scanner) Run(ctx context.Context, probes []Prober, gen Generator) Resul
 			currentTotal := results.Total
 			mu.Unlock()
 
-			// Update metrics separately with metricsMu
-			s.metricsMu.Lock()
-			s.metrics.ProbesTotal++
-			if err != nil {
-				s.metrics.ProbesFailed++
-			} else {
-				s.metrics.ProbesSucceeded++
-				// Track attempt metrics
+			// Record metrics through the self-synchronizing Metrics mutators.
+			var totalAttempts, vulnAttempts int64
+			if err == nil {
 				for _, att := range attempts {
-					s.metrics.AttemptsTotal++
+					totalAttempts++
 					if att.IsVulnerable() {
-						s.metrics.AttemptsVuln++
+						vulnAttempts++
 					}
 				}
 			}
-			s.metricsMu.Unlock()
+			s.metrics.RecordProbeResult(err == nil, totalAttempts, vulnAttempts)
 
 			// Call progress callback outside of mutex to avoid blocking
 			if s.progressCallback != nil {
@@ -221,6 +230,14 @@ func (s *Scanner) Run(ctx context.Context, probes []Prober, gen Generator) Resul
 	// Wait for all probes to complete
 	if err := g.Wait(); err != nil {
 		results.Error = err
+	}
+
+	// Record this run's token usage as a delta. Wait() establishes a
+	// happens-before barrier, so reading AccumulatedTokens() here needs no extra
+	// lock; AddTokens takes the Metrics lock. Recorded unconditionally because a
+	// partial/errored scan still consumed tokens.
+	if reports {
+		s.metrics.AddTokens(reporter.AccumulatedTokens() - tokensBefore)
 	}
 
 	return results
