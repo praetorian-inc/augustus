@@ -100,5 +100,11 @@ func RunMultimodalPrompts(
 		attempts = append(attempts, a)
 	}
 
+	// If ctx was cancelled during the LAST gen.Generate (the pre-loop check
+	// above only fires on subsequent iterations), propagate the cancellation
+	// so a partial run isn't reported as a successful scan.
+	if err := ctx.Err(); err != nil {
+		return attempts, err
+	}
 	return attempts, nil
 }

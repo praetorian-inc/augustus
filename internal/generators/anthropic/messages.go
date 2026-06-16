@@ -153,6 +153,11 @@ func buildContent(msg *attempt.Message) (json.RawMessage, error) {
 		if err != nil {
 			return nil, fmt.Errorf("anthropic: encode image: %w", err)
 		}
+		if data == "" {
+			// Reject empty payloads here rather than send a media block with an
+			// empty data string; Anthropic 400s with a generic error in that case.
+			return nil, fmt.Errorf("anthropic: image %q produced empty bytes (missing Data/Base64/Path?)", img.MimeType)
+		}
 		blocks = append(blocks, map[string]any{
 			"type": "image",
 			"source": map[string]any{
@@ -169,6 +174,9 @@ func buildContent(msg *attempt.Message) (json.RawMessage, error) {
 		data, err := doc.ToBase64()
 		if err != nil {
 			return nil, fmt.Errorf("anthropic: encode document: %w", err)
+		}
+		if data == "" {
+			return nil, fmt.Errorf("anthropic: document %q produced empty bytes (missing Data/Base64/Path?)", doc.MimeType)
 		}
 		blocks = append(blocks, map[string]any{
 			"type": "document",

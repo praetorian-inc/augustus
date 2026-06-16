@@ -253,9 +253,19 @@ func (g *AzureOpenAI) Name() string {
 	return "azure.AzureOpenAI"
 }
 
-// SupportsVision reports that the Azure OpenAI chat path transmits image
-// content blocks (e.g. for gpt-4o deployments). See types.VisionCapable.
-func (g *AzureOpenAI) SupportsVision() bool { return true }
+// SupportsVision reports vision capability based on the active model family.
+// Chat-completion models go through the multipart image_url path in
+// openaicompat.ConversationToMessages, but legacy completion models
+// (gpt-3.5-turbo-instruct, davinci-002, babbage-002, etc.) use the
+// CompletionRequest path that only carries the flattened LastPrompt() text.
+// Reporting vision capability for completion models would silently drop image
+// attachments. See types.VisionCapable.
+func (g *AzureOpenAI) SupportsVision() bool {
+	if completionModels[g.model] {
+		return false
+	}
+	return true
+}
 
 // Description returns a human-readable description.
 func (g *AzureOpenAI) Description() string {

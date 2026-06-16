@@ -388,9 +388,17 @@ func (g *Bedrock) Name() string {
 	return "bedrock.Bedrock"
 }
 
-// SupportsVision reports that the Bedrock path transmits image content blocks
-// (Claude vision and Amazon Nova). See types.VisionCapable.
-func (g *Bedrock) SupportsVision() bool { return true }
+// SupportsVision reports vision capability per the active model family.
+// Only the Claude and Nova request builders emit image content blocks; the
+// Titan and Llama builders flatten to text-only and would silently drop image
+// attachments. Mirrors the build-side dispatch in generateOne so a
+// `bedrock.Bedrock` configured with a text-only family rejects multimodal
+// probes via ErrVisionUnsupported instead of running text-only. See
+// types.VisionCapable.
+func (g *Bedrock) SupportsVision() bool {
+	return strings.HasPrefix(g.modelID, "anthropic.claude") ||
+		strings.HasPrefix(g.modelID, "amazon.nova")
+}
 
 // Description returns a human-readable description.
 func (g *Bedrock) Description() string {

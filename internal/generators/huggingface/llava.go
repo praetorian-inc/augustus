@@ -221,9 +221,14 @@ func (g *LLaVA) Name() string {
 	return "huggingface.LLaVA"
 }
 
-// SupportsVision reports that LLaVA is a vision-language generator that
-// transmits image inputs. See types.VisionCapable.
-func (g *LLaVA) SupportsVision() bool { return true }
+// SupportsVision is intentionally false: although LLaVA is a vision-language
+// model, the request builder in buildPayload() currently sends only the text
+// prompt and does not transmit image bytes (see the inline comment there).
+// Reporting vision capability would cause multimodal probes to silently run
+// text-only and produce false-SAFE results — exactly the failure mode the
+// VisionCapable gate is meant to prevent. Flip to true here once the request
+// builder actually carries the image. See types.VisionCapable.
+func (g *LLaVA) SupportsVision() bool { return false }
 
 // Description returns a human-readable description.
 func (g *LLaVA) Description() string {

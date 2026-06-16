@@ -64,12 +64,16 @@ func (g *Bedrock) buildNovaRequest(conv *attempt.Conversation) ([]byte, error) {
 		}
 	}
 
+	// AWS Nova inferenceConfig uses camelCase field names per the published
+	// schema (see https://docs.aws.amazon.com/nova/latest/userguide/using-invoke-api.html).
+	// Snake_case keys (max_new_tokens, top_p) are silently ignored and Nova falls
+	// back to defaults — verified against the canonical example.
 	inference := map[string]any{
-		"max_new_tokens": g.maxTokens,
-		"temperature":    g.temperature,
+		"maxTokens":   g.maxTokens,
+		"temperature": g.temperature,
 	}
 	if g.topP > 0 {
-		inference["top_p"] = g.topP
+		inference["topP"] = g.topP
 	}
 
 	req := map[string]any{
