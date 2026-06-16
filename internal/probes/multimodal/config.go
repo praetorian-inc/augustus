@@ -32,7 +32,13 @@ func resolveAsset(cfg registry.Config, embeddedPath, defaultMime, defaultCanary 
 	}
 
 	if imagePath != "" {
-		data, err := os.ReadFile(imagePath)
+		// imagePath is operator-supplied probe configuration (the "image" /
+		// "image_path" config key), intentionally letting an engineer point a
+		// probe at their own file. It is at the same trust level as the CLI
+		// invocation — the operator already has their own filesystem access —
+		// so no privilege boundary is crossed and an allowlist would only break
+		// the feature. filepath.Clean is applied for hygiene.
+		data, err := os.ReadFile(filepath.Clean(imagePath)) // #nosec G304 -- operator-supplied, trusted probe config path
 		if err != nil {
 			return attempt.Image{}, "", fmt.Errorf("reading custom image %q: %w", imagePath, err)
 		}
