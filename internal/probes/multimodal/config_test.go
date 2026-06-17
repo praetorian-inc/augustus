@@ -113,9 +113,39 @@ func TestResolveAsset_UnknownExtensionNoMime(t *testing.T) {
 	assert.Contains(t, err.Error(), "mime_type")
 }
 
+func TestResolveAsset_MimeTypeValidation(t *testing.T) {
+	dir := t.TempDir()
+	custom := filepath.Join(dir, "blob.dat")
+	require.NoError(t, os.WriteFile(custom, []byte("data"), 0o600))
+
+	t.Run("non-image mime_type errors", func(t *testing.T) {
+		_, _, err := resolveAsset(
+			registry.Config{"image": custom, "mime_type": "text/plain"},
+			"data/instruction/instruction_canary1.png",
+			"image/png",
+			"PINEAPPLE SUNSET 7319",
+		)
+		require.Error(t, err, "non-image mime_type must error")
+		assert.Contains(t, err.Error(), "expected image/*")
+	})
+
+	t.Run("image mime_type succeeds", func(t *testing.T) {
+		img, _, err := resolveAsset(
+			registry.Config{"image": custom, "mime_type": "image/png"},
+			"data/instruction/instruction_canary1.png",
+			"image/png",
+			"PINEAPPLE SUNSET 7319",
+		)
+		require.NoError(t, err)
+		assert.Equal(t, "image/png", img.MimeType)
+	})
+}
+
 func TestResolveAsset_MissingCustomFile(t *testing.T) {
+	dir := t.TempDir()
+	missing := filepath.Join(dir, "missing.png")
 	_, _, err := resolveAsset(
-		registry.Config{"image": "/nonexistent/path/to/file.png"},
+		registry.Config{"image": missing},
 		"data/instruction/instruction_canary1.png",
 		"image/png",
 		"PINEAPPLE SUNSET 7319",

@@ -1024,9 +1024,13 @@ func (r *Rest) configureImageTransport(cfg registry.Config) error {
 		r.bodyMode = mode
 	}
 
-	mpRaw, hasMultipart := cfg["multipart"].(map[string]any)
-	if !hasMultipart {
+	raw, ok := cfg["multipart"]
+	if !ok {
 		return nil
+	}
+	mpRaw, ok := raw.(map[string]any)
+	if !ok {
+		return fmt.Errorf("rest: multipart must be an object")
 	}
 
 	if r.bodyMode == bodyModeRawBinary {

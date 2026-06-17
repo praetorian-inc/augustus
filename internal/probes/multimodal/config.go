@@ -2,6 +2,7 @@ package multimodal
 
 import (
 	"fmt"
+	"mime"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,15 +44,21 @@ func resolveAsset(cfg registry.Config, embeddedPath, defaultMime, defaultCanary 
 			return attempt.Image{}, "", fmt.Errorf("reading custom image %q: %w", imagePath, err)
 		}
 
-		mime := registry.GetString(cfg, "mime_type", "")
-		if mime == "" {
-			mime = mimeFromExt(imagePath)
+		mimeType := registry.GetString(cfg, "mime_type", "")
+		if mimeType != "" {
+			mediaType, _, err := mime.ParseMediaType(mimeType)
+			if err != nil || !strings.HasPrefix(strings.ToLower(mediaType), "image/") {
+				return attempt.Image{}, "", fmt.Errorf("invalid %q %q: expected image/*", "mime_type", mimeType)
+			}
+			mimeType = mediaType
+		} else {
+			mimeType = mimeFromExt(imagePath)
 		}
-		if mime == "" {
+		if mimeType == "" {
 			return attempt.Image{}, "", fmt.Errorf("cannot infer MIME type for custom image %q: set %q in config", imagePath, "mime_type")
 		}
 
-		return attempt.Image{Data: data, MimeType: mime}, canary, nil
+		return attempt.Image{Data: data, MimeType: mimeType}, canary, nil
 	}
 
 	data, err := assetData.ReadFile(embeddedPath)
