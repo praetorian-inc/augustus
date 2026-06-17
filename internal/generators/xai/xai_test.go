@@ -3,6 +3,7 @@ package xai
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -73,6 +74,29 @@ func TestXAIGenerator_APIKeyFromEnv(t *testing.T) {
 	g, err := NewXAI(registry.Config{
 		"model":    "grok-4-vision",
 		"base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hi")
+	resp, err := g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	require.Len(t, resp, 1)
+	assert.Equal(t, "hi from grok", resp[0].Content)
+}
+
+func TestXAIGenerator_APIKeyFromAlias(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "Bearer test-key-123", r.Header.Get("Authorization"))
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(mockXAIResponse("hi from grok"))
+	}))
+	defer server.Close()
+
+	g, err := NewXAI(registry.Config{
+		"model":       "grok-4-vision",
+		"xai_api_key": "test-key-123",
+		"base_url":    server.URL,
 	})
 	require.NoError(t, err)
 
@@ -229,19 +253,7 @@ func TestXAIGenerator_ContextCancellation(t *testing.T) {
 		"expected context/deadline error, got: %v", err)
 }
 
-// readAllBody is a tiny helper to read an http.Request body without pulling in io.
-// (Kept local to avoid an extra import line in a thin test file.)
+// readAllBody reads an http.Request body in full, surfacing any read error.
 func readAllBody(r *http.Request) ([]byte, error) {
-	buf := make([]byte, 0, 4096)
-	tmp := make([]byte, 4096)
-	for {
-		n, err := r.Body.Read(tmp)
-		if n > 0 {
-			buf = append(buf, tmp[:n]...)
-		}
-		if err != nil {
-			break
-		}
-	}
-	return buf, nil
+	return io.ReadAll(r.Body)
 }
