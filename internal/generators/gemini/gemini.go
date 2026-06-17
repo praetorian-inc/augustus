@@ -34,6 +34,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -50,6 +51,8 @@ const (
 
 // Gemini is a generator that wraps the direct Google Gemini API.
 type Gemini struct {
+	types.UsageCounter // embedded; provides AccumulatedTokens()
+
 	apiKey  string
 	baseURL string
 	model   string
@@ -195,6 +198,10 @@ func (g *Gemini) generateOne(ctx context.Context, conv *attempt.Conversation) (a
 	if len(resp.Candidates) == 0 {
 		return attempt.Message{}, fmt.Errorf("gemini: no candidates in response")
 	}
+
+	// Accumulate token usage per call. TotalTokenCount is 0 when the response
+	// omits usageMetadata, contributing an honest 0 rather than an estimate.
+	g.AddTokens(int64(resp.UsageMetadata.TotalTokenCount))
 
 	var text string
 	for _, part := range resp.Candidates[0].Content.Parts {

@@ -18,6 +18,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func mockGeminiResponse(text string) map[string]any {
@@ -253,6 +254,53 @@ func TestGeminiGenerator_HandlesAuthError(t *testing.T) {
 	_, err := g.Generate(context.Background(), conv, 1)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "authentication")
+}
+
+func TestGeminiGenerator_AccumulatesTokenUsage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(mockGeminiResponse("hi back"))
+	}))
+	defer server.Close()
+
+	g := newTestGenerator(t, server.URL)
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hello")
+
+	// Before any call, no tokens accumulated.
+	assert.Equal(t, int64(0), g.AccumulatedTokens())
+
+	// mockGeminiResponse reports totalTokenCount=12 per call.
+	_, err := g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	assert.Equal(t, int64(12), g.AccumulatedTokens())
+
+	// Two more generations accumulate (n=2 → 2×12).
+	_, err = g.Generate(context.Background(), conv, 2)
+	require.NoError(t, err)
+	assert.Equal(t, int64(36), g.AccumulatedTokens())
+}
+
+func TestGeminiGenerator_NoUsageMetadataAddsZero(t *testing.T) {
+	// A response with no usageMetadata must add 0, never fabricate a count.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"candidates":[{"content":{"role":"model","parts":[{"text":"ok"}]},"finishReason":"STOP"}]}`))
+	}))
+	defer server.Close()
+
+	g := newTestGenerator(t, server.URL)
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hello")
+
+	_, err := g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	assert.Equal(t, int64(0), g.AccumulatedTokens())
+}
+
+func TestGeminiGenerator_SatisfiesUsageReporter(t *testing.T) {
+	g := newTestGenerator(t, "http://example")
+	var _ types.UsageReporter = g
 }
 
 func TestGeminiGenerator_Name(t *testing.T) {
