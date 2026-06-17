@@ -2062,6 +2062,7 @@ func TestTerminalWidth_COLUMNSEnvVar(t *testing.T) {
 	tests := []struct {
 		name    string
 		columns string
+		unset   bool
 		want    int
 	}{
 		{
@@ -2094,11 +2095,23 @@ func TestTerminalWidth_COLUMNSEnvVar(t *testing.T) {
 			columns: "",
 			want:    90,
 		},
+		{
+			name:  "unset falls back to 90",
+			unset: true,
+			want:  90,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("COLUMNS", tt.columns)
+			if tt.unset {
+				// Save and restore the original value via t.Setenv, then
+				// explicitly unset so terminalWidth() observes a missing var.
+				t.Setenv("COLUMNS", "placeholder")
+				os.Unsetenv("COLUMNS") //nolint:errcheck
+			} else {
+				t.Setenv("COLUMNS", tt.columns)
+			}
 			got := terminalWidth()
 			assert.Equal(t, tt.want, got)
 		})
