@@ -95,9 +95,9 @@ type CanaryDetector struct {
 // falls back to fuzzyAlphaDefault. alpha is the tunable knob that replaces the
 // old fixed edit-count threshold.
 func NewCanary(cfg registry.Config) (detectors.Detector, error) {
-	alpha := fuzzyAlphaDefault
-	if a, ok := cfg["fuzzy_alpha"].(float64); ok && a > 0 && a < 1 {
-		alpha = a
+	alpha := registry.GetFloat64(cfg, "fuzzy_alpha", fuzzyAlphaDefault)
+	if alpha <= 0 || alpha >= 1 {
+		alpha = fuzzyAlphaDefault
 	}
 	return &CanaryDetector{
 		name:        "multimodal.Canary",

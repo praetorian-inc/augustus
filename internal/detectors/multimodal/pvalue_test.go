@@ -80,6 +80,15 @@ func TestMatchesCanary_PartialWordOverlapDoesNotMatch(t *testing.T) {
 	assert.False(t, matchesCanary("pineapple moonbeam 9999", "pineapple sunset 7319", decoyCanaries, fuzzyAlphaDefault))
 }
 
+func TestMatchesCanary_LongCanaryFreeResponse(t *testing.T) {
+	// A long (~4KB) response that does not contain the canary must return false.
+	// This exercises the early-exit: realDist is large relative to the canary
+	// length, so matchesCanary returns false without scanning the decoy corpus.
+	longProse := strings.Repeat("the quick brown fox jumps over the lazy dog. ", 100)
+	require.Greater(t, len(longProse), 4000, "test fixture should exceed 4KB")
+	assert.False(t, matchesCanary(longProse, "emerald storm 3961", decoyCanaries, fuzzyAlphaDefault))
+}
+
 func TestBuildDecoys_ExcludesRealCanaries(t *testing.T) {
 	real := make(map[string]bool, len(AllCanaries))
 	for _, c := range AllCanaries {

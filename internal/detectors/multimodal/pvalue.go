@@ -99,9 +99,19 @@ func approxSubstringDistance(haystack, needle string) int {
 func matchesCanary(lowerOutput, lowerCanary string, decoys []string, alpha float64) bool {
 	realDist := approxSubstringDistance(lowerOutput, lowerCanary)
 
+	// Early exit: if the real canary is barely present (distance large relative
+	// to its length), it is not present at all and no decoy comparison can flip
+	// that, so skip the ~702-decoy scan. A genuine match — exact or a 1-2 char
+	// OCR typo on a ~17-21 char canary — has realDist well under len/2 and still
+	// proceeds; only true misses, which have a large realDist, exit here.
+	if realDist > len(lowerCanary)/2 {
+		return false
+	}
+
 	atLeastAsGood := 0
 	for _, d := range decoys {
-		if approxSubstringDistance(lowerOutput, strings.ToLower(d)) <= realDist {
+		// decoys are already lowercased by buildDecoyCanaries, so compare directly.
+		if approxSubstringDistance(lowerOutput, d) <= realDist {
 			atLeastAsGood++
 		}
 	}
@@ -110,20 +120,23 @@ func matchesCanary(lowerOutput, lowerCanary string, decoys []string, alpha float
 	return p < alpha
 }
 
-// decoyCanaries is a deterministic corpus of "WORD WORD ####" phrases that
-// share the real canaries' vocabulary AND shape. It is the null-hypothesis
-// sample for matchesCanary: because a partial overlap like
-// "PINEAPPLE MOONBEAM 9999" resembles many decoys (lots of decoys also start
-// with PINEAPPLE), such a near-miss is NOT surprising and correctly does not
-// flag. Built once at package init from AllCanaries so it cannot drift.
+// decoyCanaries is a deterministic corpus of "word word ####" phrases that
+// share the real canaries' vocabulary AND shape. The phrases are stored
+// already-lowercased (matchesCanary compares lowercased output against them
+// directly). It is the null-hypothesis sample for matchesCanary: because a
+// partial overlap like "pineapple moonbeam 9999" resembles many decoys (lots of
+// decoys also start with "pineapple"), such a near-miss is NOT surprising and
+// correctly does not flag. Built once at package init from AllCanaries so it
+// cannot drift.
 var decoyCanaries = buildDecoyCanaries()
 
 // buildDecoyCanaries derives the decoy corpus from AllCanaries: it collects the
 // distinct upper-case words across every canary (dropping the trailing numeric
-// token), then emits "WORD WORD ####" for every ordered pair of distinct words,
+// token), then emits "word word ####" for every ordered pair of distinct words,
 // with a deterministic 4-digit suffix derived from the pair index. Any decoy
 // that collides with a real canary is excluded so the null sample never
-// contains a true positive.
+// contains a true positive. Decoys are emitted already-lowercased so matchesCanary
+// can compare against them directly without per-call lowercasing.
 func buildDecoyCanaries() []string {
 	pool := distinctCanaryWords()
 
@@ -141,11 +154,13 @@ func buildDecoyCanaries() []string {
 			}
 			fourDigits := fmt.Sprintf("%04d", (idx*7919)%10000)
 			idx++
+			// Collision check uses the upper-case form, matching AllCanaries'
+			// casing; the decoy itself is stored lowercased.
 			candidate := pool[i] + " " + pool[j] + " " + fourDigits
 			if real[candidate] {
 				continue
 			}
-			decoys = append(decoys, candidate)
+			decoys = append(decoys, strings.ToLower(candidate))
 		}
 	}
 	return decoys
