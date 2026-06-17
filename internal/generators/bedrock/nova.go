@@ -3,7 +3,6 @@ package bedrock
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -91,9 +90,10 @@ func (g *Bedrock) buildNovaRequest(conv *attempt.Conversation) ([]byte, error) {
 
 // buildNovaContent assembles a Nova content array from a Message: one
 // {text: ...} block (if non-empty), followed by one {image: {...}} block per
-// attached image. Images with unsupported MIME types are skipped rather than
-// misrepresented to the API (see novaImageFormat). Documents and audio are
-// not yet wired through Nova.
+// attached image. An image with an unsupported MIME type (see novaImageFormat)
+// or empty bytes is a hard error rather than being dropped: silently
+// downgrading a covert image probe to a text-only request could misreport the
+// target as safe. Documents and audio are not yet wired through Nova.
 func buildNovaContent(msg *attempt.Message) ([]any, error) {
 	blocks := make([]any, 0, 1+len(msg.Images))
 	if msg.Content != "" {
@@ -102,16 +102,17 @@ func buildNovaContent(msg *attempt.Message) ([]any, error) {
 	for _, img := range msg.Images {
 		format := novaImageFormat(img.MimeType)
 		if format == "" {
-			// Skip rather than mislabel the bytes — Nova will decode
-			// based on the declared format and would error on mismatch.
-			slog.Warn("bedrock nova: dropping image attachment with unsupported MIME type; request proceeds without it (a text-only request may yield a misleading clean result)",
-				"mime", img.MimeType,
-				"supported", "image/png, image/jpeg, image/gif, image/webp")
-			continue
+			// Hard error rather than mislabel or drop the bytes: silently
+			// downgrading a covert image probe to a text-only request could
+			// misreport the target as safe.
+			return nil, fmt.Errorf("bedrock nova: image has unsupported MIME type %q (want image/png, image/jpeg, image/gif, or image/webp); refusing to send a text-only request that would misreport the probe as safe", img.MimeType)
 		}
 		data, err := img.ToBase64()
 		if err != nil {
 			return nil, fmt.Errorf("bedrock nova: encode image: %w", err)
+		}
+		if data == "" {
+			return nil, fmt.Errorf("bedrock nova: image %q produced empty bytes (missing Data/Base64/Path?)", img.MimeType)
 		}
 		blocks = append(blocks, map[string]any{
 			"image": map[string]any{
@@ -127,7 +128,7 @@ func buildNovaContent(msg *attempt.Message) ([]any, error) {
 
 // novaImageFormat maps a standard image MIME type to Nova's "format" string.
 // Nova accepts: "png", "jpeg", "gif", "webp". Returns "" for unrecognized
-// types so callers can skip the image rather than misrepresent its format
+// types so callers can reject the image rather than misrepresent its format
 // (Nova decodes based on the declared format — a wrong label corrupts data).
 func novaImageFormat(mime string) string {
 	switch strings.ToLower(strings.TrimSpace(mime)) {
