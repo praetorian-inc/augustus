@@ -1937,3 +1937,170 @@ func TestHasConfigList_NonStringSliceIsTreatedAsMissing(t *testing.T) {
 		})
 	}
 }
+
+// TestWordWrap_MultibyteSafety verifies that wordWrap operates on runes, never
+// splitting a multibyte UTF-8 character at a hard break boundary.
+func TestWordWrap_MultibyteSafety(t *testing.T) {
+	tests := []struct {
+		name  string
+		text  string
+		width int
+	}{
+		{
+			name:  "arrows force hard break",
+			text:  "→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→→",
+			width: 10,
+		},
+		{
+			name:  "CJK characters force hard break",
+			text:  "你好世界你好世界你好世界你好世界你好世界你好世界你好世界你好世界你好世界你好世界",
+			width: 12,
+		},
+		{
+			name:  "mixed multibyte and ASCII",
+			text:  "héllo wörld this is a longer string with accented characters like é à ü ñ",
+			width: 20,
+		},
+		{
+			name:  "emoji run",
+			text:  "🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥🔥",
+			width: 10,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := wordWrap(tt.text, "", tt.width)
+
+			// No replacement characters — no rune was split.
+			assert.NotContains(t, out, "�",
+				"output must not contain UTF-8 replacement character (U+FFFD)")
+
+			// Every rune present in the input must still appear in the output.
+			// Build frequency maps; spaces may be consumed as word-break separators.
+			outFreq := make(map[rune]int)
+			for _, r := range out {
+				if r != '\n' {
+					outFreq[r]++
+				}
+			}
+			inFreq := make(map[rune]int)
+			for _, r := range tt.text {
+				if r != ' ' {
+					inFreq[r]++
+				}
+			}
+			for r, count := range inFreq {
+				assert.GreaterOrEqual(t, outFreq[r], count,
+					"rune %q from input should appear at least %d time(s) in output", r, count)
+			}
+		})
+	}
+}
+
+// TestWordWrap_ASCIIBreakPoints verifies that for plain ASCII input the break
+// points produced by wordWrap are at word boundaries (spaces) as expected.
+func TestWordWrap_ASCIIBreakPoints(t *testing.T) {
+	tests := []struct {
+		name   string
+		text   string
+		prefix string
+		width  int
+		want   string
+	}{
+		{
+			name:   "fits on one line",
+			text:   "hello world",
+			prefix: "",
+			width:  40,
+			want:   "hello world",
+		},
+		{
+			// maxLine = width(24) - len(prefix)(0) = 24, above the 20-char floor.
+			// text = "the quick brown fox jumps" (25 chars) > 24.
+			// Scan back from runes[24]='s': no space at 24, 23='p',22='m'... space at 19.
+			// runes[19]=' ' → cut=19. Line 1 = "the quick brown fox" (19 chars).
+			// Remainder = "jumps" (5 chars ≤ 24).
+			name:   "wraps at word boundary",
+			text:   "the quick brown fox jumps",
+			prefix: "",
+			width:  24,
+			want:   "the quick brown fox\njumps",
+		},
+		{
+			name:   "prefix included in width calculation",
+			text:   "hello world",
+			prefix: "  ",
+			width:  30,
+			want:   "  hello world",
+		},
+		{
+			// maxLine = width(25) - 0 = 25, above the 20-char floor.
+			// "abcdefghijklmnopqrstuvwxyz" is 26 chars > 25.
+			// Scan back from runes[25]='z': no space found → hard break at 25.
+			// Line 1 = "abcdefghijklmnopqrstuvwxy", remainder = "z".
+			name:   "long single token hard-breaks at maxLine",
+			text:   "abcdefghijklmnopqrstuvwxyz",
+			prefix: "",
+			width:  25,
+			want:   "abcdefghijklmnopqrstuvwxy\nz",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := wordWrap(tt.text, tt.prefix, tt.width)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// TestTerminalWidth_COLUMNSEnvVar verifies the COLUMNS environment variable
+// parsing: valid positive values are returned directly; invalid, zero, negative,
+// and unset values all fall back to 90.
+func TestTerminalWidth_COLUMNSEnvVar(t *testing.T) {
+	tests := []struct {
+		name    string
+		columns string
+		want    int
+	}{
+		{
+			name:    "valid positive value",
+			columns: "120",
+			want:    120,
+		},
+		{
+			name:    "another valid value",
+			columns: "80",
+			want:    80,
+		},
+		{
+			name:    "invalid string falls back to 90",
+			columns: "abc",
+			want:    90,
+		},
+		{
+			name:    "zero falls back to 90",
+			columns: "0",
+			want:    90,
+		},
+		{
+			name:    "negative falls back to 90",
+			columns: "-5",
+			want:    90,
+		},
+		{
+			name:    "empty string falls back to 90",
+			columns: "",
+			want:    90,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("COLUMNS", tt.columns)
+			got := terminalWidth()
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

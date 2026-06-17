@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -1041,27 +1042,32 @@ func wordWrap(text, prefix string, width int) string {
 		maxLine = 20
 	}
 
+	runes := []rune(text)
 	var lines []string
-	for len(text) > 0 {
-		if len(text) <= maxLine {
-			lines = append(lines, prefix+text)
+	for len(runes) > 0 {
+		if len(runes) <= maxLine {
+			lines = append(lines, prefix+string(runes))
 			break
 		}
 		// Find last space within maxLine
 		cut := maxLine
-		for cut > 0 && text[cut] != ' ' {
+		for cut > 0 && runes[cut] != ' ' {
 			cut--
 		}
 		if cut == 0 {
 			cut = maxLine // No space found, hard break
 		}
-		lines = append(lines, prefix+text[:cut])
-		text = strings.TrimSpace(text[cut:])
+		lines = append(lines, prefix+string(runes[:cut]))
+		runes = []rune(strings.TrimSpace(string(runes[cut:])))
 	}
 	return strings.Join(lines, "\n")
 }
 
 // terminalWidth returns the terminal width, defaulting to 90 columns.
 func terminalWidth() int {
-	return 90
+	const fallback = 90
+	if cols, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && cols > 0 {
+		return cols
+	}
+	return fallback
 }
