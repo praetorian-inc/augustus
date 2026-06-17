@@ -13,7 +13,8 @@ import (
 )
 
 // NVMultimodal is a generator that wraps NVIDIA NIM multimodal endpoints.
-// Supports text, image, and audio inputs.
+// Supports text and image inputs via openaicompat.ConversationToMessages.
+// Audio inputs are not currently wired through this generator.
 type NVMultimodal struct {
 	types.UsageCounter // embedded; provides AccumulatedTokens() (shared by Vision via pointer embed)
 	Config
@@ -35,7 +36,10 @@ func (g *NVMultimodal) Generate(ctx context.Context, conv *attempt.Conversation,
 	}
 
 	// Convert conversation to OpenAI message format
-	messages := openaicompat.ConversationToMessages(conv)
+	messages, err := openaicompat.ConversationToMessages(conv)
+	if err != nil {
+		return nil, openaicompat.WrapError("nim", err)
+	}
 
 	req := goopenai.ChatCompletionRequest{
 		Model:    g.Model,
@@ -77,9 +81,13 @@ func (g *NVMultimodal) Name() string {
 	return "nim.NVMultimodal"
 }
 
+// SupportsVision reports that this NIM endpoint transmits image content blocks.
+// nim.Vision embeds *NVMultimodal and inherits this. See types.VisionCapable.
+func (g *NVMultimodal) SupportsVision() bool { return true }
+
 // Description returns a human-readable description.
 func (g *NVMultimodal) Description() string {
-	return "NVIDIA NIM multimodal generator for text, image, and audio inputs"
+	return "NVIDIA NIM multimodal generator for text and image inputs"
 }
 
 // Vision is a generator that wraps NVIDIA NIM vision endpoints.

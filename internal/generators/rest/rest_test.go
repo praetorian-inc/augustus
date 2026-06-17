@@ -2,6 +2,7 @@ package rest
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -2165,5 +2166,244 @@ func TestConversationToJSON(t *testing.T) {
 		assert.Equal(t, "user", msgs[1].Role)
 		assert.Equal(t, "assistant", msgs[2].Role)
 		assert.Equal(t, "user", msgs[3].Role)
+	})
+}
+
+// smallPNG is a tiny PNG byte payload used by the multimodal transport tests.
+// It only needs to be distinct, non-empty bytes — the wire layer is format-agnostic.
+var smallPNG = []byte{
+	0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+	0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+}
+
+// convWithImage builds a single-turn conversation whose last prompt carries one
+// image attachment, mirroring how multimodal probes inject the run-time image.
+func convWithImage(text string, mime string, data []byte) *attempt.Conversation {
+	conv := attempt.NewConversation()
+	conv.AddPromptMessage(attempt.NewUserMessageWithImages(text, []attempt.Image{
+		{MimeType: mime, Data: data},
+	}))
+	return conv
+}
+
+func TestRestGenerator_SupportsVision(t *testing.T) {
+	t.Run("plain text-only target is not vision-capable", func(t *testing.T) {
+		g, err := NewRest(registry.Config{"uri": "http://example.invalid"})
+		require.NoError(t, err)
+		vc, ok := g.(*Rest)
+		require.True(t, ok)
+		assert.False(t, vc.SupportsVision())
+	})
+
+	t.Run("req_template with $IMAGE_B64 is vision-capable", func(t *testing.T) {
+		g, err := NewRest(registry.Config{
+			"uri":          "http://example.invalid",
+			"req_template": `{"image":"$IMAGE_B64"}`,
+		})
+		require.NoError(t, err)
+		assert.True(t, g.(*Rest).SupportsVision())
+	})
+
+	t.Run("raw_binary is vision-capable", func(t *testing.T) {
+		g, err := NewRest(registry.Config{
+			"uri":       "http://example.invalid",
+			"body_mode": "raw_binary",
+		})
+		require.NoError(t, err)
+		assert.True(t, g.(*Rest).SupportsVision())
+	})
+
+	t.Run("multipart is vision-capable", func(t *testing.T) {
+		g, err := NewRest(registry.Config{
+			"uri": "http://example.invalid",
+			"multipart": map[string]any{
+				"file_field": "file",
+			},
+		})
+		require.NoError(t, err)
+		assert.True(t, g.(*Rest).SupportsVision())
+	})
+}
+
+func TestRestGenerator_Vision_ModeA_DataURI(t *testing.T) {
+	var received map[string]string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		require.NoError(t, json.Unmarshal(body, &received))
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":          server.URL,
+		"req_template": `{"image":"$IMAGE_DATAURI","prompt":"$INPUT"}`,
+	})
+	require.NoError(t, err)
+
+	conv := convWithImage("describe this", "image/png", smallPNG)
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	assert.Equal(t, "describe this", received["prompt"])
+	assert.True(t, strings.HasPrefix(received["image"], "data:image/png;base64,"),
+		"image should be a data URI, got %q", received["image"])
+	// The base64 payload must decode back to the original image bytes.
+	b64 := strings.TrimPrefix(received["image"], "data:image/png;base64,")
+	decoded, err := base64.StdEncoding.DecodeString(b64)
+	require.NoError(t, err)
+	assert.Equal(t, smallPNG, decoded)
+}
+
+func TestRestGenerator_Vision_ModeA_B64AndMime(t *testing.T) {
+	var received map[string]string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		require.NoError(t, json.Unmarshal(body, &received))
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":          server.URL,
+		"req_template": `{"b64":"$IMAGE_B64","mime":"$IMAGE_MIME","prompt":"$INPUT"}`,
+	})
+	require.NoError(t, err)
+
+	conv := convWithImage("hi", "image/png", smallPNG)
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	assert.Equal(t, "hi", received["prompt"])
+	assert.Equal(t, "image/png", received["mime"])
+	assert.Equal(t, base64.StdEncoding.EncodeToString(smallPNG), received["b64"])
+}
+
+func TestRestGenerator_Vision_ModeB_Multipart(t *testing.T) {
+	type capture struct {
+		fieldName   string
+		filename    string
+		fileBytes   []byte
+		partCT      string
+		promptField string
+	}
+	var got capture
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, r.ParseMultipartForm(10<<20))
+		got.promptField = r.FormValue("prompt")
+
+		require.NotNil(t, r.MultipartForm)
+		for name, files := range r.MultipartForm.File {
+			got.fieldName = name
+			require.Len(t, files, 1)
+			fh := files[0]
+			got.filename = fh.Filename
+			got.partCT = fh.Header.Get("Content-Type")
+			f, err := fh.Open()
+			require.NoError(t, err)
+			defer func() { _ = f.Close() }()
+			got.fileBytes, err = io.ReadAll(f)
+			require.NoError(t, err)
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri": server.URL,
+		"multipart": map[string]any{
+			"file_field": "upload",
+			"filename":   "evil.png",
+			"fields": map[string]any{
+				"prompt": "$INPUT",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	conv := convWithImage("classify", "image/png", smallPNG)
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	assert.Equal(t, "upload", got.fieldName)
+	assert.Equal(t, "evil.png", got.filename)
+	assert.Equal(t, smallPNG, got.fileBytes)
+	assert.Equal(t, "image/png", got.partCT)
+	assert.Equal(t, "classify", got.promptField)
+}
+
+func TestRestGenerator_Vision_ModeC_RawBinary(t *testing.T) {
+	var receivedBody []byte
+	var receivedCT string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedCT = r.Header.Get("Content-Type")
+		receivedBody, _ = io.ReadAll(r.Body)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":       server.URL,
+		"body_mode": "raw_binary",
+	})
+	require.NoError(t, err)
+
+	conv := convWithImage("", "image/png", smallPNG)
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	assert.Equal(t, smallPNG, receivedBody)
+	assert.Equal(t, "image/png", receivedCT)
+}
+
+func TestRestGenerator_Vision_ModeC_RawBinary_NoImageErrors(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer server.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":       server.URL,
+		"body_mode": "raw_binary",
+	})
+	require.NoError(t, err)
+
+	// A text-only conversation has no image to send as the raw body.
+	conv := attempt.NewConversation()
+	conv.AddPrompt("no image here")
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "raw_binary requires an image")
+}
+
+func TestRestGenerator_Vision_ConfigValidation(t *testing.T) {
+	t.Run("invalid body_mode errors", func(t *testing.T) {
+		_, err := NewRest(registry.Config{
+			"uri":       "http://example.invalid",
+			"body_mode": "bogus",
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "body_mode")
+	})
+
+	t.Run("raw_binary and multipart are mutually exclusive", func(t *testing.T) {
+		_, err := NewRest(registry.Config{
+			"uri":       "http://example.invalid",
+			"body_mode": "raw_binary",
+			"multipart": map[string]any{
+				"file_field": "file",
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "mutually exclusive")
+	})
+
+	t.Run("multipart without file_field errors", func(t *testing.T) {
+		_, err := NewRest(registry.Config{
+			"uri":       "http://example.invalid",
+			"multipart": map[string]any{},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "file_field")
 	})
 }

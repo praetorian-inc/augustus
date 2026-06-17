@@ -736,6 +736,86 @@ func TestAnthropicGenerator_AnthropicVersion(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestAnthropicGenerator_HandlesMalformedJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id": "msg_test", "content": [{"type": "text",`)) // truncated JSON
+	}))
+	defer server.Close()
+
+	g, err := NewAnthropic(registry.Config{
+		"model":    "claude-3-opus-20240229",
+		"api_key":  "test-key",
+		"base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hi")
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse response",
+		"expected error to wrap parse failure, got: %v", err)
+}
+
+func TestAnthropicGenerator_Handles500Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"api_error","message":"internal error"}}`))
+	}))
+	defer server.Close()
+
+	g, err := NewAnthropic(registry.Config{
+		"model":    "claude-3-opus-20240229",
+		"api_key":  "test-key",
+		"base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hi")
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "server error",
+		"expected 5xx classified as server error, got: %v", err)
+}
+
+func TestAnthropicGenerator_ContextCancellation(t *testing.T) {
+	// Server hangs intentionally — handler exits on whichever fires first:
+	// client request context cancellation OR a generous safety timeout (so
+	// server.Close() never deadlocks waiting for the handler if the client
+	// transport doesn't propagate cancellation aggressively).
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+	}))
+	defer server.Close()
+
+	g, err := NewAnthropic(registry.Config{
+		"model":    "claude-3-opus-20240229",
+		"api_key":  "test-key",
+		"base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hi")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err = g.Generate(ctx, conv, 1)
+	require.Error(t, err)
+	assert.True(t,
+		strings.Contains(err.Error(), "context") || strings.Contains(err.Error(), "deadline"),
+		"expected context/deadline error, got: %v", err)
+}
+
 // ---------------------------------------------------------------------------
 // Group 4: Anthropic Generator Tool Wiring
 // ---------------------------------------------------------------------------

@@ -14,13 +14,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 
+	"github.com/praetorian-inc/augustus/internal/generators/anthropic"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -49,9 +49,6 @@ type Bedrock struct {
 	// Configuration parameters
 	temperature float64
 	topP        float64
-
-	// Custom HTTP client for testing
-	httpClient *http.Client
 }
 
 // NewBedrock creates a new Bedrock generator from configuration.
@@ -59,7 +56,6 @@ func NewBedrock(cfg registry.Config) (generators.Generator, error) {
 	g := &Bedrock{
 		temperature: defaultTemperature,
 		maxTokens:   defaultMaxTokens,
-		httpClient:  nil, // Will use default if not set
 	}
 
 	// Required: model ID
@@ -102,13 +98,6 @@ func NewBedrock(cfg registry.Config) (generators.Generator, error) {
 		})
 	}
 
-	// Custom HTTP client for testing
-	if g.httpClient != nil {
-		clientOpts = append(clientOpts, func(o *bedrockruntime.Options) {
-			o.HTTPClient = g.httpClient
-		})
-	}
-
 	g.client = bedrockruntime.NewFromConfig(awsCfg, clientOpts...)
 
 	return g, nil
@@ -143,6 +132,8 @@ func (g *Bedrock) generateOne(ctx context.Context, conv *attempt.Conversation) (
 
 	if strings.HasPrefix(g.modelID, "anthropic.claude") {
 		requestBody, err = g.buildClaudeRequest(conv)
+	} else if strings.HasPrefix(g.modelID, "amazon.nova") {
+		requestBody, err = g.buildNovaRequest(conv)
 	} else if strings.HasPrefix(g.modelID, "amazon.titan") {
 		requestBody, err = g.buildTitanRequest(conv)
 	} else if strings.HasPrefix(g.modelID, "meta.llama") {
@@ -171,10 +162,22 @@ func (g *Bedrock) generateOne(ctx context.Context, conv *attempt.Conversation) (
 	var tokens int64
 	if strings.HasPrefix(g.modelID, "anthropic.claude") {
 		text, tokens, err = g.parseClaudeResponse(output.Body)
+	} else if strings.HasPrefix(g.modelID, "amazon.nova") {
+		// parseNovaResponse returns (text, error) only; the Nova response
+		// schema it parses does not include a usage block, so tokens stays 0
+		// here (honest partial coverage per the UsageReporter convention —
+		// never an estimate). Its signature is left unchanged to keep the
+		// gated Nova tests valid.
+		text, err = g.parseNovaResponse(output.Body)
 	} else if strings.HasPrefix(g.modelID, "amazon.titan") {
 		text, tokens, err = g.parseTitanResponse(output.Body)
 	} else if strings.HasPrefix(g.modelID, "meta.llama") {
 		text, tokens, err = g.parseLlamaResponse(output.Body)
+	} else {
+		// Symmetric with the build-side dispatch at line ~148. Adding a new
+		// model family requires updating BOTH dispatches; this guard makes
+		// the second omission a loud error instead of a silent empty response.
+		return attempt.Message{}, fmt.Errorf("bedrock: no response parser for model family: %s", g.modelID)
 	}
 
 	if err != nil {
@@ -188,21 +191,13 @@ func (g *Bedrock) generateOne(ctx context.Context, conv *attempt.Conversation) (
 }
 
 // buildClaudeRequest builds a request for Anthropic Claude models on Bedrock.
+// Reuses the anthropic.BuildMessages helper since Bedrock's Claude invocation
+// shares the same Messages API wire format (content arrays with text/image
+// blocks); only the top-level fields differ (anthropic_version, etc.).
 func (g *Bedrock) buildClaudeRequest(conv *attempt.Conversation) ([]byte, error) {
-	messages := make([]map[string]string, 0)
-
-	// Convert conversation to messages (skip system message)
-	for _, turn := range conv.Turns {
-		messages = append(messages, map[string]string{
-			"role":    "user",
-			"content": turn.Prompt.Content,
-		})
-		if turn.Response != nil {
-			messages = append(messages, map[string]string{
-				"role":    "assistant",
-				"content": turn.Response.Content,
-			})
-		}
+	messages, system, err := anthropic.BuildMessages(conv)
+	if err != nil {
+		return nil, err
 	}
 
 	req := map[string]any{
@@ -212,12 +207,10 @@ func (g *Bedrock) buildClaudeRequest(conv *attempt.Conversation) ([]byte, error)
 		"temperature":       g.temperature,
 	}
 
-	// Add system prompt if present
-	if conv.System != nil {
-		req["system"] = conv.System.Content
+	if system != "" {
+		req["system"] = system
 	}
 
-	// Add top_p if set
 	if g.topP > 0 {
 		req["top_p"] = g.topP
 	}
@@ -393,6 +386,18 @@ func (g *Bedrock) ClearHistory() {}
 // Name returns the generator's fully qualified name.
 func (g *Bedrock) Name() string {
 	return "bedrock.Bedrock"
+}
+
+// SupportsVision reports vision capability per the active model family.
+// Only the Claude and Nova request builders emit image content blocks; the
+// Titan and Llama builders flatten to text-only and would silently drop image
+// attachments. Mirrors the build-side dispatch in generateOne so a
+// `bedrock.Bedrock` configured with a text-only family rejects multimodal
+// probes via ErrVisionUnsupported instead of running text-only. See
+// types.VisionCapable.
+func (g *Bedrock) SupportsVision() bool {
+	return strings.HasPrefix(g.modelID, "anthropic.claude") ||
+		strings.HasPrefix(g.modelID, "amazon.nova")
 }
 
 // Description returns a human-readable description.

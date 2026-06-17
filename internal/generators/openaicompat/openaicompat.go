@@ -9,6 +9,7 @@ package openaicompat
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"time"
@@ -76,7 +77,10 @@ var CompletionModels = map[string]bool{
 
 // ConversationToMessages converts an Augustus Conversation to OpenAI chat messages.
 // This is the canonical implementation used by all OpenAI-compatible generators.
-func ConversationToMessages(conv *attempt.Conversation) []goopenai.ChatCompletionMessage {
+// It returns an error if any image attachment cannot be resolved to base64
+// (e.g. a configured file Path that cannot be read), so callers fail loudly
+// rather than silently sending an empty image part.
+func ConversationToMessages(conv *attempt.Conversation) ([]goopenai.ChatCompletionMessage, error) {
 	messages := make([]goopenai.ChatCompletionMessage, 0)
 
 	// Add system message if present
@@ -91,16 +95,60 @@ func ConversationToMessages(conv *attempt.Conversation) []goopenai.ChatCompletio
 	for _, turn := range conv.Turns {
 		switch turn.Prompt.Role {
 		case attempt.RoleTool:
+			// Tool-result message ("tool" role with the matching tool_call_id).
 			messages = append(messages, goopenai.ChatCompletionMessage{
 				Role:       "tool",
 				Content:    turn.Prompt.Content,
 				ToolCallID: turn.Prompt.ToolCallID,
 			})
 		default:
-			messages = append(messages, goopenai.ChatCompletionMessage{
-				Role:    goopenai.ChatMessageRoleUser,
-				Content: turn.Prompt.Content,
-			})
+			// Add user message
+			if len(turn.Prompt.Images) > 0 {
+				// Build multipart message with text + image parts
+				parts := make([]goopenai.ChatMessagePart, 0, 1+len(turn.Prompt.Images))
+				parts = append(parts, goopenai.ChatMessagePart{
+					Type: goopenai.ChatMessagePartTypeText,
+					Text: turn.Prompt.Content,
+				})
+				for _, img := range turn.Prompt.Images {
+					if img.MimeType == "" {
+						return nil, fmt.Errorf("openaicompat: image has empty MIME type (a data: URI requires a media type, e.g. image/png)")
+					}
+					encoded, err := img.ToBase64()
+					if err != nil {
+						return nil, fmt.Errorf("openaicompat: encode image: %w", err)
+					}
+					dataURL := fmt.Sprintf("data:%s;base64,%s", img.MimeType, encoded)
+					parts = append(parts, goopenai.ChatMessagePart{
+						Type: goopenai.ChatMessagePartTypeImageURL,
+						ImageURL: &goopenai.ChatMessageImageURL{
+							URL:    dataURL,
+							Detail: goopenai.ImageURLDetailAuto,
+						},
+					})
+				}
+				// NOTE: turn.Prompt.Audio is intentionally NOT emitted here.
+				// OpenAI's gpt-4o-audio-preview accepts {"type":"input_audio",
+				// "input_audio":{"data","format"}} content parts, and we already
+				// ship the spec-correct wire-format helpers in audio.go
+				// (AudioContentPart, InputAudioPayload, AudioFormatFromMime).
+				// However, the go-openai SDK (sashabaranov/go-openai v1.41.2)
+				// does not model input_audio in its typed ChatMessagePart struct
+				// (only Text + ImageURL slots), so emitting audio here would
+				// require a custom-HTTP path bypassing the SDK message builder.
+				// That integration is tracked under LAB-2367 (Audio probes);
+				// the helpers exist now so the probe ticket has correct
+				// scaffolding ready when it's picked up.
+				messages = append(messages, goopenai.ChatCompletionMessage{
+					Role:         goopenai.ChatMessageRoleUser,
+					MultiContent: parts,
+				})
+			} else {
+				messages = append(messages, goopenai.ChatCompletionMessage{
+					Role:    goopenai.ChatMessageRoleUser,
+					Content: turn.Prompt.Content,
+				})
+			}
 		}
 
 		if turn.Response != nil {
@@ -115,7 +163,7 @@ func ConversationToMessages(conv *attempt.Conversation) []goopenai.ChatCompletio
 		}
 	}
 
-	return messages
+	return messages, nil
 }
 
 // canonicalToOpenAIToolCalls converts canonical tool call maps back to OpenAI SDK format.
@@ -154,8 +202,11 @@ func WrapError(providerName string, err error) error {
 		return nil
 	}
 
-	// Check for specific error types
-	if apiErr, ok := err.(*goopenai.APIError); ok {
+	// Check for specific error types. Use errors.As so wrapped errors are
+	// still classified (a direct type assertion misses any APIError that has
+	// been wrapped with %w, losing 429/4xx/5xx and rate-limit detection).
+	var apiErr *goopenai.APIError
+	if errors.As(err, &apiErr) {
 		switch apiErr.HTTPStatusCode {
 		case 429:
 			return &RateLimitError{Err: fmt.Errorf("%s: rate limit exceeded: %w", providerName, err)}
@@ -212,7 +263,13 @@ func GenerateChatWithUsage(
 	maxTokens int,
 	topP float32,
 ) ([]attempt.Message, int64, error) {
-	messages := ConversationToMessages(conv)
+	// ConversationToMessages can fail when an image attachment cannot be
+	// resolved to base64; surface that as a wrapped provider error rather than
+	// silently sending a malformed request.
+	messages, err := ConversationToMessages(conv)
+	if err != nil {
+		return nil, 0, WrapError(providerName, err)
+	}
 
 	req := goopenai.ChatCompletionRequest{
 		Model:    model,
@@ -374,6 +431,13 @@ func (g *CompatGenerator) Name() string { return g.name }
 
 // Description returns a human-readable description.
 func (g *CompatGenerator) Description() string { return g.description }
+
+// SupportsVision reports that the OpenAI-compatible chat path transmits image
+// content blocks (data: URI image_url parts). This covers every provider built
+// on NewGenerator (xai, groq, together, fireworks, deepinfra, anyscale,
+// mistral, nemo, nim). Whether the chosen model accepts images is the
+// operator's responsibility. See types.VisionCapable.
+func (g *CompatGenerator) SupportsVision() bool { return true }
 
 // Client returns the underlying OpenAI client for advanced usage.
 func (g *CompatGenerator) Client() *goopenai.Client { return g.client }

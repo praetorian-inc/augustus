@@ -115,7 +115,7 @@ func NewAnthropicWithOptions(opts ...Option) (*Anthropic, error) {
 type messageRequest struct {
 	Model         string               `json:"model"`
 	MaxTokens     int                  `json:"max_tokens"`
-	Messages      []anthropicMsg       `json:"messages"`
+	Messages      []Message            `json:"messages"`
 	System        string               `json:"system,omitempty"`
 	Temperature   float64              `json:"temperature,omitempty"`
 	TopP          float64              `json:"top_p,omitempty"`
@@ -123,14 +123,6 @@ type messageRequest struct {
 	StopSequences []string             `json:"stop_sequences,omitempty"`
 	Tools         []anthropicTool      `json:"tools,omitempty"`
 	ToolChoice    *anthropicToolChoice `json:"tool_choice,omitempty"`
-}
-
-// anthropicMsg represents a message in the Anthropic format.
-// Content is any to support both plain string and structured content blocks
-// (required for assistant tool_use and user tool_result messages).
-type anthropicMsg struct {
-	Role    string `json:"role"`
-	Content any    `json:"content"`
 }
 
 // anthropicTool is the Anthropic API tool definition format.
@@ -210,17 +202,17 @@ func (g *Anthropic) Generate(ctx context.Context, conv *attempt.Conversation, n 
 
 // generateOne performs a single API call and returns one response.
 func (g *Anthropic) generateOne(ctx context.Context, conv *attempt.Conversation) (attempt.Message, error) {
-	// Build request
+	messages, system, err := BuildMessages(conv)
+	if err != nil {
+		return attempt.Message{}, err
+	}
+
 	req := messageRequest{
 		Model:       g.model,
 		MaxTokens:   g.maxTokens,
-		Messages:    g.conversationToMessages(conv),
+		Messages:    messages,
+		System:      system,
 		Temperature: g.temperature,
-	}
-
-	// Add system prompt if present
-	if conv.System != nil {
-		req.System = conv.System.Content
 	}
 
 	// Add optional parameters if set
@@ -340,91 +332,6 @@ func (g *Anthropic) generateOne(ctx context.Context, conv *attempt.Conversation)
 	return msg, nil
 }
 
-// conversationToMessages converts an Augustus Conversation to Anthropic messages.
-// Note: System message is handled separately in Anthropic's API.
-func (g *Anthropic) conversationToMessages(conv *attempt.Conversation) []anthropicMsg {
-	messages := make([]anthropicMsg, 0)
-
-	// Note: System message is NOT included in messages array for Anthropic
-	// It's passed as a separate parameter
-
-	for i, turn := range conv.Turns {
-		switch turn.Prompt.Role {
-		case attempt.RoleTool:
-			// Coalesce consecutive RoleTool turns into a single user message.
-			// Anthropic rejects consecutive same-role messages (HTTP 400) and
-			// requires all tool_result blocks for one assistant turn to be sent
-			// in a single user message. RunTwoTurnPrompts adds a separate
-			// RoleTool turn per tool call, so we must merge them here.
-			//
-			// Only emit a new user message when this is the FIRST RoleTool in a
-			// consecutive run; subsequent ones append to the last message.
-			block := map[string]any{
-				"type":        "tool_result",
-				"tool_use_id": turn.Prompt.ToolCallID,
-				"content":     turn.Prompt.Content,
-			}
-			if i > 0 && conv.Turns[i-1].Prompt.Role == attempt.RoleTool {
-				// Append to the existing last user message (guaranteed to be tool_result).
-				last := &messages[len(messages)-1]
-				blocks, _ := last.Content.([]any)
-				last.Content = append(blocks, block)
-			} else {
-				messages = append(messages, anthropicMsg{
-					Role:    "user",
-					Content: []any{block},
-				})
-			}
-		default:
-			messages = append(messages, anthropicMsg{
-				Role:    "user",
-				Content: turn.Prompt.Content,
-			})
-		}
-
-		if turn.Response != nil {
-			if len(turn.Response.ToolCalls) > 0 {
-				// Assistant with tool_use blocks: structured content.
-				content := make([]any, 0)
-				if turn.Response.Content != "" {
-					content = append(content, map[string]any{
-						"type": "text",
-						"text": turn.Response.Content,
-					})
-				}
-				for _, tc := range turn.Response.ToolCalls {
-					name, _ := tc["name"].(string)
-					id, _ := tc["id"].(string)
-					if id == "" {
-						id = "toolu_" + name
-					}
-					args, _ := tc["args"].(map[string]any)
-					if args == nil {
-						args = map[string]any{}
-					}
-					content = append(content, map[string]any{
-						"type":  "tool_use",
-						"id":    id,
-						"name":  name,
-						"input": args,
-					})
-				}
-				messages = append(messages, anthropicMsg{
-					Role:    "assistant",
-					Content: content,
-				})
-			} else {
-				messages = append(messages, anthropicMsg{
-					Role:    "assistant",
-					Content: turn.Response.Content,
-				})
-			}
-		}
-	}
-
-	return messages
-}
-
 // handleError processes API error responses.
 func (g *Anthropic) handleError(statusCode int, body []byte) error {
 	var errResp errorResponse
@@ -458,6 +365,10 @@ func (g *Anthropic) ClearHistory() {}
 func (g *Anthropic) Name() string {
 	return "anthropic.Anthropic"
 }
+
+// SupportsVision reports that the Anthropic Messages path transmits image
+// content blocks (Claude 3+ vision). See types.VisionCapable.
+func (g *Anthropic) SupportsVision() bool { return true }
 
 // Description returns a human-readable description.
 func (g *Anthropic) Description() string {

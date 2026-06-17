@@ -88,3 +88,22 @@ func TestConversationReplaceLastPrompt_Empty(t *testing.T) {
 
 	assert.Equal(t, 0, len(conv.Turns))
 }
+
+func TestConversation_LastPromptMessage(t *testing.T) {
+	conv := NewConversation()
+
+	// First turn — baseline
+	conv.AddPromptMessage(NewUserMessageWithImages("first", []Image{{Data: []byte("ignored"), MimeType: "image/png"}}))
+	// Second (last) turn — this is what LastPromptMessage must return
+	conv.AddPromptMessage(NewUserMessageWithImages("hi", []Image{{Data: []byte("x"), MimeType: "image/png"}}))
+
+	msg := conv.LastPromptMessage()
+	assert.NotNil(t, msg)
+	assert.Equal(t, "hi", msg.Content)
+	assert.Len(t, msg.Images, 1)
+}
+
+func TestConversation_LastPromptMessage_Empty(t *testing.T) {
+	conv := NewConversation()
+	assert.Nil(t, conv.LastPromptMessage())
+}

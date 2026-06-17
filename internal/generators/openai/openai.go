@@ -123,7 +123,10 @@ func (g *OpenAI) Generate(ctx context.Context, conv *attempt.Conversation, n int
 // generateChat handles chat completion requests.
 func (g *OpenAI) generateChat(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
 	// Convert conversation to OpenAI message format
-	messages := openaicompat.ConversationToMessages(conv)
+	messages, err := openaicompat.ConversationToMessages(conv)
+	if err != nil {
+		return nil, openaicompat.WrapError("openai", err)
+	}
 
 	req := goopenai.ChatCompletionRequest{
 		Model:    g.model,
@@ -257,6 +260,22 @@ func (g *OpenAI) ClearHistory() {}
 // Name returns the generator's fully qualified name.
 func (g *OpenAI) Name() string {
 	return "openai.OpenAI"
+}
+
+// SupportsVision reports vision capability based on the active model family.
+// Chat-completion models go through the multipart image_url path in
+// openaicompat.ConversationToMessages, but legacy completion models
+// (gpt-3.5-turbo-instruct, davinci-002, babbage-002, etc.) use the
+// CompletionRequest path that only carries the flattened LastPrompt() text.
+// Reporting vision capability for completion models would silently drop image
+// attachments. See types.VisionCapable.
+func (g *OpenAI) SupportsVision() bool {
+	if completionModels[g.model] {
+		return false
+	}
+	// Default to true: any model not in the legacy completion set goes through
+	// the chat path, which transmits image content blocks.
+	return true
 }
 
 // Description returns a human-readable description.
