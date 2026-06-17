@@ -63,11 +63,24 @@ func BuildMessages(conv *attempt.Conversation) ([]Message, string, error) {
 				"tool_use_id": turn.Prompt.ToolCallID,
 				"content":     turn.Prompt.Content,
 			}
-			if i > 0 && conv.Turns[i-1].Prompt.Role == attempt.RoleTool {
+			// Coalesce only when the last built entry is genuinely a user
+			// message whose content is already a tool_result block list.
+			// Checking the previous turn's role is insufficient: a prior tool
+			// turn may have carried a Response, in which case the last built
+			// entry is the assistant message, not the tool_result user message.
+			merged := false
+			if len(built) > 0 {
 				last := &built[len(built)-1]
-				blocks, _ := last.Content.([]any)
-				last.Content = append(blocks, block)
-			} else {
+				if last.Role == "user" {
+					if blocks, ok := last.Content.([]any); ok && len(blocks) > 0 {
+						if first, ok := blocks[0].(map[string]any); ok && first["type"] == "tool_result" {
+							last.Content = append(blocks, block)
+							merged = true
+						}
+					}
+				}
+			}
+			if !merged {
 				built = append(built, intermediate{Role: "user", Content: []any{block}})
 			}
 		default:

@@ -316,6 +316,105 @@ func TestBuildMessages_NilConversation(t *testing.T) {
 
 func ptrMsg(m attempt.Message) *attempt.Message { return &m }
 
+// TestBuildMessages_ToolResultAfterToolTurnWithResponse guards against
+// coalescing a tool_result block onto the wrong message. When a RoleTool turn
+// carries an assistant Response, the last built entry is that assistant
+// message — not the tool_result user message. A subsequent RoleTool turn must
+// therefore start its OWN user message rather than appending its tool_result
+// block onto the assistant entry.
+func TestBuildMessages_ToolResultAfterToolTurnWithResponse(t *testing.T) {
+	conv := &attempt.Conversation{
+		Turns: []attempt.Turn{
+			{
+				// Tool turn that ALSO carries an assistant response, so an
+				// assistant entry gets appended after this turn's tool_result.
+				Prompt:   attempt.NewToolResultMessage("toolu_1", "result one"),
+				Response: ptrMsg(attempt.NewAssistantMessage("ack")),
+			},
+			{
+				// Second tool turn: its tool_result must become its own user
+				// message, not be merged into the preceding assistant entry.
+				Prompt: attempt.NewToolResultMessage("toolu_2", "result two"),
+			},
+		},
+	}
+
+	msgs, _, err := BuildMessages(conv)
+	if err != nil {
+		t.Fatalf("BuildMessages: %v", err)
+	}
+
+	// Expect: user[tool_result one], assistant "ack", user[tool_result two].
+	if len(msgs) != 3 {
+		t.Fatalf("expected 3 messages (user, assistant, user), got %d: %s", len(msgs), dumpMsgs(msgs))
+	}
+
+	// Message 1: assistant turn must keep its text content intact.
+	if msgs[1].Role != "assistant" {
+		t.Errorf("msg[1] role: want assistant, got %q", msgs[1].Role)
+	}
+	if string(msgs[1].Content) != `"ack"` {
+		t.Errorf("assistant content corrupted; want %q, got %s", `"ack"`, string(msgs[1].Content))
+	}
+
+	// Message 2: the second tool_result must be its own user message.
+	if msgs[2].Role != "user" {
+		t.Errorf("msg[2] role: want user, got %q", msgs[2].Role)
+	}
+	var blocks []map[string]any
+	if err := json.Unmarshal(msgs[2].Content, &blocks); err != nil {
+		t.Fatalf("decode msg[2] content: %v (raw %s)", err, string(msgs[2].Content))
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("expected 1 tool_result block in msg[2], got %d: %s", len(blocks), string(msgs[2].Content))
+	}
+	if blocks[0]["type"] != "tool_result" || blocks[0]["tool_use_id"] != "toolu_2" {
+		t.Errorf("msg[2] should hold tool_result toolu_2, got %+v", blocks[0])
+	}
+}
+
+// TestBuildMessages_ConsecutiveToolResultsCoalesce verifies that consecutive
+// RoleTool turns with no interleaved assistant response still coalesce into a
+// single user message holding all tool_result blocks.
+func TestBuildMessages_ConsecutiveToolResultsCoalesce(t *testing.T) {
+	conv := &attempt.Conversation{
+		Turns: []attempt.Turn{
+			{Prompt: attempt.NewToolResultMessage("toolu_1", "result one")},
+			{Prompt: attempt.NewToolResultMessage("toolu_2", "result two")},
+		},
+	}
+
+	msgs, _, err := BuildMessages(conv)
+	if err != nil {
+		t.Fatalf("BuildMessages: %v", err)
+	}
+
+	if len(msgs) != 1 {
+		t.Fatalf("expected 1 coalesced user message, got %d: %s", len(msgs), dumpMsgs(msgs))
+	}
+	if msgs[0].Role != "user" {
+		t.Errorf("msg[0] role: want user, got %q", msgs[0].Role)
+	}
+	var blocks []map[string]any
+	if err := json.Unmarshal(msgs[0].Content, &blocks); err != nil {
+		t.Fatalf("decode content: %v", err)
+	}
+	if len(blocks) != 2 {
+		t.Fatalf("expected 2 coalesced tool_result blocks, got %d: %s", len(blocks), string(msgs[0].Content))
+	}
+	if blocks[0]["tool_use_id"] != "toolu_1" || blocks[1]["tool_use_id"] != "toolu_2" {
+		t.Errorf("coalesced blocks out of order or wrong ids: %+v", blocks)
+	}
+}
+
+func dumpMsgs(msgs []Message) string {
+	parts := make([]string, 0, len(msgs))
+	for _, m := range msgs {
+		parts = append(parts, m.Role+":"+string(m.Content))
+	}
+	return strings.Join(parts, " | ")
+}
+
 // TestBuildMessages_AssistantResponseOnly verifies that turns containing only
 // an assistant response (with empty/default user Prompt) still serialize
 // cleanly. This shouldn't happen in normal Augustus flow, but BuildMessages
