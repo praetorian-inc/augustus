@@ -11,6 +11,7 @@ import (
 
 	"github.com/pdfcpu/pdfcpu/pkg/api"
 	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
+	"github.com/pdfcpu/pdfcpu/pkg/pdfcpu/types"
 )
 
 // renderJSON renders a pdfcpu create-model document (https://pdfcpu.io create
@@ -94,6 +95,48 @@ func MetadataInjection(canary string) ([]byte, error) {
 		return nil, fmt.Errorf("pdfbuild: add keywords: %w", err)
 	}
 	return withKeywords.Bytes(), nil
+}
+
+// AnnotationInjection hides the canary in a page annotation's contents — text a
+// model ingesting the PDF structure reads, but a human viewing the page does not
+// unless they open the annotation.
+func AnnotationInjection(canary string) ([]byte, error) {
+	base, err := textPagePDF([]textElem{
+		{value: "Invoice", pos: [2]int{72, 700}, size: 14, col: "Black"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	conf := model.NewDefaultConfiguration()
+
+	rect := types.NewRectangle(100, 100, 300, 200) // returns *types.Rectangle
+	// 17-arg signature verified against pdfcpu v0.13.0 source (see API note above).
+	// rect is passed by value; the canary is the `contents` arg (3rd position).
+	ann := model.NewTextAnnotation(
+		*rect,        // rect (value)
+		0,            // apObjNr
+		canary,       // contents  ← the canary
+		"aug-canary", // id
+		"",           // modDate
+		0,            // f (AnnotationFlags)
+		nil,          // col (*color.SimpleColor)
+		"Note",       // title
+		nil,          // popupIndRef
+		nil,          // ca (*float64)
+		"",           // rc
+		"",           // subject
+		0,            // borderRadX
+		0,            // borderRadY
+		0,            // borderWidth
+		true,         // displayOpen
+		"Note",       // name
+	)
+
+	var out bytes.Buffer
+	if err := api.AddAnnotations(bytes.NewReader(base), &out, nil, ann, conf); err != nil {
+		return nil, fmt.Errorf("pdfbuild: add annotation: %w", err)
+	}
+	return out.Bytes(), nil
 }
 
 // textPagePDF renders a single Letter-size page containing the given text runs.
