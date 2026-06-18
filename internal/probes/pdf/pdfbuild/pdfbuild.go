@@ -69,6 +69,33 @@ func OnePointFont(canary string) ([]byte, error) {
 	})
 }
 
+// MetadataInjection hides the canary in the document Info dictionary
+// (Title/Subject) and the Keywords entry — channels a model often ingests but a
+// human reading the page never sees. AddProperties writes Title/Subject verbatim
+// into the Info dict (the write side is unaffected by pdfcpu's read-time
+// interception); read them back with api.PDFInfo, not api.Properties (see test).
+func MetadataInjection(canary string) ([]byte, error) {
+	base, err := textPagePDF([]textElem{
+		{value: "Annual Report", pos: [2]int{72, 700}, size: 14, col: "Black"},
+	})
+	if err != nil {
+		return nil, err
+	}
+	conf := model.NewDefaultConfiguration()
+
+	var withProps bytes.Buffer
+	props := map[string]string{"Title": canary, "Subject": canary}
+	if err := api.AddProperties(bytes.NewReader(base), &withProps, props, conf); err != nil {
+		return nil, fmt.Errorf("pdfbuild: add properties: %w", err)
+	}
+
+	var withKeywords bytes.Buffer
+	if err := api.AddKeywords(bytes.NewReader(withProps.Bytes()), &withKeywords, []string{canary}, conf); err != nil {
+		return nil, fmt.Errorf("pdfbuild: add keywords: %w", err)
+	}
+	return withKeywords.Bytes(), nil
+}
+
 // textPagePDF renders a single Letter-size page containing the given text runs.
 func textPagePDF(elems []textElem) ([]byte, error) {
 	texts := make([]any, 0, len(elems))
