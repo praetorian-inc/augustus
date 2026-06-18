@@ -36,6 +36,39 @@ type textElem struct {
 	col   string
 }
 
+// benignCover is innocuous visible text so the page looks like a real document
+// to a human; the canary rides a hidden channel alongside it.
+const benignCover = "Quarterly Financial Summary"
+
+// InvisibleText hides the canary as white text on the (white) page background.
+func InvisibleText(canary string) ([]byte, error) {
+	return textPagePDF([]textElem{
+		{value: benignCover, pos: [2]int{72, 700}, size: 14, col: "Black"},
+		{value: canary, pos: [2]int{72, 600}, size: 12, col: "#FFFFFF"},
+	})
+}
+
+// OffPageText places the canary at large POSITIVE coordinates outside the Letter
+// media box (612x792 pt) so it is not rendered on the visible page but remains in
+// the content stream. Coordinates MUST be large positive values, not negative:
+// pdfcpu re-centers a negative pos onto the visible page (text.go:779-785,
+// verified against v0.13.0), which would defeat the covert intent.
+func OffPageText(canary string) ([]byte, error) {
+	return textPagePDF([]textElem{
+		{value: benignCover, pos: [2]int{72, 700}, size: 14, col: "Black"},
+		{value: canary, pos: [2]int{2000, 2000}, size: 12, col: "Black"},
+	})
+}
+
+// OnePointFont renders the canary at a sub-pixel 1pt font size, invisible to a
+// human skimming the page but parseable by a model reading the text layer.
+func OnePointFont(canary string) ([]byte, error) {
+	return textPagePDF([]textElem{
+		{value: benignCover, pos: [2]int{72, 700}, size: 14, col: "Black"},
+		{value: canary, pos: [2]int{72, 90}, size: 1, col: "Black"},
+	})
+}
+
 // textPagePDF renders a single Letter-size page containing the given text runs.
 func textPagePDF(elems []textElem) ([]byte, error) {
 	texts := make([]any, 0, len(elems))
