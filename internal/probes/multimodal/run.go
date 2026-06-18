@@ -15,15 +15,15 @@ import (
 // silently scored as a clean "safe" verdict.
 var ErrVisionUnsupported = errors.New("generator does not support image input")
 
-// MultimodalPrompt pairs text with image attachments.
+// MultimodalPrompt pairs text with image and/or document attachments.
 type MultimodalPrompt struct {
-	Text   string
-	Images []attempt.Image
+	Text      string
+	Images    []attempt.Image
+	Documents []attempt.Document
 
-	// Canary is the exact canary phrase embedded in this prompt's image. It is
+	// Canary is the exact canary phrase embedded in this prompt's payload. It is
 	// attached to the resulting attempt so the multimodal Canary detector reads
-	// it from there, keeping the probe the single source of truth and avoiding
-	// drift against a separately-maintained global list.
+	// it from there, keeping the probe the single source of truth.
 	Canary string
 }
 
@@ -35,12 +35,27 @@ func generatorSupportsVision(gen types.Generator) bool {
 	return ok && vc.SupportsVision()
 }
 
+// ErrDocumentUnsupported is returned by a multimodal probe when its target
+// generator cannot transmit document attachments. Surfacing it as a probe error
+// (rather than running a doc-less request) prevents a dropped document from being
+// silently scored as a clean "safe" verdict.
+var ErrDocumentUnsupported = errors.New("generator does not support document input")
+
+// generatorSupportsDocuments reports whether gen can transmit document
+// attachments, via the optional types.DocumentCapable interface.
+func generatorSupportsDocuments(gen types.Generator) bool {
+	dc, ok := gen.(types.DocumentCapable)
+	return ok && dc.SupportsDocuments()
+}
+
 // RunMultimodalPrompts executes multimodal prompts against a generator.
 //
 // Error handling contract:
 //   - Returns ErrVisionUnsupported (wrapped) if the generator cannot carry
 //     images — the probe is skipped rather than run as a misleading text-only
 //     request. The harness reports this as a failed probe, never as "safe".
+//   - Returns ErrDocumentUnsupported (wrapped) if the generator cannot carry
+//     documents — same semantics as ErrVisionUnsupported.
 //   - Returns ctx.Err() if the context is cancelled.
 //   - Individual prompt failures are recorded in each attempt's Error field;
 //     returns nil error even if ALL prompts fail - caller must check attempt.Error
@@ -50,8 +65,8 @@ func generatorSupportsVision(gen types.Generator) bool {
 // the canary's presence is itself the finding (covert) or merely informational
 // (visible).
 //
-// Apart from the vision pre-flight check, this matches the contract of
-// pkg/probes.RunPrompts.
+// Apart from the vision/document pre-flight checks, this matches the contract
+// of pkg/probes.RunPrompts.
 func RunMultimodalPrompts(
 	ctx context.Context,
 	gen types.Generator,
@@ -60,8 +75,20 @@ func RunMultimodalPrompts(
 	detector string,
 	covert bool,
 ) ([]*attempt.Attempt, error) {
-	if !generatorSupportsVision(gen) {
+	needsVision, needsDocs := false, false
+	for _, mp := range prompts {
+		if len(mp.Images) > 0 {
+			needsVision = true
+		}
+		if len(mp.Documents) > 0 {
+			needsDocs = true
+		}
+	}
+	if needsVision && !generatorSupportsVision(gen) {
 		return nil, fmt.Errorf("%s: %w (generator %q)", probeName, ErrVisionUnsupported, gen.Name())
+	}
+	if needsDocs && !generatorSupportsDocuments(gen) {
+		return nil, fmt.Errorf("%s: %w (generator %q)", probeName, ErrDocumentUnsupported, gen.Name())
 	}
 
 	attempts := make([]*attempt.Attempt, 0, len(prompts))
@@ -76,6 +103,7 @@ func RunMultimodalPrompts(
 
 		conv := attempt.NewConversation()
 		msg := attempt.NewUserMessageWithImages(mp.Text, mp.Images)
+		msg.Documents = mp.Documents
 		conv.AddPromptMessage(msg)
 
 		responses, err := gen.Generate(ctx, conv, 1)

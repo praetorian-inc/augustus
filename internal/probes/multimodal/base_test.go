@@ -131,6 +131,10 @@ func (m *MockMultimodalProbe) GetImages() []attempt.Image {
 	return m.images
 }
 
+func (m *MockMultimodalProbe) GetDocuments() []attempt.Document {
+	return nil
+}
+
 func (m *MockMultimodalProbe) GetAudio() []attempt.Audio {
 	return m.audio
 }

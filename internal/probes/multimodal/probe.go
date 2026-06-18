@@ -60,6 +60,15 @@ func (p *BaseMultimodalProbe) GetImages() []attempt.Image {
 	return imgs
 }
 
+// GetDocuments returns all documents used by this probe, aggregated from all prompts.
+func (p *BaseMultimodalProbe) GetDocuments() []attempt.Document {
+	var docs []attempt.Document
+	for _, mp := range p.Prompts {
+		docs = append(docs, mp.Documents...)
+	}
+	return docs
+}
+
 // GetAudio returns nil; multimodal image probes do not use audio.
 func (p *BaseMultimodalProbe) GetAudio() []attempt.Audio {
 	return nil
