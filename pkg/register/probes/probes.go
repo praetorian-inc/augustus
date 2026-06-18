@@ -40,6 +40,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/obscureprompt"
 	_ "github.com/praetorian-inc/augustus/internal/probes/packagehallucination"
 	_ "github.com/praetorian-inc/augustus/internal/probes/pair"
+	_ "github.com/praetorian-inc/augustus/internal/probes/pdf"
 	_ "github.com/praetorian-inc/augustus/internal/probes/phrasing"
 	_ "github.com/praetorian-inc/augustus/internal/probes/poetry"
 	_ "github.com/praetorian-inc/augustus/internal/probes/prefix"
