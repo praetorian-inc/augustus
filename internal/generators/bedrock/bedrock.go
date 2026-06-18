@@ -400,6 +400,13 @@ func (g *Bedrock) SupportsVision() bool {
 		strings.HasPrefix(g.modelID, "amazon.nova")
 }
 
+// SupportsDocuments reports document capability per the active model family.
+// Only the Claude request builder emits native PDF document blocks; Nova, Titan,
+// and Llama builders do not. See types.DocumentCapable.
+func (g *Bedrock) SupportsDocuments() bool {
+	return strings.HasPrefix(g.modelID, "anthropic.claude")
+}
+
 // Description returns a human-readable description.
 func (g *Bedrock) Description() string {
 	return "AWS Bedrock generator supporting Claude, Titan, and Llama models"

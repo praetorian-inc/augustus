@@ -42,6 +42,18 @@ type VisionCapable interface {
 	SupportsVision() bool
 }
 
+// DocumentCapable is an optional interface a Generator implements to declare
+// that its request builder can transmit document attachments (Message.Documents)
+// to the backing model — e.g. Anthropic's native PDF "document" content blocks.
+//
+// Document probes use this to skip generators whose wire layer cannot carry
+// documents, rather than silently sending a doc-less request and mis-reporting
+// the target as safe. Like SupportsVision, it reports STRUCTURAL capability
+// (the generator emits document content blocks), not per-model support.
+type DocumentCapable interface {
+	SupportsDocuments() bool
+}
+
 // UsageReporter is an OPTIONAL interface a Generator (or a Generator decorator)
 // may implement to expose the cumulative number of tokens it has consumed across
 // all Generate calls since construction. Generators whose provider does not report
