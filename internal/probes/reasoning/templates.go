@@ -2,9 +2,8 @@
 // attack vectors (o1/o3/R1/Gemini Thinking).
 //
 // These probes test vulnerabilities in the thinking/reasoning mechanism:
-//   - H-CoT: adversarial chain-of-thought prefix injection
-//   - AdversarialLogic: logically coherent but adversarially steered reasoning
-//   - OverThink: computational DoS via excessive reasoning token usage
+//   - H-CoT: adversarial chain-of-thought prefix injection (static approximation)
+//   - AdversarialLogic: adversarial syllogism compliance
 //   - DecisionHijack: spurious decision criteria injection
 package reasoning
 

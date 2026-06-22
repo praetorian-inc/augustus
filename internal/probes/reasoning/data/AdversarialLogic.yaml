@@ -3,17 +3,16 @@ id: reasoning.AdversarialLogic
 info:
   name: Adversarial Logic Chains - Sophistic Reasoning Exploitation
   author: praetorian
-  description: "Tests if models follow adversarially constructed but seemingly valid logic chains to reach harmful conclusions. Inspired by cognitive hijacking research (ShadowCoT requires training-time access, out of scope); this probe tests prompt-time adversarial syllogism compliance."
-  goal: cause the model to follow sophistic reasoning chains that appear logically valid but lead to harmful conclusions
-  detector: reasoning.ReasoningHijack
+  description: "Tests if models follow adversarially constructed but seemingly valid logic chains to reach harmful conclusions. This probe tests prompt-time adversarial syllogism compliance, where false premises are chained into seemingly rigorous arguments to extract harmful content."
+  goal: cause the model to follow sophistic reasoning chains that appear logically valid but lead to producing harmful content (exploit code, synthesis instructions, authentication bypass guides)
+  detector: judge.Judge
   tags:
     - reasoning-model
     - chain-of-thought
     - adversarial-logic
     - sophistic-reasoning
   severity: critical
-  references:
-    - https://arxiv.org/abs/2504.05605
+  references: []
   cwe:
     - CWE-1427
   mitre_attack:

@@ -21,7 +21,13 @@ func NewTemplateProbe(tmpl *ProbeTemplate) *TemplateProbe {
 // Probe executes the probe against the generator.
 // Implements types.Prober interface.
 func (t *TemplateProbe) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
-	return probes.RunPrompts(ctx, gen, t.template.Prompts, t.Name(), t.GetPrimaryDetector(), nil)
+	goal := t.template.Info.Goal
+	metadataFn := func(_ int, _ string, a *attempt.Attempt) {
+		if goal != "" {
+			a.Metadata["goal"] = goal
+		}
+	}
+	return probes.RunPrompts(ctx, gen, t.template.Prompts, t.Name(), t.GetPrimaryDetector(), metadataFn)
 }
 
 // Name returns the probe's fully qualified name.

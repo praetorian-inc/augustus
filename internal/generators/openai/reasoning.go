@@ -121,9 +121,17 @@ func (g *OpenAIReasoning) Generate(ctx context.Context, conv *attempt.Conversati
 		return nil, fmt.Errorf("openai: reasoning API returned no choices")
 	}
 
+	// Extract reasoning token count if available
+	var reasoningTokens int
+	if resp.Usage.CompletionTokensDetails != nil {
+		reasoningTokens = resp.Usage.CompletionTokensDetails.ReasoningTokens
+	}
+
 	result := make([]attempt.Message, 0, len(resp.Choices))
 	for _, choice := range resp.Choices {
-		result = append(result, attempt.NewAssistantMessage(choice.Message.Content))
+		msg := attempt.NewAssistantMessage(choice.Message.Content)
+		msg.ReasoningTokens = reasoningTokens
+		result = append(result, msg)
 	}
 
 	return result, nil

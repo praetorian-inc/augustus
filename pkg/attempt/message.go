@@ -23,6 +23,15 @@ type Message struct {
 	Role Role `json:"role"`
 	// Content is the text content of the message.
 	Content string `json:"content"`
+	// Reasoning holds the model's intermediate reasoning or chain-of-thought
+	// output, if exposed by the provider (e.g., DeepSeek-R1 reasoning_content,
+	// Anthropic extended thinking, OpenAI reasoning summaries).
+	// Empty when the provider does not surface reasoning traces.
+	Reasoning string `json:"reasoning,omitempty"`
+	// ReasoningTokens is the number of reasoning tokens consumed, as reported
+	// by the provider (e.g., OpenAI completion_tokens_details.reasoning_tokens).
+	// Zero when not reported.
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
 }
 
 // NewMessage creates a new message with the given role and content.

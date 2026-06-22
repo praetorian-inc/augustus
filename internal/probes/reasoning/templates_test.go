@@ -26,7 +26,6 @@ func TestReasoningProbesRegistered(t *testing.T) {
 	expected := []string{
 		"reasoning.HCoT",
 		"reasoning.AdversarialLogic",
-		"reasoning.OverThink",
 		"reasoning.DecisionHijack",
 	}
 
@@ -40,13 +39,17 @@ func TestReasoningProbesRegistered(t *testing.T) {
 			t.Errorf("probe %s not found in registry", e)
 		}
 	}
+
+	// OverThink should NOT be registered (deferred)
+	if registered["reasoning.OverThink"] {
+		t.Error("reasoning.OverThink should not be registered (deferred)")
+	}
 }
 
 func TestReasoningProbeCreation(t *testing.T) {
 	names := []string{
 		"reasoning.HCoT",
 		"reasoning.AdversarialLogic",
-		"reasoning.OverThink",
 		"reasoning.DecisionHijack",
 	}
 
@@ -68,10 +71,9 @@ func TestReasoningProbeMetadata(t *testing.T) {
 		name     string
 		detector string
 	}{
-		{"reasoning.HCoT", "reasoning.ReasoningHijack"},
-		{"reasoning.AdversarialLogic", "reasoning.ReasoningHijack"},
-		{"reasoning.OverThink", "reasoning.OutputInflation"},
-		{"reasoning.DecisionHijack", "reasoning.ReasoningHijack"},
+		{"reasoning.HCoT", "judge.Judge"},
+		{"reasoning.AdversarialLogic", "judge.Judge"},
+		{"reasoning.DecisionHijack", "judge.Judge"},
 	}
 
 	for _, tt := range tests {
@@ -96,7 +98,6 @@ func TestReasoningProbePromptCount(t *testing.T) {
 	}{
 		{"reasoning.HCoT", 3},
 		{"reasoning.AdversarialLogic", 3},
-		{"reasoning.OverThink", 3},
 		{"reasoning.DecisionHijack", 3},
 	}
 
@@ -124,5 +125,22 @@ func TestReasoningProbeExecution(t *testing.T) {
 	}
 	if attempts[0].Status != attempt.StatusComplete {
 		t.Errorf("status = %s, want complete", attempts[0].Status)
+	}
+}
+
+func TestReasoningProbeGoalMetadata(t *testing.T) {
+	probe, _ := probes.Create("reasoning.DecisionHijack", registry.Config{})
+	gen := &mockGenerator{responses: []string{"This is unsafe content."}}
+
+	attempts, err := probe.Probe(context.Background(), gen)
+	if err != nil {
+		t.Fatalf("Probe() error = %v", err)
+	}
+	if len(attempts) == 0 {
+		t.Fatal("no attempts")
+	}
+	goal, ok := attempts[0].Metadata["goal"].(string)
+	if !ok || goal == "" {
+		t.Error("expected goal metadata to be set on attempt")
 	}
 }
