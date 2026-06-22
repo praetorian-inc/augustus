@@ -124,7 +124,11 @@ func (d *ToolLeakJudge) Detect(ctx context.Context, a *attempt.Attempt) ([]float
 		}
 		score, err := d.classify(ctx, goal, output)
 		if err != nil {
-			slog.Warn("agent.ToolLeakJudge: judge error, scoring 0.0", "probe", a.Probe, "err", err)
+			// Error (not Warn): under the documented text_fallback:false wiring a
+			// judge outage fails OPEN — every chat-mode output scores 0.0, silently
+			// converting detections to false negatives. Log loudly so a systemic
+			// judge failure (vs. an occasional FP-reduction) is detectable.
+			slog.Error("agent.ToolLeakJudge: judge error, scoring 0.0 (fails open to false-negative)", "probe", a.Probe, "err", err)
 			scores[i] = 0.0
 			continue
 		}
