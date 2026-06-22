@@ -128,8 +128,10 @@ func AnnotationInjection(canary string) ([]byte, error) {
 		0,            // borderRadX
 		0,            // borderRadY
 		0,            // borderWidth
-		true,         // displayOpen
-		"Note",       // name
+		false,        // displayOpen — keep the popup closed so the canary stays a
+		//               hidden annotation channel; an open popup would render the
+		//               contents to a human viewer and defeat the covert intent.
+		"Note", // name
 	)
 
 	var out bytes.Buffer
