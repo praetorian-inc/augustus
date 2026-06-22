@@ -50,3 +50,20 @@ func NewLRM(cfg registry.Config) (probes.Prober, error) {
 		},
 	}, nil
 }
+
+// NewLRMWithGenerators creates an LRMProbe with pre-built generators.
+// This is primarily for testing where mock generators need to be injected.
+func NewLRMWithGenerators(attacker, judge probes.Generator, cfg multiturn.Config) *LRMProbe {
+	strategy := &lrmagentstrat.Strategy{
+		AttackerModel: cfg.AttackerModel,
+		MaxTurns:      cfg.MaxTurns,
+	}
+	return &LRMProbe{
+		BaseMultiTurnProbe: multiturn.BaseMultiTurnProbe{
+			Engine:    multiturn.NewUnifiedEngine(strategy, attacker, judge, cfg),
+			ProbeName: "lrmagent.LRM",
+			ProbeGoal: cfg.Goal,
+			ProbeDesc: "Autonomous LRM jailbreak agent with self-directed attack planning (Nature Comms 2026)",
+		},
+	}
+}
