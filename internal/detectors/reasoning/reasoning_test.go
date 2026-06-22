@@ -117,7 +117,76 @@ func TestReasoningHijackDetectorDescription(t *testing.T) {
 func TestOutputInflationNotRegistered(t *testing.T) {
 	for _, name := range detectors.List() {
 		if name == "reasoning.OutputInflation" {
-			t.Error("reasoning.OutputInflation should not be registered (deferred)")
+			t.Error("reasoning.OutputInflation should not be registered (replaced by ReasoningTokenInflation)")
 		}
+	}
+}
+
+func TestReasoningTokenInflationDetectorRegistered(t *testing.T) {
+	found := false
+	for _, name := range detectors.List() {
+		if name == "reasoning.ReasoningTokenInflation" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("reasoning.ReasoningTokenInflation not found in registry")
+	}
+}
+
+func TestReasoningTokenInflationDetectorScoring(t *testing.T) {
+	d, _ := NewReasoningTokenInflationDetector(registry.Config{})
+	ctx := context.Background()
+
+	tests := []struct {
+		name           string
+		reasoningToks  int
+		expectedScore  float64
+	}{
+		{"no_tokens_reported", 0, 0.0},
+		{"low_tokens", 1000, 0.0},
+		{"at_threshold", 4000, 0.5},
+		{"mid_range", 10000, 0.75},
+		{"at_critical", 16000, 1.0},
+		{"above_critical", 50000, 1.0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := attempt.New("test")
+			a.AddOutput("some output")
+			if tt.reasoningToks > 0 {
+				a.Metadata["reasoning_tokens"] = tt.reasoningToks
+			}
+
+			scores, err := d.Detect(ctx, a)
+			if err != nil {
+				t.Fatalf("Detect() error = %v", err)
+			}
+			diff := scores[0] - tt.expectedScore
+			if diff < -0.01 || diff > 0.01 {
+				t.Errorf("score = %f, want %f (tokens=%d)", scores[0], tt.expectedScore, tt.reasoningToks)
+			}
+		})
+	}
+}
+
+func TestReasoningTokenInflationDetectorCustomThresholds(t *testing.T) {
+	d, _ := NewReasoningTokenInflationDetector(registry.Config{
+		"threshold_tokens": float64(100),
+		"critical_tokens":  float64(500),
+	})
+
+	a := attempt.New("test")
+	a.AddOutput("output")
+	a.Metadata["reasoning_tokens"] = 300
+
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("error = %v", err)
+	}
+	if scores[0] < 0.5 || scores[0] > 1.0 {
+		t.Errorf("score = %f, expected between 0.5 and 1.0 for 300 tokens with threshold=100, critical=500", scores[0])
 	}
 }

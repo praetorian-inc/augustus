@@ -130,6 +130,7 @@ func (g *OpenAIReasoning) Generate(ctx context.Context, conv *attempt.Conversati
 	result := make([]attempt.Message, 0, len(resp.Choices))
 	for _, choice := range resp.Choices {
 		msg := attempt.NewAssistantMessage(choice.Message.Content)
+		msg.Reasoning = choice.Message.ReasoningContent
 		msg.ReasoningTokens = reasoningTokens
 		result = append(result, msg)
 	}

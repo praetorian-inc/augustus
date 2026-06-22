@@ -5,6 +5,7 @@
 //   - H-CoT: adversarial chain-of-thought prefix injection (static approximation)
 //   - AdversarialLogic: adversarial syllogism compliance
 //   - DecisionHijack: spurious decision criteria injection
+//   - OverThink: computational DoS via excessive reasoning token usage
 package reasoning
 
 import (

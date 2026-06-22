@@ -78,8 +78,15 @@ func RunPrompts(
 		if err != nil {
 			a.SetError(err)
 		} else {
+			var maxReasoningTokens int
 			for _, resp := range responses {
 				a.AddOutput(resp.Content)
+				if resp.ReasoningTokens > maxReasoningTokens {
+					maxReasoningTokens = resp.ReasoningTokens
+				}
+			}
+			if maxReasoningTokens > 0 {
+				a.Metadata["reasoning_tokens"] = maxReasoningTokens
 			}
 			a.Complete()
 		}

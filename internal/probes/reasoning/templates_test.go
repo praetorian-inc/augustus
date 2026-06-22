@@ -27,6 +27,7 @@ func TestReasoningProbesRegistered(t *testing.T) {
 		"reasoning.HCoT",
 		"reasoning.AdversarialLogic",
 		"reasoning.DecisionHijack",
+		"reasoning.OverThink",
 	}
 
 	registered := make(map[string]bool)
@@ -39,11 +40,6 @@ func TestReasoningProbesRegistered(t *testing.T) {
 			t.Errorf("probe %s not found in registry", e)
 		}
 	}
-
-	// OverThink should NOT be registered (deferred)
-	if registered["reasoning.OverThink"] {
-		t.Error("reasoning.OverThink should not be registered (deferred)")
-	}
 }
 
 func TestReasoningProbeCreation(t *testing.T) {
@@ -51,6 +47,7 @@ func TestReasoningProbeCreation(t *testing.T) {
 		"reasoning.HCoT",
 		"reasoning.AdversarialLogic",
 		"reasoning.DecisionHijack",
+		"reasoning.OverThink",
 	}
 
 	for _, name := range names {
@@ -74,6 +71,7 @@ func TestReasoningProbeMetadata(t *testing.T) {
 		{"reasoning.HCoT", "judge.Judge"},
 		{"reasoning.AdversarialLogic", "judge.Judge"},
 		{"reasoning.DecisionHijack", "judge.Judge"},
+		{"reasoning.OverThink", "reasoning.ReasoningTokenInflation"},
 	}
 
 	for _, tt := range tests {
@@ -99,6 +97,7 @@ func TestReasoningProbePromptCount(t *testing.T) {
 		{"reasoning.HCoT", 3},
 		{"reasoning.AdversarialLogic", 3},
 		{"reasoning.DecisionHijack", 3},
+		{"reasoning.OverThink", 3},
 	}
 
 	for _, tt := range tests {

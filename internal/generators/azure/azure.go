@@ -181,10 +181,19 @@ func (g *AzureOpenAI) generateChat(ctx context.Context, conv *attempt.Conversati
 		return nil, openaicompat.WrapError("azure openai", err)
 	}
 
+	// Extract reasoning token count if available
+	var reasoningTokens int
+	if resp.Usage.CompletionTokensDetails != nil {
+		reasoningTokens = resp.Usage.CompletionTokensDetails.ReasoningTokens
+	}
+
 	// Extract responses from choices
 	responses := make([]attempt.Message, 0, len(resp.Choices))
 	for _, choice := range resp.Choices {
-		responses = append(responses, attempt.NewAssistantMessage(choice.Message.Content))
+		msg := attempt.NewAssistantMessage(choice.Message.Content)
+		msg.Reasoning = choice.Message.ReasoningContent
+		msg.ReasoningTokens = reasoningTokens
+		responses = append(responses, msg)
 	}
 
 	return responses, nil

@@ -137,9 +137,12 @@ type messageResponse struct {
 }
 
 // contentBlock represents a content block in the response.
+// Anthropic returns "text" blocks for normal output and "thinking" blocks
+// for extended thinking (chain-of-thought) content.
 type contentBlock struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	Thinking string `json:"thinking,omitempty"`
 }
 
 // usageStats represents token usage statistics.
@@ -249,15 +252,23 @@ func (g *Anthropic) generateOne(ctx context.Context, conv *attempt.Conversation)
 		return attempt.Message{}, fmt.Errorf("anthropic: failed to parse response: %w", err)
 	}
 
-	// Extract text from content blocks
-	var text string
+	// Extract text and thinking from content blocks
+	var text, thinking string
 	for _, block := range resp.Content {
-		if block.Type == "text" {
+		switch block.Type {
+		case "text":
 			text += block.Text
+		case "thinking":
+			if thinking != "" {
+				thinking += "\n"
+			}
+			thinking += block.Thinking
 		}
 	}
 
-	return attempt.NewAssistantMessage(text), nil
+	msg := attempt.NewAssistantMessage(text)
+	msg.Reasoning = thinking
+	return msg, nil
 }
 
 // conversationToMessages converts an Augustus Conversation to Anthropic messages.
