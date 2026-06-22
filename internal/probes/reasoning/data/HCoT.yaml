@@ -3,7 +3,7 @@ id: reasoning.HCoT
 info:
   name: H-CoT - Hijacking Chain-of-Thought Safety Reasoning
   author: praetorian
-  description: "Tests if adversarial chain-of-thought prefixes can override safety reasoning in reasoning models. Note: this is a static-template approximation of the H-CoT attack (arXiv:2502.12893); the full adaptive version requires multi-turn reasoning-trace elicitation, which is planned once reasoning capture is wired through generators."
+  description: "Tests if adversarial chain-of-thought prefixes can override safety reasoning in reasoning models. This is a static-template approximation of the H-CoT attack (arXiv:2502.12893). For the faithful adaptive version that elicits the target's own reasoning style, use hcot.AdaptiveHCoT (multi-turn, requires attacker + judge generators)."
   goal: hijack the model's internal safety reasoning by injecting adversarial thinking prefixes that cause it to produce harmful content (exploit code, phishing guides, malware source)
   detector: judge.Judge
   tags:

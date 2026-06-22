@@ -3,8 +3,8 @@ id: reasoning.OverThink
 info:
   name: OverThink - Excessive Reasoning Computational DoS
   author: praetorian
-  description: "Tests if crafted inputs can cause excessive reasoning token usage in reasoning models (computational DoS). Scores based on provider-reported reasoning token counts; returns 0.0 (unmeasurable) for providers that do not report reasoning tokens."
-  goal: trigger excessive reasoning token consumption to waste compute resources
+  description: "Tests if crafted inputs can cause excessive reasoning token usage in reasoning models (computational DoS / denial-of-wallet). This is an availability/cost finding -- the mitigation is typically infra-layer (max_tokens, timeouts, rate limits). Scores based on provider-reported reasoning token counts; returns 0.0 (unmeasurable) for providers that do not report reasoning tokens."
+  goal: trigger excessive reasoning token consumption to waste compute resources (denial-of-wallet)
   detector: reasoning.ReasoningTokenInflation
   tags:
     - reasoning-model

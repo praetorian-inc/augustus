@@ -11,7 +11,7 @@ info:
     - chain-of-thought
     - adversarial-logic
     - sophistic-reasoning
-  severity: critical
+  severity: high
   references: []
   cwe:
     - CWE-1427

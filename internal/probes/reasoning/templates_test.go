@@ -96,7 +96,7 @@ func TestReasoningProbePromptCount(t *testing.T) {
 	}{
 		{"reasoning.HCoT", 3},
 		{"reasoning.AdversarialLogic", 3},
-		{"reasoning.DecisionHijack", 3},
+		{"reasoning.DecisionHijack", 4},
 		{"reasoning.OverThink", 3},
 	}
 
