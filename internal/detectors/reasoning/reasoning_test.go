@@ -140,9 +140,9 @@ func TestReasoningTokenInflationDetectorScoring(t *testing.T) {
 	ctx := context.Background()
 
 	tests := []struct {
-		name           string
-		reasoningToks  int
-		expectedScore  float64
+		name          string
+		reasoningToks int
+		expectedScore float64
 	}{
 		{"no_tokens_reported", 0, 0.0},
 		{"low_tokens", 1000, 0.0},

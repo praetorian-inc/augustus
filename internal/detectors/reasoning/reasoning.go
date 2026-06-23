@@ -165,4 +165,3 @@ func (d *ReasoningHijackDetector) Name() string {
 func (d *ReasoningHijackDetector) Description() string {
 	return "Lightweight keyword-based detector for reasoning hijack (secondary signal; prefer judge.Judge as primary)"
 }
-
