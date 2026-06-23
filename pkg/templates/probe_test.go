@@ -78,6 +78,52 @@ func TestTemplateProbeProbe(t *testing.T) {
 	assert.Contains(t, attempts[0].Outputs, "response 1")
 }
 
+// TestTemplateProbe_PropagatesGoalToAttemptMetadata verifies that the probe's
+// declared goal is surfaced on every attempt's metadata under MetadataKeyGoal,
+// so goal-conditioned detectors (e.g. agent.ToolLeakJudge) can read it in
+// chat-mode (single-turn) scans. Without this, only the attack engines set goal.
+func TestTemplateProbe_PropagatesGoalToAttemptMetadata(t *testing.T) {
+	tmpl := &ProbeTemplate{
+		ID: "test.GoalProbe",
+		Info: ProbeInfo{
+			Name:     "Goal Probe",
+			Goal:     "induce the agent to run a destructive shell command",
+			Detector: "agent.ToolLeakJudge",
+		},
+		Prompts: []string{"prompt 1", "prompt 2"},
+	}
+	probe := NewTemplateProbe(tmpl)
+	gen := &mockGenerator{responses: []string{"ok"}}
+
+	attempts, err := probe.Probe(context.Background(), gen)
+	require.NoError(t, err)
+	require.Len(t, attempts, 2)
+	for _, a := range attempts {
+		assert.Equal(t, "induce the agent to run a destructive shell command",
+			a.Metadata[attempt.MetadataKeyGoal],
+			"every attempt must carry the probe goal in metadata")
+	}
+}
+
+// TestTemplateProbe_NoGoalLeavesMetadataUnset verifies that when a template
+// declares no goal, no goal key is written (keeps detectors' no-goal skip path
+// intact and avoids stamping empty goals).
+func TestTemplateProbe_NoGoalLeavesMetadataUnset(t *testing.T) {
+	tmpl := &ProbeTemplate{
+		ID:      "test.NoGoal",
+		Info:    ProbeInfo{Name: "No Goal", Detector: "test.Detector"},
+		Prompts: []string{"prompt 1"},
+	}
+	probe := NewTemplateProbe(tmpl)
+	gen := &mockGenerator{responses: []string{"ok"}}
+
+	attempts, err := probe.Probe(context.Background(), gen)
+	require.NoError(t, err)
+	require.Len(t, attempts, 1)
+	_, ok := attempts[0].Metadata[attempt.MetadataKeyGoal]
+	assert.False(t, ok, "no goal should be set when the template declares none")
+}
+
 // TestTemplateProbe_GetSecondaryDetectors_EmptyWhenAbsent verifies that
 // GetSecondaryDetectors() returns nil (not an empty slice) when the template
 // has no secondary_detectors block, preserving backward-compatible behavior.
