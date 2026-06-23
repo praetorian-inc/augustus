@@ -211,8 +211,10 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 		}
 	}
 
-	// Optional: Reasoning extraction path (for reasoning models)
-	if reasoningPath, ok := cfg["reasoning_path"].(string); ok {
+	// Optional: Reasoning extraction path (for reasoning models).
+	// An empty string is treated as unset (no-op) so it doesn't silently
+	// force JSON parsing on a target that returns plain text.
+	if reasoningPath, ok := cfg["reasoning_path"].(string); ok && reasoningPath != "" {
 		r.reasoningJSONField = reasoningPath
 		// Reasoning extraction requires JSON parsing
 		if !r.responseJSON {
