@@ -38,7 +38,7 @@ output:
   path: ./results
 `
 
-	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	// Load config
@@ -89,7 +89,7 @@ output:
   path: ./results
 `
 
-	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	// Set environment variables (should override YAML)
@@ -154,7 +154,7 @@ output:
   path: ./yaml-results
 `
 
-	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	// Set environment variables for some (not all) fields
@@ -267,7 +267,7 @@ run:
 		t.Run(tt.name, func(t *testing.T) {
 			tmpDir := t.TempDir()
 			configPath := filepath.Join(tmpDir, "config.yaml")
-			err := os.WriteFile(configPath, []byte(tt.yaml), 0644)
+			err := os.WriteFile(configPath, []byte(tt.yaml), 0o644)
 			require.NoError(t, err)
 
 			// Set environment variables
@@ -305,7 +305,7 @@ generators:
   broken yaml
 `
 
-	err := os.WriteFile(configPath, []byte(invalidYAML), 0644)
+	err := os.WriteFile(configPath, []byte(invalidYAML), 0o644)
 	require.NoError(t, err)
 
 	cfg, err := LoadConfigKoanf(configPath)
@@ -367,7 +367,7 @@ output:
   path: ./yaml-results
 `
 
-	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	// Override only specific nested fields via env
@@ -418,7 +418,7 @@ output:
   format: jsonl
 `
 
-	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	cfg, err := LoadConfigKoanf(configPath)
@@ -437,7 +437,7 @@ func TestLoadConfigKoanf_EmptyConfig(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.yaml")
 
 	// Write empty YAML
-	err := os.WriteFile(configPath, []byte(""), 0644)
+	err := os.WriteFile(configPath, []byte(""), 0o644)
 	require.NoError(t, err)
 
 	cfg, err := LoadConfigKoanf(configPath)
@@ -461,7 +461,7 @@ run:
   Max_Attempts: 10
 `
 
-	err := os.WriteFile(configPath, []byte(yamlContent), 0644)
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
 	require.NoError(t, err)
 
 	cfg, err := LoadConfigKoanf(configPath)

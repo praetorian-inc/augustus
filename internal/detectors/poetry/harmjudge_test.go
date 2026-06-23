@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestHarmJudge_Registration(t *testing.T) {
@@ -117,8 +118,8 @@ func (m *mockJudgeGenerator) Generate(ctx context.Context, conv *attempt.Convers
 	return []attempt.Message{{Content: m.verdict}}, nil
 }
 
-func (m *mockJudgeGenerator) ClearHistory() {}
-func (m *mockJudgeGenerator) Name() string  { return "mock.Judge" }
+func (m *mockJudgeGenerator) ClearHistory()       {}
+func (m *mockJudgeGenerator) Name() string        { return "mock.Judge" }
 func (m *mockJudgeGenerator) Description() string { return "Mock judge generator" }
 
 func TestHarmJudge_LLMJudge_Unsafe(t *testing.T) {
@@ -194,9 +195,9 @@ func TestNewHarmJudge_ConfigIsolation(t *testing.T) {
 
 	// Extra detector-specific keys should not leak to generator
 	_, err = NewHarmJudge(registry.Config{
-		"judge_generator_type":  "nonexistent.Generator",
-		"threshold":        0.8,                 // detector-specific
-		"severity_weights": []float64{1.0, 0.5}, // detector-specific
+		"judge_generator_type": "nonexistent.Generator",
+		"threshold":            0.8,                 // detector-specific
+		"severity_weights":     []float64{1.0, 0.5}, // detector-specific
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "nonexistent.Generator")

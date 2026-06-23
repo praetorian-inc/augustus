@@ -2,9 +2,10 @@
 package nim
 
 import (
+	goopenai "github.com/sashabaranov/go-openai"
+
 	"github.com/praetorian-inc/augustus/internal/generators/openaicompat"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	goopenai "github.com/sashabaranov/go-openai"
 )
 
 // Config holds configuration for NIM generator variants.

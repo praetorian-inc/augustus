@@ -29,6 +29,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -40,8 +41,9 @@ var ggufMagic = []byte{0x47, 0x47, 0x55, 0x46}
 
 // Ggml is a generator that executes GGML models via subprocess.
 type Ggml struct {
-	ggmlMainPath string
-	modelPath    string
+	types.UsageCounter // embedded but never incremented: ggml subprocess returns no token usage.
+	ggmlMainPath       string
+	modelPath          string
 
 	// Generation parameters
 	temperature   float64
@@ -123,11 +125,12 @@ func NewGgmlTyped(cfg Config) (*Ggml, error) {
 // This is the recommended entry point for Go code.
 //
 // Usage:
-//   g, err := NewGgmlWithOptions(
-//       WithModelPath("/path/to/model.gguf"),
-//       WithGgmlMainPath("/path/to/llama.cpp/main"),
-//       WithTemperature(0.7),
-//   )
+//
+//	g, err := NewGgmlWithOptions(
+//	    WithModelPath("/path/to/model.gguf"),
+//	    WithGgmlMainPath("/path/to/llama.cpp/main"),
+//	    WithTemperature(0.7),
+//	)
 func NewGgmlWithOptions(opts ...Option) (*Ggml, error) {
 	cfg := ApplyOptions(DefaultConfig(), opts...)
 	return NewGgmlTyped(cfg)

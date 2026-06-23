@@ -6,6 +6,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -14,7 +15,9 @@ func init() {
 
 // Nones is a test generator that always returns empty messages.
 // Supports multiple generations for testing probe handling of empty responses.
-type Nones struct{}
+type Nones struct {
+	types.UsageCounter // embedded but never incremented: test fake returns no token usage.
+}
 
 // NewNones creates a new Nones generator.
 func NewNones(_ registry.Config) (generators.Generator, error) {

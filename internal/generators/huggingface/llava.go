@@ -2,7 +2,6 @@
 //
 // This package implements the Generator interface for HuggingFace's hosted
 // inference endpoints, including LLaVA vision-language models.
-//
 package huggingface
 
 import (
@@ -14,6 +13,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	libhttp "github.com/praetorian-inc/augustus/pkg/lib/http"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -23,9 +23,10 @@ func init() {
 // LLaVA generates text from vision-language inputs using HuggingFace's hosted LLaVA models.
 // This supports multimodal (text + image) inputs.
 type LLaVA struct {
-	client  *libhttp.Client
-	model   string
-	baseURL string
+	types.UsageCounter // embedded but never incremented: HF LLaVA returns no token usage.
+	client             *libhttp.Client
+	model              string
+	baseURL            string
 
 	// Configuration
 	maxTokens    int
@@ -219,6 +220,15 @@ func (g *LLaVA) ClearHistory() {}
 func (g *LLaVA) Name() string {
 	return "huggingface.LLaVA"
 }
+
+// SupportsVision is intentionally false: although LLaVA is a vision-language
+// model, the request builder in buildPayload() currently sends only the text
+// prompt and does not transmit image bytes (see the inline comment there).
+// Reporting vision capability would cause multimodal probes to silently run
+// text-only and produce false-SAFE results — exactly the failure mode the
+// VisionCapable gate is meant to prevent. Flip to true here once the request
+// builder actually carries the image. See types.VisionCapable.
+func (g *LLaVA) SupportsVision() bool { return false }
 
 // Description returns a human-readable description.
 func (g *LLaVA) Description() string {

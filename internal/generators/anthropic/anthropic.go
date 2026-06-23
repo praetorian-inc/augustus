@@ -19,9 +19,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/praetorian-inc/augustus/internal/attackengine"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -30,15 +32,17 @@ func init() {
 
 // Default configuration values matching litellm patterns.
 const (
-	defaultMaxTokens      = 150
-	defaultTemperature    = 0.7
-	defaultAPIVersion     = "2023-06-01"
-	defaultBaseURL        = "https://api.anthropic.com/v1"
-	defaultTimeout        = 90 * time.Second
+	defaultMaxTokens   = 150
+	defaultTemperature = 0.7
+	defaultAPIVersion  = "2023-06-01"
+	defaultBaseURL     = "https://api.anthropic.com/v1"
+	defaultTimeout     = 90 * time.Second
 )
 
 // Anthropic is a generator that wraps the Anthropic Messages API.
 type Anthropic struct {
+	types.UsageCounter // embedded; provides AccumulatedTokens()
+
 	apiKey     string
 	baseURL    string
 	apiVersion string
@@ -109,40 +113,55 @@ func NewAnthropicWithOptions(opts ...Option) (*Anthropic, error) {
 
 // messageRequest represents the Anthropic Messages API request format.
 type messageRequest struct {
-	Model         string            `json:"model"`
-	MaxTokens     int               `json:"max_tokens"`
-	Messages      []anthropicMsg    `json:"messages"`
-	System        string            `json:"system,omitempty"`
-	Temperature   float64           `json:"temperature,omitempty"`
-	TopP          float64           `json:"top_p,omitempty"`
-	TopK          int               `json:"top_k,omitempty"`
-	StopSequences []string          `json:"stop_sequences,omitempty"`
+	Model         string               `json:"model"`
+	MaxTokens     int                  `json:"max_tokens"`
+	Messages      []Message            `json:"messages"`
+	System        string               `json:"system,omitempty"`
+	Temperature   float64              `json:"temperature,omitempty"`
+	TopP          float64              `json:"top_p,omitempty"`
+	TopK          int                  `json:"top_k,omitempty"`
+	StopSequences []string             `json:"stop_sequences,omitempty"`
+	Tools         []anthropicTool      `json:"tools,omitempty"`
+	ToolChoice    *anthropicToolChoice `json:"tool_choice,omitempty"`
 }
 
-// anthropicMsg represents a message in the Anthropic format.
-type anthropicMsg struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+// anthropicTool is the Anthropic API tool definition format.
+type anthropicTool struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	InputSchema map[string]any `json:"input_schema"`
+}
+
+// anthropicToolChoice controls how Claude selects tools.
+type anthropicToolChoice struct {
+	Type string `json:"type"`           // "auto", "any", or "tool"
+	Name string `json:"name,omitempty"` // only when type="tool"
 }
 
 // messageResponse represents the Anthropic Messages API response format.
 type messageResponse struct {
-	ID           string           `json:"id"`
-	Type         string           `json:"type"`
-	Role         string           `json:"role"`
-	Content      []contentBlock   `json:"content"`
-	StopReason   string           `json:"stop_reason"`
-	StopSequence *string          `json:"stop_sequence"`
-	Usage        usageStats       `json:"usage"`
+	ID           string         `json:"id"`
+	Type         string         `json:"type"`
+	Role         string         `json:"role"`
+	Content      []contentBlock `json:"content"`
+	StopReason   string         `json:"stop_reason"`
+	StopSequence *string        `json:"stop_sequence"`
+	Usage        usageStats     `json:"usage"`
 }
 
 // contentBlock represents a content block in the response.
-// Anthropic returns "text" blocks for normal output and "thinking" blocks
-// for extended thinking (chain-of-thought) content.
+// For text blocks, Type is "text" and Text carries the content.
+// For thinking blocks, Type is "thinking" and Thinking carries the extended
+// thinking (chain-of-thought) content.
+// For tool_use blocks, Type is "tool_use", Name is the function name,
+// Input is the arguments object, and ID is the tool call identifier.
 type contentBlock struct {
-	Type     string `json:"type"`
-	Text     string `json:"text,omitempty"`
-	Thinking string `json:"thinking,omitempty"`
+	Type     string          `json:"type"`
+	Text     string          `json:"text"`
+	Thinking string          `json:"thinking,omitempty"`
+	Name     string          `json:"name"`
+	Input    json.RawMessage `json:"input"`
+	ID       string          `json:"id"`
 }
 
 // usageStats represents token usage statistics.
@@ -186,17 +205,17 @@ func (g *Anthropic) Generate(ctx context.Context, conv *attempt.Conversation, n 
 
 // generateOne performs a single API call and returns one response.
 func (g *Anthropic) generateOne(ctx context.Context, conv *attempt.Conversation) (attempt.Message, error) {
-	// Build request
+	messages, system, err := BuildMessages(conv)
+	if err != nil {
+		return attempt.Message{}, err
+	}
+
 	req := messageRequest{
 		Model:       g.model,
 		MaxTokens:   g.maxTokens,
-		Messages:    g.conversationToMessages(conv),
+		Messages:    messages,
+		System:      system,
 		Temperature: g.temperature,
-	}
-
-	// Add system prompt if present
-	if conv.System != nil {
-		req.System = conv.System.Content
 	}
 
 	// Add optional parameters if set
@@ -208,6 +227,43 @@ func (g *Anthropic) generateOne(ctx context.Context, conv *attempt.Conversation)
 	}
 	if len(g.stopSequences) > 0 {
 		req.StopSequences = g.stopSequences
+	}
+
+	// Wire tool definitions from probe into the API request.
+	if len(conv.Tools) > 0 {
+		req.Tools = make([]anthropicTool, len(conv.Tools))
+		for i, t := range conv.Tools {
+			name, ok := t["name"].(string)
+			if !ok || name == "" {
+				return attempt.Message{}, fmt.Errorf("anthropic: tool at index %d missing valid string name", i)
+			}
+			at := anthropicTool{
+				Name: name,
+			}
+			if desc, ok := t["description"].(string); ok {
+				at.Description = desc
+			}
+			if params, ok := t["parameters"].(map[string]any); ok {
+				at.InputSchema = params
+			} else {
+				at.InputSchema = map[string]any{"type": "object"}
+			}
+			req.Tools[i] = at
+		}
+		if conv.ToolChoice != "" {
+			switch conv.ToolChoice {
+			case "auto":
+				req.ToolChoice = &anthropicToolChoice{Type: "auto"}
+			case "required":
+				req.ToolChoice = &anthropicToolChoice{Type: "any"}
+			case "none":
+				// Anthropic doesn't have "none" — omit tools instead.
+				req.Tools = nil
+				req.ToolChoice = nil
+			default:
+				req.ToolChoice = &anthropicToolChoice{Type: "tool", Name: conv.ToolChoice}
+			}
+		}
 	}
 
 	// Serialize request
@@ -252,8 +308,12 @@ func (g *Anthropic) generateOne(ctx context.Context, conv *attempt.Conversation)
 		return attempt.Message{}, fmt.Errorf("anthropic: failed to parse response: %w", err)
 	}
 
-	// Extract text and thinking from content blocks
+	// Accumulate token usage per call (input + output).
+	g.AddTokens(int64(resp.Usage.InputTokens + resp.Usage.OutputTokens))
+
+	// Extract text, thinking, and tool_use blocks from content.
 	var text, thinking string
+	toolUseBlocks := make([]attackengine.AnthropicToolUseBlock, 0, len(resp.Content))
 	for _, block := range resp.Content {
 		switch block.Type {
 		case "text":
@@ -263,39 +323,22 @@ func (g *Anthropic) generateOne(ctx context.Context, conv *attempt.Conversation)
 				thinking += "\n"
 			}
 			thinking += block.Thinking
+		case "tool_use":
+			toolUseBlocks = append(toolUseBlocks, attackengine.AnthropicToolUseBlock{
+				Type:  block.Type,
+				ID:    block.ID,
+				Name:  block.Name,
+				Input: block.Input,
+			})
 		}
 	}
 
 	msg := attempt.NewAssistantMessage(text)
 	msg.Reasoning = thinking
-	return msg, nil
-}
-
-// conversationToMessages converts an Augustus Conversation to Anthropic messages.
-// Note: System message is handled separately in Anthropic's API.
-func (g *Anthropic) conversationToMessages(conv *attempt.Conversation) []anthropicMsg {
-	messages := make([]anthropicMsg, 0)
-
-	// Note: System message is NOT included in messages array for Anthropic
-	// It's passed as a separate parameter
-
-	for _, turn := range conv.Turns {
-		// Add user message
-		messages = append(messages, anthropicMsg{
-			Role:    "user",
-			Content: turn.Prompt.Content,
-		})
-
-		// Add assistant response if present
-		if turn.Response != nil {
-			messages = append(messages, anthropicMsg{
-				Role:    "assistant",
-				Content: turn.Response.Content,
-			})
-		}
+	if toolCalls := attackengine.NormalizeAnthropicToolUseBlocks(toolUseBlocks); toolCalls != nil {
+		msg.ToolCalls = toolCalls
 	}
-
-	return messages
+	return msg, nil
 }
 
 // handleError processes API error responses.
@@ -331,6 +374,10 @@ func (g *Anthropic) ClearHistory() {}
 func (g *Anthropic) Name() string {
 	return "anthropic.Anthropic"
 }
+
+// SupportsVision reports that the Anthropic Messages path transmits image
+// content blocks (Claude 3+ vision). See types.VisionCapable.
+func (g *Anthropic) SupportsVision() bool { return true }
 
 // Description returns a human-readable description.
 func (g *Anthropic) Description() string {

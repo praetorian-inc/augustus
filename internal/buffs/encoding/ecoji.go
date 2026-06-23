@@ -9,6 +9,7 @@ import (
 	"log/slog"
 
 	"github.com/keith-turner/ecoji/v2"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/buffs"
 	"github.com/praetorian-inc/augustus/pkg/registry"

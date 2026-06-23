@@ -8,24 +8,25 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 // mockWatsonXTextGenResponse creates a mock Watson X text generation response.
 func mockWatsonXTextGenResponse(content string) map[string]any {
 	return map[string]any{
-		"model_id":     "ibm/granite-13b-chat-v2",
+		"model_id":      "ibm/granite-13b-chat-v2",
 		"model_version": "1.0.0",
 		"created_at":    "2024-01-01T00:00:00.000Z",
 		"results": []map[string]any{
 			{
-				"generated_text": content,
+				"generated_text":        content,
 				"generated_token_count": 50,
-				"input_token_count": 10,
-				"stop_reason": "eos_token",
+				"input_token_count":     10,
+				"stop_reason":           "eos_token",
 			},
 		},
 	}
@@ -34,9 +35,9 @@ func mockWatsonXTextGenResponse(content string) map[string]any {
 func TestWatsonXGenerator_RequiresAPIKey(t *testing.T) {
 	// Should error without API key
 	_, err := NewWatsonX(registry.Config{
-		"model": "ibm/granite-13b-chat-v2",
+		"model":      "ibm/granite-13b-chat-v2",
 		"project_id": "test-project",
-		"region": "us-south",
+		"region":     "us-south",
 	})
 	assert.Error(t, err, "should require API key")
 	assert.Contains(t, err.Error(), "api_key")
@@ -46,8 +47,8 @@ func TestWatsonXGenerator_RequiresProjectIDOrDeploymentID(t *testing.T) {
 	// Should error without project_id or deployment_id
 	_, err := NewWatsonX(registry.Config{
 		"api_key": "test-key",
-		"model": "ibm/granite-13b-chat-v2",
-		"region": "us-south",
+		"model":   "ibm/granite-13b-chat-v2",
+		"region":  "us-south",
 	})
 	assert.Error(t, err, "should require project_id or deployment_id")
 	assert.Contains(t, err.Error(), "project_id")
@@ -56,9 +57,9 @@ func TestWatsonXGenerator_RequiresProjectIDOrDeploymentID(t *testing.T) {
 func TestWatsonXGenerator_RequiresModel(t *testing.T) {
 	// Should error without model
 	_, err := NewWatsonX(registry.Config{
-		"api_key": "test-key",
+		"api_key":    "test-key",
 		"project_id": "test-project",
-		"region": "us-south",
+		"region":     "us-south",
 	})
 	assert.Error(t, err, "should require model")
 	assert.Contains(t, err.Error(), "model")
@@ -67,8 +68,8 @@ func TestWatsonXGenerator_RequiresModel(t *testing.T) {
 func TestWatsonXGenerator_RequiresRegion(t *testing.T) {
 	// Should error without region
 	_, err := NewWatsonX(registry.Config{
-		"api_key": "test-key",
-		"model": "ibm/granite-13b-chat-v2",
+		"api_key":    "test-key",
+		"model":      "ibm/granite-13b-chat-v2",
 		"project_id": "test-project",
 	})
 	assert.Error(t, err, "should require region")
@@ -89,7 +90,7 @@ func TestWatsonXGenerator_GenerateWithProjectID(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"access_token": "test-bearer-token",
-				"expires_in": 3600,
+				"expires_in":   3600,
 			})
 			return
 		}
@@ -107,12 +108,12 @@ func TestWatsonXGenerator_GenerateWithProjectID(t *testing.T) {
 
 	// Create generator with project_id
 	gen, err := NewWatsonX(registry.Config{
-		"api_key": "test-api-key",
-		"model": "ibm/granite-13b-chat-v2",
+		"api_key":    "test-api-key",
+		"model":      "ibm/granite-13b-chat-v2",
 		"project_id": "test-project-id",
-		"region": "us-south",
-		"url": server.URL,
-		"iam_url": server.URL + "/identity/token",
+		"region":     "us-south",
+		"url":        server.URL,
+		"iam_url":    server.URL + "/identity/token",
 	})
 	require.NoError(t, err)
 
@@ -142,7 +143,7 @@ func TestWatsonXGenerator_GenerateWithDeploymentID(t *testing.T) {
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"access_token": "test-bearer-token",
-				"expires_in": 3600,
+				"expires_in":   3600,
 			})
 			return
 		}
@@ -161,12 +162,12 @@ func TestWatsonXGenerator_GenerateWithDeploymentID(t *testing.T) {
 
 	// Create generator with deployment_id
 	gen, err := NewWatsonX(registry.Config{
-		"api_key": "test-api-key",
-		"model": "ibm/granite-13b-chat-v2",
+		"api_key":       "test-api-key",
+		"model":         "ibm/granite-13b-chat-v2",
 		"deployment_id": "test-deployment-id",
-		"region": "us-south",
-		"url": server.URL,
-		"iam_url": server.URL + "/identity/token",
+		"region":        "us-south",
+		"url":           server.URL,
+		"iam_url":       server.URL + "/identity/token",
 	})
 	require.NoError(t, err)
 
@@ -205,12 +206,12 @@ func TestWatsonXGenerator_GenerateMultiple(t *testing.T) {
 	defer server.Close()
 
 	gen, err := NewWatsonX(registry.Config{
-		"api_key": "test-key",
-		"model": "ibm/granite-13b-chat-v2",
+		"api_key":    "test-key",
+		"model":      "ibm/granite-13b-chat-v2",
 		"project_id": "test-project",
-		"region": "us-south",
-		"url": server.URL,
-		"iam_url": server.URL + "/identity/token",
+		"region":     "us-south",
+		"url":        server.URL,
+		"iam_url":    server.URL + "/identity/token",
 	})
 	require.NoError(t, err)
 
@@ -260,12 +261,12 @@ func TestWatsonXGenerator_EmptyPromptHandling(t *testing.T) {
 	defer server.Close()
 
 	gen, err := NewWatsonX(registry.Config{
-		"api_key": "test-key",
-		"model": "ibm/granite-13b-chat-v2",
+		"api_key":    "test-key",
+		"model":      "ibm/granite-13b-chat-v2",
 		"project_id": "test-project",
-		"region": "us-south",
-		"url": server.URL,
-		"iam_url": server.URL + "/identity/token",
+		"region":     "us-south",
+		"url":        server.URL,
+		"iam_url":    server.URL + "/identity/token",
 	})
 	require.NoError(t, err)
 
@@ -276,6 +277,113 @@ func TestWatsonXGenerator_EmptyPromptHandling(t *testing.T) {
 	responses, err := gen.Generate(context.Background(), conv, 1)
 	require.NoError(t, err)
 	assert.Len(t, responses, 1)
+}
+
+// TestWatsonXGenerator_AccumulatesTokenUsage is a regression test for the
+// token-accounting bug where input_token_count was read at the top level of
+// the JSON response instead of from inside results[].  The mock already places
+// input_token_count:10 and generated_token_count:50 inside results[0], so the
+// fixed code must return 60 (10+50).  Under the old buggy code the input
+// tokens were always 0 (missing at top level), giving 50.  Both the project
+// path and the deployment path use the same decode struct, so both are covered.
+func TestWatsonXGenerator_AccumulatesTokenUsage(t *testing.T) {
+	t.Run("project path accumulates input+generated tokens", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "/identity/token") {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"access_token": "test-bearer-token",
+					"expires_in":   3600,
+				})
+				return
+			}
+
+			if strings.Contains(r.URL.Path, "/ml/v1/text/generation") {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(mockWatsonXTextGenResponse("response"))
+				return
+			}
+
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		// NewWatsonX returns the Generator interface; keep the concrete *WatsonX
+		// so we can call AccumulatedTokens() without a type assertion.
+		watsonxGen, err := NewWatsonX(registry.Config{
+			"api_key":    "test-api-key",
+			"model":      "ibm/granite-13b-chat-v2",
+			"project_id": "test-project-id",
+			"region":     "us-south",
+			"url":        server.URL,
+			"iam_url":    server.URL + "/identity/token",
+		})
+		require.NoError(t, err)
+
+		// Type-assert to *WatsonX for AccumulatedTokens() access.
+		concreteGen, ok := watsonxGen.(*WatsonX)
+		require.True(t, ok, "NewWatsonX must return *WatsonX")
+
+		conv := attempt.NewConversation()
+		conv.AddPrompt("Hello")
+
+		responses, err := concreteGen.Generate(context.Background(), conv, 1)
+		require.NoError(t, err)
+		require.Len(t, responses, 1)
+
+		// mock: input_token_count=10 + generated_token_count=50 = 60
+		// buggy code would give 50 (input always decoded as 0 from top-level field)
+		assert.Equal(t, int64(60), concreteGen.AccumulatedTokens(),
+			"AccumulatedTokens should be 60 (10 input + 50 generated); "+
+				"50 would indicate the old bug where input_token_count was read from the top level")
+	})
+
+	t.Run("deployment path accumulates input+generated tokens", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, "/identity/token") {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"access_token": "test-bearer-token",
+					"expires_in":   3600,
+				})
+				return
+			}
+
+			if strings.Contains(r.URL.Path, "/ml/v1/deployments/") {
+				w.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(w).Encode(mockWatsonXTextGenResponse("deployed response"))
+				return
+			}
+
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
+
+		watsonxGen, err := NewWatsonX(registry.Config{
+			"api_key":       "test-api-key",
+			"model":         "ibm/granite-13b-chat-v2",
+			"deployment_id": "test-deployment-id",
+			"region":        "us-south",
+			"url":           server.URL,
+			"iam_url":       server.URL + "/identity/token",
+		})
+		require.NoError(t, err)
+
+		concreteGen, ok := watsonxGen.(*WatsonX)
+		require.True(t, ok, "NewWatsonX must return *WatsonX")
+
+		conv := attempt.NewConversation()
+		conv.AddPrompt("Hello")
+
+		responses, err := concreteGen.Generate(context.Background(), conv, 1)
+		require.NoError(t, err)
+		require.Len(t, responses, 1)
+
+		// Same expectation: 10 input + 50 generated = 60
+		assert.Equal(t, int64(60), concreteGen.AccumulatedTokens(),
+			"AccumulatedTokens should be 60 (10 input + 50 generated); "+
+				"50 would indicate the old bug where input_token_count was read from the top level")
+	})
 }
 
 func TestWatsonXGenerator_MaxTokensConfiguration(t *testing.T) {
@@ -295,13 +403,13 @@ func TestWatsonXGenerator_MaxTokensConfiguration(t *testing.T) {
 	defer server.Close()
 
 	gen, err := NewWatsonX(registry.Config{
-		"api_key": "test-key",
-		"model": "ibm/granite-13b-chat-v2",
+		"api_key":    "test-key",
+		"model":      "ibm/granite-13b-chat-v2",
 		"project_id": "test-project",
-		"region": "us-south",
+		"region":     "us-south",
 		"max_tokens": 500,
-		"url": server.URL,
-		"iam_url": server.URL + "/identity/token",
+		"url":        server.URL,
+		"iam_url":    server.URL + "/identity/token",
 	})
 	require.NoError(t, err)
 

@@ -10,10 +10,10 @@ import (
 // BaseMultiTurnProbe provides shared Prober implementation for all multi-turn probes.
 // Embed this in probe-specific structs and only override the factory function.
 type BaseMultiTurnProbe struct {
-	Engine      *UnifiedEngine
-	ProbeName   string
-	ProbeGoal   string
-	ProbeDesc   string
+	Engine    *UnifiedEngine
+	ProbeName string
+	ProbeGoal string
+	ProbeDesc string
 }
 
 // Probe executes the multi-turn attack against the target generator.

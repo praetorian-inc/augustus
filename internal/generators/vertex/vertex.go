@@ -24,9 +24,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/praetorian-inc/augustus/internal/attackengine"
+	"github.com/praetorian-inc/augustus/internal/generators/googleai"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -43,6 +46,8 @@ const (
 
 // Vertex is a generator that wraps the Google Cloud Vertex AI API.
 type Vertex struct {
+	types.UsageCounter // embedded; provides AccumulatedTokens()
+
 	apiKey    string
 	baseURL   string
 	projectID string
@@ -50,11 +55,11 @@ type Vertex struct {
 	model     string
 
 	// Configuration parameters
-	temperature      float64
-	maxOutputTokens  int
-	topP             float64
-	topK             int
-	stopSequences    []string
+	temperature     float64
+	maxOutputTokens int
+	topP            float64
+	topK            int
+	stopSequences   []string
 
 	// HTTP client for API calls
 	client *http.Client
@@ -119,64 +124,6 @@ func NewVertexWithOptions(opts ...Option) (*Vertex, error) {
 	return NewVertexTyped(cfg)
 }
 
-// contentPart represents a part in a content block.
-type contentPart struct {
-	Text string `json:"text"`
-}
-
-// content represents a message content.
-type content struct {
-	Role  string        `json:"role"`
-	Parts []contentPart `json:"parts"`
-}
-
-// generationConfig represents generation parameters.
-type generationConfig struct {
-	Temperature     float64  `json:"temperature,omitempty"`
-	MaxOutputTokens int      `json:"maxOutputTokens,omitempty"`
-	TopP            float64  `json:"topP,omitempty"`
-	TopK            int      `json:"topK,omitempty"`
-	StopSequences   []string `json:"stopSequences,omitempty"`
-}
-
-// generateRequest represents the Vertex AI generateContent API request.
-type generateRequest struct {
-	Contents          []content         `json:"contents"`
-	SystemInstruction *content          `json:"systemInstruction,omitempty"`
-	GenerationConfig  *generationConfig `json:"generationConfig,omitempty"`
-}
-
-// candidate represents a response candidate.
-type candidate struct {
-	Content      content `json:"content"`
-	FinishReason string  `json:"finishReason"`
-}
-
-// usageMetadata represents token usage statistics.
-type usageMetadata struct {
-	PromptTokenCount     int `json:"promptTokenCount"`
-	CandidatesTokenCount int `json:"candidatesTokenCount"`
-	TotalTokenCount      int `json:"totalTokenCount"`
-}
-
-// generateResponse represents the Vertex AI API response.
-type generateResponse struct {
-	Candidates    []candidate   `json:"candidates"`
-	UsageMetadata usageMetadata `json:"usageMetadata"`
-}
-
-// errorResponse represents a Vertex AI API error.
-type errorResponse struct {
-	Error errorDetail `json:"error"`
-}
-
-// errorDetail contains error information.
-type errorDetail struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Status  string `json:"status"`
-}
-
 // Generate sends the conversation to Vertex AI and returns responses.
 func (g *Vertex) Generate(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
 	if n <= 0 {
@@ -199,21 +146,25 @@ func (g *Vertex) Generate(ctx context.Context, conv *attempt.Conversation, n int
 // generateOne performs a single API call and returns one response.
 func (g *Vertex) generateOne(ctx context.Context, conv *attempt.Conversation) (attempt.Message, error) {
 	// Build request
-	req := generateRequest{
-		Contents: g.conversationToContents(conv),
+	contents, err := g.conversationToContents(conv)
+	if err != nil {
+		return attempt.Message{}, err
+	}
+	req := googleai.GenerateRequest{
+		Contents: contents,
 	}
 
 	// Add system instruction if present
 	if conv.System != nil {
-		req.SystemInstruction = &content{
-			Parts: []contentPart{
+		req.SystemInstruction = &googleai.Content{
+			Parts: []googleai.ContentPart{
 				{Text: conv.System.Content},
 			},
 		}
 	}
 
 	// Add generation config
-	genConfig := generationConfig{
+	genConfig := googleai.GenerationConfig{
 		Temperature:     g.temperature,
 		MaxOutputTokens: g.maxOutputTokens,
 	}
@@ -227,6 +178,43 @@ func (g *Vertex) generateOne(ctx context.Context, conv *attempt.Conversation) (a
 		genConfig.StopSequences = g.stopSequences
 	}
 	req.GenerationConfig = &genConfig
+
+	// Wire tool definitions from the probe into the API request.
+	if len(conv.Tools) > 0 {
+		decls := make([]googleai.FunctionDeclaration, len(conv.Tools))
+		for i, t := range conv.Tools {
+			name, ok := t["name"].(string)
+			if !ok || name == "" {
+				return attempt.Message{}, fmt.Errorf("vertex: tool at index %d missing valid string name", i)
+			}
+			fd := googleai.FunctionDeclaration{Name: name}
+			if desc, ok := t["description"].(string); ok {
+				fd.Description = desc
+			}
+			if params, ok := t["parameters"]; ok {
+				fd.Parameters = params
+			}
+			decls[i] = fd
+		}
+		req.Tools = []googleai.ToolDeclaration{{FunctionDeclarations: decls}}
+
+		if conv.ToolChoice != "" {
+			switch conv.ToolChoice {
+			case "auto":
+				req.ToolConfig = &googleai.ToolConfig{FunctionCallingConfig: &googleai.FunctionCallingConfig{Mode: "AUTO"}}
+			case "required":
+				req.ToolConfig = &googleai.ToolConfig{FunctionCallingConfig: &googleai.FunctionCallingConfig{Mode: "ANY"}}
+			case "none":
+				req.Tools = nil
+				req.ToolConfig = &googleai.ToolConfig{FunctionCallingConfig: &googleai.FunctionCallingConfig{Mode: "NONE"}}
+			default:
+				req.ToolConfig = &googleai.ToolConfig{FunctionCallingConfig: &googleai.FunctionCallingConfig{
+					Mode:                 "ANY",
+					AllowedFunctionNames: []string{conv.ToolChoice},
+				}}
+			}
+		}
+	}
 
 	// Serialize request
 	body, err := json.Marshal(req)
@@ -269,83 +257,112 @@ func (g *Vertex) generateOne(ctx context.Context, conv *attempt.Conversation) (a
 
 	// Handle errors
 	if httpResp.StatusCode != http.StatusOK {
-		return attempt.Message{}, g.handleError(httpResp.StatusCode, respBody)
+		return attempt.Message{}, googleai.HandleError("vertex", httpResp.StatusCode, respBody)
 	}
 
 	// Parse successful response
-	var resp generateResponse
+	var resp googleai.GenerateResponse
 	if err := json.Unmarshal(respBody, &resp); err != nil {
 		return attempt.Message{}, fmt.Errorf("vertex: failed to parse response: %w", err)
 	}
 
-	// Extract text from first candidate
+	// Accumulate token usage per call.
+	g.AddTokens(int64(resp.UsageMetadata.TotalTokenCount))
+
+	// Extract text and function calls from first candidate
 	if len(resp.Candidates) == 0 {
 		return attempt.Message{}, fmt.Errorf("vertex: no candidates in response")
 	}
 
 	var text string
+	var funcCalls []attackengine.GeminiFunctionCall
 	for _, part := range resp.Candidates[0].Content.Parts {
-		text += part.Text
+		if part.Text != "" {
+			text += part.Text
+		}
+		if part.FunctionCall != nil {
+			funcCalls = append(funcCalls, attackengine.GeminiFunctionCall{
+				Name: part.FunctionCall.Name,
+				Args: part.FunctionCall.Args,
+			})
+		}
 	}
 
-	return attempt.NewAssistantMessage(text), nil
+	msg := attempt.NewAssistantMessage(text)
+	if toolCalls := attackengine.NormalizeGeminiFunctionCalls(funcCalls); toolCalls != nil {
+		msg.ToolCalls = toolCalls
+	}
+	return msg, nil
 }
 
 // conversationToContents converts an Augustus Conversation to Vertex AI contents.
-func (g *Vertex) conversationToContents(conv *attempt.Conversation) []content {
-	contents := make([]content, 0)
+// Images on user turns are emitted as inlineData parts via the shared
+// googleai.BuildImageParts helper (same path as gemini.Gemini); an unset or
+// unsupported image MIME type returns an error rather than silently dropping
+// the attachment and running the probe as a text-only request.
+func (g *Vertex) conversationToContents(conv *attempt.Conversation) ([]googleai.Content, error) {
+	contents := make([]googleai.Content, 0)
 
 	// Note: System message is NOT included in contents array for Vertex AI
 	// It's passed as a separate systemInstruction parameter
 
 	for _, turn := range conv.Turns {
-		// Add user message
-		contents = append(contents, content{
-			Role: "user",
-			Parts: []contentPart{
-				{Text: turn.Prompt.Content},
-			},
-		})
+		switch turn.Prompt.Role {
+		case attempt.RoleTool:
+			// Tool result: "function" role with a functionResponse part.
+			// Gemini matches responses to calls by the function name (not call ID).
+			var respData map[string]any
+			if err := json.Unmarshal([]byte(turn.Prompt.Content), &respData); err != nil {
+				respData = map[string]any{"result": turn.Prompt.Content}
+			}
+			// ToolCallID holds the function name for Gemini tool results.
+			name := turn.Prompt.ToolCallID
+			contents = append(contents, googleai.Content{
+				Role: "function",
+				Parts: []googleai.ContentPart{{
+					FunctionResponse: &googleai.FunctionResponse{Name: name, Response: respData},
+				}},
+			})
+		default:
+			// Standard user message: text part (if non-empty) followed by one
+			// inlineData part per image.
+			parts := make([]googleai.ContentPart, 0, 1+len(turn.Prompt.Images))
+			if turn.Prompt.Content != "" {
+				parts = append(parts, googleai.ContentPart{Text: turn.Prompt.Content})
+			}
+			imgParts, err := googleai.BuildImageParts(turn.Prompt.Images)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, imgParts...)
+			contents = append(contents, googleai.Content{
+				Role:  "user",
+				Parts: parts,
+			})
+		}
 
 		// Add model response if present
 		if turn.Response != nil {
-			contents = append(contents, content{
-				Role: "model",
-				Parts: []contentPart{
-					{Text: turn.Response.Content},
-				},
-			})
+			parts := []googleai.ContentPart{}
+			if turn.Response.Content != "" {
+				parts = append(parts, googleai.ContentPart{Text: turn.Response.Content})
+			}
+			for _, tc := range turn.Response.ToolCalls {
+				name, _ := tc["name"].(string)
+				args, _ := tc["args"].(map[string]any)
+				if name != "" {
+					parts = append(parts, googleai.ContentPart{
+						FunctionCall: &googleai.FunctionCall{Name: name, Args: args},
+					})
+				}
+			}
+			if len(parts) > 0 {
+				contents = append(contents, googleai.Content{Role: "model", Parts: parts})
+			}
 		}
 	}
 
-	return contents
-}
-
-// handleError processes API error responses.
-func (g *Vertex) handleError(statusCode int, body []byte) error {
-	var errResp errorResponse
-	if err := json.Unmarshal(body, &errResp); err != nil {
-		return fmt.Errorf("vertex: HTTP %d: %s", statusCode, string(body))
-	}
-
-	errCode := errResp.Error.Code
-	errMsg := errResp.Error.Message
-	errStatus := errResp.Error.Status
-
-	switch statusCode {
-	case http.StatusTooManyRequests:
-		return fmt.Errorf("vertex: rate limit exceeded: %s", errMsg)
-	case http.StatusBadRequest:
-		return fmt.Errorf("vertex: bad request (%s): %s", errStatus, errMsg)
-	case http.StatusUnauthorized:
-		return fmt.Errorf("vertex: authentication error: %s", errMsg)
-	case http.StatusForbidden:
-		return fmt.Errorf("vertex: permission denied: %s", errMsg)
-	case http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-		return fmt.Errorf("vertex: server error (%d): %s", statusCode, errMsg)
-	default:
-		return fmt.Errorf("vertex: API error (%d, %s): %s", errCode, errStatus, errMsg)
-	}
+	return contents, nil
 }
 
 // ClearHistory is a no-op for Vertex generator (stateless per call).
@@ -355,6 +372,10 @@ func (g *Vertex) ClearHistory() {}
 func (g *Vertex) Name() string {
 	return "vertex.Vertex"
 }
+
+// SupportsVision reports that the Vertex AI path transmits inlineData image
+// parts (Gemini vision). See types.VisionCapable.
+func (g *Vertex) SupportsVision() bool { return true }
 
 // Description returns a human-readable description.
 func (g *Vertex) Description() string {

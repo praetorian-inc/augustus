@@ -2,7 +2,6 @@
 //
 // ANSI escape codes can manipulate terminal behavior, hide content, or execute commands.
 // These detectors identify both escaped (string representations) and raw (actual bytes) sequences.
-//
 package ansiescape
 
 import (

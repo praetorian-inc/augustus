@@ -102,9 +102,32 @@ func ApplyDetectors(
 		}
 	}
 
-	// Set primary detector to one with highest score
-	// If no detector had scores, use first detector
-	if primaryDetector != "" {
+	// Determine the primary detector for this attempt.
+	//
+	// Probes set a.Detector to their recommended detector during attempt
+	// creation (e.g., toolhijack.ToolSelection for toolhijack probes).
+	// When the probe's detector was run and produced results, prefer it
+	// over the highest-scoring detector. This prevents unrelated generic
+	// detectors (e.g., goodside.Glitch) from overriding probe-specific
+	// results when multiple detectors are active (--all or --probes-glob).
+	//
+	// Fallback order:
+	// 1. Probe's own detector (if set and has results)
+	// 2. Highest-scoring detector across all detectors
+	// 3. First detector that ran
+	probeDetector := a.Detector
+	if probeDetector != "" {
+		if scores, ok := a.DetectorResults[probeDetector]; ok && len(scores) > 0 {
+			// Probe's detector ran and produced results; keep it
+			a.Scores = scores
+		} else if primaryDetector != "" {
+			a.Detector = primaryDetector
+			a.Scores = primaryScores
+		} else if firstDetector != "" {
+			a.Detector = firstDetector
+			a.Scores = firstScores
+		}
+	} else if primaryDetector != "" {
 		a.Detector = primaryDetector
 		a.Scores = primaryScores
 	} else if firstDetector != "" {

@@ -4,9 +4,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -25,16 +26,16 @@ func TestConfigFromMap_RequiresURI(t *testing.T) {
 
 func TestConfigFromMap_Success(t *testing.T) {
 	m := registry.Config{
-		"uri":                  "https://api.example.com/generate",
-		"method":               "PUT",
-		"headers":              map[string]any{"Authorization": "Bearer token"},
-		"req_template":         "{\"prompt\": \"$INPUT\"}",
-		"response_json":        true,
-		"response_json_field":  "text",
-		"request_timeout":      30.0,
-		"ratelimit_codes":      []any{429, 503},
-		"skip_codes":           []any{404},
-		"api_key":              "test-key",
+		"uri":                 "https://api.example.com/generate",
+		"method":              "PUT",
+		"headers":             map[string]any{"Authorization": "Bearer token"},
+		"req_template":        "{\"prompt\": \"$INPUT\"}",
+		"response_json":       true,
+		"response_json_field": "text",
+		"request_timeout":     30.0,
+		"ratelimit_codes":     []any{429, 503},
+		"skip_codes":          []any{404},
+		"api_key":             "test-key",
 	}
 
 	cfg, err := ConfigFromMap(m)

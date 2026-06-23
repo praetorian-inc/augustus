@@ -6,10 +6,11 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/praetorian-inc/augustus/internal/testutil"
-	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/internal/testutil"
+	"github.com/praetorian-inc/augustus/pkg/probes"
 )
 
 // TestInvisibleUnicodeRegistration verifies the probe registers itself

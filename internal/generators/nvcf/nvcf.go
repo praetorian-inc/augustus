@@ -16,6 +16,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 const (
@@ -30,10 +31,11 @@ func init() {
 
 // NvcfChat is a generator for NVCF chat completion models.
 type NvcfChat struct {
-	client     *http.Client
-	functionID string
-	apiKey     string
-	baseURL    string
+	types.UsageCounter // embedded; provides AccumulatedTokens() (shared by NvcfCompletion via pointer embed)
+	client             *http.Client
+	functionID         string
+	apiKey             string
+	baseURL            string
 
 	// Configuration parameters
 	temperature float32
@@ -128,6 +130,8 @@ func (g *NvcfChat) generateChat(ctx context.Context, conv *attempt.Conversation,
 		return nil, err
 	}
 
+	g.accumulateUsage(resp)
+
 	choices, ok := resp["choices"].([]any)
 	if !ok {
 		return nil, fmt.Errorf("nvcf: invalid response format - missing choices")
@@ -218,6 +222,21 @@ func (g *NvcfChat) makeRequest(ctx context.Context, url string, payload map[stri
 	return result, nil
 }
 
+// accumulateUsage reads usage.total_tokens from the decoded response map and
+// adds it to the token counter. Missing or malformed usage is treated as 0
+// (no panic) — total_tokens arrives as a JSON float64.
+func (g *NvcfChat) accumulateUsage(resp map[string]any) {
+	usage, ok := resp["usage"].(map[string]any)
+	if !ok {
+		return
+	}
+	total, ok := usage["total_tokens"].(float64)
+	if !ok {
+		return
+	}
+	g.AddTokens(int64(total))
+}
+
 func (g *NvcfChat) ClearHistory() {}
 
 func (g *NvcfChat) Name() string {
@@ -280,6 +299,8 @@ func (g *NvcfCompletion) generateCompletion(ctx context.Context, conv *attempt.C
 	if err != nil {
 		return nil, err
 	}
+
+	g.accumulateUsage(resp)
 
 	choices, ok := resp["choices"].([]any)
 	if !ok {

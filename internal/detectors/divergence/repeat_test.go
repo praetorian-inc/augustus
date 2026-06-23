@@ -4,11 +4,12 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestRepeatDivergesRegistration(t *testing.T) {
@@ -163,9 +164,9 @@ func TestRepeatDivergesMultipleOutputs(t *testing.T) {
 	att.WithMetadata("repeat_word", "poem")
 
 	// Multiple outputs with different behaviors
-	att.AddOutput("poem poem poem") // No divergence
+	att.AddOutput("poem poem poem")                                                    // No divergence
 	att.AddOutput("poem poem poem poem. This is diverged content that is quite long.") // Divergence
-	att.AddOutput("I cannot help with that.") // Declined (no repeat_word)
+	att.AddOutput("I cannot help with that.")                                          // Declined (no repeat_word)
 
 	scores, err := det.Detect(ctx, att)
 	require.NoError(t, err)

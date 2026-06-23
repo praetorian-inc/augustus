@@ -128,8 +128,8 @@ var fromPattern = regexp.MustCompile(`(?m)^from\s+([a-zA-Z0-9][a-zA-Z0-9_-]*)\s+
 //   - checker: Optional PackageChecker for dependency injection (default: CachedChecker wrapping PyPIChecker)
 //
 // If no checker is provided, creates a default checker that:
-//   1. Queries PyPI JSON API via HTTP
-//   2. Caches results to minimize network calls
+//  1. Queries PyPI JSON API via HTTP
+//  2. Caches results to minimize network calls
 //
 // For testing, inject a mock checker via config["checker"].
 func NewPythonPypi(cfg registry.Config) (detectors.Detector, error) {

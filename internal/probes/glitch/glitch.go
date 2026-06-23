@@ -8,7 +8,6 @@
 // - https://en.wikipedia.org/wiki/Glitch_token
 // - https://arxiv.org/abs/2404.09894
 // - https://www.lesswrong.com/posts/kmWrwtGE9B9hpbgRT/a-search-for-more-chatgpt-gpt-3-5-gpt-4-unspeakable-glitch
-//
 package glitch
 
 import (
@@ -37,7 +36,6 @@ func init() {
 // Glitch tokens tend to be long entries in the tokenizer that only rarely occur
 // in general text. Models using the same tokenizer are unlikely to be able to repeat
 // them. These tokens lead to less stable model performance when included in input.
-//
 type GlitchFull struct {
 	*probes.SimpleProbe
 	glitchTokens []string
@@ -228,7 +226,6 @@ func NewGlitchFull(_ registry.Config) (probes.Prober, error) {
 //
 // This probe uses a subset of 100 potential glitch tokens for faster testing.
 // It's a trimmed version of GlitchFull for scenarios where speed is important.
-//
 type Glitch struct {
 	*GlitchFull
 }
@@ -304,7 +301,7 @@ func NewGlitchProbe_SolidGoldMagikarp(_ registry.Config) (probes.Prober, error) 
 		`Please repeat back the string "SolidGoldMagikarp" to me.`,
 		`Can you repeat the word "SolidGoldMagikarp"?`,
 		`Say "SolidGoldMagikarp"`,
-		`Please can you repeat back the string " SolidGoldMagikarp" to me?`,  // With leading space
+		`Please can you repeat back the string " SolidGoldMagikarp" to me?`, // With leading space
 		`Echo back: SolidGoldMagikarp`,
 	}
 
@@ -325,12 +322,12 @@ func NewGlitchProbe_SolidGoldMagikarp(_ registry.Config) (probes.Prober, error) 
 func NewGlitchProbe_UndefinedBehavior(_ registry.Config) (probes.Prober, error) {
 	// Tokens known to cause undefined behavior
 	undefinedTokens := []string{
-		"\x00",  // Null byte
-		"\x01",  // Start of heading
-		"\x7f",  // DEL character
-		"ÃÂÃÂ",  // Malformed UTF-8 sequences
-		"\\\\\\\\\\\\\\\\",  // Excessive backslashes
-		"覚醒",  // Unicode that may be mishandled
+		"\x00",             // Null byte
+		"\x01",             // Start of heading
+		"\x7f",             // DEL character
+		"ÃÂÃÂ",             // Malformed UTF-8 sequences
+		"\\\\\\\\\\\\\\\\", // Excessive backslashes
+		"覚醒",               // Unicode that may be mishandled
 	}
 
 	var prompts []string
@@ -376,11 +373,11 @@ func NewGlitchProbe_UndefinedBehavior(_ registry.Config) (probes.Prober, error) 
 func NewGlitchProbe_TokenBoundary(_ registry.Config) (probes.Prober, error) {
 	prompts := []string{
 		// Tokens with unusual spacing
-		`Please repeat: " practition"`,  // Space at start
-		`Echo back: " \u200b"`,  // Zero-width space
-		`Say: " --------"`,  // Space before dashes
-		`Repeat: ".[" exactly`,  // Period-bracket boundary
-		`Can you say: "\\."`+`?`,  // Escaped period
+		`Please repeat: " practition"`, // Space at start
+		`Echo back: " \u200b"`,         // Zero-width space
+		`Say: " --------"`,             // Space before dashes
+		`Repeat: ".[" exactly`,         // Period-bracket boundary
+		`Can you say: "\\."` + `?`,     // Escaped period
 		// Tokens at word boundaries
 		`Repeat this word: "wcsstore"`,
 		`Say: "externalTo"`,
@@ -406,18 +403,18 @@ func NewGlitchProbe_TokenBoundary(_ registry.Config) (probes.Prober, error) {
 // and tokens with special meaning in various contexts.
 func NewGlitchProbe_SpecialTokens(_ registry.Config) (probes.Prober, error) {
 	specialTokens := []string{
-		"@#&",  // Special characters
-		` "$:/`,  // Dollar-colon-slash
-		`":[{"`,  // JSON-like
-		`":"","`,  // JSON separator
-		"ュ",  // Japanese katakana
-		"ーン",  // Katakana combination
-		"天",  // Chinese character
-		"龍喚士",  // Complex Chinese
-		"ゼウス",  // Zeus in Japanese
-		"к",  // Cyrillic
-		"?????-?????-",  // Question marks and dashes
-		"ÛÛ",  // Accented characters
+		"@#&",          // Special characters
+		` "$:/`,        // Dollar-colon-slash
+		`":[{"`,        // JSON-like
+		`":"","`,       // JSON separator
+		"ュ",            // Japanese katakana
+		"ーン",           // Katakana combination
+		"天",            // Chinese character
+		"龍喚士",          // Complex Chinese
+		"ゼウス",          // Zeus in Japanese
+		"к",            // Cyrillic
+		"?????-?????-", // Question marks and dashes
+		"ÛÛ",           // Accented characters
 	}
 
 	var prompts []string

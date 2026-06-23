@@ -6,10 +6,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 // TestGoDetector_Detect tests the Go detector.
@@ -18,9 +19,9 @@ func TestGoDetector_Detect(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Real packages return 200
 		realPackages := map[string]bool{
-			"/github.com/gorilla/mux":       true,
-			"/golang.org/x/sync":            true,
-			"/github.com/stretchr/testify":  true,
+			"/github.com/gorilla/mux":      true,
+			"/golang.org/x/sync":           true,
+			"/github.com/stretchr/testify": true,
 		}
 		if realPackages[r.URL.Path] {
 			w.WriteHeader(http.StatusOK)

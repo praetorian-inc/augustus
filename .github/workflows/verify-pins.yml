@@ -1,0 +1,16 @@
+name: Verify Pins
+# Fails CI if any first-party praetorian-inc/public-workflows `uses:` pin carries a
+# dishonest version comment (missing tag, nonexistent tag, or SHA != that tag).
+on:
+  pull_request:
+    paths: ['.github/workflows/**']
+  push:
+    branches: [main]
+    paths: ['.github/workflows/**']
+permissions:
+  contents: read
+jobs:
+  verify:
+    uses: praetorian-inc/public-workflows/.github/workflows/verify-pins.yml@4d159292c689b4ea95f01ca1d9d6f891c123eeb2  # v2.11.0
+    permissions:
+      contents: read

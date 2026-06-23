@@ -223,4 +223,3 @@ func (m *mockGeneratorWithError) Name() string {
 func (m *mockGeneratorWithError) Description() string {
 	return "mock generator that always errors"
 }
-

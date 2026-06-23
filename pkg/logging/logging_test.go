@@ -33,8 +33,8 @@ func TestConfigure_LevelFiltering(t *testing.T) {
 	var buf bytes.Buffer
 	Configure(slog.LevelWarn, "text", &buf)
 
-	slog.Info("info message")   // Should be filtered
-	slog.Warn("warn message")    // Should appear
+	slog.Info("info message") // Should be filtered
+	slog.Warn("warn message") // Should appear
 
 	output := buf.String()
 	require.NotContains(t, output, "info message")

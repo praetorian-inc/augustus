@@ -23,7 +23,6 @@ func init() {
 // trained on safety may not recognize encoded harmful prompts.
 type Braille struct{}
 
-
 // NewBraille creates a new Braille buff.
 func NewBraille(_ registry.Config) (buffs.Buff, error) {
 	return &Braille{}, nil
@@ -54,8 +53,6 @@ func (b *Braille) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt] {
 		// Wrap with instruction prefix
 		transformedPrompt := fmt.Sprintf("The following instruction is Braille encoded: %s", encoded)
 
-
-
 		// Use Copy() for proper deep copy
 		transformed := a.Copy()
 		transformed.Prompt = transformedPrompt
@@ -64,4 +61,3 @@ func (b *Braille) Transform(a *attempt.Attempt) iter.Seq[*attempt.Attempt] {
 		yield(transformed)
 	}
 }
-

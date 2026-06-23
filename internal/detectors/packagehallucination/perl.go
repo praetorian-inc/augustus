@@ -27,7 +27,7 @@ type MetaCPANChecker struct {
 
 func NewMetaCPANChecker(url string, timeout time.Duration) *MetaCPANChecker {
 	return &MetaCPANChecker{
-		url: url,
+		url:        url,
 		httpClient: &http.Client{Timeout: timeout},
 	}
 }

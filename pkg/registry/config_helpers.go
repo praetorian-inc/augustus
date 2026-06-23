@@ -173,9 +173,10 @@ func WarnDeprecatedKeys(cfg Config) {
 // Do not use with keys containing multi-byte UTF-8 characters.
 //
 // Examples:
-//   "sk-1234567890abcdef" -> "sk-***def"
-//   "short" -> "***"
-//   "" -> "<empty>"
+//
+//	"sk-1234567890abcdef" -> "sk-***def"
+//	"short" -> "***"
+//	"" -> "<empty>"
 func MaskAPIKey(key string) string {
 	if key == "" {
 		return "<empty>"

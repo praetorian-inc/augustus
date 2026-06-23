@@ -121,3 +121,7 @@ benchmark-results/
 .claude/.serena/
 .claude/.serena-warmup-status.json
 .claude/agent-memory/
+.claude/workflows/
+
+# graphify code knowledge graph (built locally / in CI; do not commit the 50k+ node graph)
+graphify-out/

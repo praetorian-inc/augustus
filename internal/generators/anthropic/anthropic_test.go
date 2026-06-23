@@ -10,11 +10,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // mockAnthropicResponse creates a mock Anthropic Messages API response.
@@ -30,7 +31,7 @@ func mockAnthropicResponse(content string) map[string]any {
 				"text": content,
 			},
 		},
-		"stop_reason":  "end_turn",
+		"stop_reason":   "end_turn",
 		"stop_sequence": nil,
 		"usage": map[string]any{
 			"input_tokens":  10,
@@ -733,4 +734,404 @@ func TestAnthropicGenerator_AnthropicVersion(t *testing.T) {
 
 	_, err = g.Generate(context.Background(), conv, 1)
 	assert.NoError(t, err)
+}
+
+func TestAnthropicGenerator_HandlesMalformedJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id": "msg_test", "content": [{"type": "text",`)) // truncated JSON
+	}))
+	defer server.Close()
+
+	g, err := NewAnthropic(registry.Config{
+		"model":    "claude-3-opus-20240229",
+		"api_key":  "test-key",
+		"base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hi")
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "parse response",
+		"expected error to wrap parse failure, got: %v", err)
+}
+
+func TestAnthropicGenerator_Handles500Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(`{"type":"error","error":{"type":"api_error","message":"internal error"}}`))
+	}))
+	defer server.Close()
+
+	g, err := NewAnthropic(registry.Config{
+		"model":    "claude-3-opus-20240229",
+		"api_key":  "test-key",
+		"base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hi")
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "server error",
+		"expected 5xx classified as server error, got: %v", err)
+}
+
+func TestAnthropicGenerator_ContextCancellation(t *testing.T) {
+	// Server hangs intentionally — handler exits on whichever fires first:
+	// client request context cancellation OR a generous safety timeout (so
+	// server.Close() never deadlocks waiting for the handler if the client
+	// transport doesn't propagate cancellation aggressively).
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+	}))
+	defer server.Close()
+
+	g, err := NewAnthropic(registry.Config{
+		"model":    "claude-3-opus-20240229",
+		"api_key":  "test-key",
+		"base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hi")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err = g.Generate(ctx, conv, 1)
+	require.Error(t, err)
+	assert.True(t,
+		strings.Contains(err.Error(), "context") || strings.Contains(err.Error(), "deadline"),
+		"expected context/deadline error, got: %v", err)
+}
+
+// ---------------------------------------------------------------------------
+// Group 4: Anthropic Generator Tool Wiring
+// ---------------------------------------------------------------------------
+
+func TestAnthropicGenerator_Generate_WithTools(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockAnthropicResponse("I will search"))
+	}))
+	defer server.Close()
+
+	g, err := NewAnthropic(registry.Config{
+		"model": "claude-3-5-sonnet-20241022", "api_key": "test-key", "base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Search for AI safety")
+	conv.Tools = []map[string]any{{
+		"name":        "web_search",
+		"description": "Search the web",
+		"parameters":  map[string]any{"type": "object", "properties": map[string]any{"query": map[string]any{"type": "string"}}},
+	}}
+	conv.ToolChoice = "auto"
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	tools, ok := receivedRequest["tools"].([]any)
+	require.True(t, ok)
+	require.Len(t, tools, 1)
+
+	tool := tools[0].(map[string]any)
+	assert.Equal(t, "web_search", tool["name"])
+	assert.Equal(t, "Search the web", tool["description"])
+	// Anthropic uses "input_schema" not "parameters"
+	assert.NotNil(t, tool["input_schema"])
+
+	tc := receivedRequest["tool_choice"].(map[string]any)
+	assert.Equal(t, "auto", tc["type"])
+}
+
+func TestAnthropicGenerator_Generate_ToolChoiceRequired(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockAnthropicResponse("Searching"))
+	}))
+	defer server.Close()
+
+	g, err := NewAnthropic(registry.Config{
+		"model": "claude-3-5-sonnet-20241022", "api_key": "test-key", "base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Search")
+	conv.Tools = []map[string]any{{"name": "web_search", "description": "Search"}}
+	conv.ToolChoice = "required"
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	tc := receivedRequest["tool_choice"].(map[string]any)
+	assert.Equal(t, "any", tc["type"], "required should map to Anthropic 'any'")
+}
+
+func TestAnthropicGenerator_Generate_ToolChoiceNone(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockAnthropicResponse("Hello"))
+	}))
+	defer server.Close()
+
+	g, err := NewAnthropic(registry.Config{
+		"model": "claude-3-5-sonnet-20241022", "api_key": "test-key", "base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Hello")
+	conv.Tools = []map[string]any{{"name": "web_search", "description": "Search"}}
+	conv.ToolChoice = "none"
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	// Anthropic doesn't have "none" -- tools should be stripped entirely
+	_, hasTools := receivedRequest["tools"]
+	assert.False(t, hasTools, "tool_choice 'none' should strip tools for Anthropic")
+	_, hasTC := receivedRequest["tool_choice"]
+	assert.False(t, hasTC, "tool_choice should also be stripped")
+}
+
+func TestAnthropicGenerator_Generate_ToolChoiceByName(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockAnthropicResponse("Searching"))
+	}))
+	defer server.Close()
+
+	g, err := NewAnthropic(registry.Config{
+		"model": "claude-3-5-sonnet-20241022", "api_key": "test-key", "base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Search")
+	conv.Tools = []map[string]any{{"name": "web_search", "description": "Search"}}
+	conv.ToolChoice = "web_search"
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	tc := receivedRequest["tool_choice"].(map[string]any)
+	assert.Equal(t, "tool", tc["type"])
+	assert.Equal(t, "web_search", tc["name"])
+}
+
+func TestAnthropicGenerator_Generate_ResponseToolUseBlocks(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]any{
+			"id": "msg_test", "type": "message", "role": "assistant",
+			"model": "claude-3-5-sonnet-20241022",
+			"content": []map[string]any{
+				{"type": "text", "text": "Let me search for that."},
+				{
+					"type": "tool_use", "id": "toolu_abc123", "name": "web_search",
+					"input": map[string]any{"query": "AI safety"},
+				},
+			},
+			"stop_reason": "tool_use",
+			"usage":       map[string]any{"input_tokens": 10, "output_tokens": 20},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	g, err := NewAnthropic(registry.Config{
+		"model": "claude-3-5-sonnet-20241022", "api_key": "test-key", "base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Search for AI safety")
+	conv.Tools = []map[string]any{{"name": "web_search", "description": "Search"}}
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	require.Len(t, responses, 1)
+
+	assert.Equal(t, "Let me search for that.", responses[0].Content)
+	require.NotNil(t, responses[0].ToolCalls)
+	require.Len(t, responses[0].ToolCalls, 1)
+	assert.Equal(t, "web_search", responses[0].ToolCalls[0]["name"])
+	assert.Equal(t, "toolu_abc123", responses[0].ToolCalls[0]["id"])
+	args := responses[0].ToolCalls[0]["args"].(map[string]any)
+	assert.Equal(t, "AI safety", args["query"])
+}
+
+func TestAnthropicGenerator_Generate_ToolsMissingParameters(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockAnthropicResponse("OK"))
+	}))
+	defer server.Close()
+
+	g, err := NewAnthropic(registry.Config{
+		"model": "claude-3-5-sonnet-20241022", "api_key": "test-key", "base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Hello")
+	conv.Tools = []map[string]any{{"name": "noop", "description": "Does nothing"}}
+	// No "parameters" key
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	tools := receivedRequest["tools"].([]any)
+	tool := tools[0].(map[string]any)
+	schema := tool["input_schema"].(map[string]any)
+	assert.Equal(t, "object", schema["type"], "missing parameters should get default {type: object}")
+}
+
+// ---------------------------------------------------------------------------
+// Group 9: Anthropic Tool-Result Wire Format
+// ---------------------------------------------------------------------------
+
+func TestAnthropicConversationToMessages_ToolResult(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockAnthropicResponse("Follow-up"))
+	}))
+	defer server.Close()
+
+	g, err := NewAnthropic(registry.Config{
+		"model": "claude-3-5-sonnet-20241022", "api_key": "test-key", "base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	// Build a 2-turn conversation with tool result
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Search for info")
+
+	// Turn 1 response with tool calls
+	turn1Resp := attempt.NewAssistantMessage("")
+	turn1Resp.ToolCalls = []map[string]any{
+		{"name": "web_search", "id": "toolu_abc", "args": map[string]any{"query": "test"}},
+	}
+	conv.Turns[0].Response = &turn1Resp
+
+	// Tool result turn
+	toolResult := attempt.NewToolResultMessage("toolu_abc", "Search results here")
+	conv.AddTurn(attempt.Turn{Prompt: toolResult})
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	messages := receivedRequest["messages"].([]any)
+	// Expected: user, assistant (structured), user (tool_result)
+	require.Len(t, messages, 3)
+
+	// First: plain user message
+	msg0 := messages[0].(map[string]any)
+	assert.Equal(t, "user", msg0["role"])
+
+	// Second: assistant with tool_use content blocks
+	msg1 := messages[1].(map[string]any)
+	assert.Equal(t, "assistant", msg1["role"])
+	content1 := msg1["content"].([]any)
+	toolUseBlock := content1[0].(map[string]any)
+	assert.Equal(t, "tool_use", toolUseBlock["type"])
+	assert.Equal(t, "web_search", toolUseBlock["name"])
+
+	// Third: user with tool_result content block
+	msg2 := messages[2].(map[string]any)
+	assert.Equal(t, "user", msg2["role"])
+	content2 := msg2["content"].([]any)
+	toolResultBlock := content2[0].(map[string]any)
+	assert.Equal(t, "tool_result", toolResultBlock["type"])
+	assert.Equal(t, "toolu_abc", toolResultBlock["tool_use_id"])
+	assert.Equal(t, "Search results here", toolResultBlock["content"])
+}
+
+// TestAnthropicConversationToMessages_ParallelToolResultsCoalesced tests the bug
+// described in PR #131: when the model returns ≥2 tool calls in Turn 1,
+// RunTwoTurnPrompts adds a separate RoleTool turn for each. conversationToMessages
+// must coalesce all consecutive RoleTool turns into a SINGLE user message with
+// all tool_result blocks, because Anthropic rejects consecutive same-role messages
+// (HTTP 400). The existing TestAnthropicConversationToMessages_ToolResult only
+// tests the single-tool case and does not cover this.
+func TestAnthropicConversationToMessages_ParallelToolResultsCoalesced(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockAnthropicResponse("Here are the results."))
+	}))
+	defer server.Close()
+
+	g, err := NewAnthropic(registry.Config{
+		"model": "claude-3-5-sonnet-20241022", "api_key": "test-key", "base_url": server.URL,
+	})
+	require.NoError(t, err)
+
+	// Build a conversation that simulates what RunTwoTurnPrompts produces
+	// when the model returns 2 tool calls: TWO separate RoleTool turns
+	// (one per call), which is the shape RunTwoTurnPrompts adds them.
+	conv := attempt.NewConversation()
+	conv.AddPrompt("Search for AI safety and climate change")
+
+	// Turn 1 response: assistant with 2 tool_use blocks
+	turn1Resp := attempt.NewAssistantMessage("")
+	turn1Resp.ToolCalls = []map[string]any{
+		{"name": "web_search", "id": "toolu_001", "args": map[string]any{"query": "AI safety"}},
+		{"name": "web_search", "id": "toolu_002", "args": map[string]any{"query": "climate change"}},
+	}
+	conv.Turns[0].Response = &turn1Resp
+
+	// Two separate RoleTool turns — exactly what RunTwoTurnPrompts adds
+	conv.AddTurn(attempt.Turn{Prompt: attempt.NewToolResultMessage("toolu_001", "AI safety results")})
+	conv.AddTurn(attempt.Turn{Prompt: attempt.NewToolResultMessage("toolu_002", "Climate results")})
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	messages, ok := receivedRequest["messages"].([]any)
+	require.True(t, ok, "request must contain messages array")
+
+	// With coalescing, the structure must be:
+	//   [0] user (original prompt)
+	//   [1] assistant (tool_use blocks)
+	//   [2] user (SINGLE message with BOTH tool_result blocks)
+	// NOT 4 messages (with two separate user tool-result messages).
+	require.Len(t, messages, 3,
+		"parallel tool results must be coalesced into a single user message (not separate consecutive user messages)")
+
+	msg2 := messages[2].(map[string]any)
+	assert.Equal(t, "user", msg2["role"])
+	content2, ok := msg2["content"].([]any)
+	require.True(t, ok, "coalesced user message must have structured content")
+	require.Len(t, content2, 2, "coalesced user message must contain both tool_result blocks")
+
+	block0 := content2[0].(map[string]any)
+	assert.Equal(t, "tool_result", block0["type"])
+	assert.Equal(t, "toolu_001", block0["tool_use_id"])
+	assert.Equal(t, "AI safety results", block0["content"])
+
+	block1 := content2[1].(map[string]any)
+	assert.Equal(t, "tool_result", block1["type"])
+	assert.Equal(t, "toolu_002", block1["tool_use_id"])
+	assert.Equal(t, "Climate results", block1["content"])
 }

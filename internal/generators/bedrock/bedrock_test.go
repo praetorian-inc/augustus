@@ -3,15 +3,19 @@ package bedrock
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 // mockBedrockResponse creates a mock Bedrock InvokeModel response.
@@ -118,6 +122,56 @@ func TestBedrockGenerator_Generate(t *testing.T) {
 	require.Len(t, responses, 1)
 	assert.Equal(t, "Hello from Bedrock!", responses[0].Content)
 	assert.Equal(t, attempt.RoleAssistant, responses[0].Role)
+}
+
+func TestBedrockGenerator_Generate_WithClaudeImages(t *testing.T) {
+	setFakeAWSCredentials(t)
+
+	// Capture the request body so we can verify the wire format.
+	var capturedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(mockBedrockClaudeResponse("I see the image"))
+	}))
+	defer server.Close()
+
+	g, err := NewBedrock(registry.Config{
+		"model":    "anthropic.claude-3-sonnet-20240229-v1:0",
+		"region":   "us-east-1",
+		"endpoint": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	img := attempt.Image{Data: []byte{0xDE, 0xAD, 0xBE, 0xEF}, MimeType: "image/png"}
+	conv.AddPromptMessage(attempt.NewUserMessageWithImages("what is this?", []attempt.Image{img}))
+
+	responses, err := g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	require.Len(t, responses, 1)
+	assert.Equal(t, "I see the image", responses[0].Content)
+
+	// Decode the captured request body and assert it carries image content blocks.
+	var req struct {
+		Messages []struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		} `json:"messages"`
+	}
+	require.NoError(t, json.Unmarshal(capturedBody, &req))
+	require.Len(t, req.Messages, 1)
+	// User message with images must be an array of content blocks, not a string.
+	var blocks []map[string]any
+	require.NoError(t, json.Unmarshal(req.Messages[0].Content, &blocks),
+		"expected content array, got: %s", string(req.Messages[0].Content))
+	require.Len(t, blocks, 2, "expected text + image blocks")
+	assert.Equal(t, "text", blocks[0]["type"])
+	assert.Equal(t, "image", blocks[1]["type"])
+	src := blocks[1]["source"].(map[string]any)
+	assert.Equal(t, "base64", src["type"])
+	assert.Equal(t, "image/png", src["media_type"])
+	assert.NotEmpty(t, src["data"])
 }
 
 func TestBedrockGenerator_GenerateMultiple(t *testing.T) {
@@ -265,4 +319,89 @@ func TestBedrockGenerator_AWSCredentials(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.NotNil(t, g)
+}
+
+func TestBedrockGenerator_ClaudeHandlesMalformedJSON(t *testing.T) {
+	setFakeAWSCredentials(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"content":[{`)) // truncated
+	}))
+	defer server.Close()
+
+	g, err := NewBedrock(registry.Config{
+		"model":    "anthropic.claude-3-sonnet-20240229-v1:0",
+		"region":   "us-east-1",
+		"endpoint": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hi")
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.Error(t, err)
+	assert.Contains(t, strings.ToLower(err.Error()), "parse",
+		"expected parse failure in error, got: %v", err)
+}
+
+func TestBedrockGenerator_Handles500Error(t *testing.T) {
+	setFakeAWSCredentials(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"message": "InternalServerException: Server error",
+		})
+	}))
+	defer server.Close()
+
+	g, err := NewBedrock(registry.Config{
+		"model":    "anthropic.claude-3-sonnet-20240229-v1:0",
+		"region":   "us-east-1",
+		"endpoint": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hi")
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.Error(t, err)
+	// AWS SDK error wrapping varies; accept any signal of HTTP failure.
+	errStr := strings.ToLower(err.Error())
+	assert.True(t,
+		strings.Contains(errStr, "500") || strings.Contains(errStr, "server") ||
+			strings.Contains(errStr, "internal"),
+		"expected 5xx signal in error, got: %v", err)
+}
+
+func TestBedrockGenerator_ContextCancellation(t *testing.T) {
+	setFakeAWSCredentials(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-r.Context().Done():
+		case <-time.After(2 * time.Second):
+		}
+	}))
+	defer server.Close()
+
+	g, err := NewBedrock(registry.Config{
+		"model":    "anthropic.claude-3-sonnet-20240229-v1:0",
+		"region":   "us-east-1",
+		"endpoint": server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("hi")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	_, err = g.Generate(ctx, conv, 1)
+	require.Error(t, err)
+	assert.True(t,
+		strings.Contains(err.Error(), "context") || strings.Contains(err.Error(), "deadline"),
+		"expected context/deadline error, got: %v", err)
 }
