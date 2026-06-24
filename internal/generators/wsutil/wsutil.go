@@ -93,7 +93,7 @@ func DialViaProxy(ctx context.Context, wsCfg *websocket.Config, proxyURL *url.UR
 	if target.Scheme == "wss" {
 		tlsCfg := wsCfg.TlsConfig
 		if tlsCfg == nil {
-			tlsCfg = &tls.Config{} //nolint:gosec // verification controlled by caller config
+			tlsCfg = &tls.Config{MinVersion: tls.VersionTLS12}
 		}
 		tlsCfg = tlsCfg.Clone()
 		if tlsCfg.ServerName == "" {
@@ -178,7 +178,8 @@ func BuildHandshakeConfig(uri, origin string, headers map[string]string, subprot
 		wsCfg.Protocol = subprotocols
 	}
 	if loc.Scheme == "wss" {
-		wsCfg.TlsConfig = &tls.Config{InsecureSkipVerify: insecure} //nolint:gosec // opt-in via insecure_skip_verify
+		// #nosec G402 -- InsecureSkipVerify is opt-in via insecure_skip_verify; targets are operator-chosen test endpoints
+		wsCfg.TlsConfig = &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: insecure}
 	}
 	return wsCfg, nil
 }

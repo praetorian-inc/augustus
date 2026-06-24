@@ -71,7 +71,8 @@ func NewHybrid(cfg registry.Config) (generators.Generator, error) {
 	}
 
 	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: parsed.InsecureSkipVerify}, //nolint:gosec // opt-in via insecure_skip_verify
+		// #nosec G402 -- InsecureSkipVerify is opt-in via insecure_skip_verify; targets are operator-chosen test endpoints
+		TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: parsed.InsecureSkipVerify},
 	}
 	// Proxy resolution: an explicit `proxy:` is an override; otherwise both the
 	// HTTP transport and the WS leg fall back to HTTP_PROXY/HTTPS_PROXY/NO_PROXY,
