@@ -56,6 +56,13 @@ type Hybrid struct {
 	proxyURL *url.URL // optional CONNECT proxy for the WS leg (HTTP leg uses client transport)
 	limiter  *ratelimit.Limiter
 
+	// callMu serializes whole pipelines in persistent mode. The scanner shares one
+	// generator instance across concurrent probe goroutines; a persistent session
+	// is a single stateful WS connection, and x/net/websocket is not safe for
+	// concurrent Send/Receive. Holding callMu for the duration of a pipeline keeps
+	// turns sequential (and makes first-call initialization race-free).
+	callMu sync.Mutex
+
 	mu          sync.Mutex
 	conn        *websocket.Conn   // persistent WS session (when cfg.Persistent)
 	pvars       map[string]string // captures + generated IDs persisted across calls
@@ -157,6 +164,13 @@ func (h *Hybrid) Generate(ctx context.Context, conv *attempt.Conversation, n int
 
 // runPipeline executes the ordered steps once and returns the answer message.
 func (h *Hybrid) runPipeline(ctx context.Context, conv *attempt.Conversation) (attempt.Message, error) {
+	// In persistent mode every turn shares one WS connection and the persisted
+	// setup captures, so pipelines must not overlap. Serialize them.
+	if h.cfg.Persistent {
+		h.callMu.Lock()
+		defer h.callMu.Unlock()
+	}
+
 	if h.limiter != nil {
 		if err := h.limiter.Wait(ctx); err != nil {
 			return attempt.Message{}, fmt.Errorf("hybrid: rate limit wait cancelled: %w", err)
@@ -206,8 +220,13 @@ func (h *Hybrid) runPipeline(ctx context.Context, conv *attempt.Conversation) (a
 // executeSteps walks the step list, skipping once-steps (and reusing the open
 // WebSocket) when a persistent session is already established.
 func (h *Hybrid) executeSteps(ctx context.Context, sess *session, reusing bool) error {
+	// reconnecting: persistent session that rebuilds the socket every turn
+	// (reuse_connection:false). The WS setup steps must rerun even when marked
+	// `once` so the fresh socket is reconnected and re-subscribed; only the HTTP
+	// once-steps (whose captures persist) are skipped.
+	reconnecting := reusing && !h.cfg.ReuseConnection
 	for _, st := range h.cfg.Steps {
-		if st.Once && reusing {
+		if st.Once && reusing && (!reconnecting || !isWSStep(st.Type)) {
 			continue
 		}
 		if st.Type == stepWSConnect && reusing && h.cfg.ReuseConnection && sess.getConn() != nil {
@@ -218,6 +237,17 @@ func (h *Hybrid) executeSteps(ctx context.Context, sess *session, reusing bool) 
 		}
 	}
 	return nil
+}
+
+// isWSStep reports whether a step operates on the WebSocket connection (as
+// opposed to an HTTP request).
+func isWSStep(t string) bool {
+	switch t {
+	case stepWSConnect, stepWSSend, stepWSAwait, stepWSStream:
+		return true
+	default:
+		return false
+	}
 }
 
 // persistSession stores connection + setup captures for reuse, or tears down the
@@ -323,21 +353,25 @@ func (h *Hybrid) Description() string {
 }
 
 // render substitutes $NAME placeholders in tmpl from vars. Longer names are
-// replaced first so $INPUT_JSON wins over $INPUT and $ID_TOKEN over $ID.
+// listed first so $INPUT_JSON wins over $INPUT and $ID_TOKEN over $ID. It uses a
+// single left-to-right pass (strings.Replacer) that never rescans substituted
+// text, so a value containing a literal "$KEY"/"$INPUT" is not re-expanded —
+// this prevents payload corruption and avoids leaking $KEY when an adversarial
+// prompt embeds the literal token.
 func render(tmpl string, vars map[string]string) string {
+	if len(vars) == 0 {
+		return tmpl
+	}
 	keys := make([]string, 0, len(vars))
 	for k := range vars {
 		keys = append(keys, k)
 	}
 	sort.Slice(keys, func(i, j int) bool { return len(keys[i]) > len(keys[j]) })
-	result := tmpl
+	pairs := make([]string, 0, len(keys)*2)
 	for _, k := range keys {
-		placeholder := "$" + k
-		if strings.Contains(result, placeholder) {
-			result = strings.ReplaceAll(result, placeholder, vars[k])
-		}
+		pairs = append(pairs, "$"+k, vars[k])
 	}
-	return result
+	return strings.NewReplacer(pairs...).Replace(tmpl)
 }
 
 // newUUID returns a random RFC 4122 v4 UUID string.

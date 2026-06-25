@@ -3,6 +3,7 @@ package hybrid
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -259,6 +260,46 @@ func TestHybrid_PersistentMultiTurn(t *testing.T) {
 	r.mu.Unlock()
 }
 
+// TestHybrid_PersistentConcurrentGenerate fires many Generate calls at one
+// persistent generator at once. The scanner shares a single generator instance
+// across concurrent probe goroutines, so the shared WS session must be
+// serialized — otherwise concurrent Send/Receive on one x/net/websocket conn
+// interleaves frames and mis-attributes answers (and trips -race). Each call
+// must get back exactly its own prompt's answer.
+func TestHybrid_PersistentConcurrentGenerate(t *testing.T) {
+	r := newRaiServer(t)
+	g, err := NewHybrid(pylonConfig(r, true))
+	require.NoError(t, err)
+
+	const n = 8
+	var wg sync.WaitGroup
+	got := make([]string, n)
+	errs := make([]error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			p := fmt.Sprintf("q-%d", i)
+			resp, err := g.Generate(context.Background(), convWith(p), 1)
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			got[i] = resp[0].Content
+		}(i)
+	}
+	wg.Wait()
+
+	for i := 0; i < n; i++ {
+		require.NoError(t, errs[i])
+		assert.Equal(t, fmt.Sprintf("ANSWER:q-%d", i), got[i],
+			"each concurrent call must receive its own answer (no frame cross-talk)")
+	}
+	r.mu.Lock()
+	assert.Len(t, r.prompts, 1, "persistent: one conversation shared across all turns")
+	r.mu.Unlock()
+}
+
 func TestHybrid_NonPersistentNewConversationPerCall(t *testing.T) {
 	r := newRaiServer(t)
 	g, err := NewHybrid(pylonConfig(r, false))
@@ -475,4 +516,124 @@ func TestHybrid_NameAndDescription(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "hybrid.Hybrid", g.Name())
 	assert.NotEmpty(t, g.Description())
+}
+
+// reconnectServer drives a hybrid in persistent + reuse_connection:false mode.
+// The conversation is created once over HTTP, but the WS socket is rebuilt every
+// turn. It counts HTTP conversation creations and WS handshakes so a test can
+// prove the HTTP once-step ran once while the WS setup steps reran each turn. A
+// fresh socket per turn means no lingering subscriber goroutine, so each turn is
+// self-contained.
+type reconnectServer struct {
+	srv *httptest.Server
+
+	mu            sync.Mutex
+	conversations int
+	handshakes    int
+}
+
+func newReconnectServer(t *testing.T) *reconnectServer {
+	t.Helper()
+	s := &reconnectServer{}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/graphql", func(w http.ResponseWriter, _ *http.Request) {
+		s.mu.Lock()
+		s.conversations++
+		s.mu.Unlock()
+		writeJSON(w, map[string]any{"data": map[string]any{
+			"createConversation": map[string]any{"conversation": map[string]any{"id": newUUID()}},
+		}})
+	})
+	mux.Handle("/subscriptions", xwebsocket.Handler(s.handleWS))
+	s.srv = httptest.NewServer(mux)
+	t.Cleanup(s.srv.Close)
+	return s
+}
+
+// handleWS handles exactly one turn per connection: an init frame (the WS setup
+// step that must rerun on reconnect), then the prompt frame, then a streamed
+// CompleteSignal answer.
+func (s *reconnectServer) handleWS(ws *xwebsocket.Conn) {
+	s.mu.Lock()
+	s.handshakes++
+	s.mu.Unlock()
+
+	var raw []byte
+	if xwebsocket.Message.Receive(ws, &raw) != nil { // init frame
+		return
+	}
+	if xwebsocket.Message.Receive(ws, &raw) != nil { // prompt frame
+		return
+	}
+	var pf struct {
+		Prompt string `json:"prompt"`
+	}
+	if json.Unmarshal(raw, &pf) != nil {
+		return
+	}
+	frame := map[string]any{"type": "next", "payload": map[string]any{
+		"messageType": "CompleteSignal", "message": "ANSWER:" + pf.Prompt,
+	}}
+	b, _ := json.Marshal(frame)
+	_ = xwebsocket.Message.Send(ws, string(b))
+}
+
+func reconnectConfig(s *reconnectServer) registry.Config {
+	wsAddr := "ws" + strings.TrimPrefix(s.srv.URL, "http") + "/subscriptions"
+	return registry.Config{
+		"persistent":       true,
+		"reuse_connection": false,
+		"idle_timeout":     5,
+		"request_timeout":  15,
+		"steps": []any{
+			map[string]any{
+				"name": "create", "type": "http", "once": true,
+				"url":     s.srv.URL + "/graphql",
+				"headers": map[string]any{"Content-Type": "application/json"},
+				"body":    `{"operationName":"create"}`,
+				"capture": map[string]any{"CONVERSATION_ID": "$.data.createConversation.conversation.id"},
+			},
+			map[string]any{
+				"name": "connect", "type": "ws_connect", "once": true,
+				"url": wsAddr, "origin": "http://test",
+			},
+			map[string]any{
+				"name": "init", "type": "ws_send", "once": true,
+				"frame": `{"type":"connection_init","conversationID":"$CONVERSATION_ID"}`,
+			},
+			map[string]any{
+				"name": "prompt", "type": "ws_send",
+				"frame": `{"prompt":"$INPUT_JSON"}`,
+			},
+			map[string]any{
+				"name": "answer", "type": "ws_stream", "answer": true,
+				"response_field": "$.payload.message",
+				"complete_field": "$.payload.messageType", "complete_value": "CompleteSignal",
+			},
+		},
+	}
+}
+
+// TestHybrid_ReuseConnectionFalseReconnectsEachTurn is the regression for the
+// reuse_connection:false lifecycle: HTTP captures persist (conversation created
+// once) while the WS socket — and its once-marked setup steps — must be rebuilt
+// every turn. Before the fix, once-steps were skipped on reuse and the next turn
+// reached ws_stream with no open socket.
+func TestHybrid_ReuseConnectionFalseReconnectsEachTurn(t *testing.T) {
+	s := newReconnectServer(t)
+	g, err := NewHybrid(reconnectConfig(s))
+	require.NoError(t, err)
+
+	prompts := []string{"alpha", "bravo", "charlie"}
+	for _, p := range prompts {
+		resp, err := g.Generate(context.Background(), convWith(p), 1)
+		require.NoError(t, err)
+		require.Len(t, resp, 1)
+		assert.Equal(t, "ANSWER:"+p, resp[0].Content)
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	assert.Equal(t, 1, s.conversations, "HTTP once-step must run only once (captures persist)")
+	assert.Equal(t, len(prompts), s.handshakes, "WS must reconnect and re-run setup every turn")
 }

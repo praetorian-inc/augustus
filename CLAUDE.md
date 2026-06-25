@@ -76,7 +76,7 @@ pkg/                Public interfaces and shared utilities
   templates/        YAML probe template loader (Nuclei-style)
 internal/           Implementation details (not importable externally)
   probes/           230+ probe implementations organized by category
-  generators/       28 provider integrations (43 variants)
+  generators/       30 provider integrations (45 variants)
   detectors/        95+ detector implementations
   buffs/            7 buff transformations
   attackengine/     Iterative attack engine (PAIR/TAP)

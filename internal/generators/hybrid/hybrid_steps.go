@@ -324,18 +324,25 @@ func (h *Hybrid) readFrame(ctx context.Context, conn *websocket.Conn) ([]byte, e
 	return data, nil
 }
 
-// renderWithHooks substitutes template vars then runtime hook vars. Hook values
-// are JSON-escaped because hybrid bodies are typically JSON.
+// renderWithHooks substitutes template vars and runtime hook vars in a single
+// pass. Hook values are JSON-escaped because hybrid bodies are typically JSON.
+// Merging both maps before a single render() avoids a second pass re-expanding a
+// placeholder that happens to appear inside an already-substituted value (e.g. a
+// prompt that contains the literal "$SOME_HOOK").
 func (h *Hybrid) renderWithHooks(tmpl string, vars, hookVars map[string]string) string {
-	result := render(tmpl, vars)
 	if len(hookVars) == 0 {
-		return result
+		return render(tmpl, vars)
 	}
-	escaped := make(map[string]string, len(hookVars))
+	merged := make(map[string]string, len(vars)+len(hookVars))
+	for k, v := range vars {
+		merged[k] = v
+	}
+	// Hook vars win over static vars on a name collision (preserving the previous
+	// hooks-after-vars precedence).
 	for k, v := range hookVars {
-		escaped[k] = wsutil.JSONEscape(v)
+		merged[k] = wsutil.JSONEscape(v)
 	}
-	return render(result, escaped)
+	return render(tmpl, merged)
 }
 
 // renderMap renders every value of a string map.

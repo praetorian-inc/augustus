@@ -58,6 +58,13 @@ type Websocket struct {
 	wsCfg   *websocket.Config // pre-built handshake config (cloned per dial)
 	limiter *ratelimit.Limiter
 
+	// callMu serializes whole exchanges in persistent mode. The scanner shares one
+	// generator instance across concurrent probe goroutines; a persistent session
+	// is a single stateful WS connection, and x/net/websocket is not safe for
+	// concurrent Send/Receive. Holding callMu per exchange keeps reuse sequential
+	// (and makes first-call dialing race-free, so no socket is orphaned).
+	callMu sync.Mutex
+
 	mu          sync.Mutex // guards conn and lastRawResp
 	conn        *websocket.Conn
 	lastRawResp []byte
@@ -116,6 +123,13 @@ func (w *Websocket) Generate(ctx context.Context, conv *attempt.Conversation, n 
 // redials once and retries. The retry is bounded to reused connections, so a
 // real request failure on a freshly dialed socket is reported, never masked.
 func (w *Websocket) callOnce(ctx context.Context, conv *attempt.Conversation) (attempt.Message, error) {
+	// In persistent mode every call shares one WS connection, so exchanges must
+	// not overlap (x/net/websocket forbids concurrent Send/Receive).
+	if w.cfg.Persistent {
+		w.callMu.Lock()
+		defer w.callMu.Unlock()
+	}
+
 	if w.limiter != nil {
 		if err := w.limiter.Wait(ctx); err != nil {
 			return attempt.Message{}, fmt.Errorf("websocket: rate limit wait cancelled: %w", err)
@@ -337,40 +351,34 @@ func (w *Websocket) frameText(frame []byte) string {
 	return val
 }
 
-// buildPayload renders the outgoing frame from the request template.
+// buildPayload renders the outgoing frame from the request template in a single
+// left-to-right pass (strings.Replacer). A single pass never rescans substituted
+// text, so a prompt that contains a literal placeholder (e.g. "$MESSAGES" or
+// "$KEY") is not re-expanded — preventing payload corruption and api_key leaks.
+// Longer placeholders are listed first so $INPUT_JSON wins over $INPUT.
 func (w *Websocket) buildPayload(conv *attempt.Conversation, prompt string, hookVars map[string]string) string {
-	result := w.cfg.ReqTemplate
-
-	if strings.Contains(result, "$KEY") && w.cfg.APIKey != "" {
-		result = strings.ReplaceAll(result, "$KEY", w.cfg.APIKey)
-	}
-
-	// $INPUT_JSON before $INPUT so the longer token wins; substitute hook vars
-	// before $INPUT in case a hook value legitimately contains the literal
-	// "$INPUT" and should not be re-expanded.
-	if strings.Contains(result, "$INPUT_JSON") {
-		result = strings.ReplaceAll(result, "$INPUT_JSON", wsutil.JSONEscape(prompt))
-	}
-
 	keys := make([]string, 0, len(hookVars))
 	for k := range hookVars {
 		keys = append(keys, k)
 	}
 	sort.Slice(keys, func(i, j int) bool { return len(keys[i]) > len(keys[j]) })
-	for _, k := range keys {
-		placeholder := "$" + k
-		if strings.Contains(result, placeholder) {
-			result = strings.ReplaceAll(result, placeholder, hookVars[k])
-		}
-	}
 
-	if strings.Contains(result, "$MESSAGES") {
-		result = strings.ReplaceAll(result, "$MESSAGES", conversationToJSON(conv))
+	pairs := make([]string, 0, (len(keys)+4)*2)
+	for _, k := range keys {
+		pairs = append(pairs, "$"+k, hookVars[k])
 	}
-	if strings.Contains(result, "$INPUT") {
-		result = strings.ReplaceAll(result, "$INPUT", prompt)
+	pairs = append(
+		pairs,
+		"$INPUT_JSON", wsutil.JSONEscape(prompt),
+		"$MESSAGES", conversationToJSON(conv),
+		"$INPUT", prompt,
+	)
+	// Only substitute $KEY when an api_key is configured; otherwise leave the
+	// literal token untouched (matches prior behavior).
+	if w.cfg.APIKey != "" {
+		pairs = append(pairs, "$KEY", w.cfg.APIKey)
 	}
-	return result
+	return strings.NewReplacer(pairs...).Replace(w.cfg.ReqTemplate)
 }
 
 func (w *Websocket) storeRaw(b []byte) {

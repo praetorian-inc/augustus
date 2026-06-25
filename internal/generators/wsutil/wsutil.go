@@ -107,12 +107,15 @@ func DialViaProxy(ctx context.Context, wsCfg *websocket.Config, proxyURL *url.UR
 		rwc = tlsConn
 	}
 
-	_ = raw.SetDeadline(time.Time{}) // clear handshake deadline; per-frame deadlines apply later
+	// Keep the context deadline active across the WebSocket upgrade handshake —
+	// NewClient performs blocking network I/O, so clearing the deadline first
+	// would let a stalled proxy/server hang past the request timeout.
 	conn, err := websocket.NewClient(wsCfg, rwc)
 	if err != nil {
 		_ = rwc.Close()
 		return nil, fmt.Errorf("websocket: client handshake via proxy: %w", err)
 	}
+	_ = raw.SetDeadline(time.Time{}) // clear handshake deadline; per-frame deadlines apply later
 	return conn, nil
 }
 

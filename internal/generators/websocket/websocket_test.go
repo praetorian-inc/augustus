@@ -2,8 +2,10 @@ package websocket
 
 import (
 	"context"
+	"fmt"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -269,6 +271,50 @@ func TestPersistent_ReusesConnection(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "echo:hi", resp[0].Content)
 	assert.Equal(t, int32(2), atomic.LoadInt32(&conns), "ClearHistory should force a redial")
+}
+
+// TestPersistent_ConcurrentGenerateNoCrosstalk fires many Generate calls at one
+// persistent generator at once. The scanner shares a single generator instance
+// across concurrent probe goroutines; the shared WS connection must be
+// serialized, otherwise concurrent Send/Receive interleaves frames and a call
+// receives another call's echo (and -race fires). Each call must get its own.
+func TestPersistent_ConcurrentGenerateNoCrosstalk(t *testing.T) {
+	srv := newServer(t, func(ws *xwebsocket.Conn) {
+		for {
+			var msg string
+			if err := xwebsocket.Message.Receive(ws, &msg); err != nil {
+				return
+			}
+			_ = xwebsocket.Message.Send(ws, "echo:"+msg)
+		}
+	})
+
+	g := newGen(t, registry.Config{"uri": wsURL(srv.URL), "persistent": true})
+
+	const n = 16
+	var wg sync.WaitGroup
+	got := make([]string, n)
+	errs := make([]error, n)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			in := fmt.Sprintf("msg-%d", i)
+			resp, err := g.Generate(context.Background(), convWith(in), 1)
+			if err != nil {
+				errs[i] = err
+				return
+			}
+			got[i] = resp[0].Content
+		}(i)
+	}
+	wg.Wait()
+
+	for i := 0; i < n; i++ {
+		require.NoError(t, errs[i])
+		assert.Equal(t, fmt.Sprintf("echo:msg-%d", i), got[i],
+			"each concurrent call must receive its own response (no frame cross-talk)")
+	}
 }
 
 func TestPersistent_RedialsAfterServerClose(t *testing.T) {
