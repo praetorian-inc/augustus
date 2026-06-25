@@ -4,6 +4,9 @@
 package pdf
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/praetorian-inc/augustus/internal/probes/multimodal"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -13,23 +16,36 @@ import (
 // via the "canary" config key.
 const defaultCanary = "MARITIME GIRAFFE 4827"
 
-// resolveCanary returns the operator-supplied canary or the default.
+// forbiddenCanaryChars are characters that break a canary's round-trip through
+// the PDF channels these probes use, so an operator override containing any of
+// them is rejected at construction (see resolveCanary for the why):
 //
-// NOTE: for the text-layout probes (Invisible/OffPage/OnePointFont) the canary is
-// emitted into a PDF content stream as `(canary) Tj`. The characters `(`, `)`, and
-// `\` are backslash-escaped and newlines split the run across operators, so a raw
-// content-stream scan can miss them. Separately, for MetadataInjection the canary
-// is stored as a Keywords entry, and pdfcpu parses Keywords by splitting on `,`,
-// `;`, and `\r` (validate/info.go) into a []string — so a canary containing those
-// delimiters fragments and breaks the api.PDFInfo Keywords round-trip. Keep
-// operator-supplied canaries to printable ASCII WITHOUT parentheses, backslashes,
-// commas, semicolons, or newlines (the default phrase already complies). Spaces
-// and digits are fine; detector matching is fuzzy/normalized.
-func resolveCanary(cfg registry.Config) string {
-	if c := registry.GetString(cfg, "canary", ""); c != "" {
-		return c
+//   - `(` `)` `\` — PDF content-stream string delimiters/escape; emitted as
+//     `(canary) Tj` for the text-layout probes (Invisible/OffPage/OnePointFont).
+//   - `,` `;` `\r` `\n` — pdfcpu splits the Keywords entry on these
+//     (validate/info.go), fragmenting the canary and breaking the api.PDFInfo
+//     round-trip MetadataInjection relies on.
+const forbiddenCanaryChars = "()\\,;\r\n"
+
+// resolveCanary returns the operator-supplied canary or the default, rejecting an
+// override that contains a character which cannot survive the PDF channels (see
+// forbiddenCanaryChars). Without this guard a malformed override would silently
+// fragment in the content-stream/Keywords channel and the probe would just score
+// 0.0 with no indication why. Keep canaries to printable ASCII without the
+// forbidden delimiters; spaces and digits are fine and detector matching is
+// fuzzy/normalized.
+func resolveCanary(cfg registry.Config) (string, error) {
+	c := registry.GetString(cfg, "canary", "")
+	if c == "" {
+		return defaultCanary, nil
 	}
-	return defaultCanary
+	if i := strings.IndexAny(c, forbiddenCanaryChars); i >= 0 {
+		return "", fmt.Errorf(
+			"invalid canary %q: contains unsupported character %q; avoid parentheses, backslashes, commas, semicolons, and newlines",
+			c, string(c[i]),
+		)
+	}
+	return c, nil
 }
 
 // docProbe builds a covert single-document probe wired to multimodal.Canary.

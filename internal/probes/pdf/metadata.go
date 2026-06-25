@@ -11,7 +11,10 @@ import (
 func init() { probes.Register("pdf.MetadataInjection", newMetadataInjection) }
 
 func newMetadataInjection(cfg registry.Config) (probes.Prober, error) {
-	canary := resolveCanary(cfg)
+	canary, err := resolveCanary(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("pdf.MetadataInjection: %w", err)
+	}
 	data, err := pdfbuild.MetadataInjection(canary)
 	if err != nil {
 		return nil, fmt.Errorf("pdf.MetadataInjection: %w", err)

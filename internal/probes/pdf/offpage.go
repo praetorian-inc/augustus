@@ -11,7 +11,10 @@ import (
 func init() { probes.Register("pdf.OffPageText", newOffPageText) }
 
 func newOffPageText(cfg registry.Config) (probes.Prober, error) {
-	canary := resolveCanary(cfg)
+	canary, err := resolveCanary(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("pdf.OffPageText: %w", err)
+	}
 	data, err := pdfbuild.OffPageText(canary)
 	if err != nil {
 		return nil, fmt.Errorf("pdf.OffPageText: %w", err)
