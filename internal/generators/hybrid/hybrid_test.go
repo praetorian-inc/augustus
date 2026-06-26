@@ -382,6 +382,36 @@ func TestHybrid_HTTPFormFallback(t *testing.T) {
 	assert.Equal(t, "ok-v1", resp[0].Content)
 }
 
+// TestHybrid_HTTPPollFormFallback proves http_poll honors fallback forms (like
+// http does): the first poll form errors, the second succeeds.
+func TestHybrid_HTTPPollFormFallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/v2") {
+			http.Error(w, "gone", http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, map[string]any{"status": "done", "result": "fallback-answer"})
+	}))
+	t.Cleanup(srv.Close)
+
+	g, err := NewHybrid(registry.Config{"persistent": false, "steps": []any{
+		map[string]any{
+			"name": "wait", "type": "http_poll", "answer": true,
+			"until_field": "$.status", "until_value": "done",
+			"response_field": "$.result",
+			"interval":       0.05, "max_attempts": 5,
+			"forms": []any{
+				map[string]any{"url": srv.URL + "/v2", "method": "GET"},
+				map[string]any{"url": srv.URL + "/v1", "method": "GET"},
+			},
+		},
+	}})
+	require.NoError(t, err)
+	resp, err := g.Generate(context.Background(), convWith("hi"), 1)
+	require.NoError(t, err)
+	assert.Equal(t, "fallback-answer", resp[0].Content)
+}
+
 // TestHybrid_PureWS proves the request+response can both be WebSocket.
 func TestHybrid_PureWS(t *testing.T) {
 	srv := httptest.NewServer(xwebsocket.Handler(func(ws *xwebsocket.Conn) {
@@ -407,6 +437,37 @@ func TestHybrid_PureWS(t *testing.T) {
 	resp, err := g.Generate(context.Background(), convWith("hello"), 1)
 	require.NoError(t, err)
 	assert.Equal(t, "ws:hello", resp[0].Content)
+}
+
+// TestHybrid_WSStreamCompleteBeforeTerminal proves assembly:final does not
+// accept a protocol `complete` frame as the answer: a stream that completes
+// before the configured terminal frame is an error, not a partial delta.
+func TestHybrid_WSStreamCompleteBeforeTerminal(t *testing.T) {
+	srv := httptest.NewServer(xwebsocket.Handler(func(ws *xwebsocket.Conn) {
+		var msg string
+		if xwebsocket.Message.Receive(ws, &msg) != nil {
+			return
+		}
+		// A non-terminal delta, then a protocol complete with no terminal frame.
+		delta, _ := json.Marshal(map[string]any{"type": "next", "done": false, "text": "partial"})
+		_ = xwebsocket.Message.Send(ws, string(delta))
+		_ = xwebsocket.Message.Send(ws, `{"type":"complete"}`)
+	}))
+	t.Cleanup(srv.Close)
+	wsAddr := "ws" + strings.TrimPrefix(srv.URL, "http")
+
+	g, err := NewHybrid(registry.Config{"persistent": false, "idle_timeout": 5, "steps": []any{
+		map[string]any{"name": "c", "type": "ws_connect", "url": wsAddr, "origin": "http://test"},
+		map[string]any{"name": "send", "type": "ws_send", "frame": "$INPUT"},
+		map[string]any{
+			"name": "answer", "type": "ws_stream", "answer": true,
+			"response_field": "$.text", "complete_field": "$.done", "complete_value": "true",
+		},
+	}})
+	require.NoError(t, err)
+	_, err = g.Generate(context.Background(), convWith("hello"), 1)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "completed before terminal frame")
 }
 
 // TestHybrid_HTTPPoll_UntilField covers the async job shape: POST to endpoint A

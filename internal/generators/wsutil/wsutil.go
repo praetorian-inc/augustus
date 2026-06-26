@@ -84,7 +84,7 @@ func DialViaProxy(ctx context.Context, wsCfg *websocket.Config, proxyURL *url.UR
 		_ = raw.Close()
 		return nil, fmt.Errorf("websocket: read CONNECT response: %w", err)
 	}
-	if !strings.Contains(status, " 200") {
+	if !connectSucceeded(status) {
 		_ = raw.Close()
 		return nil, fmt.Errorf("websocket: proxy CONNECT failed: %q", status)
 	}
@@ -117,6 +117,14 @@ func DialViaProxy(ctx context.Context, wsCfg *websocket.Config, proxyURL *url.UR
 	}
 	_ = raw.SetDeadline(time.Time{}) // clear handshake deadline; per-frame deadlines apply later
 	return conn, nil
+}
+
+// connectSucceeded reports whether a proxy CONNECT status line indicates a 200
+// tunnel. The status code token is matched exactly — a substring check for
+// " 200" would wrongly accept lines like "HTTP/1.1 407 Proxy ... 200".
+func connectSucceeded(statusLine string) bool {
+	fields := strings.Fields(statusLine)
+	return len(fields) >= 2 && fields[1] == "200"
 }
 
 // readCONNECTStatus reads the proxy's CONNECT response one byte at a time up to
@@ -306,6 +314,12 @@ func parsePath(path string) []string {
 			if j < len(path) {
 				segments = append(segments, "["+path[i+1:j]+"]")
 				i = j
+			} else {
+				// Unterminated '[': keep the raw remainder as a segment so navigate
+				// rejects it, instead of silently dropping the index and resolving
+				// the parent (e.g. "choices[0" would otherwise return "choices").
+				segments = append(segments, path[i:])
+				i = len(path)
 			}
 		default:
 			cur.WriteByte(c)
@@ -317,6 +331,9 @@ func parsePath(path string) []string {
 
 // navigate descends one segment into the decoded JSON value.
 func navigate(data any, seg string) (any, error) {
+	if strings.HasPrefix(seg, "[") && !strings.HasSuffix(seg, "]") {
+		return nil, fmt.Errorf("websocket: malformed array index %q (missing ']')", seg)
+	}
 	if strings.HasPrefix(seg, "[") && strings.HasSuffix(seg, "]") {
 		arr, ok := data.([]any)
 		if !ok {

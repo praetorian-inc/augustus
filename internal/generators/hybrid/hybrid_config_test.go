@@ -46,7 +46,7 @@ func TestHybridConfig_Minimal(t *testing.T) {
 	require.Len(t, cfg.Steps, 1)
 	assert.True(t, cfg.Steps[0].Answer)
 	assert.Equal(t, []string{"$.text"}, cfg.Steps[0].ResponseFields)
-	assert.True(t, cfg.Persistent)
+	assert.False(t, cfg.Persistent, "persistent defaults to false so probes get isolated sessions")
 }
 
 func TestHybridConfig_WSStepBeforeConnectRejected(t *testing.T) {
@@ -59,6 +59,20 @@ func TestHybridConfig_WSStepBeforeConnectRejected(t *testing.T) {
 	}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "before any ws_connect")
+}
+
+func TestHybridConfig_AnswerOnNonAnswerStepRejected(t *testing.T) {
+	// ws_await can never set the answer, so answer:true on it must be rejected at
+	// construction rather than the count passing and failing mid-run.
+	_, err := HybridConfigFromMap(registry.Config{"steps": []any{
+		map[string]any{"name": "connect", "type": "ws_connect", "url": "ws://x/ws"},
+		map[string]any{
+			"name": "ack", "type": "ws_await", "answer": true,
+			"match_field": "$.type", "match_value": "connection_ack",
+		},
+	}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot be answer:true")
 }
 
 func TestHybridConfig_PromptMustReferenceInput(t *testing.T) {

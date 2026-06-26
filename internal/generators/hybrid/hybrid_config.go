@@ -100,7 +100,7 @@ type HybridConfig struct {
 	Vars               map[string]string // static $NAME substitutions
 	RequestTimeout     time.Duration     // overall deadline for one Generate
 	IdleTimeout        time.Duration     // per-frame read deadline while streaming/awaiting
-	Persistent         bool              // reuse the WS session + setup captures across Generate calls
+	Persistent         bool              // reuse the WS session + setup captures across Generate calls (default false: each Generate is an isolated conversation, so unrelated probes never share backend session state)
 	ReuseConnection    bool              // when Persistent, also reuse the live WS connection (default true). Set false to reconnect the WS every Generate while still persisting HTTP captures (e.g. a conversationID), so no socket sits unread between turns and server keepalive pings are always answered within a turn.
 	InsecureSkipVerify bool              // HTTP client TLS verification (WS uses per-connect setting)
 	RateLimit          float64           // prompts per second (0 = unlimited)
@@ -110,9 +110,16 @@ type HybridConfig struct {
 // DefaultHybridConfig returns a HybridConfig with sensible defaults.
 func DefaultHybridConfig() HybridConfig {
 	return HybridConfig{
-		RequestTimeout:  60 * time.Second,
-		IdleTimeout:     30 * time.Second,
-		Persistent:      true,
+		RequestTimeout: 60 * time.Second,
+		IdleTimeout:    30 * time.Second,
+		// Persistent defaults to false so independent probes/prompts each get a
+		// fresh backend conversation. The scanner shares one generator instance
+		// across concurrent probes; a persistent (true) default would funnel
+		// unrelated probes — e.g. a latent-injection probe and an ASCII-smuggling
+		// probe — into the same server-side conversation, where earlier turns
+		// contaminate later results. Opt in to persistence for genuine multi-turn
+		// targets.
+		Persistent:      false,
 		ReuseConnection: true,
 		Vars:            map[string]string{},
 	}
@@ -331,6 +338,15 @@ func validateChoreography(steps []step) error {
 			}
 		}
 		if st.Answer {
+			// Only http, http_poll and ws_stream steps set sess.gotAnswer at
+			// runtime. answer:true on ws_connect/ws_send/ws_await would satisfy the
+			// "exactly one answer" count but never produce an answer, failing only
+			// mid-scan — reject it at construction.
+			switch st.Type {
+			case stepHTTP, stepHTTPPoll, stepWSStream:
+			default:
+				return fmt.Errorf("step %q of type %s cannot be answer:true (only http, http_poll, ws_stream produce an answer)", st.Name, st.Type)
+			}
 			answers++
 		}
 	}

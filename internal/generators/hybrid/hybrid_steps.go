@@ -117,10 +117,9 @@ func (h *Hybrid) tryHTTPForm(ctx context.Context, form httpForm, sess *session, 
 // context is cancelled/times out — a partial poll never masquerades as an answer.
 func (h *Hybrid) execHTTPPoll(ctx context.Context, st step, sess *session) error {
 	hookVars := types.HookVarsFromContext(ctx)
-	form := st.Forms[0]
 
 	for attempt := 1; attempt <= st.MaxAttempts; attempt++ {
-		body, captured, err := h.tryHTTPForm(ctx, form, sess, hookVars)
+		body, captured, err := h.tryPollForms(ctx, st, sess, hookVars)
 		if err != nil {
 			return fmt.Errorf("poll attempt %d/%d: %w", attempt, st.MaxAttempts, err)
 		}
@@ -151,6 +150,25 @@ func (h *Hybrid) execHTTPPoll(ctx context.Context, st step, sess *session) error
 		}
 	}
 	return fmt.Errorf("poll exhausted after %d attempts without reaching the readiness condition", st.MaxAttempts)
+}
+
+// tryPollForms runs one polling round, trying each configured form until one
+// succeeds (fallback across alternative schemas, matching execHTTP). The last
+// error is returned if every form fails.
+func (h *Hybrid) tryPollForms(ctx context.Context, st step, sess *session, hookVars map[string]string) ([]byte, map[string]string, error) {
+	var lastErr error
+	for i, form := range st.Forms {
+		body, captured, err := h.tryHTTPForm(ctx, form, sess, hookVars)
+		if err != nil {
+			lastErr = fmt.Errorf("form %d: %w", i, err)
+			continue
+		}
+		return body, captured, nil
+	}
+	if lastErr == nil {
+		lastErr = errors.New("no request forms configured")
+	}
+	return nil, nil, lastErr
 }
 
 // pollReady reports whether a poll response satisfies the readiness condition.
@@ -279,6 +297,14 @@ func (h *Hybrid) execWSStream(ctx context.Context, st step, sess *session) error
 		if frameType, _ := wsutil.ExtractField(frame, "$.type"); frameType == "error" {
 			return fmt.Errorf("server sent error frame: %s", truncate(string(frame), 300))
 		} else if frameType == "complete" {
+			// A graphql-transport-ws `complete` frame carries no payload. For
+			// assembly:final the answer is the terminal frame identified by
+			// complete_field==complete_value; if the stream completes before that
+			// frame arrives, returning lastNonEmpty would emit a partial delta —
+			// fail instead.
+			if st.Assembly == AssemblyFinal {
+				return fmt.Errorf("stream completed before terminal frame (%s==%q)", st.CompleteField, st.CompleteValue)
+			}
 			finish(nil)
 			return nil
 		}

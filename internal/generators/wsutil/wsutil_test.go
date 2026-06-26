@@ -44,6 +44,29 @@ func TestExtractField_Errors(t *testing.T) {
 
 	_, err = ExtractField([]byte(`{"a":[1]}`), "a[5]")
 	assert.Error(t, err)
+
+	// Unterminated array index must error, not silently resolve the parent.
+	_, err = ExtractField([]byte(`{"choices":[{"v":1}]}`), "choices[0")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "malformed array index")
+}
+
+func TestConnectSucceeded(t *testing.T) {
+	cases := []struct {
+		status string
+		want   bool
+	}{
+		{"HTTP/1.1 200 Connection established", true},
+		{"HTTP/1.0 200 OK", true},
+		{"HTTP/1.1 407 Proxy Authentication Required", false},
+		{"HTTP/1.1 502 Bad Gateway", false},
+		{"HTTP/1.1 407 needs 200 token", false}, // substring " 200" must not pass
+		{"garbage", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		assert.Equalf(t, tc.want, connectSucceeded(tc.status), "status %q", tc.status)
+	}
 }
 
 func TestExtractFirst(t *testing.T) {
