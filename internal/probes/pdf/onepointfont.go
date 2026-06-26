@@ -11,10 +11,7 @@ import (
 func init() { probes.Register("pdf.OnePointFont", newOnePointFont) }
 
 func newOnePointFont(cfg registry.Config) (probes.Prober, error) {
-	canary, err := resolveCanary(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("pdf.OnePointFont: %w", err)
-	}
+	canary := resolveCanary(cfg)
 	data, err := pdfbuild.OnePointFont(canary)
 	if err != nil {
 		return nil, fmt.Errorf("pdf.OnePointFont: %w", err)

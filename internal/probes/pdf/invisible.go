@@ -11,10 +11,7 @@ import (
 func init() { probes.Register("pdf.InvisibleText", newInvisibleText) }
 
 func newInvisibleText(cfg registry.Config) (probes.Prober, error) {
-	canary, err := resolveCanary(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("pdf.InvisibleText: %w", err)
-	}
+	canary := resolveCanary(cfg)
 	data, err := pdfbuild.InvisibleText(canary)
 	if err != nil {
 		return nil, fmt.Errorf("pdf.InvisibleText: %w", err)

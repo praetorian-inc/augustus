@@ -75,6 +75,11 @@ func RunMultimodalPrompts(
 	detector string,
 	covert bool,
 ) ([]*attempt.Attempt, error) {
+	// Capability gating is per-attachment: a prompt only requires a capability
+	// for the media it actually carries, so image probes gate on vision and
+	// document probes gate on documents independently. Edge case to keep in mind:
+	// a future text-only MultimodalPrompt (no Images, no Documents) requires
+	// neither and would run against any generator rather than being skipped.
 	needsVision, needsDocs := false, false
 	for _, mp := range prompts {
 		if len(mp.Images) > 0 {
