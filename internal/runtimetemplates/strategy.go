@@ -130,17 +130,22 @@ func newTemplateStrategy(name string, cfg *templates.StrategyConfig, maxTurns in
 		return nil, err
 	}
 
-	// Dry-run each template against its zero-value render data so that field
+	// Dry-run each template against representative render data so that field
 	// reference errors (e.g. {{.Typo}}) fail at load time rather than silently
-	// degrading prompts mid-scan. The data structs use only field access, range
-	// and printf, so a clean dry-run guarantees a clean runtime render.
+	// degrading prompts mid-scan.
+	//
+	// The turn data is populated (one history record + a non-empty LastResponse)
+	// so that bodies guarded by {{if .History}} and iterated by {{range .History}}
+	// actually execute. With a zero-value turnData the History slice is empty, so
+	// those bodies are skipped and a typo inside them (e.g. {{.Questionnn}} on a
+	// TurnRecord) would pass the dry-run and only fail on turn 2+ at runtime.
 	checks := []struct {
 		field string
 		tmpl  *template.Template
 		data  any
 	}{
 		{"attacker_system", s.attackerSystem, attackerSystemData{}},
-		{"turn", s.turn, turnData{}},
+		{"turn", s.turn, turnData{History: []multiturn.TurnRecord{{}}, LastResponse: "x"}},
 		{"rephrase", s.rephrase, rephraseData{}},
 		{"feedback", s.feedback, feedbackData{}},
 	}
@@ -161,14 +166,17 @@ func parseNamed(strategyName, field, src string) (*template.Template, error) {
 	return tmpl, nil
 }
 
-// render executes tmpl with data. Templates are dry-run validated at load time,
-// so a runtime error here is near-impossible; if one occurs we log it and return
-// an empty string (never a half-rendered prompt or the raw template source, both
-// of which would confuse the LLM).
+// render executes tmpl with data. Templates are dry-run validated at load time
+// (including {{range}}/{{if}} bodies), so a runtime error here should be
+// impossible; if one nonetheless occurs we log it loudly and return an empty
+// string (never a half-rendered prompt or the raw template source, both of which
+// would confuse the LLM). The error is logged at Error level — an empty prompt
+// silently degrades the scan, so it must not hide in Warn-filtered output.
 func render(tmpl *template.Template, data any) string {
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
-		slog.Warn("runtime template render failed", "template", tmpl.Name(), "error", err)
+		slog.Error("runtime template render failed — sending empty prompt; scan results for this attempt are unreliable",
+			"template", tmpl.Name(), "error", err)
 		return ""
 	}
 	return buf.String()

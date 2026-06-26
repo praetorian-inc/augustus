@@ -187,3 +187,18 @@ func TestNewTemplateStrategy_UnknownFieldRejectedAtLoad(t *testing.T) {
 		t.Error("newTemplateStrategy() should reject a template referencing an unknown data field")
 	}
 }
+
+func TestNewTemplateStrategy_UnknownFieldInsideRangeRejectedAtLoad(t *testing.T) {
+	// Regression: a bad field reference INSIDE {{range .History}} must fail at
+	// load. The dry-run populates History with one record so the range body
+	// executes; with an empty-history dry-run this typo would slip through load
+	// and only fail on turn 2+, where render() returns "" — an empty prompt sent
+	// to the attacker LLM (the exact silent degradation the dry-run prevents).
+	_, err := newTemplateStrategy("x", &templates.StrategyConfig{
+		AttackerSystem: "Goal {{.Goal}}",
+		Turn:           "turn {{range .History}}{{.Questionnn}}{{end}}",
+	}, 10)
+	if err == nil {
+		t.Error("newTemplateStrategy() should reject a bad field reference inside {{range .History}} at load")
+	}
+}

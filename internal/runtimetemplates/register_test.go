@@ -12,6 +12,9 @@ import (
 
 	// Register test generators (test.Single) so multi-turn factories can build.
 	_ "github.com/praetorian-inc/augustus/internal/generators/test"
+	// Register the judge detectors (judge.Judge, judge.Refusal) so the load-time
+	// detector-name validation resolves the names used in these fixtures.
+	_ "github.com/praetorian-inc/augustus/internal/detectors/judge"
 )
 
 func writeTemplate(t *testing.T, dir, name, content string) {
@@ -34,7 +37,7 @@ prompts:
   - "second prompt"
 `)
 
-	ids, err := RegisterFromPath(dir, false)
+	ids, err := RegisterFromPath(dir)
 	if err != nil {
 		t.Fatalf("RegisterFromPath() error: %v", err)
 	}
@@ -79,7 +82,7 @@ strategy:
   turn: "Turn {{.TurnNum}} of {{.MaxTurns}}: ask about {{.Goal}}"
 `)
 
-	ids, err := RegisterFromPath(dir, false)
+	ids, err := RegisterFromPath(dir)
 	if err != nil {
 		t.Fatalf("RegisterFromPath() error: %v", err)
 	}
@@ -114,13 +117,59 @@ prompts:
   - "x"
 `) // missing detector
 
-	if _, err := RegisterFromPath(dir, false); err == nil {
+	if _, err := RegisterFromPath(dir); err == nil {
 		t.Error("RegisterFromPath() should error on invalid template (missing detector)")
 	}
 }
 
+func TestRegisterFromPath_UnknownDetectorFailsAtLoad(t *testing.T) {
+	// An unregistered info.detector must fail at LOAD, not partway through a scan.
+	dir := t.TempDir()
+	writeTemplate(t, dir, "bad.yaml", `
+id: runtimetest.UnknownDetector
+info:
+  name: Unknown Detector
+  severity: low
+  detector: nosuch.Detector
+prompts:
+  - "x"
+`)
+	_, err := RegisterFromPath(dir)
+	if err == nil {
+		t.Fatal("RegisterFromPath should reject a template with an unregistered detector at load")
+	}
+	if !strings.Contains(err.Error(), "nosuch.Detector") {
+		t.Errorf("error should name the unknown detector, got: %v", err)
+	}
+	if _, exists := probes.Get("runtimetest.UnknownDetector"); exists {
+		t.Error("a template with an unknown detector must not be registered")
+	}
+}
+
+func TestRegisterFromPath_UnknownSecondaryDetectorFailsAtLoad(t *testing.T) {
+	dir := t.TempDir()
+	writeTemplate(t, dir, "bad.yaml", `
+id: runtimetest.UnknownSecondary
+info:
+  name: Unknown Secondary
+  severity: low
+  detector: judge.Judge
+  secondary_detectors:
+    - name: nosuch.Secondary
+prompts:
+  - "x"
+`)
+	_, err := RegisterFromPath(dir)
+	if err == nil {
+		t.Fatal("RegisterFromPath should reject a template with an unregistered secondary detector at load")
+	}
+	if !strings.Contains(err.Error(), "nosuch.Secondary") {
+		t.Errorf("error should name the unknown secondary detector, got: %v", err)
+	}
+}
+
 func TestRegisterFromPath_MissingDirErrors(t *testing.T) {
-	if _, err := RegisterFromPath(filepath.Join(t.TempDir(), "does-not-exist"), false); err == nil {
+	if _, err := RegisterFromPath(filepath.Join(t.TempDir(), "does-not-exist")); err == nil {
 		t.Error("RegisterFromPath() should error for missing directory")
 	}
 }
@@ -138,7 +187,7 @@ strategy:
   attacker_system: "pursue {{.Goal}}"
   turn: "ask {{.NoSuchField}}"
 `)
-	if _, err := RegisterFromPath(dir, false); err == nil {
+	if _, err := RegisterFromPath(dir); err == nil {
 		t.Fatal("RegisterFromPath should reject a multi-turn template with a bad field reference at load")
 	}
 	if _, exists := probes.Get("runtimetest.BadStrategyField"); exists {
@@ -160,7 +209,7 @@ id: runtimetest.DupBatch
 info: {name: B, severity: low, detector: judge.Judge}
 prompts: ["b"]
 `)
-	_, err := RegisterFromPath(dir, false)
+	_, err := RegisterFromPath(dir)
 	if err == nil {
 		t.Fatal("RegisterFromPath should reject duplicate template IDs within one dir")
 	}
@@ -169,50 +218,47 @@ prompts: ["b"]
 	}
 }
 
-func TestRegisterFromPath_RefusesOverrideWithoutForce(t *testing.T) {
+func TestRegisterFromPath_ErrorsOnCollision(t *testing.T) {
+	// A runtime template whose ID collides with an already-registered probe must
+	// always fail to load — there is no override escape hatch. The fix is to give
+	// the template a distinct id.
 	dir := t.TempDir()
 	writeTemplate(t, dir, "first.yaml", `
-id: runtimetest.OverrideTarget
+id: runtimetest.CollisionTarget
 info: {name: First, severity: low, detector: judge.Judge}
 prompts: ["one"]
 `)
 	// First registration succeeds (no collision yet).
-	if _, err := RegisterFromPath(dir, false); err != nil {
+	if _, err := RegisterFromPath(dir); err != nil {
 		t.Fatalf("first RegisterFromPath() error: %v", err)
 	}
 
-	// Second registration of the same ID must be refused without force.
+	// Second registration of the same ID must error.
 	dir2 := t.TempDir()
 	writeTemplate(t, dir2, "again.yaml", `
-id: runtimetest.OverrideTarget
+id: runtimetest.CollisionTarget
 info: {name: Second, severity: low, detector: judge.Judge}
 prompts: ["two"]
 `)
-	_, err := RegisterFromPath(dir2, false)
+	_, err := RegisterFromPath(dir2)
 	if err == nil {
-		t.Fatal("RegisterFromPath() should refuse to override an existing probe without force")
+		t.Fatal("RegisterFromPath() should error when a template ID collides with an existing probe")
 	}
-	if !strings.Contains(err.Error(), "runtimetest.OverrideTarget") {
+	if !strings.Contains(err.Error(), "runtimetest.CollisionTarget") {
 		t.Errorf("error should name the colliding ID, got: %v", err)
 	}
 
-	// With force, the override succeeds.
-	if _, err := RegisterFromPath(dir2, true); err != nil {
-		t.Fatalf("RegisterFromPath() with force should override, got: %v", err)
-	}
-
-	// Verify the override actually replaced the probe.
-	probe, err := probes.Create("runtimetest.OverrideTarget", nil)
+	// The original probe must be untouched (collision does not replace it).
+	probe, err := probes.Create("runtimetest.CollisionTarget", nil)
 	if err != nil {
-		t.Fatalf("probes.Create() after force override: %v", err)
+		t.Fatalf("probes.Create() after refused collision: %v", err)
 	}
 	pm, ok := probe.(types.ProbeMetadata)
 	if !ok {
-		t.Fatal("overridden probe should implement ProbeMetadata")
+		t.Fatal("probe should implement ProbeMetadata")
 	}
-	prompts := pm.GetPrompts()
-	if len(prompts) != 1 || prompts[0] != "two" {
-		t.Fatalf("force override did not replace template content, prompts=%v", prompts)
+	if prompts := pm.GetPrompts(); len(prompts) != 1 || prompts[0] != "one" {
+		t.Fatalf("refused collision must not replace the original probe, prompts=%v", prompts)
 	}
 }
 
@@ -225,7 +271,7 @@ id: runtimetest.AtomicSeed
 info: {name: Seed, severity: low, detector: judge.Judge}
 prompts: ["seed"]
 `)
-	if _, err := RegisterFromPath(dir, false); err != nil {
+	if _, err := RegisterFromPath(dir); err != nil {
 		t.Fatalf("seed registration: %v", err)
 	}
 
@@ -240,7 +286,7 @@ id: runtimetest.AtomicSeed
 info: {name: Collides, severity: low, detector: judge.Judge}
 prompts: ["collide"]
 `)
-	if _, err := RegisterFromPath(dir2, false); err == nil {
+	if _, err := RegisterFromPath(dir2); err == nil {
 		t.Fatal("expected refusal due to collision")
 	}
 	// The non-colliding probe must NOT have been registered.
