@@ -43,9 +43,9 @@ changelog:
       order: 999
   filters:
     exclude:
-      - "^docs:"
-      - "^test:"
-      - "^chore:"
+      - '^.*?docs(\([^)]+\))?!?:.+$'
+      - '^.*?test(\([^)]+\))?!?:.+$'
+      - '^.*?chore(\([^)]+\))?!?:.+$'
 
 sboms:
   - artifacts: archive
