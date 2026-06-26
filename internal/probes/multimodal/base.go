@@ -21,6 +21,9 @@ type MultimodalProbe interface {
 	// GetImages returns the image attachments used by this probe.
 	GetImages() []attempt.Image
 
+	// GetDocuments returns the document attachments used by this probe.
+	GetDocuments() []attempt.Document
+
 	// GetAudio returns the audio attachments used by this probe.
 	GetAudio() []attempt.Audio
 }

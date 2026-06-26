@@ -379,6 +379,10 @@ func (g *Anthropic) Name() string {
 // content blocks (Claude 3+ vision). See types.VisionCapable.
 func (g *Anthropic) SupportsVision() bool { return true }
 
+// SupportsDocuments reports that the Anthropic Messages path transmits native
+// PDF "document" content blocks (Claude 3+). See types.DocumentCapable.
+func (g *Anthropic) SupportsDocuments() bool { return true }
+
 // Description returns a human-readable description.
 func (g *Anthropic) Description() string {
 	return "Anthropic API generator for Claude models (Claude 3, Claude 3.5)"

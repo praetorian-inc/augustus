@@ -16,6 +16,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 // mockAnthropicResponse creates a mock Anthropic Messages API response.
@@ -1134,4 +1135,11 @@ func TestAnthropicConversationToMessages_ParallelToolResultsCoalesced(t *testing
 	assert.Equal(t, "tool_result", block1["type"])
 	assert.Equal(t, "toolu_002", block1["tool_use_id"])
 	assert.Equal(t, "Climate results", block1["content"])
+}
+
+func TestAnthropic_SupportsDocuments(t *testing.T) {
+	var g any = &Anthropic{}
+	dc, ok := g.(types.DocumentCapable)
+	require.True(t, ok, "Anthropic must implement types.DocumentCapable")
+	require.True(t, dc.SupportsDocuments())
 }
