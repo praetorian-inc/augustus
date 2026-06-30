@@ -16,6 +16,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -30,6 +31,8 @@ var completionModels = openaicompat.CompletionModels
 
 // OpenAI is a generator that wraps the OpenAI API.
 type OpenAI struct {
+	types.UsageCounter // embedded; provides AccumulatedTokens()
+
 	client *goopenai.Client
 	model  string
 	isChat bool
@@ -120,7 +123,10 @@ func (g *OpenAI) Generate(ctx context.Context, conv *attempt.Conversation, n int
 // generateChat handles chat completion requests.
 func (g *OpenAI) generateChat(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
 	// Convert conversation to OpenAI message format
-	messages := openaicompat.ConversationToMessages(conv)
+	messages, err := openaicompat.ConversationToMessages(conv)
+	if err != nil {
+		return nil, openaicompat.WrapError("openai", err)
+	}
 
 	req := goopenai.ChatCompletionRequest{
 		Model:    g.model,
@@ -187,6 +193,7 @@ func (g *OpenAI) generateChat(ctx context.Context, conv *attempt.Conversation, n
 	if err != nil {
 		return nil, openaicompat.WrapError("openai", err)
 	}
+	g.AddTokens(int64(resp.Usage.TotalTokens))
 
 	// Extract responses from choices, capturing any tool calls alongside text.
 	responses := make([]attempt.Message, 0, len(resp.Choices))
@@ -236,6 +243,7 @@ func (g *OpenAI) generateCompletion(ctx context.Context, conv *attempt.Conversat
 	if err != nil {
 		return nil, openaicompat.WrapError("openai", err)
 	}
+	g.AddTokens(int64(resp.Usage.TotalTokens))
 
 	// Extract responses from choices
 	responses := make([]attempt.Message, 0, len(resp.Choices))
@@ -252,6 +260,22 @@ func (g *OpenAI) ClearHistory() {}
 // Name returns the generator's fully qualified name.
 func (g *OpenAI) Name() string {
 	return "openai.OpenAI"
+}
+
+// SupportsVision reports vision capability based on the active model family.
+// Chat-completion models go through the multipart image_url path in
+// openaicompat.ConversationToMessages, but legacy completion models
+// (gpt-3.5-turbo-instruct, davinci-002, babbage-002, etc.) use the
+// CompletionRequest path that only carries the flattened LastPrompt() text.
+// Reporting vision capability for completion models would silently drop image
+// attachments. See types.VisionCapable.
+func (g *OpenAI) SupportsVision() bool {
+	if completionModels[g.model] {
+		return false
+	}
+	// Default to true: any model not in the legacy completion set goes through
+	// the chat path, which transmits image content blocks.
+	return true
 }
 
 // Description returns a human-readable description.

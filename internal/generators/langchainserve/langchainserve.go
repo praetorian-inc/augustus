@@ -18,6 +18,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -27,10 +28,11 @@ func init() {
 // LangChainServe is a generator that wraps LangChain Serve applications via REST API.
 // It calls the /invoke endpoint on the LangChain Serve application.
 type LangChainServe struct {
-	baseURL    string
-	configHash string
-	headers    map[string]string
-	client     *http.Client
+	types.UsageCounter // embedded but never incremented: LangChain Serve returns no token usage.
+	baseURL            string
+	configHash         string
+	headers            map[string]string
+	client             *http.Client
 }
 
 // NewLangChainServe creates a new LangChainServe generator from configuration.

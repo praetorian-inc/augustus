@@ -78,51 +78,99 @@ func TestTemplateProbeProbe(t *testing.T) {
 	assert.Contains(t, attempts[0].Outputs, "response 1")
 }
 
-func TestTemplateProbeGoalMetadata(t *testing.T) {
-	t.Run("detector_goal set", func(t *testing.T) {
-		tmpl := &ProbeTemplate{
-			ID: "test.GoalProbe",
-			Info: ProbeInfo{
-				Name:         "Goal Probe",
-				Goal:         "probe goal",
-				Detector:     "judge.Judge",
-				DetectorGoal: "specific detector goal",
-			},
-			Prompts: []string{"prompt 1"},
-		}
+// TestTemplateProbe_PropagatesGoalToAttemptMetadata verifies that the probe's
+// declared goal is surfaced on every attempt's metadata under MetadataKeyGoal,
+// so goal-conditioned detectors (e.g. agent.ToolLeakJudge) can read it in
+// chat-mode (single-turn) scans. Without this, only the attack engines set goal.
+func TestTemplateProbe_PropagatesGoalToAttemptMetadata(t *testing.T) {
+	tmpl := &ProbeTemplate{
+		ID: "test.GoalProbe",
+		Info: ProbeInfo{
+			Name:     "Goal Probe",
+			Goal:     "induce the agent to run a destructive shell command",
+			Detector: "agent.ToolLeakJudge",
+		},
+		Prompts: []string{"prompt 1", "prompt 2"},
+	}
+	probe := NewTemplateProbe(tmpl)
+	gen := &mockGenerator{responses: []string{"ok"}}
 
-		probe := NewTemplateProbe(tmpl)
-		gen := &mockGenerator{responses: []string{"response"}}
+	attempts, err := probe.Probe(context.Background(), gen)
+	require.NoError(t, err)
+	require.Len(t, attempts, 2)
+	for _, a := range attempts {
+		assert.Equal(t, "induce the agent to run a destructive shell command",
+			a.Metadata[attempt.MetadataKeyGoal],
+			"every attempt must carry the probe goal in metadata")
+	}
+}
 
-		attempts, err := probe.Probe(context.Background(), gen)
-		require.NoError(t, err)
-		require.Len(t, attempts, 1)
+// TestTemplateProbe_NoGoalLeavesMetadataUnset verifies that when a template
+// declares no goal, no goal key is written (keeps detectors' no-goal skip path
+// intact and avoids stamping empty goals).
+func TestTemplateProbe_NoGoalLeavesMetadataUnset(t *testing.T) {
+	tmpl := &ProbeTemplate{
+		ID:      "test.NoGoal",
+		Info:    ProbeInfo{Name: "No Goal", Detector: "test.Detector"},
+		Prompts: []string{"prompt 1"},
+	}
+	probe := NewTemplateProbe(tmpl)
+	gen := &mockGenerator{responses: []string{"ok"}}
 
-		assert.Equal(t, "specific detector goal", attempts[0].Metadata["goal"],
-			"detector_goal should take precedence over probe goal")
-	})
+	attempts, err := probe.Probe(context.Background(), gen)
+	require.NoError(t, err)
+	require.Len(t, attempts, 1)
+	_, ok := attempts[0].Metadata[attempt.MetadataKeyGoal]
+	assert.False(t, ok, "no goal should be set when the template declares none")
+}
 
-	t.Run("detector_goal empty falls back to probe goal", func(t *testing.T) {
-		tmpl := &ProbeTemplate{
-			ID: "test.FallbackProbe",
-			Info: ProbeInfo{
-				Name:     "Fallback Probe",
-				Goal:     "probe goal",
-				Detector: "judge.Judge",
-			},
-			Prompts: []string{"prompt 1"},
-		}
+// TestTemplateProbe_DetectorGoalOverridesProbeGoal verifies that when
+// detector_goal is set, it takes precedence over the probe goal in metadata.
+func TestTemplateProbe_DetectorGoalOverridesProbeGoal(t *testing.T) {
+	tmpl := &ProbeTemplate{
+		ID: "test.DetectorGoalProbe",
+		Info: ProbeInfo{
+			Name:         "Detector Goal Probe",
+			Goal:         "probe goal",
+			Detector:     "judge.Judge",
+			DetectorGoal: "specific detector goal",
+		},
+		Prompts: []string{"prompt 1"},
+	}
 
-		probe := NewTemplateProbe(tmpl)
-		gen := &mockGenerator{responses: []string{"response"}}
+	probe := NewTemplateProbe(tmpl)
+	gen := &mockGenerator{responses: []string{"response"}}
 
-		attempts, err := probe.Probe(context.Background(), gen)
-		require.NoError(t, err)
-		require.Len(t, attempts, 1)
+	attempts, err := probe.Probe(context.Background(), gen)
+	require.NoError(t, err)
+	require.Len(t, attempts, 1)
 
-		assert.Equal(t, "probe goal", attempts[0].Metadata["goal"],
-			"should fall back to probe goal when detector_goal is empty")
-	})
+	assert.Equal(t, "specific detector goal", attempts[0].Metadata[attempt.MetadataKeyGoal],
+		"detector_goal should take precedence over probe goal")
+}
+
+// TestTemplateProbe_DetectorGoalFallback verifies that when detector_goal is
+// empty, the probe goal is used for detector metadata.
+func TestTemplateProbe_DetectorGoalFallback(t *testing.T) {
+	tmpl := &ProbeTemplate{
+		ID: "test.FallbackProbe",
+		Info: ProbeInfo{
+			Name:     "Fallback Probe",
+			Goal:     "probe goal",
+			Detector: "judge.Judge",
+		},
+		Prompts: []string{"prompt 1"},
+	}
+
+	probe := NewTemplateProbe(tmpl)
+	gen := &mockGenerator{responses: []string{"response"}}
+
+	attempts, err := probe.Probe(context.Background(), gen)
+	require.NoError(t, err)
+	require.Len(t, attempts, 1)
+
+	assert.Equal(t, "probe goal", attempts[0].Metadata[attempt.MetadataKeyGoal],
+		"should fall back to probe goal when detector_goal is empty")
 }
 
 // TestTemplateProbe_GetSecondaryDetectors_EmptyWhenAbsent verifies that

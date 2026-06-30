@@ -1,6 +1,11 @@
 package attempt
 
-import "time"
+import (
+	"encoding/base64"
+	"fmt"
+	"os"
+	"time"
+)
 
 // Image represents an image attachment for multimodal attacks.
 //
@@ -20,6 +25,55 @@ type Image struct {
 
 	// Path is the filesystem path to the image file.
 	Path string `json:"path,omitempty"`
+}
+
+// ToBase64 returns the image data as a base64-encoded string.
+// Priority: Base64 field > Data field > Path field.
+// It returns ("", nil) when no data is available, and ("", err) when a Path is
+// set but cannot be read — surfacing the I/O error rather than silently
+// shipping an empty media part to the generator.
+func (img *Image) ToBase64() (string, error) {
+	if img.Base64 != "" {
+		return img.Base64, nil
+	}
+	if len(img.Data) > 0 {
+		return base64.StdEncoding.EncodeToString(img.Data), nil
+	}
+	if img.Path != "" {
+		data, err := os.ReadFile(img.Path)
+		if err != nil {
+			return "", fmt.Errorf("image: read %q: %w", img.Path, err)
+		}
+		return base64.StdEncoding.EncodeToString(data), nil
+	}
+	return "", nil
+}
+
+// Bytes returns the raw image bytes.
+// Priority: Data field > Base64 field > Path field.
+// It returns (nil, nil) when no data is available, and (nil, err) when the
+// Base64 field cannot be decoded or a Path is set but cannot be read —
+// surfacing the error rather than silently shipping empty image bytes to the
+// generator's wire layer.
+func (img *Image) Bytes() ([]byte, error) {
+	if len(img.Data) > 0 {
+		return img.Data, nil
+	}
+	if img.Base64 != "" {
+		data, err := base64.StdEncoding.DecodeString(img.Base64)
+		if err != nil {
+			return nil, fmt.Errorf("image: decode base64: %w", err)
+		}
+		return data, nil
+	}
+	if img.Path != "" {
+		data, err := os.ReadFile(img.Path)
+		if err != nil {
+			return nil, fmt.Errorf("image: read %q: %w", img.Path, err)
+		}
+		return data, nil
+	}
+	return nil, nil
 }
 
 // Audio represents an audio attachment for multimodal attacks.
@@ -45,18 +99,68 @@ type Audio struct {
 	Duration time.Duration `json:"duration,omitempty"`
 }
 
-// MultimodalAttempt extends Attempt to include image and audio data.
+// ToBase64 returns the audio data as a base64-encoded string.
+// Priority: Base64 field > Data field > Path field.
+// It returns ("", nil) when no data is available, and ("", err) when a Path is
+// set but cannot be read — surfacing the I/O error rather than silently
+// shipping an empty media part to the generator.
+func (a *Audio) ToBase64() (string, error) {
+	if a.Base64 != "" {
+		return a.Base64, nil
+	}
+	if len(a.Data) > 0 {
+		return base64.StdEncoding.EncodeToString(a.Data), nil
+	}
+	if a.Path != "" {
+		data, err := os.ReadFile(a.Path)
+		if err != nil {
+			return "", fmt.Errorf("audio: read %q: %w", a.Path, err)
+		}
+		return base64.StdEncoding.EncodeToString(data), nil
+	}
+	return "", nil
+}
+
+// Document represents a document attachment for multimodal attacks
+// (e.g., PDFs for Anthropic Claude's native document content blocks,
+// Gemini's inlineData with application/pdf, etc.).
 //
-// This enables probes to test LLMs with multimodal inputs (text + images + audio).
-// The embedded Attempt contains the text prompt and text-based responses,
-// while Images and Audio contain the multimodal attachments.
-type MultimodalAttempt struct {
-	// Attempt is the base attempt with text prompts and outputs.
-	Attempt
+// Documents can be provided in three ways:
+// - Raw bytes (Data field)
+// - Base64 encoded string (Base64 field)
+// - File path (Path field)
+type Document struct {
+	// Data contains the raw document bytes.
+	Data []byte `json:"data,omitempty"`
 
-	// Images contains image attachments sent to the model.
-	Images []Image `json:"images,omitempty"`
+	// Base64 contains the base64-encoded document data.
+	Base64 string `json:"base64,omitempty"`
 
-	// Audio contains audio attachments sent to the model.
-	Audio []Audio `json:"audio,omitempty"`
+	// MimeType specifies the document format (e.g., "application/pdf").
+	MimeType string `json:"mime_type"`
+
+	// Path is the filesystem path to the document file.
+	Path string `json:"path,omitempty"`
+}
+
+// ToBase64 returns the document data as a base64-encoded string.
+// Priority: Base64 field > Data field > Path field.
+// It returns ("", nil) when no data is available, and ("", err) when a Path is
+// set but cannot be read — surfacing the I/O error rather than silently
+// shipping an empty media part to the generator.
+func (d *Document) ToBase64() (string, error) {
+	if d.Base64 != "" {
+		return d.Base64, nil
+	}
+	if len(d.Data) > 0 {
+		return base64.StdEncoding.EncodeToString(d.Data), nil
+	}
+	if d.Path != "" {
+		data, err := os.ReadFile(d.Path)
+		if err != nil {
+			return "", fmt.Errorf("document: read %q: %w", d.Path, err)
+		}
+		return base64.StdEncoding.EncodeToString(data), nil
+	}
+	return "", nil
 }

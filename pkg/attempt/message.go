@@ -27,6 +27,16 @@ type Message struct {
 	Role Role `json:"role"`
 	// Content is the text content of the message.
 	Content string `json:"content"`
+	// Images contains optional image attachments for multimodal messages.
+	Images []Image `json:"images,omitempty"`
+	// Audio contains optional audio attachments for multimodal messages.
+	// Consumed by generators that support audio input (e.g. OpenAI
+	// gpt-4o-audio-preview, Gemini).
+	Audio []Audio `json:"audio,omitempty"`
+	// Documents contains optional document attachments (e.g. PDFs) for
+	// multimodal messages. Consumed by generators that support native
+	// document input (e.g. Anthropic Claude, Gemini).
+	Documents []Document `json:"documents,omitempty"`
 	// ToolCalls holds any tool/function calls made by the model in this
 	// message, in the canonical detector shape:
 	//
@@ -40,6 +50,15 @@ type Message struct {
 	// ToolCallID is the ID of the tool call this message is a result for.
 	// Only set when Role == RoleTool (injected tool results for 2-turn probing).
 	ToolCallID string `json:"tool_call_id,omitempty"`
+	// Reasoning holds the model's intermediate reasoning or chain-of-thought
+	// output, if exposed by the provider (e.g., DeepSeek-R1 reasoning_content,
+	// Anthropic extended thinking, OpenAI reasoning summaries).
+	// Empty when the provider does not surface reasoning traces.
+	Reasoning string `json:"reasoning,omitempty"`
+	// ReasoningTokens is the number of reasoning tokens consumed, as reported
+	// by the provider (e.g., OpenAI completion_tokens_details.reasoning_tokens).
+	// Zero when not reported.
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
 }
 
 // NewMessage creates a new message with the given role and content.
@@ -73,4 +92,31 @@ func NewAssistantMessage(content string) Message {
 // NewSystemMessage creates a new system message.
 func NewSystemMessage(content string) Message {
 	return NewMessage(RoleSystem, content)
+}
+
+// NewUserMessageWithImages creates a new user message with image attachments.
+func NewUserMessageWithImages(content string, images []Image) Message {
+	return Message{
+		Role:    RoleUser,
+		Content: content,
+		Images:  images,
+	}
+}
+
+// NewUserMessageWithAudio creates a new user message with audio attachments.
+func NewUserMessageWithAudio(content string, audio []Audio) Message {
+	return Message{
+		Role:    RoleUser,
+		Content: content,
+		Audio:   audio,
+	}
+}
+
+// NewUserMessageWithDocuments creates a new user message with document attachments.
+func NewUserMessageWithDocuments(content string, docs []Document) Message {
+	return Message{
+		Role:      RoleUser,
+		Content:   content,
+		Documents: docs,
+	}
 }

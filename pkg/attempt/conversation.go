@@ -61,6 +61,12 @@ func (c *Conversation) AddPrompt(prompt string) {
 	c.AddTurn(NewTurn(prompt))
 }
 
+// AddPromptMessage adds a pre-built Message as a turn's prompt.
+// This lets multimodal probes add messages with images.
+func (c *Conversation) AddPromptMessage(msg Message) {
+	c.AddTurn(Turn{Prompt: msg})
+}
+
 // ToMessages flattens the conversation to a slice of messages.
 // This is useful for APIs that expect a flat message list.
 func (c *Conversation) ToMessages() []Message {
@@ -86,6 +92,17 @@ func (c *Conversation) LastPrompt() string {
 		return ""
 	}
 	return c.Turns[len(c.Turns)-1].Prompt.Content
+}
+
+// LastPromptMessage returns a pointer to the last turn's prompt Message, or nil
+// if the conversation has no turns. Unlike LastPrompt (which returns only the
+// text content), this exposes the full Message so callers can access image and
+// other multimodal attachments.
+func (c *Conversation) LastPromptMessage() *Message {
+	if len(c.Turns) == 0 {
+		return nil
+	}
+	return &c.Turns[len(c.Turns)-1].Prompt
 }
 
 // deepCopyValue recursively deep-copies a value that may be a map[string]any,

@@ -14,16 +14,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
 
+	"github.com/praetorian-inc/augustus/internal/generators/anthropic"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -38,6 +39,8 @@ const (
 
 // Bedrock is a generator that wraps the AWS Bedrock Runtime API.
 type Bedrock struct {
+	types.UsageCounter // embedded; provides AccumulatedTokens()
+
 	client    *bedrockruntime.Client
 	modelID   string
 	region    string
@@ -46,9 +49,6 @@ type Bedrock struct {
 	// Configuration parameters
 	temperature float64
 	topP        float64
-
-	// Custom HTTP client for testing
-	httpClient *http.Client
 }
 
 // NewBedrock creates a new Bedrock generator from configuration.
@@ -56,7 +56,6 @@ func NewBedrock(cfg registry.Config) (generators.Generator, error) {
 	g := &Bedrock{
 		temperature: defaultTemperature,
 		maxTokens:   defaultMaxTokens,
-		httpClient:  nil, // Will use default if not set
 	}
 
 	// Required: model ID
@@ -99,13 +98,6 @@ func NewBedrock(cfg registry.Config) (generators.Generator, error) {
 		})
 	}
 
-	// Custom HTTP client for testing
-	if g.httpClient != nil {
-		clientOpts = append(clientOpts, func(o *bedrockruntime.Options) {
-			o.HTTPClient = g.httpClient
-		})
-	}
-
 	g.client = bedrockruntime.NewFromConfig(awsCfg, clientOpts...)
 
 	return g, nil
@@ -140,6 +132,8 @@ func (g *Bedrock) generateOne(ctx context.Context, conv *attempt.Conversation) (
 
 	if strings.HasPrefix(g.modelID, "anthropic.claude") {
 		requestBody, err = g.buildClaudeRequest(conv)
+	} else if strings.HasPrefix(g.modelID, "amazon.nova") {
+		requestBody, err = g.buildNovaRequest(conv)
 	} else if strings.HasPrefix(g.modelID, "amazon.titan") {
 		requestBody, err = g.buildTitanRequest(conv)
 	} else if strings.HasPrefix(g.modelID, "meta.llama") {
@@ -165,37 +159,45 @@ func (g *Bedrock) generateOne(ctx context.Context, conv *attempt.Conversation) (
 
 	// Parse response based on model type
 	var text string
+	var tokens int64
 	if strings.HasPrefix(g.modelID, "anthropic.claude") {
-		text, err = g.parseClaudeResponse(output.Body)
+		text, tokens, err = g.parseClaudeResponse(output.Body)
+	} else if strings.HasPrefix(g.modelID, "amazon.nova") {
+		// parseNovaResponse returns (text, error) only; the Nova response
+		// schema it parses does not include a usage block, so tokens stays 0
+		// here (honest partial coverage per the UsageReporter convention —
+		// never an estimate). Its signature is left unchanged to keep the
+		// gated Nova tests valid.
+		text, err = g.parseNovaResponse(output.Body)
 	} else if strings.HasPrefix(g.modelID, "amazon.titan") {
-		text, err = g.parseTitanResponse(output.Body)
+		text, tokens, err = g.parseTitanResponse(output.Body)
 	} else if strings.HasPrefix(g.modelID, "meta.llama") {
-		text, err = g.parseLlamaResponse(output.Body)
+		text, tokens, err = g.parseLlamaResponse(output.Body)
+	} else {
+		// Symmetric with the build-side dispatch at line ~148. Adding a new
+		// model family requires updating BOTH dispatches; this guard makes
+		// the second omission a loud error instead of a silent empty response.
+		return attempt.Message{}, fmt.Errorf("bedrock: no response parser for model family: %s", g.modelID)
 	}
 
 	if err != nil {
 		return attempt.Message{}, fmt.Errorf("bedrock: failed to parse response: %w", err)
 	}
 
+	// Accumulate token usage per call.
+	g.AddTokens(tokens)
+
 	return attempt.NewAssistantMessage(text), nil
 }
 
 // buildClaudeRequest builds a request for Anthropic Claude models on Bedrock.
+// Reuses the anthropic.BuildMessages helper since Bedrock's Claude invocation
+// shares the same Messages API wire format (content arrays with text/image
+// blocks); only the top-level fields differ (anthropic_version, etc.).
 func (g *Bedrock) buildClaudeRequest(conv *attempt.Conversation) ([]byte, error) {
-	messages := make([]map[string]string, 0)
-
-	// Convert conversation to messages (skip system message)
-	for _, turn := range conv.Turns {
-		messages = append(messages, map[string]string{
-			"role":    "user",
-			"content": turn.Prompt.Content,
-		})
-		if turn.Response != nil {
-			messages = append(messages, map[string]string{
-				"role":    "assistant",
-				"content": turn.Response.Content,
-			})
-		}
+	messages, system, err := anthropic.BuildMessages(conv)
+	if err != nil {
+		return nil, err
 	}
 
 	req := map[string]any{
@@ -205,12 +207,10 @@ func (g *Bedrock) buildClaudeRequest(conv *attempt.Conversation) ([]byte, error)
 		"temperature":       g.temperature,
 	}
 
-	// Add system prompt if present
-	if conv.System != nil {
-		req["system"] = conv.System.Content
+	if system != "" {
+		req["system"] = system
 	}
 
-	// Add top_p if set
 	if g.topP > 0 {
 		req["top_p"] = g.topP
 	}
@@ -219,17 +219,22 @@ func (g *Bedrock) buildClaudeRequest(conv *attempt.Conversation) ([]byte, error)
 }
 
 // parseClaudeResponse parses a response from Anthropic Claude models on Bedrock.
-func (g *Bedrock) parseClaudeResponse(body []byte) (string, error) {
+// It returns the generated text and the total token usage (input + output).
+func (g *Bedrock) parseClaudeResponse(body []byte) (string, int64, error) {
 	var resp struct {
 		Content []struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
 		StopReason string `json:"stop_reason"`
+		Usage      struct {
+			InputTokens  int `json:"input_tokens"`
+			OutputTokens int `json:"output_tokens"`
+		} `json:"usage"`
 	}
 
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return "", err
+		return "", 0, err
 	}
 
 	var text string
@@ -239,7 +244,7 @@ func (g *Bedrock) parseClaudeResponse(body []byte) (string, error) {
 		}
 	}
 
-	return text, nil
+	return text, int64(resp.Usage.InputTokens + resp.Usage.OutputTokens), nil
 }
 
 // buildTitanRequest builds a request for Amazon Titan models on Bedrock.
@@ -275,22 +280,30 @@ func (g *Bedrock) buildTitanRequest(conv *attempt.Conversation) ([]byte, error) 
 }
 
 // parseTitanResponse parses a response from Amazon Titan models on Bedrock.
-func (g *Bedrock) parseTitanResponse(body []byte) (string, error) {
+// It returns the generated text and the total token usage (input + output).
+func (g *Bedrock) parseTitanResponse(body []byte) (string, int64, error) {
 	var resp struct {
-		Results []struct {
+		InputTextTokenCount int `json:"inputTextTokenCount"`
+		Results             []struct {
 			OutputText string `json:"outputText"`
+			TokenCount int    `json:"tokenCount"`
 		} `json:"results"`
 	}
 
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return "", err
+		return "", 0, err
 	}
 
 	if len(resp.Results) == 0 {
-		return "", fmt.Errorf("no results in Titan response")
+		return "", 0, fmt.Errorf("no results in Titan response")
 	}
 
-	return resp.Results[0].OutputText, nil
+	tokens := int64(resp.InputTextTokenCount)
+	for _, r := range resp.Results {
+		tokens += int64(r.TokenCount)
+	}
+
+	return resp.Results[0].OutputText, tokens, nil
 }
 
 // buildLlamaRequest builds a request for Meta Llama models on Bedrock.
@@ -329,16 +342,19 @@ func (g *Bedrock) buildLlamaRequest(conv *attempt.Conversation) ([]byte, error) 
 }
 
 // parseLlamaResponse parses a response from Meta Llama models on Bedrock.
-func (g *Bedrock) parseLlamaResponse(body []byte) (string, error) {
+// It returns the generated text and the total token usage (prompt + generation).
+func (g *Bedrock) parseLlamaResponse(body []byte) (string, int64, error) {
 	var resp struct {
-		Generation string `json:"generation"`
+		Generation           string `json:"generation"`
+		PromptTokenCount     int    `json:"prompt_token_count"`
+		GenerationTokenCount int    `json:"generation_token_count"`
 	}
 
 	if err := json.Unmarshal(body, &resp); err != nil {
-		return "", err
+		return "", 0, err
 	}
 
-	return resp.Generation, nil
+	return resp.Generation, int64(resp.PromptTokenCount + resp.GenerationTokenCount), nil
 }
 
 // handleError processes API errors.
@@ -370,6 +386,25 @@ func (g *Bedrock) ClearHistory() {}
 // Name returns the generator's fully qualified name.
 func (g *Bedrock) Name() string {
 	return "bedrock.Bedrock"
+}
+
+// SupportsVision reports vision capability per the active model family.
+// Only the Claude and Nova request builders emit image content blocks; the
+// Titan and Llama builders flatten to text-only and would silently drop image
+// attachments. Mirrors the build-side dispatch in generateOne so a
+// `bedrock.Bedrock` configured with a text-only family rejects multimodal
+// probes via ErrVisionUnsupported instead of running text-only. See
+// types.VisionCapable.
+func (g *Bedrock) SupportsVision() bool {
+	return strings.HasPrefix(g.modelID, "anthropic.claude") ||
+		strings.HasPrefix(g.modelID, "amazon.nova")
+}
+
+// SupportsDocuments reports document capability per the active model family.
+// Only the Claude request builder emits native PDF document blocks; Nova, Titan,
+// and Llama builders do not. See types.DocumentCapable.
+func (g *Bedrock) SupportsDocuments() bool {
+	return strings.HasPrefix(g.modelID, "anthropic.claude")
 }
 
 // Description returns a human-readable description.

@@ -21,42 +21,44 @@ func NewTemplateProbe(tmpl *ProbeTemplate) *TemplateProbe {
 // Probe executes the probe against the generator.
 // Implements types.Prober interface.
 func (t *TemplateProbe) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
-	metadataFn := func(_ int, _ string, a *attempt.Attempt) {
-		// Pass the goal to the attempt so detectors (e.g., judge.Judge) can use it.
-		// Prefer detector_goal if set, otherwise fall back to the probe goal.
-		goal := t.template.Info.DetectorGoal
-		if goal == "" {
-			goal = t.template.Info.Goal
-		}
-		if goal != "" {
-			a.Metadata["goal"] = goal
-		}
-	}
-
 	tools := t.GetTools()
 	toolResults := t.template.Info.ToolResults
 
-	// Use 2-turn mode when both tools and tool_results are defined.
-	if len(tools) > 0 && len(toolResults) > 0 {
-		attempts, err := probes.RunTwoTurnPrompts(
+	var attempts []*attempt.Attempt
+	var err error
+
+	switch {
+	case len(tools) > 0 && len(toolResults) > 0:
+		// Use 2-turn mode when both tools and tool_results are defined.
+		attempts, err = probes.RunTwoTurnPrompts(
 			ctx, gen, t.template.Prompts, t.Name(), t.GetPrimaryDetector(),
 			tools, t.GetToolChoice(), toolResults,
 		)
-		// Apply goal metadata to 2-turn attempts (RunTwoTurnPrompts doesn't
-		// accept metadataFn, so we apply it post-hoc).
-		for i, a := range attempts {
-			metadataFn(i, a.Prompt, a)
+	default:
+		// Standard single-turn mode.
+		var toolsFn func() ([]map[string]any, string)
+		if len(tools) > 0 {
+			toolChoice := t.GetToolChoice()
+			toolsFn = func() ([]map[string]any, string) { return tools, toolChoice }
 		}
-		return attempts, err
+		attempts, err = probes.RunPrompts(ctx, gen, t.template.Prompts, t.Name(), t.GetPrimaryDetector(), nil, toolsFn)
 	}
 
-	// Standard single-turn mode.
-	var toolsFn func() ([]map[string]any, string)
-	if len(tools) > 0 {
-		toolChoice := t.GetToolChoice()
-		toolsFn = func() ([]map[string]any, string) { return tools, toolChoice }
+	// Surface the probe's declared goal on every attempt so goal-conditioned
+	// detectors (e.g. agent.ToolLeakJudge, judge.Judge) can read it.
+	// Prefer detector_goal if set (allows probe-specific judge criteria),
+	// otherwise fall back to the probe goal.
+	goal := t.template.Info.DetectorGoal
+	if goal == "" {
+		goal = t.Goal()
 	}
-	return probes.RunPrompts(ctx, gen, t.template.Prompts, t.Name(), t.GetPrimaryDetector(), metadataFn, toolsFn)
+	if goal != "" {
+		for _, a := range attempts {
+			a.WithMetadata(attempt.MetadataKeyGoal, goal)
+		}
+	}
+
+	return attempts, err
 }
 
 // Name returns the probe's fully qualified name.

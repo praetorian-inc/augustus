@@ -41,6 +41,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	libhttp "github.com/praetorian-inc/augustus/pkg/lib/http"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 const (
@@ -58,9 +59,10 @@ func init() {
 
 // Pipeline generates text using a locally-run HuggingFace model via TGI.
 type Pipeline struct {
-	client *libhttp.Client
-	model  string
-	host   string
+	types.UsageCounter // embedded; provides AccumulatedTokens()
+	client             *libhttp.Client
+	model              string
+	host               string
 
 	// Configuration
 	maxTokens      int
@@ -225,11 +227,17 @@ func (g *Pipeline) parseResponse(resp *libhttp.Response) ([]attempt.Message, err
 				Content string `json:"content"`
 			} `json:"message"`
 		} `json:"choices"`
+		Usage struct {
+			TotalTokens int `json:"total_tokens"`
+		} `json:"usage"`
 	}
 
 	if err := resp.JSON(&result); err != nil {
 		return nil, fmt.Errorf("huggingface: failed to parse TGI response: %w", err)
 	}
+
+	// Accumulate token usage reported by the TGI server (OpenAI-compatible aggregate).
+	g.AddTokens(int64(result.Usage.TotalTokens))
 
 	messages := make([]attempt.Message, 0, len(result.Choices))
 	for _, choice := range result.Choices {

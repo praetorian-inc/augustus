@@ -25,6 +25,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -48,6 +49,8 @@ var completionModels = openaicompat.CompletionModels
 
 // AzureOpenAI is a generator that wraps the Azure OpenAI API.
 type AzureOpenAI struct {
+	types.UsageCounter // embedded; provides AccumulatedTokens()
+
 	client *goopenai.Client
 	model  string
 	isChat bool
@@ -150,7 +153,10 @@ func (g *AzureOpenAI) Generate(ctx context.Context, conv *attempt.Conversation, 
 // generateChat handles chat completion requests.
 func (g *AzureOpenAI) generateChat(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
 	// Convert conversation to OpenAI message format
-	messages := openaicompat.ConversationToMessages(conv)
+	messages, err := openaicompat.ConversationToMessages(conv)
+	if err != nil {
+		return nil, openaicompat.WrapError("azure openai", err)
+	}
 
 	req := goopenai.ChatCompletionRequest{
 		Model:    g.model,
@@ -182,11 +188,21 @@ func (g *AzureOpenAI) generateChat(ctx context.Context, conv *attempt.Conversati
 	if err != nil {
 		return nil, openaicompat.WrapError("azure openai", err)
 	}
+	g.AddTokens(int64(resp.Usage.TotalTokens))
+
+	// Extract reasoning token count if available
+	var reasoningTokens int
+	if resp.Usage.CompletionTokensDetails != nil {
+		reasoningTokens = resp.Usage.CompletionTokensDetails.ReasoningTokens
+	}
 
 	// Extract responses from choices
 	responses := make([]attempt.Message, 0, len(resp.Choices))
 	for _, choice := range resp.Choices {
-		responses = append(responses, attempt.NewAssistantMessage(choice.Message.Content))
+		msg := attempt.NewAssistantMessage(choice.Message.Content)
+		msg.Reasoning = choice.Message.ReasoningContent
+		msg.ReasoningTokens = reasoningTokens
+		responses = append(responses, msg)
 	}
 
 	return responses, nil
@@ -227,6 +243,7 @@ func (g *AzureOpenAI) generateCompletion(ctx context.Context, conv *attempt.Conv
 	if err != nil {
 		return nil, openaicompat.WrapError("azure openai", err)
 	}
+	g.AddTokens(int64(resp.Usage.TotalTokens))
 
 	// Extract responses from choices
 	responses := make([]attempt.Message, 0, len(resp.Choices))
@@ -243,6 +260,17 @@ func (g *AzureOpenAI) ClearHistory() {}
 // Name returns the generator's fully qualified name.
 func (g *AzureOpenAI) Name() string {
 	return "azure.AzureOpenAI"
+}
+
+// SupportsVision reports vision capability based on the active model family.
+// Chat-completion models go through the multipart image_url path in
+// openaicompat.ConversationToMessages, but legacy completion models
+// (gpt-3.5-turbo-instruct, davinci-002, babbage-002, etc.) use the
+// CompletionRequest path that only carries the flattened LastPrompt() text.
+// Reporting vision capability for completion models would silently drop image
+// attachments. See types.VisionCapable.
+func (g *AzureOpenAI) SupportsVision() bool {
+	return !completionModels[g.model]
 }
 
 // Description returns a human-readable description.

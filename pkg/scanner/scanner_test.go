@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -12,8 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/hooks"
 	"github.com/praetorian-inc/augustus/pkg/metrics"
 	"github.com/praetorian-inc/augustus/pkg/scanner"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 // mockProbe is a test probe that returns attempts or errors based on configuration
@@ -431,14 +434,282 @@ func TestScanner_Run_PopulatesMetrics(t *testing.T) {
 
 	require.NoError(t, results.Error)
 
-	// Verify metrics were populated
-	// Get metrics snapshot using scanner's mutex
-	mu := s.GetMetricsMutex()
-	snapshot := m.Snapshot(mu)
+	// Verify metrics were populated via the preferred SnapshotLocked API.
+	snapshot := m.SnapshotLocked()
 
 	assert.Equal(t, int64(3), snapshot.ProbesTotal, "should count all probes")
 	assert.Equal(t, int64(2), snapshot.ProbesSucceeded, "should count succeeded probes")
 	assert.Equal(t, int64(1), snapshot.ProbesFailed, "should count failed probes")
 	assert.Equal(t, int64(3), snapshot.AttemptsTotal, "should count all attempts")
 	assert.Equal(t, int64(2), snapshot.AttemptsVuln, "should count vulnerable attempts")
+}
+
+// ─── Token-accounting helpers ────────────────────────────────────────────────
+
+// usageMockGenerator implements types.Generator + types.UsageReporter.
+// Every Generate call adds tokensPerCall to the embedded UsageCounter, making
+// it easy to assert exact TokensConsumed values after a scanner run.
+type usageMockGenerator struct {
+	types.UsageCounter
+	tokensPerCall int64
+	delay         time.Duration // optional artificial latency for race tests
+}
+
+func (g *usageMockGenerator) Generate(_ context.Context, _ *attempt.Conversation, _ int) ([]attempt.Message, error) {
+	if g.delay > 0 {
+		time.Sleep(g.delay)
+	}
+	g.AddTokens(g.tokensPerCall)
+	return []attempt.Message{attempt.NewAssistantMessage("ok")}, nil
+}
+
+func (g *usageMockGenerator) ClearHistory()       {}
+func (g *usageMockGenerator) Name() string        { return "test.UsageMock" }
+func (g *usageMockGenerator) Description() string { return "usage mock generator" }
+
+// callingProbe is a probe that actually invokes gen.Generate once, so that
+// UsageCounter Add calls flow through during a real scanner.Run.
+type callingProbe struct {
+	name string
+}
+
+func (p *callingProbe) Name() string               { return p.name }
+func (p *callingProbe) Description() string        { return p.name }
+func (p *callingProbe) Goal() string               { return p.name }
+func (p *callingProbe) GetPrimaryDetector() string { return "test.Detector" }
+func (p *callingProbe) GetPrompts() []string       { return []string{"test"} }
+
+func (p *callingProbe) Probe(ctx context.Context, gen scanner.Generator) ([]*attempt.Attempt, error) {
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+	_, err := gen.Generate(ctx, conv, 1)
+	if err != nil {
+		return nil, err
+	}
+	return []*attempt.Attempt{}, nil
+}
+
+// ─── Category (ii): TokensConsumed end-to-end ────────────────────────────────
+
+// TestScanner_Run_RecordsTokenUsage proves the always-0 bug is fixed:
+// a generator that calls AddTokens on each Generate results in a non-zero
+// TokensConsumed in the metrics snapshot after scanner.Run.
+func TestScanner_Run_RecordsTokenUsage(t *testing.T) {
+	ctx := context.Background()
+
+	const tokensPerCall = int64(7)
+	const probeCount = 3
+
+	gen := &usageMockGenerator{tokensPerCall: tokensPerCall}
+	probeList := make([]scanner.Prober, probeCount)
+	for i := range probeList {
+		probeList[i] = &callingProbe{name: fmt.Sprintf("p%d", i)}
+	}
+
+	m := &metrics.Metrics{}
+	s := scanner.New(scanner.Options{Concurrency: 2, Metrics: m})
+	s.Run(ctx, probeList, gen)
+
+	snapshot := m.SnapshotLocked()
+	require.Equal(
+		t,
+		tokensPerCall*probeCount,
+		snapshot.TokensConsumed,
+		"TokensConsumed must equal sum of per-probe token additions",
+	)
+}
+
+// TestScanner_Run_NoUsageReporter_TokensZero ensures that a plain generator
+// without UsageReporter leaves TokensConsumed at 0 and does not panic.
+func TestScanner_Run_NoUsageReporter_TokensZero(t *testing.T) {
+	ctx := context.Background()
+	gen := &mockGenerator{} // does NOT implement UsageReporter
+	probeList := []scanner.Prober{&callingProbe{name: "p0"}}
+
+	m := &metrics.Metrics{}
+	s := scanner.New(scanner.Options{Concurrency: 1, Metrics: m})
+	s.Run(ctx, probeList, gen)
+
+	snapshot := m.SnapshotLocked()
+	assert.Equal(t, int64(0), snapshot.TokensConsumed, "generator without UsageReporter must leave TokensConsumed 0")
+}
+
+// ─── Category (iii): Delta / no-double-count ─────────────────────────────────
+
+// TestScanner_Run_ReusedGenerator_NoDoubleCount guards correction (e):
+// when the SAME generator instance is reused across two scanner.Run calls
+// (each with its own fresh Metrics), each run's TokensConsumed reflects only
+// that run's delta — not the cumulative generator total.
+func TestScanner_Run_ReusedGenerator_NoDoubleCount(t *testing.T) {
+	ctx := context.Background()
+
+	const tokensPerCall = int64(5)
+	gen := &usageMockGenerator{tokensPerCall: tokensPerCall}
+	probeList := []scanner.Prober{
+		&callingProbe{name: "pa"},
+		&callingProbe{name: "pb"},
+	}
+	expected := tokensPerCall * int64(len(probeList))
+
+	// First run
+	m1 := &metrics.Metrics{}
+	s1 := scanner.New(scanner.Options{Concurrency: 1, Metrics: m1})
+	s1.Run(ctx, probeList, gen)
+	first := m1.SnapshotLocked().TokensConsumed
+	require.Equal(t, expected, first, "first run: TokensConsumed must equal probeCount*tokensPerCall")
+
+	// Second run reuses the same gen — cumulative counter is now 2× but the
+	// delta approach must record only this run's contribution.
+	m2 := &metrics.Metrics{}
+	s2 := scanner.New(scanner.Options{Concurrency: 1, Metrics: m2})
+	s2.Run(ctx, probeList, gen)
+	second := m2.SnapshotLocked().TokensConsumed
+
+	require.Equal(t, expected, second, "second run with reused generator must equal delta, not cumulative total")
+}
+
+// ─── Category (iv): Decorator forwarding ─────────────────────────────────────
+
+// TestScanner_Run_HookedGeneratorForwardsTokens guards correction (b):
+// when the scanner's gen is a *hooks.HookedGenerator wrapping a UsageReporter,
+// tokens still flow through to Metrics.TokensConsumed.
+func TestScanner_Run_HookedGeneratorForwardsTokens(t *testing.T) {
+	ctx := context.Background()
+
+	const tokensPerCall = int64(11)
+	inner := &usageMockGenerator{tokensPerCall: tokensPerCall}
+	wrapped := hooks.NewHookedGenerator(inner, nil, nil)
+
+	probeList := []scanner.Prober{
+		&callingProbe{name: "hook-p0"},
+		&callingProbe{name: "hook-p1"},
+	}
+	expected := tokensPerCall * int64(len(probeList))
+
+	m := &metrics.Metrics{}
+	s := scanner.New(scanner.Options{Concurrency: 1, Metrics: m})
+	s.Run(ctx, probeList, wrapped)
+
+	snapshot := m.SnapshotLocked()
+	require.Equal(
+		t,
+		expected,
+		snapshot.TokensConsumed,
+		"HookedGenerator must forward UsageReporter so tokens reach Metrics",
+	)
+}
+
+// ─── Category (i): Race test — concurrent writes + live snapshot ──────────────
+
+// TestScanner_ConcurrentWritesAndSnapshot_RaceClean models the
+// /metrics-scrape-during-scan scenario: probe goroutines call RecordProbeResult
+// and AddTokens while a concurrent reader calls SnapshotLocked (and
+// PrometheusExporter.Export). The test must be -race clean and would fail if
+// any write bypassed the embedded mutex.
+func TestScanner_ConcurrentWritesAndSnapshot_RaceClean(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	const tokensPerCall = int64(3)
+	gen := &usageMockGenerator{
+		tokensPerCall: tokensPerCall,
+		delay:         1 * time.Millisecond, // slow enough for reader to interleave
+	}
+
+	const probeCount = 20
+	probeList := make([]scanner.Prober, probeCount)
+	for i := range probeList {
+		probeList[i] = &callingProbe{name: fmt.Sprintf("race-p%d", i)}
+	}
+
+	m := &metrics.Metrics{}
+
+	// Live reader: hammers SnapshotLocked() concurrently with the scanner run.
+	// A data race here would mean the single-lock invariant is broken. We use
+	// SnapshotLocked directly so the race detector exercises the same code path
+	// that PrometheusExporter.Export uses under the hood.
+	readerDone := make(chan struct{})
+	go func() {
+		defer close(readerDone)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				_ = m.SnapshotLocked()
+			}
+		}
+	}()
+
+	s := scanner.New(scanner.Options{Concurrency: 5, Metrics: m})
+	s.Run(ctx, probeList, gen)
+
+	cancel() // stop reader
+	<-readerDone
+
+	snapshot := m.SnapshotLocked()
+	// After all probes: each probe called Generate once → tokensPerCall each.
+	require.Equal(
+		t,
+		tokensPerCall*probeCount,
+		snapshot.TokensConsumed,
+		"TokensConsumed must reflect all probe token additions after race-clean run",
+	)
+}
+
+// ─── Category (v): ClearHistory preserves counter ────────────────────────────
+
+// TestUsageMockGenerator_ClearHistory_PreservesCounter guards correction (d):
+// ClearHistory must NOT reset AccumulatedTokens (lifetime of instance).
+// Tested on the usageMockGenerator since real generators' ClearHistory are
+// currently no-ops w.r.t. the counter; the invariant is proven at this level.
+func TestUsageMockGenerator_ClearHistory_PreservesCounter(t *testing.T) {
+	gen := &usageMockGenerator{tokensPerCall: 17}
+	ctx := context.Background()
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	_, err := gen.Generate(ctx, conv, 1)
+	require.NoError(t, err)
+
+	before := gen.AccumulatedTokens()
+	require.Positive(t, before, "AccumulatedTokens must be positive after Generate")
+
+	gen.ClearHistory()
+
+	require.Equal(t, before, gen.AccumulatedTokens(), "ClearHistory must not reset AccumulatedTokens")
+}
+
+// ─── Category (vi): Backward-compat shims ────────────────────────────────────
+
+// TestMetrics_BackwardCompatShims_SnapshotAndExporter guards that the two
+// deprecated APIs still compile and behave correctly:
+//   - Snapshot(_ *sync.Mutex) returns the same data as SnapshotLocked().
+//   - NewPrometheusExporter(m, any-mutex-or-nil).Export() still works and is race-safe.
+//
+//nolint:staticcheck // intentional deprecated-API backward-compat test
+func TestMetrics_BackwardCompatShims_SnapshotAndExporter(t *testing.T) {
+	m := &metrics.Metrics{}
+	m.RecordProbeResult(true, 4, 2)
+	m.AddTokens(100)
+
+	// Deprecated Snapshot(_ *sync.Mutex) must return same data as SnapshotLocked.
+	var mu sync.Mutex
+	deprecated := m.Snapshot(&mu)
+	preferred := m.SnapshotLocked()
+
+	assert.Equal(t, preferred.ProbesTotal, deprecated.ProbesTotal, "Snapshot: ProbesTotal mismatch")
+	assert.Equal(t, preferred.ProbesSucceeded, deprecated.ProbesSucceeded, "Snapshot: ProbesSucceeded mismatch")
+	assert.Equal(t, preferred.AttemptsTotal, deprecated.AttemptsTotal, "Snapshot: AttemptsTotal mismatch")
+	assert.Equal(t, preferred.TokensConsumed, deprecated.TokensConsumed, "Snapshot: TokensConsumed mismatch")
+
+	// NewPrometheusExporter with a fresh (non-nil) mutex must not panic and must Export.
+	exporter := metrics.NewPrometheusExporter(m, &mu)
+	out := exporter.Export()
+	assert.Contains(t, out, "augustus_probes_total", "Export via deprecated constructor must produce output")
+
+	// nil mutex must also work (the shim ignores the argument).
+	exporterNil := metrics.NewPrometheusExporter(m, nil)
+	outNil := exporterNil.Export()
+	assert.Contains(t, outNil, "augustus_probes_total", "Export via nil-mutex deprecated constructor must produce output")
 }

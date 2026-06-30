@@ -7,6 +7,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -15,7 +16,9 @@ func init() {
 
 // Blank is the simplest generator - always returns empty responses.
 // Used for testing harness functionality without LLM access.
-type Blank struct{}
+type Blank struct {
+	types.UsageCounter // embedded but never incremented: test generator returns no token usage.
+}
 
 // NewBlank creates a new Blank generator.
 func NewBlank(_ registry.Config) (generators.Generator, error) {

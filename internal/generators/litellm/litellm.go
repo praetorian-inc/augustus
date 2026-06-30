@@ -12,6 +12,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -37,6 +38,8 @@ var unsupportedMultipleGenProviders = []string{
 
 // LiteLLM is a generator that connects to a LiteLLM proxy server.
 type LiteLLM struct {
+	types.UsageCounter // embedded; provides AccumulatedTokens()
+
 	client *goopenai.Client
 	model  string
 
@@ -127,7 +130,10 @@ func (g *LiteLLM) Generate(ctx context.Context, conv *attempt.Conversation, n in
 
 // generateWithN uses the n parameter for a single API call.
 func (g *LiteLLM) generateWithN(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
-	req := g.buildRequest(conv)
+	req, err := g.buildRequest(conv)
+	if err != nil {
+		return nil, err
+	}
 
 	if !g.suppressedParams["n"] {
 		req.N = n
@@ -137,6 +143,7 @@ func (g *LiteLLM) generateWithN(ctx context.Context, conv *attempt.Conversation,
 	if err != nil {
 		return nil, openaicompat.WrapError("litellm", err)
 	}
+	g.AddTokens(int64(resp.Usage.TotalTokens))
 
 	responses := make([]attempt.Message, 0, len(resp.Choices))
 	for _, choice := range resp.Choices {
@@ -151,13 +158,17 @@ func (g *LiteLLM) generateMultipleCalls(ctx context.Context, conv *attempt.Conve
 	responses := make([]attempt.Message, 0, n)
 
 	for i := 0; i < n; i++ {
-		req := g.buildRequest(conv)
+		req, err := g.buildRequest(conv)
+		if err != nil {
+			return nil, err
+		}
 		req.N = 1 // Always single response per call
 
 		resp, err := g.client.CreateChatCompletion(ctx, req)
 		if err != nil {
 			return nil, openaicompat.WrapError("litellm", err)
 		}
+		g.AddTokens(int64(resp.Usage.TotalTokens))
 
 		if len(resp.Choices) > 0 {
 			responses = append(responses, attempt.NewAssistantMessage(resp.Choices[0].Message.Content))
@@ -168,8 +179,11 @@ func (g *LiteLLM) generateMultipleCalls(ctx context.Context, conv *attempt.Conve
 }
 
 // buildRequest constructs the chat completion request.
-func (g *LiteLLM) buildRequest(conv *attempt.Conversation) goopenai.ChatCompletionRequest {
-	messages := openaicompat.ConversationToMessages(conv)
+func (g *LiteLLM) buildRequest(conv *attempt.Conversation) (goopenai.ChatCompletionRequest, error) {
+	messages, err := openaicompat.ConversationToMessages(conv)
+	if err != nil {
+		return goopenai.ChatCompletionRequest{}, openaicompat.WrapError("litellm", err)
+	}
 
 	req := goopenai.ChatCompletionRequest{
 		Model:    g.model,
@@ -196,7 +210,7 @@ func (g *LiteLLM) buildRequest(conv *attempt.Conversation) goopenai.ChatCompleti
 		req.Stop = g.stop
 	}
 
-	return req
+	return req, nil
 }
 
 // ClearHistory is a no-op (stateless per call).
@@ -206,6 +220,11 @@ func (g *LiteLLM) ClearHistory() {}
 func (g *LiteLLM) Name() string {
 	return "litellm.LiteLLM"
 }
+
+// SupportsVision reports that the LiteLLM proxy path transmits image content
+// blocks; whether the proxied model accepts them is the operator's choice.
+// See types.VisionCapable.
+func (g *LiteLLM) SupportsVision() bool { return true }
 
 // Description returns a human-readable description.
 func (g *LiteLLM) Description() string {

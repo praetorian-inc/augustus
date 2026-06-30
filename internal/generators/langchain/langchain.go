@@ -18,6 +18,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -27,8 +28,9 @@ func init() {
 // LangChain is a generator that wraps LangChain LLM interfaces via REST API.
 // It calls the invoke() method on the LangChain endpoint.
 type LangChain struct {
-	uri    string
-	client *http.Client
+	types.UsageCounter // embedded but never incremented: LangChain invoke returns no token usage.
+	uri                string
+	client             *http.Client
 }
 
 // NewLangChain creates a new LangChain generator from configuration.

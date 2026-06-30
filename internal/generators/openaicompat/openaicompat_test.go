@@ -29,7 +29,8 @@ func TestConversationToMessages_ToolResultMessage(t *testing.T) {
 	toolResult := attempt.NewToolResultMessage("call_abc", "Results: AI safety is important")
 	conv.AddTurn(attempt.Turn{Prompt: toolResult})
 
-	messages := ConversationToMessages(conv)
+	messages, err := ConversationToMessages(conv)
+	require.NoError(t, err)
 
 	// Expected: user, assistant (with tool_calls), tool
 	require.Len(t, messages, 3)
@@ -52,7 +53,8 @@ func TestConversationToMessages_AssistantWithToolCalls(t *testing.T) {
 	}
 	conv.Turns[0].Response = &turn1Resp
 
-	messages := ConversationToMessages(conv)
+	messages, err := ConversationToMessages(conv)
+	require.NoError(t, err)
 
 	require.Len(t, messages, 2)
 	assert.Equal(t, "assistant", messages[1].Role)

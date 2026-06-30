@@ -16,6 +16,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -24,10 +25,11 @@ func init() {
 
 // NeMoGuardrails is a generator that wraps the NeMo Guardrails HTTP API.
 type NeMoGuardrails struct {
-	client      *http.Client
-	baseURL     string
-	apiKey      string
-	railsConfig string
+	types.UsageCounter // embedded but never incremented: NeMo Guardrails returns no token usage.
+	client             *http.Client
+	baseURL            string
+	apiKey             string
+	railsConfig        string
 }
 
 // NewNeMoGuardrails creates a new NeMo Guardrails generator from configuration.
