@@ -143,14 +143,48 @@ func TestEngineEndToEnd(t *testing.T) {
 		t.Fatal("turn_records should not be empty")
 	}
 
-	// Verify the max score is propagated (highest judge score was 0.6)
+	// Verify outputs are present
 	if len(a.Outputs) == 0 {
 		t.Error("attempt should have outputs")
 	}
 
-	t.Logf("completed %d turns, %d outputs", len(turnRecords), len(a.Outputs))
-	for i, tr := range turnRecords {
-		t.Logf("  turn %d: score=%.1f refused=%v strategy=%s",
-			i+1, tr.JudgeScore, tr.WasRefused, tr.Strategy)
+	// Verify expected turn count
+	if len(turnRecords) != 6 {
+		t.Errorf("turn count = %d, want 6", len(turnRecords))
 	}
+
+	// Verify judge scores match what we fed the mock judge
+	expectedScores := []float64{0.5, 0.6, 0.4, 0.3, 0.1, 0.1}
+	for i, tr := range turnRecords {
+		if i < len(expectedScores) && tr.JudgeScore != expectedScores[i] {
+			t.Errorf("turn %d score = %.1f, want %.1f", i+1, tr.JudgeScore, expectedScores[i])
+		}
+	}
+
+	// Verify no turns were refused (all judge refusal checks returned ACCEPTED)
+	for i, tr := range turnRecords {
+		if tr.WasRefused {
+			t.Errorf("turn %d was unexpectedly refused", i+1)
+		}
+	}
+
+	// Verify strategies from attacker JSON were captured
+	expectedStrategies := []string{"capability_probe", "tool_discovery", "prompt_extraction", "direct_bypass", "config_write", "data_exfil"}
+	for i, tr := range turnRecords {
+		if i < len(expectedStrategies) && tr.Strategy != expectedStrategies[i] {
+			t.Errorf("turn %d strategy = %q, want %q", i+1, tr.Strategy, expectedStrategies[i])
+		}
+	}
+
+	// Verify intel-gated staging: with scores 0.5 and 0.6 on turns 1-2
+	// (both >= IntelThreshold 0.3), the strategy should advance from
+	// recon to exploitation by turn 3. Verify by checking that the
+	// strategy correctly computes stages from the recorded history.
+	s := &killchain.Strategy{MaxTurns: 6}
+	stageAtTurn3 := s.Stage(3, turnRecords[:2])
+	if stageAtTurn3 != "exploitation" {
+		t.Errorf("stage at turn 3 = %q, want exploitation (intel-gated transition)", stageAtTurn3)
+	}
+
+	t.Logf("completed %d turns, %d outputs", len(turnRecords), len(a.Outputs))
 }

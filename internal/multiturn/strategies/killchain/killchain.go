@@ -54,11 +54,11 @@ func (s *Strategy) charBudget() int {
 	return multiturn.ResponseCharBudget(s.AttackerModel)
 }
 
-// stage determines the current kill chain stage based on accumulated
+// Stage determines the current kill chain stage based on accumulated
 // intelligence, not just turn count. Transitions are gated on having
 // gathered enough useful intel (judge scores above IntelThreshold).
 // Safety-valve deadlines force advancement to prevent stalling.
-func (s *Strategy) stage(turnNum int, history []multiturn.TurnRecord) string {
+func (s *Strategy) Stage(turnNum int, history []multiturn.TurnRecord) string {
 	maxT := s.maxTurns()
 
 	// Count useful intel per stage
@@ -128,7 +128,7 @@ Respond in JSON:
 
 // GenerateTurnPrompt builds the prompt for the next turn.
 func (s *Strategy) GenerateTurnPrompt(goal string, turnHistory []multiturn.TurnRecord, turnNum int) string {
-	stage := s.stage(turnNum, turnHistory)
+	stage := s.Stage(turnNum, turnHistory)
 	budget := s.charBudget()
 
 	if len(turnHistory) == 0 {

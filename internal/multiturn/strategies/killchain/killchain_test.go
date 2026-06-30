@@ -21,7 +21,7 @@ func TestStrategy_IntelGatedStaging(t *testing.T) {
 	s := &Strategy{MaxTurns: 9}
 
 	t.Run("starts in reconnaissance with no history", func(t *testing.T) {
-		got := s.stage(1, nil)
+		got := s.Stage(1, nil)
 		if got != "reconnaissance" {
 			t.Errorf("stage(1, nil) = %q, want reconnaissance", got)
 		}
@@ -32,7 +32,7 @@ func TestStrategy_IntelGatedStaging(t *testing.T) {
 			{TurnNumber: 1, JudgeScore: 0.1},
 			{TurnNumber: 2, JudgeScore: 0.2},
 		}
-		got := s.stage(3, history)
+		got := s.Stage(3, history)
 		if got != "reconnaissance" {
 			t.Errorf("stage(3, low-intel) = %q, want reconnaissance", got)
 		}
@@ -43,7 +43,7 @@ func TestStrategy_IntelGatedStaging(t *testing.T) {
 			{TurnNumber: 1, JudgeScore: 0.5},
 			{TurnNumber: 2, JudgeScore: 0.4},
 		}
-		got := s.stage(3, history)
+		got := s.Stage(3, history)
 		if got != "exploitation" {
 			t.Errorf("stage(3, good-intel) = %q, want exploitation", got)
 		}
@@ -55,7 +55,7 @@ func TestStrategy_IntelGatedStaging(t *testing.T) {
 			{TurnNumber: 2, JudgeScore: 0.4},
 			{TurnNumber: 3, JudgeScore: 0.6},
 		}
-		got := s.stage(4, history)
+		got := s.Stage(4, history)
 		if got != "persistence_exfil" {
 			t.Errorf("stage(4, exploit-intel) = %q, want persistence_exfil", got)
 		}
@@ -69,7 +69,7 @@ func TestStrategy_IntelGatedStaging(t *testing.T) {
 			{TurnNumber: 4, JudgeScore: 0.0},
 			{TurnNumber: 5, JudgeScore: 0.0},
 		}
-		got := s.stage(6, history) // 6/9 = 0.67 > 0.6
+		got := s.Stage(6, history) // 6/9 = 0.67 > 0.6
 		if got != "exploitation" {
 			t.Errorf("stage(6, no-intel) = %q, want exploitation (safety valve)", got)
 		}
@@ -85,7 +85,7 @@ func TestStrategy_IntelGatedStaging(t *testing.T) {
 			{TurnNumber: 6, JudgeScore: 0.0},
 			{TurnNumber: 7, JudgeScore: 0.0},
 		}
-		got := s.stage(8, history) // 8/9 = 0.89 > 0.85
+		got := s.Stage(8, history) // 8/9 = 0.89 > 0.85
 		if got != "persistence_exfil" {
 			t.Errorf("stage(8, no-intel) = %q, want persistence_exfil (safety valve)", got)
 		}
@@ -97,7 +97,7 @@ func TestStrategy_IntelGatedStaging(t *testing.T) {
 			{TurnNumber: 2, JudgeScore: 0.7},
 			{TurnNumber: 3, JudgeScore: 0.9},
 		}
-		got := s.stage(4, history)
+		got := s.Stage(4, history)
 		if got != "persistence_exfil" {
 			t.Errorf("stage(4, strong-intel) = %q, want persistence_exfil", got)
 		}
