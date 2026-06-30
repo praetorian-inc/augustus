@@ -1,11 +1,12 @@
 // Package killchain provides a multi-stage prompt injection kill chain probe.
 //
 // This probe models a realistic multi-stage attack lifecycle where each
-// stage depends on the previous stage's success: reconnaissance, exploitation,
-// and persistence/exfiltration. Uses the multi-turn engine with an attacker
-// LLM that plans stage-dependent escalation.
+// stage advances based on intelligence gathered in the previous stage:
+// reconnaissance, exploitation, and persistence/exfiltration. Uses the
+// multi-turn engine with an attacker LLM that plans stage-dependent
+// escalation.
 //
-// Paper: Promptware Kill Chain (arXiv:2601.09625)
+// Informed by the Promptware Kill Chain taxonomy (arXiv:2601.09625).
 package killchain
 
 import (
@@ -36,9 +37,6 @@ func NewKillChain(cfg registry.Config) (probes.Prober, error) {
 		engineCfg.MaxTurns = 9
 	}
 
-	// Stages are sequential -- disable backtracking to preserve order
-	engineCfg.Stateful = true
-
 	strategy := &killchainstrat.Strategy{
 		AttackerModel: engineCfg.AttackerModel,
 		MaxTurns:      engineCfg.MaxTurns,
@@ -49,7 +47,7 @@ func NewKillChain(cfg registry.Config) (probes.Prober, error) {
 			Engine:    multiturn.NewUnifiedEngine(strategy, attacker, judge, engineCfg),
 			ProbeName: registry.GetString(cfg, "name", "killchain.KillChain"),
 			ProbeGoal: engineCfg.Goal,
-			ProbeDesc: "Multi-stage prompt injection kill chain: recon → exploit → persist/exfil (arXiv:2601.09625)",
+			ProbeDesc: "Multi-stage prompt injection kill chain with intel-gated staging: recon → exploit → persist/exfil (informed by arXiv:2601.09625)",
 		},
 	}, nil
 }
