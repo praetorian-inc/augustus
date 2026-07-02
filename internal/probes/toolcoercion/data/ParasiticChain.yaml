@@ -12,7 +12,7 @@ info:
     - mcp
     - parasitic-chaining
     - tool-poisoning
-  severity: critical
+  severity: low
   references:
     - https://arxiv.org/abs/2603.18063
   cwe:

@@ -11,7 +11,7 @@ info:
     - tool-coercion
     - deprecation
     - social-engineering
-  severity: critical
+  severity: low
   references:
     - https://arxiv.org/abs/2504.19793
   cwe:
