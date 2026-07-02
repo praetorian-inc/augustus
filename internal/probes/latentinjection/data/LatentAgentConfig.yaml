@@ -12,7 +12,7 @@ info:
     - agent
     - social-engineering
     - configuration-injection
-  severity: high
+  severity: medium
   cwe:
     - CWE-345
   mitre_attack:

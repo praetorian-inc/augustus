@@ -45,9 +45,14 @@ func (t *TemplateProbe) Probe(ctx context.Context, gen types.Generator) ([]*atte
 	}
 
 	// Surface the probe's declared goal on every attempt so goal-conditioned
-	// detectors (e.g. agent.ToolLeakJudge) can read it. Single-turn scanner
-	// probes otherwise carry no goal — only the attack engines set this key.
-	if goal := t.Goal(); goal != "" {
+	// detectors (e.g. agent.ToolLeakJudge, judge.Judge) can read it.
+	// Prefer detector_goal if set (allows probe-specific judge criteria),
+	// otherwise fall back to the probe goal.
+	goal := t.template.Info.DetectorGoal
+	if goal == "" {
+		goal = t.Goal()
+	}
+	if goal != "" {
 		for _, a := range attempts {
 			a.WithMetadata(attempt.MetadataKeyGoal, goal)
 		}
