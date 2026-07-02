@@ -51,6 +51,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/reasoning"
 	_ "github.com/praetorian-inc/augustus/internal/probes/schemattack"
 	_ "github.com/praetorian-inc/augustus/internal/probes/snowball"
+	_ "github.com/praetorian-inc/augustus/internal/probes/stegoattack"
 	_ "github.com/praetorian-inc/augustus/internal/probes/suffix"
 	_ "github.com/praetorian-inc/augustus/internal/probes/tap"
 	_ "github.com/praetorian-inc/augustus/internal/probes/test"
