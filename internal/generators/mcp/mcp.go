@@ -228,9 +228,14 @@ func (m *MCP) buildTransport() (mcpsdk.Transport, error) {
 
 // httpClient builds the HTTP client for the streamable transport, injecting
 // configured headers (with $KEY substituted from api_key) on every request and
-// honoring insecure_skip_verify.
+// honoring insecure_skip_verify. The cloned transport keeps Go's default
+// ProxyFromEnvironment (HTTPS_PROXY/HTTP_PROXY); an explicit `proxy` config key
+// overrides that for the common Burp-interception workflow.
 func (m *MCP) httpClient() *http.Client {
 	base := http.DefaultTransport.(*http.Transport).Clone()
+	if m.cfg.ProxyURL != nil {
+		base.Proxy = http.ProxyURL(m.cfg.ProxyURL)
+	}
 	if m.cfg.InsecureSkipVerify {
 		base.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // operator-opt-in for scanning self-signed targets
 		slog.Warn("mcp: TLS certificate verification disabled (insecure_skip_verify=true)", "endpoint", m.cfg.Endpoint)

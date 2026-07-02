@@ -137,6 +137,43 @@ func TestConfigFromMap_ListToolsNeedsNoTool(t *testing.T) {
 	}
 }
 
+func TestConfigFromMap_Proxy(t *testing.T) {
+	cfg, err := ConfigFromMap(registry.Config{
+		"endpoint":  "https://x/mcp",
+		"tool_name": "t",
+		"arg_name":  "q",
+		"proxy":     "http://127.0.0.1:8080",
+	})
+	if err != nil {
+		t.Fatalf("ConfigFromMap() error = %v", err)
+	}
+	if cfg.ProxyURL == nil || cfg.ProxyURL.Host != "127.0.0.1:8080" {
+		t.Errorf("ProxyURL = %v, want host 127.0.0.1:8080", cfg.ProxyURL)
+	}
+}
+
+func TestConfigFromMap_ProxyDefaultsNil(t *testing.T) {
+	cfg, err := ConfigFromMap(registry.Config{"endpoint": "https://x/mcp", "tool_name": "t", "arg_name": "q"})
+	if err != nil {
+		t.Fatalf("ConfigFromMap() error = %v", err)
+	}
+	if cfg.ProxyURL != nil {
+		t.Errorf("ProxyURL = %v, want nil (falls back to env)", cfg.ProxyURL)
+	}
+}
+
+func TestConfigFromMap_InvalidProxy(t *testing.T) {
+	_, err := ConfigFromMap(registry.Config{
+		"endpoint":  "https://x/mcp",
+		"tool_name": "t",
+		"arg_name":  "q",
+		"proxy":     "://not a url",
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid proxy URL") {
+		t.Fatalf("expected invalid proxy URL error, got %v", err)
+	}
+}
+
 func TestConfigFromMap_ArgumentsTemplateFromObject(t *testing.T) {
 	cfg, err := ConfigFromMap(registry.Config{
 		"endpoint":           "http://x/mcp",

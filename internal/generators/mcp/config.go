@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -54,6 +55,7 @@ type Config struct {
 	Headers              map[string]string // Extra request headers; values support $KEY / hook-var substitution.
 	InsecureSkipVerify   bool              // Skip TLS verification (http transport only).
 	DisableStandaloneSSE bool              // Do not open the standalone server->client SSE stream.
+	ProxyURL             *url.URL          // Explicit HTTP(S) proxy (e.g. Burp); nil falls back to the *_PROXY env vars.
 
 	// stdio transport.
 	Command string            // Executable to launch (e.g. "npx").
@@ -117,6 +119,13 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg.Headers = stringMap(m, "headers")
 	cfg.InsecureSkipVerify = registry.GetBool(m, "insecure_skip_verify", false)
 	cfg.DisableStandaloneSSE = registry.GetBool(m, "disable_standalone_sse", false)
+	if proxy := registry.GetString(m, "proxy", ""); proxy != "" {
+		parsed, err := url.Parse(proxy)
+		if err != nil {
+			return cfg, fmt.Errorf("mcp: invalid proxy URL %q: %w", proxy, err)
+		}
+		cfg.ProxyURL = parsed
+	}
 	cfg.Command = registry.GetString(m, "command", "")
 	cfg.Args = registry.GetStringSlice(m, "args", nil)
 	cfg.Env = stringMap(m, "env")
