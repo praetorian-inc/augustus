@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -245,6 +246,90 @@ func TestClearHistory_AllowsReuse(t *testing.T) {
 	g.ClearHistory() // closes the persistent session
 	if got := generate(t, g, "two"); got != "echo: two" {
 		t.Errorf("post-ClearHistory Generate() = %q, want %q", got, "echo: two")
+	}
+}
+
+// newSSETarget starts an httptest server hosting the MCP server over the legacy
+// HTTP+SSE transport. It returns a counter of how many SSE streams (GET requests)
+// were established, so tests can distinguish session reuse from reconnection.
+func newSSETarget(t *testing.T) (url string, sseStreams func() int32) {
+	t.Helper()
+
+	var gets int32
+	handler := mcpsdk.NewSSEHandler(func(*http.Request) *mcpsdk.Server {
+		return newTestMCPServer()
+	}, nil)
+
+	wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			atomic.AddInt32(&gets, 1)
+		}
+		handler.ServeHTTP(w, r)
+	})
+
+	ts := httptest.NewServer(wrapped)
+	t.Cleanup(ts.Close)
+
+	return ts.URL, func() int32 { return atomic.LoadInt32(&gets) }
+}
+
+// TestGenerate_SSE_ToolCall exercises the legacy SSE transport end-to-end. It is
+// the regression guard for the context-lifetime bug: connect() used to cancel the
+// context that owns the SSE GET /sse stream the moment it returned, so the stream
+// died before the first tools/call and every SSE request failed. The streamable
+// HTTP and stdio tests could not catch it because neither holds a ctx-bound
+// persistent stream.
+func TestGenerate_SSE_ToolCall(t *testing.T) {
+	url, _ := newSSETarget(t)
+	g := newGen(t, registry.Config{
+		"transport": "sse",
+		"endpoint":  url,
+		"tool_name": "echo",
+		"arg_name":  "query",
+	})
+
+	got := generate(t, g, "hello sse")
+	if got != "echo: hello sse" {
+		t.Errorf("Generate() = %q, want %q", got, "echo: hello sse")
+	}
+}
+
+// TestGenerate_SSE_PersistentSessionSurvivesCancelledCallContext guards the
+// subtler half of the fix: the persistent session must be bound to a
+// generator-lifetime context, not the per-Generate caller context. It cancels
+// the first call's context after that call returns, then makes a second call on a
+// fresh context, and asserts exactly one SSE stream was established — i.e. the
+// live session was reused, not silently torn down and reconnected (which the
+// one-shot retry would otherwise mask as a plain success).
+func TestGenerate_SSE_PersistentSessionSurvivesCancelledCallContext(t *testing.T) {
+	url, sseStreams := newSSETarget(t)
+	g := newGen(t, registry.Config{
+		"transport": "sse",
+		"endpoint":  url,
+		"tool_name": "echo",
+		"arg_name":  "query",
+	})
+
+	ctx1, cancel1 := context.WithCancel(context.Background())
+	conv1 := attempt.NewConversation()
+	conv1.AddPrompt("one")
+	if _, err := g.Generate(ctx1, conv1, 1); err != nil {
+		t.Fatalf("first Generate: %v", err)
+	}
+	cancel1() // cancel the first call's context AFTER it returned
+
+	conv2 := attempt.NewConversation()
+	conv2.AddPrompt("two")
+	resp, err := g.Generate(context.Background(), conv2, 1)
+	if err != nil {
+		t.Fatalf("second Generate after first ctx cancelled: %v", err)
+	}
+	if resp[0].Content != "echo: two" {
+		t.Errorf("second Generate = %q, want %q", resp[0].Content, "echo: two")
+	}
+
+	if n := sseStreams(); n != 1 {
+		t.Errorf("SSE streams established = %d, want 1 (session must be reused, not reconnected)", n)
 	}
 }
 
