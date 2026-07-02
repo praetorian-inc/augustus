@@ -75,6 +75,11 @@ func TestConfigFromMap_Errors(t *testing.T) {
 			wantSub: "transport must be",
 		},
 		{
+			name:    "sse without endpoint",
+			cfg:     registry.Config{"transport": "sse", "tool_name": "t", "arg_name": "q"},
+			wantSub: "requires 'endpoint'",
+		},
+		{
 			name:    "bad mode",
 			cfg:     registry.Config{"endpoint": "http://x", "mode": "telepathy"},
 			wantSub: "mode must be",

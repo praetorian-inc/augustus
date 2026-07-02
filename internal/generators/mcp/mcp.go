@@ -5,6 +5,7 @@
 // supported behind a single config vocabulary:
 //
 //	transport: http    Streamable HTTP (JSON-RPC over HTTP POST + SSE) to a remote server
+//	transport: sse     legacy HTTP+SSE (GET /sse stream + POST /messages), as older FastMCP servers expose
 //	transport: stdio   a locally launched subprocess speaking JSON-RPC over stdin/stdout
 //
 // and two modes select what a Generate call does once connected:
@@ -221,6 +222,11 @@ func (m *MCP) buildTransport() (mcpsdk.Transport, error) {
 			HTTPClient:           m.httpClient(),
 			DisableStandaloneSSE: m.cfg.DisableStandaloneSSE,
 		}, nil
+	case TransportSSE:
+		return &mcpsdk.SSEClientTransport{
+			Endpoint:   m.cfg.Endpoint,
+			HTTPClient: m.httpClient(),
+		}, nil
 	default:
 		return nil, fmt.Errorf("mcp: unsupported transport %q", m.cfg.Transport)
 	}
@@ -371,7 +377,7 @@ func (m *MCP) Name() string { return "mcp.MCP" }
 
 // Description returns a human-readable description.
 func (m *MCP) Description() string {
-	return "Model Context Protocol generator (stdio and streamable HTTP transports; tool_call and list_tools modes)"
+	return "Model Context Protocol generator (stdio, streamable HTTP, and legacy SSE transports; tool_call and list_tools modes)"
 }
 
 // target returns a human-readable identifier of the connection endpoint for

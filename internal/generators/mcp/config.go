@@ -18,6 +18,12 @@ const (
 	// TransportStdio launches the MCP server as a local subprocess and speaks
 	// JSON-RPC over its stdin/stdout.
 	TransportStdio = "stdio"
+	// TransportSSE speaks the legacy HTTP+SSE transport (a GET /sse event stream
+	// plus POST /messages), which older FastMCP-based servers still expose. The
+	// endpoint is the SSE URL (e.g. http://host:9001/sse). Must be set
+	// explicitly — it cannot be inferred, since it shares the endpoint key with
+	// the streamable HTTP transport.
+	TransportSSE = "sse"
 )
 
 // Mode selects what a Generate call does against the connected server.
@@ -177,6 +183,10 @@ func resolveTransport(cfg *Config) error {
 		if cfg.Endpoint == "" {
 			return fmt.Errorf("mcp: transport %q requires 'endpoint'", TransportHTTP)
 		}
+	case TransportSSE:
+		if cfg.Endpoint == "" {
+			return fmt.Errorf("mcp: transport %q requires 'endpoint' (the /sse URL)", TransportSSE)
+		}
 	case TransportStdio:
 		if cfg.Command == "" {
 			return fmt.Errorf("mcp: transport %q requires 'command'", TransportStdio)
@@ -193,7 +203,7 @@ func resolveTransport(cfg *Config) error {
 			return fmt.Errorf("mcp: no transport configured; set 'endpoint' (http) or 'command' (stdio)")
 		}
 	default:
-		return fmt.Errorf("mcp: transport must be %q or %q, got %q", TransportHTTP, TransportStdio, cfg.Transport)
+		return fmt.Errorf("mcp: transport must be %q, %q, or %q, got %q", TransportHTTP, TransportSSE, TransportStdio, cfg.Transport)
 	}
 	return nil
 }
