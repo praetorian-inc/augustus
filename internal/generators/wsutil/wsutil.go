@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/url"
 	"strconv"
@@ -189,6 +190,9 @@ func BuildHandshakeConfig(uri, origin string, headers map[string]string, subprot
 		wsCfg.Protocol = subprotocols
 	}
 	if loc.Scheme == "wss" {
+		if insecure {
+			slog.Warn("websocket: TLS certificate verification disabled (insecure_skip_verify=true)", "target", uri)
+		}
 		// #nosec G402 -- InsecureSkipVerify is opt-in via insecure_skip_verify; targets are operator-chosen test endpoints
 		wsCfg.TlsConfig = &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: insecure}
 	}

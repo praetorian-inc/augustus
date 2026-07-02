@@ -17,6 +17,7 @@ import (
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 // raiServer is an in-process stand-in for the Pylon/Rai exchange: an HTTP
@@ -570,6 +571,36 @@ func TestHybridConfig_HTTPPollRequiresReadiness(t *testing.T) {
 	}})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "readiness condition")
+}
+
+// TestHybrid_HookVarSubstitution mirrors the websocket generator's hook-var test:
+// a runtime hook variable is substituted into a step body.
+func TestHybrid_HookVarSubstitution(t *testing.T) {
+	var gotTok string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Tok string `json:"tok"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		gotTok = body.Tok
+		writeJSON(w, map[string]any{"reply": "ok"})
+	}))
+	t.Cleanup(srv.Close)
+
+	g, err := NewHybrid(registry.Config{"persistent": false, "steps": []any{
+		map[string]any{
+			"name": "ask", "type": "http", "answer": true,
+			"url": srv.URL, "body": `{"tok":"$TOKEN","msg":"$INPUT_JSON"}`,
+			"response_field": "$.reply",
+		},
+	}})
+	require.NoError(t, err)
+
+	ctx := types.WithHookVars(context.Background(), map[string]string{"TOKEN": "abc123"})
+	resp, err := g.Generate(ctx, convWith("hi"), 1)
+	require.NoError(t, err)
+	assert.Equal(t, "ok", resp[0].Content)
+	assert.Equal(t, "abc123", gotTok)
 }
 
 func TestHybrid_NameAndDescription(t *testing.T) {

@@ -1,4 +1,4 @@
-// This file implements websocket.Hybrid, a choreography-driven generator that
+// This file implements hybrid.Hybrid, a choreography-driven generator that
 // mixes HTTP requests and a graphql-transport-ws WebSocket session.
 //
 // Some LLM front ends split the request and response across transports: the
@@ -19,6 +19,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"sort"
@@ -77,6 +78,9 @@ func NewHybrid(cfg registry.Config) (generators.Generator, error) {
 		return nil, err
 	}
 
+	if parsed.InsecureSkipVerify {
+		slog.Warn("hybrid: HTTP TLS certificate verification disabled (insecure_skip_verify=true)")
+	}
 	transport := &http.Transport{
 		// #nosec G402 -- InsecureSkipVerify is opt-in via insecure_skip_verify; targets are operator-chosen test endpoints
 		TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: parsed.InsecureSkipVerify},
@@ -387,12 +391,12 @@ func newUUID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
-// idleDeadline returns the earlier of the context deadline and now+idle.
-func idleDeadline(ctx context.Context, idle time.Duration) (time.Time, bool) {
-	d, hasCtx := ctx.Deadline()
+// idleDeadline returns the earlier of the context deadline and now+idle. A
+// deadline always exists (now+idle at minimum), so it returns a bare time.
+func idleDeadline(ctx context.Context, idle time.Duration) time.Time {
 	id := time.Now().Add(idle)
-	if !hasCtx || id.Before(d) {
-		return id, true
+	if d, ok := ctx.Deadline(); ok && d.Before(id) {
+		return d
 	}
-	return d, true
+	return id
 }

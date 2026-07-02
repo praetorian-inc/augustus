@@ -340,9 +340,7 @@ func (h *Hybrid) handlePing(conn *websocket.Conn, frame []byte) bool {
 // readFrame reads one frame, bounding the wait by the per-frame idle timeout (or
 // the request deadline, whichever is sooner).
 func (h *Hybrid) readFrame(ctx context.Context, conn *websocket.Conn) ([]byte, error) {
-	if deadline, ok := idleDeadline(ctx, h.cfg.IdleTimeout); ok {
-		_ = conn.SetReadDeadline(deadline)
-	}
+	_ = conn.SetReadDeadline(idleDeadline(ctx, h.cfg.IdleTimeout))
 	var data []byte
 	if err := websocket.Message.Receive(conn, &data); err != nil {
 		return nil, err
