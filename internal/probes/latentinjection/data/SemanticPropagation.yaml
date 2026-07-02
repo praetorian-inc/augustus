@@ -27,7 +27,7 @@ info:
     - semantic-propagation
     - instruction-propagation
     - indirect-injection
-  severity: high
+  severity: medium
   references:
     - https://arxiv.org/abs/2605.02812
   cwe:

@@ -20,7 +20,7 @@ info:
     - latent-injection
     - instruction-propagation
     - indirect-injection
-  severity: high
+  severity: medium
   references:
     - https://arxiv.org/abs/2603.15727
   cwe:

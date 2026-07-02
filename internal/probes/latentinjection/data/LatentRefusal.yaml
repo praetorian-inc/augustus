@@ -10,7 +10,7 @@ info:
     - latent-injection
     - refusal
     - safety-bypass
-  severity: high
+  severity: medium
   cwe:
     - CWE-1427
   mitre_attack:

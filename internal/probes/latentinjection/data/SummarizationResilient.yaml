@@ -19,7 +19,7 @@ info:
     - latent-injection
     - summarization-resilient
     - instruction-propagation
-  severity: high
+  severity: medium
   references:
     - https://arxiv.org/abs/2605.02812
   cwe:

@@ -10,7 +10,7 @@ info:
     - latent-injection
     - jailbreak
     - context-manipulation
-  severity: high
+  severity: medium
   cwe:
     - CWE-1427
   mitre_attack:

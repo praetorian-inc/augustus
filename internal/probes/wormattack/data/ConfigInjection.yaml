@@ -23,7 +23,7 @@ info:
     - indirect-injection
     - config-injection
     - instruction-propagation
-  severity: high
+  severity: medium
   references:
     - https://arxiv.org/abs/2603.15727
   cwe:
