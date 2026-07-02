@@ -40,6 +40,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -72,8 +73,9 @@ type MCP struct {
 	// under the lock so concurrent first callers cannot open duplicate sessions;
 	// once connected, individual tool calls run concurrently because the SDK's
 	// ClientSession multiplexes JSON-RPC requests by id.
-	mu   sync.Mutex
-	sess *mcpsdk.ClientSession
+	mu         sync.Mutex
+	sess       *mcpsdk.ClientSession
+	sessCancel context.CancelFunc // cancels the context that owns sess's transport stream
 
 	rawMu       sync.Mutex
 	lastRawResp []byte
@@ -159,11 +161,11 @@ func (m *MCP) generateOnce(ctx context.Context, conv *attempt.Conversation) (att
 // no-op for persistent ones.
 func (m *MCP) acquireSession(ctx context.Context) (*mcpsdk.ClientSession, bool, func(), error) {
 	if !m.cfg.Persistent {
-		sess, err := m.connect(ctx)
+		sess, cancel, err := m.connect(ctx)
 		if err != nil {
 			return nil, false, nil, err
 		}
-		return sess, false, func() { _ = sess.Close() }, nil
+		return sess, false, func() { _ = sess.Close(); cancel() }, nil
 	}
 
 	m.mu.Lock()
@@ -171,21 +173,31 @@ func (m *MCP) acquireSession(ctx context.Context) (*mcpsdk.ClientSession, bool, 
 	if m.sess != nil {
 		return m.sess, true, func() {}, nil
 	}
-	sess, err := m.connect(ctx)
+	sess, cancel, err := m.connect(ctx)
 	if err != nil {
 		return nil, false, nil, err
 	}
 	m.sess = sess
+	m.sessCancel = cancel
 	return sess, false, func() {}, nil
 }
 
-// connect establishes and initializes a new MCP session. The context bounds the
-// connect + initialize handshake only; the returned session runs on the SDK's
-// own background context and persists after this context is cancelled.
-func (m *MCP) connect(ctx context.Context) (*mcpsdk.ClientSession, error) {
+// connect establishes and initializes a new MCP session. It returns a cancel
+// func that tears down the session's transport stream; the caller must invoke it
+// when the session is dropped.
+//
+// The context passed to the SDK's Connect owns the transport's persistent stream
+// for the whole session lifetime, not just the handshake — notably the legacy
+// SSE transport's GET /sse stream is bound to it, and cancelling it mid-session
+// closes the stream so subsequent tools/* calls fail. So the session context is
+// derived from context.Background(), NOT the per-Generate caller context (which
+// ends when this call returns). A handshake timeout is enforced separately and
+// only cancels on failure or caller cancellation, never after a successful
+// connect.
+func (m *MCP) connect(ctx context.Context) (*mcpsdk.ClientSession, context.CancelFunc, error) {
 	transport, err := m.buildTransport()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{
@@ -193,14 +205,37 @@ func (m *MCP) connect(ctx context.Context) (*mcpsdk.ClientSession, error) {
 		Version: m.cfg.ClientVersion,
 	}, nil)
 
-	connCtx, cancel := context.WithTimeout(ctx, m.cfg.RequestTimeout)
-	defer cancel()
+	sessCtx, sessCancel := context.WithCancel(context.Background())
 
-	sess, err := client.Connect(connCtx, transport, nil)
-	if err != nil {
-		return nil, fmt.Errorf("mcp: connect to %s failed: %w", m.target(), err)
+	type result struct {
+		sess *mcpsdk.ClientSession
+		err  error
 	}
-	return sess, nil
+	ch := make(chan result, 1)
+	go func() {
+		s, e := client.Connect(sessCtx, transport, nil)
+		ch <- result{s, e}
+	}()
+
+	timer := time.NewTimer(m.cfg.RequestTimeout)
+	defer timer.Stop()
+
+	select {
+	case r := <-ch:
+		if r.err != nil {
+			sessCancel()
+			return nil, nil, fmt.Errorf("mcp: connect to %s failed: %w", m.target(), r.err)
+		}
+		return r.sess, sessCancel, nil
+	case <-timer.C:
+		sessCancel()
+		<-ch // let the aborted Connect goroutine finish before returning
+		return nil, nil, fmt.Errorf("mcp: connect to %s timed out after %s", m.target(), m.cfg.RequestTimeout)
+	case <-ctx.Done():
+		sessCancel()
+		<-ch
+		return nil, nil, fmt.Errorf("mcp: connect to %s cancelled: %w", m.target(), ctx.Err())
+	}
 }
 
 // buildTransport constructs a fresh transport for one connection. A CommandTransport
@@ -334,14 +369,20 @@ func (m *MCP) buildArguments(ctx context.Context, prompt string) (map[string]any
 	return args, nil
 }
 
-// dropSession closes and clears the stored persistent session.
+// dropSession closes and clears the stored persistent session, then cancels the
+// context that owns its transport stream.
 func (m *MCP) dropSession() {
 	m.mu.Lock()
 	sess := m.sess
+	cancel := m.sessCancel
 	m.sess = nil
+	m.sessCancel = nil
 	m.mu.Unlock()
 	if sess != nil {
 		_ = sess.Close()
+	}
+	if cancel != nil {
+		cancel()
 	}
 }
 
