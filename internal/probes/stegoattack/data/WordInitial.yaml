@@ -11,7 +11,7 @@ info:
     - word-initial
     - jailbreak
     - stegoattack
-  severity: high
+  severity: medium
   references:
     - https://arxiv.org/abs/2505.16765
   cwe:

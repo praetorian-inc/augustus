@@ -11,7 +11,7 @@ info:
     - tag-smuggling
     - html-comment
     - jailbreak
-  severity: high
+  severity: medium
   cwe:
     - CWE-1427
   owasp:
