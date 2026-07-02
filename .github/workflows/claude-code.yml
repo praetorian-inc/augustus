@@ -17,6 +17,30 @@ jobs:
       contents: read
       pull-requests: write
     with:
-      max_turns: 30
+      # Higher than the default 30: the reviewing-probe-prs skill reads its
+      # SKILL.md + 4 reference files, the PR diff, and surrounding code before
+      # posting, which needs more tool-call turns than the generic review.
+      max_turns: 50
+      # Run the vendored reviewing-probe-prs skill instead of the generic
+      # review. The skill lives at .claude/skills/reviewing-probe-prs/ and is
+      # auto-discovered by claude-code-action in this repo checkout.
+      # (Dependabot and other bots are already excluded by the reusable
+      # workflow's `!contains(github.actor, '[bot]')` gate.)
+      prompt: |
+        Review PR #${{ github.event.pull_request.number }} in this repository by loading and
+        following the `reviewing-probe-prs` skill at .claude/skills/reviewing-probe-prs/.
+        Read its SKILL.md and every referenced file under references/, then execute its
+        phases against the real PR — ground yourself in the actual diff, do not trust the
+        PR body:
+
+          gh pr view ${{ github.event.pull_request.number }} --json title,body,author,changedFiles,additions,deletions
+          gh pr diff ${{ github.event.pull_request.number }}
+
+        Post your review as ONE top-level PR comment via
+        `gh pr comment ${{ github.event.pull_request.number }} --body "..."`, using the
+        skill's house review structure.
+
+        This is an automated first-pass review: post a COMMENT ONLY. Do NOT approve or
+        request changes — a human makes the merge decision.
     secrets:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
