@@ -30,7 +30,7 @@ type (
 
 // Refusal classification types for multi-turn attacks.
 const (
-	RefusalNone              = ""                  // Genuine engagement with the question
+	RefusalNone              = ""                   // Genuine engagement with the question
 	RefusalHard              = "hard_refused"       // Explicit refusal (target declined to answer)
 	RefusalSoftDeflected     = "soft_deflected"     // Target answered but deflected away from the goal
 	RefusalPartiallyComplied = "partially_complied" // Target partially engaged with the goal topic
@@ -38,7 +38,7 @@ const (
 
 // StopReason constants indicate why a multi-turn attack terminated.
 const (
-	StopReasonGraderFailed     = "grader_failed"         // Success threshold reached (attack succeeded)
+	StopReasonGraderFailed     = "grader_failed"          // Success threshold reached (attack succeeded)
 	StopReasonMaxTurns         = "max_turns"              // Exhausted all turns
 	StopReasonMaxBacktracks    = "max_backtracks_reached" // Exhausted all backtracks on a refused turn
 	StopReasonContextCancelled = "context_cancelled"      // Context was cancelled
@@ -60,9 +60,9 @@ type TurnRecord struct {
 	RefusalType     string  `json:"refusal_type,omitempty"`    // "", "hard_refused", "soft_deflected", "partially_complied"
 	JudgeScore      float64 `json:"judge_score"`               // 0.0-1.0
 	JudgeReasoning  string  `json:"judge_reasoning"`
-	Strategy        string  `json:"strategy"`                  // Attacker's stated strategy for this turn
-	Observation     string  `json:"observation,omitempty"`      // Attacker's observation about previous turn
-	Thought         string  `json:"thought,omitempty"`          // Attacker's reasoning for this turn
+	Strategy        string  `json:"strategy"`              // Attacker's stated strategy for this turn
+	Observation     string  `json:"observation,omitempty"` // Attacker's observation about previous turn
+	Thought         string  `json:"thought,omitempty"`     // Attacker's reasoning for this turn
 }
 
 // ClassifyRefusal determines the refusal type from the binary refusal flag and judge score.
@@ -131,6 +131,23 @@ func ExtractExtendedJSON(s string) *QuestionResult { return parse.ExtractExtende
 
 // TruncateStr shortens a string to maxLen with ellipsis.
 func TruncateStr(s string, maxLen int) string { return parse.TruncateStr(s, maxLen) }
+
+// DetectPlateau returns true if the last 3 turns in history all scored within
+// ±threshold of each other, indicating the attacker is stuck. Returns the
+// approximate score level if plateau is detected.
+func DetectPlateau(history []TurnRecord, threshold float64) (bool, float64) {
+	if len(history) < 3 {
+		return false, 0
+	}
+	last3 := history[len(history)-3:]
+	base := last3[0].JudgeScore
+	for _, t := range last3 {
+		if t.JudgeScore > base+threshold || t.JudgeScore < base-threshold {
+			return false, 0
+		}
+	}
+	return true, base
+}
 
 // ParseRefusalResponse extracts the refusal verdict from judge output.
 func ParseRefusalResponse(output string) bool { return parse.ParseRefusalResponse(output) }

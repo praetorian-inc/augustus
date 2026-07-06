@@ -54,6 +54,9 @@ func NewLRM(cfg registry.Config) (probes.Prober, error) {
 // NewLRMWithGenerators creates an LRMProbe with pre-built generators.
 // This is primarily for testing where mock generators need to be injected.
 func NewLRMWithGenerators(attacker, judge probes.Generator, cfg multiturn.Config) *LRMProbe {
+	if cfg.AttackMaxAttempts < 5 {
+		cfg.AttackMaxAttempts = 5
+	}
 	strategy := &lrmagentstrat.Strategy{
 		AttackerModel: cfg.AttackerModel,
 		MaxTurns:      cfg.MaxTurns,

@@ -474,6 +474,7 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 			"crescendo.Crescendo",
 			"goat.Goat",
 			"hydra.Hydra",
+			"lrmagent.LRM",
 			"mischievous.MischievousUser",
 		}
 		var unconfigured []string
