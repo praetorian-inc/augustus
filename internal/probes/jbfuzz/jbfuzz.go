@@ -128,7 +128,13 @@ func NewFuzzProbe(cfg registry.Config) (probes.Prober, error) {
 	seed := int64(registry.GetInt(cfg, "seed", defaultSeed))
 
 	seeds := registry.GetStringSlice(cfg, "seed_prompts", defaultSeedPrompts)
+	if len(seeds) == 0 {
+		seeds = defaultSeedPrompts
+	}
 	targets := registry.GetStringSlice(cfg, "mutation_targets", defaultMutationTargets)
+	if len(targets) == 0 {
+		targets = defaultMutationTargets
+	}
 
 	return &FuzzProbe{
 		numVariants: variants,
@@ -230,8 +236,10 @@ func (f *FuzzProbe) Probe(ctx context.Context, gen probes.Generator) ([]*attempt
 		// it with a new seed's framing (avoiding target duplication since
 		// bestPrompt already contains the target).
 		var prompt string
+		refined := false
 		if bestScore > refineScoreThreshold && f.rng.Float64() < refineProbability { // #nosec G404 -- deterministic seeded RNG
 			prompt = seed + " " + bestPrompt
+			refined = true
 		} else {
 			prompt = mutations[mutIdx](seed, target, f.rng)
 		}
@@ -247,6 +255,7 @@ func (f *FuzzProbe) Probe(ctx context.Context, gen probes.Generator) ([]*attempt
 		a.Metadata["target_index"] = targetIdx
 		a.Metadata["mutation_index"] = mutIdx
 		a.Metadata["mutation_name"] = mutationNames[mutIdx]
+		a.Metadata["refined"] = refined
 		a.Metadata["feedback_guided"] = i >= len(mutations) // true after initial exploration
 
 		responses, err := gen.Generate(ctx, conv, 1)
@@ -271,8 +280,11 @@ func (f *FuzzProbe) Probe(ctx context.Context, gen probes.Generator) ([]*attempt
 			a.Metadata["total_coverage"] = coverage.coverage()
 		}
 
-		// Feed score back into mutation weights
-		weights.record(mutIdx, score)
+		// Feed score back into mutation weights (skip when refined,
+		// since the prompt didn't come from mutations[mutIdx]).
+		if !refined {
+			weights.record(mutIdx, score)
+		}
 
 		// Track best prompt for refinement
 		if score > bestScore {

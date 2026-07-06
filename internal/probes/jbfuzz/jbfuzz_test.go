@@ -77,7 +77,10 @@ func TestFuzzProbeVariantsUnique(t *testing.T) {
 	}
 	gen := &mockGenerator{responses: []string{"response"}}
 
-	attempts, _ := probe.Probe(context.Background(), gen)
+	attempts, err := probe.Probe(context.Background(), gen)
+	if err != nil {
+		t.Fatalf("Probe() error = %v", err)
+	}
 
 	seen := make(map[string]bool)
 	for _, a := range attempts {
