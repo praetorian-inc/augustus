@@ -210,7 +210,6 @@ func TestThreatenJSON_Create(t *testing.T) {
 	p, err := probes.Create("goodside.ThreatenJSON", nil)
 	require.NoError(t, err)
 	require.NotNil(t, p)
-
 }
 
 // TestThreatenJSON_Name verifies the probe returns its fully qualified name.
@@ -400,7 +399,6 @@ func TestPoemExfiltration_Create(t *testing.T) {
 	p, err := probes.Create("goodside.PoemExfiltration", nil)
 	require.NoError(t, err)
 	require.NotNil(t, p)
-
 }
 
 // TestPoemExfiltration_Name verifies the probe returns its fully qualified name.
@@ -534,7 +532,6 @@ func TestPayloadSplitting_Create(t *testing.T) {
 	p, err := probes.Create("goodside.PayloadSplitting", nil)
 	require.NoError(t, err)
 	require.NotNil(t, p)
-
 }
 
 // TestPayloadSplitting_Name verifies the probe returns its fully qualified name.
@@ -670,7 +667,6 @@ func TestChatMLExploit_Create(t *testing.T) {
 	p, err := probes.Create("goodside.ChatMLExploit", nil)
 	require.NoError(t, err)
 	require.NotNil(t, p)
-
 }
 
 // TestChatMLExploit_Name verifies the probe returns its fully qualified name.
@@ -808,7 +804,6 @@ func TestSystemPromptConfusion_Create(t *testing.T) {
 	p, err := probes.Create("goodside.SystemPromptConfusion", nil)
 	require.NoError(t, err)
 	require.NotNil(t, p)
-
 }
 
 // TestSystemPromptConfusion_Name verifies the probe returns its fully qualified name.

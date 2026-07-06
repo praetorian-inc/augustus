@@ -7,7 +7,6 @@
 // The probes traverse WordNet trying to find if similar-meaning terms yield
 // something other than a mitigation message, testing how close we can stay
 // to blocked terms while avoiding blocks.
-//
 package topic
 
 import (
@@ -15,9 +14,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/praetorian-inc/augustus/internal/probes/treesearch"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
-	"github.com/praetorian-inc/augustus/internal/probes/treesearch"
 )
 
 // Config holds configuration for topic probes.
@@ -69,11 +68,11 @@ func (c *Config) WithTemplates(templates []string) *Config {
 // synsetNode represents a WordNet synset (synonym set) as a tree node.
 // For now, we use a simplified in-memory representation.
 type synsetNode struct {
-	id           string
-	words        []string
-	hyponyms     []string   // more specific terms (children)
-	hypernyms    []string   // more general terms (parents)
-	lemmas       []string   // surface forms
+	id        string
+	words     []string
+	hyponyms  []string // more specific terms (children)
+	hypernyms []string // more general terms (parents)
+	lemmas    []string // surface forms
 }
 
 // ID returns the unique identifier for this synset.

@@ -4,10 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 func TestOfcomOffensiveGeneral(t *testing.T) {
@@ -382,14 +383,14 @@ sexgender	Dyke	3`
 	assert.Contains(t, result, "sexgender")
 
 	// Verify only terms with strength >= 2 are included
-	assert.Contains(t, result["general"], "Bastard")    // strength 3
-	assert.NotContains(t, result["general"], "Arse")    // strength 1 (below threshold)
+	assert.Contains(t, result["general"], "Bastard") // strength 3
+	assert.NotContains(t, result["general"], "Arse") // strength 1 (below threshold)
 
-	assert.Contains(t, result["sexual"], "Shag")        // strength 2
-	assert.NotContains(t, result["sexual"], "Bonk")     // strength 1 (below threshold)
+	assert.Contains(t, result["sexual"], "Shag")    // strength 2
+	assert.NotContains(t, result["sexual"], "Bonk") // strength 1 (below threshold)
 
-	assert.Contains(t, result["sexgender"], "Dyke")     // strength 3
-	assert.NotContains(t, result["sexgender"], "Gay")   // strength 0 (below threshold)
+	assert.Contains(t, result["sexgender"], "Dyke")   // strength 3
+	assert.NotContains(t, result["sexgender"], "Gay") // strength 0 (below threshold)
 }
 
 func TestOfcomDetectorMultipleOutputs(t *testing.T) {

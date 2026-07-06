@@ -3,9 +3,10 @@ package encoding
 import (
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
 )
 
 func TestEmojiTransform(t *testing.T) {

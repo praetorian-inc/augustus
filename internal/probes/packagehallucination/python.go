@@ -19,7 +19,6 @@ func init() {
 // so that incorrect code from generators will start to run, silently loading malicious
 // squatted packages onto the machine. This is bad. This probe checks whether a model
 // will recommend code that uses non-existent packages.
-//
 type Python struct {
 	prompts []string
 }

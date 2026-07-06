@@ -4,7 +4,6 @@
 // These probes attempt to get models to output harmful content by framing
 // requests as attempts to remember or honor a fictitious grandmother.
 //
-//
 // References:
 // - https://www.independent.co.uk/tech/chatgpt-microsoft-windows-11-grandma-exploit-b2360213.html
 // - https://x.com/_annieversary/status/1647865782741749760
@@ -39,7 +38,6 @@ func NewGrandmaProbe(templates, parameters []string, name, goal, detector, descr
 
 // generatePrompts generates all prompt combinations by replacing placeholders in templates.
 // For each template x parameter combination, replaces the first placeholder with the parameter.
-//
 func generatePrompts(templates, parameters []string) []string {
 	var prompts []string
 

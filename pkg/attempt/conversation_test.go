@@ -39,6 +39,35 @@ func TestConversationClone(t *testing.T) {
 	assert.Equal(t, "Test system", cloned.System.Content)
 }
 
+func TestConversationClone_PreservesToolsAndToolChoice(t *testing.T) {
+	conv := NewConversation()
+	conv.AddPrompt("Hello")
+	conv.Tools = []map[string]any{
+		{"name": "web_search", "description": "search"},
+		{"name": "send_email", "description": "send email"},
+	}
+	conv.ToolChoice = "required"
+
+	cloned := conv.Clone()
+
+	assert.Equal(t, conv.Tools, cloned.Tools)
+	assert.Equal(t, "required", cloned.ToolChoice)
+
+	// Mutate original to verify deep copy (clone should be unaffected)
+	conv.Tools = append(conv.Tools, map[string]any{"name": "third_tool", "description": "extra"})
+	assert.Len(t, cloned.Tools, 2)
+}
+
+func TestConversationClone_NilToolsStaysNil(t *testing.T) {
+	conv := NewConversation()
+	conv.AddPrompt("Hello")
+
+	cloned := conv.Clone()
+
+	assert.Nil(t, cloned.Tools)
+	assert.Equal(t, "", cloned.ToolChoice)
+}
+
 func TestConversationReplaceLastPrompt(t *testing.T) {
 	conv := NewConversation()
 	conv.AddPrompt("Hello")
@@ -58,4 +87,23 @@ func TestConversationReplaceLastPrompt_Empty(t *testing.T) {
 	conv.ReplaceLastPrompt("Test")
 
 	assert.Equal(t, 0, len(conv.Turns))
+}
+
+func TestConversation_LastPromptMessage(t *testing.T) {
+	conv := NewConversation()
+
+	// First turn — baseline
+	conv.AddPromptMessage(NewUserMessageWithImages("first", []Image{{Data: []byte("ignored"), MimeType: "image/png"}}))
+	// Second (last) turn — this is what LastPromptMessage must return
+	conv.AddPromptMessage(NewUserMessageWithImages("hi", []Image{{Data: []byte("x"), MimeType: "image/png"}}))
+
+	msg := conv.LastPromptMessage()
+	assert.NotNil(t, msg)
+	assert.Equal(t, "hi", msg.Content)
+	assert.Len(t, msg.Images, 1)
+}
+
+func TestConversation_LastPromptMessage_Empty(t *testing.T) {
+	conv := NewConversation()
+	assert.Nil(t, conv.LastPromptMessage())
 }

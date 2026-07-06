@@ -10,8 +10,11 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
-// Compile-time interface assertion.
-var _ types.Generator = (*HookedGenerator)(nil)
+// Compile-time interface assertions.
+var (
+	_ types.Generator     = (*HookedGenerator)(nil)
+	_ types.UsageReporter = (*HookedGenerator)(nil)
+)
 
 // HookedGenerator wraps a generator with runtime hook support.
 // It runs the prepare hook before each Generate() call, merging
@@ -121,4 +124,14 @@ func (h *HookedGenerator) Name() string {
 // Description returns the inner generator's description.
 func (h *HookedGenerator) Description() string {
 	return h.inner.Description()
+}
+
+// AccumulatedTokens forwards to the inner generator if it reports usage;
+// otherwise returns 0. Without this forward, scans run through a prepare hook
+// would assert UsageReporter against this wrapper and read 0 tokens.
+func (h *HookedGenerator) AccumulatedTokens() int64 {
+	if r, ok := h.inner.(types.UsageReporter); ok {
+		return r.AccumulatedTokens()
+	}
+	return 0
 }

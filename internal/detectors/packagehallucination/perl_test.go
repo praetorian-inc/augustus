@@ -6,18 +6,19 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 func TestPerlDetector_Detect(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		realModules := map[string]bool{
-			"/pod/DBI":          true,
-			"/pod/Moose":        true,
-			"/pod/Catalyst":     true,
+			"/pod/DBI":      true,
+			"/pod/Moose":    true,
+			"/pod/Catalyst": true,
 		}
 		if realModules[r.URL.Path] {
 			w.WriteHeader(http.StatusOK)

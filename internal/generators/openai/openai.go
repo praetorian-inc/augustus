@@ -9,11 +9,14 @@ import (
 	"context"
 	"fmt"
 
+	goopenai "github.com/sashabaranov/go-openai"
+
+	"github.com/praetorian-inc/augustus/internal/attackengine"
 	"github.com/praetorian-inc/augustus/internal/generators/openaicompat"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	goopenai "github.com/sashabaranov/go-openai"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -28,6 +31,8 @@ var completionModels = openaicompat.CompletionModels
 
 // OpenAI is a generator that wraps the OpenAI API.
 type OpenAI struct {
+	types.UsageCounter // embedded; provides AccumulatedTokens()
+
 	client *goopenai.Client
 	model  string
 	isChat bool
@@ -92,11 +97,12 @@ func NewOpenAITyped(cfg Config) (*OpenAI, error) {
 // This is the recommended entry point for Go code.
 //
 // Usage:
-//   g, err := NewOpenAIWithOptions(
-//       WithModel("gpt-4"),
-//       WithAPIKey("sk-..."),
-//       WithTemperature(0.5),
-//   )
+//
+//	g, err := NewOpenAIWithOptions(
+//	    WithModel("gpt-4"),
+//	    WithAPIKey("sk-..."),
+//	    WithTemperature(0.5),
+//	)
 func NewOpenAIWithOptions(opts ...Option) (*OpenAI, error) {
 	cfg := ApplyOptions(DefaultConfig(), opts...)
 	return NewOpenAITyped(cfg)
@@ -117,7 +123,10 @@ func (g *OpenAI) Generate(ctx context.Context, conv *attempt.Conversation, n int
 // generateChat handles chat completion requests.
 func (g *OpenAI) generateChat(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
 	// Convert conversation to OpenAI message format
-	messages := openaicompat.ConversationToMessages(conv)
+	messages, err := openaicompat.ConversationToMessages(conv)
+	if err != nil {
+		return nil, openaicompat.WrapError("openai", err)
+	}
 
 	req := goopenai.ChatCompletionRequest{
 		Model:    g.model,
@@ -145,15 +154,55 @@ func (g *OpenAI) generateChat(ctx context.Context, conv *attempt.Conversation, n
 		req.Stop = g.stop
 	}
 
+	// Wire tool definitions from probe into the API request.
+	if len(conv.Tools) > 0 {
+		req.Tools = make([]goopenai.Tool, len(conv.Tools))
+		for i, t := range conv.Tools {
+			name, ok := t["name"].(string)
+			if !ok || name == "" {
+				return nil, fmt.Errorf("openai: tool at index %d missing valid string name", i)
+			}
+			fd := goopenai.FunctionDefinition{
+				Name: name,
+			}
+			if desc, ok := t["description"].(string); ok {
+				fd.Description = desc
+			}
+			if params, ok := t["parameters"]; ok {
+				fd.Parameters = params
+			}
+			req.Tools[i] = goopenai.Tool{
+				Type:     goopenai.ToolTypeFunction,
+				Function: &fd,
+			}
+		}
+		if conv.ToolChoice != "" {
+			switch conv.ToolChoice {
+			case "auto", "required", "none":
+				req.ToolChoice = conv.ToolChoice
+			default:
+				req.ToolChoice = goopenai.ToolChoice{
+					Type:     goopenai.ToolTypeFunction,
+					Function: goopenai.ToolFunction{Name: conv.ToolChoice},
+				}
+			}
+		}
+	}
+
 	resp, err := g.client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return nil, openaicompat.WrapError("openai", err)
 	}
+	g.AddTokens(int64(resp.Usage.TotalTokens))
 
-	// Extract responses from choices
+	// Extract responses from choices, capturing any tool calls alongside text.
 	responses := make([]attempt.Message, 0, len(resp.Choices))
 	for _, choice := range resp.Choices {
-		responses = append(responses, attempt.NewAssistantMessage(choice.Message.Content))
+		msg := attempt.NewAssistantMessage(choice.Message.Content)
+		if toolCalls := attackengine.NormalizeOpenAIToolCalls(choice.Message.ToolCalls); toolCalls != nil {
+			msg.ToolCalls = toolCalls
+		}
+		responses = append(responses, msg)
 	}
 
 	return responses, nil
@@ -194,6 +243,7 @@ func (g *OpenAI) generateCompletion(ctx context.Context, conv *attempt.Conversat
 	if err != nil {
 		return nil, openaicompat.WrapError("openai", err)
 	}
+	g.AddTokens(int64(resp.Usage.TotalTokens))
 
 	// Extract responses from choices
 	responses := make([]attempt.Message, 0, len(resp.Choices))
@@ -210,6 +260,22 @@ func (g *OpenAI) ClearHistory() {}
 // Name returns the generator's fully qualified name.
 func (g *OpenAI) Name() string {
 	return "openai.OpenAI"
+}
+
+// SupportsVision reports vision capability based on the active model family.
+// Chat-completion models go through the multipart image_url path in
+// openaicompat.ConversationToMessages, but legacy completion models
+// (gpt-3.5-turbo-instruct, davinci-002, babbage-002, etc.) use the
+// CompletionRequest path that only carries the flattened LastPrompt() text.
+// Reporting vision capability for completion models would silently drop image
+// attachments. See types.VisionCapable.
+func (g *OpenAI) SupportsVision() bool {
+	if completionModels[g.model] {
+		return false
+	}
+	// Default to true: any model not in the legacy completion set goes through
+	// the chat path, which transmits image content blocks.
+	return true
 }
 
 // Description returns a human-readable description.

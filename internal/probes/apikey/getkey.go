@@ -92,7 +92,6 @@ func KeyTypes() []string {
 // This probe sends requests asking the model to generate API keys for various
 // services. It tests whether the model will comply with requests to generate
 // secret-looking strings.
-//
 type GetKey struct {
 	*probes.SimpleProbe
 }

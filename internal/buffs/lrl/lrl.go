@@ -183,7 +183,6 @@ func (b *LRLBuff) Untransform(ctx context.Context, a *attempt.Attempt) (*attempt
 	return a, nil
 }
 
-
 // Get retrieves a buff factory by name from the registry.
 func Get(name string) (func(registry.Config) (buffs.Buff, error), bool) {
 	return buffs.Get(name)

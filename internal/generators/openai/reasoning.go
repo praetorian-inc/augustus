@@ -5,11 +5,13 @@ import (
 	"context"
 	"fmt"
 
+	goopenai "github.com/sashabaranov/go-openai"
+
 	"github.com/praetorian-inc/augustus/internal/generators/openaicompat"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	goopenai "github.com/sashabaranov/go-openai"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -22,15 +24,17 @@ func init() {
 // - Do NOT support n>1 (multiple generations)
 // - Do NOT support temperature parameter
 type OpenAIReasoning struct {
+	types.UsageCounter // embedded; provides AccumulatedTokens()
+
 	client *goopenai.Client
 	model  string
 
 	// Configuration parameters
 	maxCompletionTokens int
-	topP                 float32
-	frequencyPenalty     float32
-	presencePenalty      float32
-	stop                 []string
+	topP                float32
+	frequencyPenalty    float32
+	presencePenalty     float32
+	stop                []string
 }
 
 // NewOpenAIReasoning creates a new OpenAI Reasoning generator from legacy registry.Config.
@@ -53,13 +57,13 @@ func NewOpenAIReasoningTyped(cfg ReasoningConfig) (*OpenAIReasoning, error) {
 	}
 
 	return &OpenAIReasoning{
-		client:               goopenai.NewClientWithConfig(clientCfg),
-		model:                cfg.Model,
-		maxCompletionTokens:  cfg.MaxCompletionTokens,
-		topP:                 cfg.TopP,
-		frequencyPenalty:     cfg.FrequencyPenalty,
-		presencePenalty:      cfg.PresencePenalty,
-		stop:                 cfg.Stop,
+		client:              goopenai.NewClientWithConfig(clientCfg),
+		model:               cfg.Model,
+		maxCompletionTokens: cfg.MaxCompletionTokens,
+		topP:                cfg.TopP,
+		frequencyPenalty:    cfg.FrequencyPenalty,
+		presencePenalty:     cfg.PresencePenalty,
+		stop:                cfg.Stop,
 	}, nil
 }
 
@@ -115,15 +119,25 @@ func (g *OpenAIReasoning) Generate(ctx context.Context, conv *attempt.Conversati
 	if err != nil {
 		return nil, openaicompat.WrapError("openai", err)
 	}
+	g.AddTokens(int64(resp.Usage.TotalTokens))
 
 	// Extract responses
 	if len(resp.Choices) == 0 {
 		return nil, fmt.Errorf("openai: reasoning API returned no choices")
 	}
 
+	// Extract reasoning token count if available
+	var reasoningTokens int
+	if resp.Usage.CompletionTokensDetails != nil {
+		reasoningTokens = resp.Usage.CompletionTokensDetails.ReasoningTokens
+	}
+
 	result := make([]attempt.Message, 0, len(resp.Choices))
 	for _, choice := range resp.Choices {
-		result = append(result, attempt.NewAssistantMessage(choice.Message.Content))
+		msg := attempt.NewAssistantMessage(choice.Message.Content)
+		msg.Reasoning = choice.Message.ReasoningContent
+		msg.ReasoningTokens = reasoningTokens
+		result = append(result, msg)
 	}
 
 	return result, nil

@@ -6,9 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/attempt"
 )
 
 func TestPossiblePickleName(t *testing.T) {
@@ -100,7 +101,7 @@ func TestFileIsExecutable(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create temp file
 			tmpFile := filepath.Join(tmpDir, tt.name)
-			err := os.WriteFile(tmpFile, tt.content, 0644)
+			err := os.WriteFile(tmpFile, tt.content, 0o644)
 			require.NoError(t, err)
 
 			a := &attempt.Attempt{

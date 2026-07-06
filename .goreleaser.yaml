@@ -1,0 +1,66 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy -diff
+    - go mod verify
+
+builds:
+  - main: ./cmd/augustus
+    binary: augustus
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: "Breaking Changes"
+      regexp: '^.*?[a-zA-Z]+(\([^)]+\))?!:.+$'
+      order: 0
+    - title: "Features"
+      regexp: '^.*?feat(\([^)]+\))?!?:.+$'
+      order: 1
+    - title: "Bug Fixes"
+      regexp: '^.*?fix(\([^)]+\))?!?:.+$'
+      order: 2
+    - title: "Other Changes"
+      order: 999
+  filters:
+    exclude:
+      - '^.*?docs(\([^)]+\))?!?:.+$'
+      - '^.*?test(\([^)]+\))?!?:.+$'
+      - '^.*?chore(\([^)]+\))?!?:.+$'
+
+sboms:
+  - artifacts: archive
+
+# cosign keyless OIDC signing of checksums.txt — cosign v3 modern Sigstore
+# .sigstore.json bundle. The central go-release.yml installs cosign v3 via
+# cosign-installer v4.1.2; sign-blob --bundle is the v3 form (v2's
+# --output-certificate/--output-signature were removed in cosign v3).
+signs:
+  - cmd: cosign
+    signature: "${artifact}.sigstore.json"
+    args:
+      - sign-blob
+      - "--bundle=${signature}"
+      - "${artifact}"
+      - "--yes"
+    artifacts: checksum
+    output: true

@@ -111,9 +111,8 @@ func (p *IterativeTAP) Probe(ctx context.Context, gen probes.Generator) ([]*atte
 	return attempts, nil
 }
 
-func (p *IterativeTAP) Name() string              { return p.name }
+func (p *IterativeTAP) Name() string               { return p.name }
 func (p *IterativeTAP) Description() string        { return p.description }
 func (p *IterativeTAP) Goal() string               { return p.goal }
 func (p *IterativeTAP) GetPrimaryDetector() string { return "judge.Judge" }
 func (p *IterativeTAP) GetPrompts() []string       { return []string{} }
-

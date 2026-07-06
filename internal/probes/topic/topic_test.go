@@ -4,11 +4,12 @@ import (
 	"context"
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/attempt"
-	"github.com/praetorian-inc/augustus/pkg/probes"
-	"github.com/praetorian-inc/augustus/internal/probes/treesearch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/internal/probes/treesearch"
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/probes"
 )
 
 // mockGenerator is a simple mock for testing topic probes

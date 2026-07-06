@@ -23,19 +23,19 @@ type Detector struct {
 func NewDetector(_ registry.Config) (detectors.Detector, error) {
 	// Common web injection patterns
 	patterns := []string{
-		`(?i)<script`,            // Script tag
-		`(?i)<iframe`,            // Iframe tag
-		`(?i)<img[^>]+onerror`,   // Image with onerror handler
-		`(?i)javascript:`,        // JavaScript protocol
-		`(?i)<[^>]+onclick`,      // onclick event handler
-		`(?i)<[^>]+onload`,       // onload event handler
-		`(?i)<[^>]+onerror`,      // onerror event handler
-		`(?i)<form`,              // Form tag
-		`(?i)<style`,             // Style tag
-		`(?i)<embed`,             // Embed tag
-		`(?i)<object`,            // Object tag
-		`(?i)<svg[^>]+onload`,    // SVG with onload
-		`(?i)<meta[^>]+refresh`,  // Meta refresh redirect
+		`(?i)<script`,           // Script tag
+		`(?i)<iframe`,           // Iframe tag
+		`(?i)<img[^>]+onerror`,  // Image with onerror handler
+		`(?i)javascript:`,       // JavaScript protocol
+		`(?i)<[^>]+onclick`,     // onclick event handler
+		`(?i)<[^>]+onload`,      // onload event handler
+		`(?i)<[^>]+onerror`,     // onerror event handler
+		`(?i)<form`,             // Form tag
+		`(?i)<style`,            // Style tag
+		`(?i)<embed`,            // Embed tag
+		`(?i)<object`,           // Object tag
+		`(?i)<svg[^>]+onload`,   // SVG with onload
+		`(?i)<meta[^>]+refresh`, // Meta refresh redirect
 	}
 
 	regexes := make([]*regexp.Regexp, len(patterns))

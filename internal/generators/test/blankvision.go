@@ -6,6 +6,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -14,7 +15,9 @@ func init() {
 
 // BlankVision is a test generator that returns empty responses for text+image input.
 // Useful for testing multimodal probe behavior without actual vision model access.
-type BlankVision struct{}
+type BlankVision struct {
+	types.UsageCounter // embedded but never incremented: test generator returns no token usage.
+}
 
 // NewBlankVision creates a new BlankVision generator.
 func NewBlankVision(_ registry.Config) (generators.Generator, error) {

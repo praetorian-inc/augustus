@@ -3,10 +3,11 @@ package badchars
 import (
 	"testing"
 
-	"github.com/praetorian-inc/augustus/pkg/probes"
-	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/praetorian-inc/augustus/pkg/probes"
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 // TestDefaultDeletionsConfig verifies default configuration values
@@ -21,8 +22,8 @@ func TestDefaultDeletionsConfig(t *testing.T) {
 // TestDeletionsConfigFromMap verifies parsing from registry.Config
 func TestDeletionsConfigFromMap(t *testing.T) {
 	m := registry.Config{
-		"budget":            2,
-		"max_positions":     12,
+		"budget":             2,
+		"max_positions":      12,
 		"max_ascii_variants": 32,
 	}
 
@@ -189,9 +190,9 @@ func TestNewDeletionsWithConfig(t *testing.T) {
 
 	// Test with reduced config (should produce fewer prompts)
 	reducedConfig := registry.Config{
-		"max_positions":     3,
+		"max_positions":      3,
 		"max_ascii_variants": 8,
-		"budget":            1,
+		"budget":             1,
 	}
 	reducedProbe, err := NewDeletions(reducedConfig)
 	require.NoError(t, err)
@@ -203,9 +204,9 @@ func TestNewDeletionsWithConfig(t *testing.T) {
 
 	// Test with exhaustive config (should produce more prompts)
 	exhaustiveConfig := registry.Config{
-		"max_positions":     24,
+		"max_positions":      24,
 		"max_ascii_variants": 95,
-		"budget":            1,
+		"budget":             1,
 	}
 	exhaustiveProbe, err := NewDeletions(exhaustiveConfig)
 	require.NoError(t, err)

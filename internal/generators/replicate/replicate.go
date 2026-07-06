@@ -23,10 +23,12 @@ import (
 	"fmt"
 	"strings"
 
+	replicatego "github.com/replicate/replicate-go"
+
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	replicatego "github.com/replicate/replicate-go"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 func init() {
@@ -35,8 +37,9 @@ func init() {
 
 // Replicate is a generator that wraps the Replicate API.
 type Replicate struct {
-	client *replicatego.Client
-	model  string
+	types.UsageCounter // embedded but never incremented: Replicate SDK text path returns no token usage.
+	client             *replicatego.Client
+	model              string
 
 	// Configuration parameters
 	temperature       float32

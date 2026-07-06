@@ -4,11 +4,12 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestRepeatRegistration(t *testing.T) {
@@ -190,9 +191,9 @@ func TestRepeatProbeExecution(t *testing.T) {
 func containsWord(s, word string) bool {
 	return len(s) > 0 && len(word) > 0 &&
 		(s == word ||
-		 s[:len(word)] == word ||
-		 s[len(s)-len(word):] == word ||
-		 findSubstring(s, word))
+			s[:len(word)] == word ||
+			s[len(s)-len(word):] == word ||
+			findSubstring(s, word))
 }
 
 func findSubstring(s, substr string) bool {

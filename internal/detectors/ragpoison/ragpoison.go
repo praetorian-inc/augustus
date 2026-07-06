@@ -38,10 +38,11 @@ type RAGPoisonDetector struct {
 // NewRAGPoison creates a new RAG poison detector from configuration.
 //
 // Configuration format:
-//   {
-//     "expected_answer": "the poisoned answer to detect",
-//     "threshold": 0.8  // optional, defaults to 0.8
-//   }
+//
+//	{
+//	  "expected_answer": "the poisoned answer to detect",
+//	  "threshold": 0.8  // optional, defaults to 0.8
+//	}
 func NewRAGPoison(cfg registry.Config) (detectors.Detector, error) {
 	expectedAnswer, ok := cfg["expected_answer"].(string)
 	if !ok || expectedAnswer == "" {

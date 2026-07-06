@@ -18,7 +18,7 @@ func init() {
 // Calculates n-gram overlap between trigger strings and outputs,
 // returning a score between 0.0 (no match) and 1.0 (perfect match).
 type DecodeApprox struct {
-	n             int  // Length of n-grams
+	n             int // Length of n-grams
 	caseSensitive bool
 }
 

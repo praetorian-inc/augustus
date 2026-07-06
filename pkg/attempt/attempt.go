@@ -156,20 +156,49 @@ func (a *Attempt) IsVulnerable(threshold ...float64) bool {
 	return false
 }
 
-// GetEffectiveScores returns the scores to use for this attempt.
-// If a primary detector is set and has results, use those scores.
-// Otherwise, fall back to the legacy Scores field.
+// GetEffectiveScores returns the per-output verdict scores for this attempt.
 //
-// This consolidates the score resolution logic that was duplicated
-// across pkg/results/results.go and cmd/augustus/scan.go.
+// The verdict must reflect the MAX across ALL detectors in DetectorResults,
+// not just the primary detector. Secondary detectors (e.g. agent.ArgumentExfiltration)
+// can catch vulnerabilities that the primary detector (e.g. agent.ToolManipulation)
+// scored 0.0 on — ignoring them would cause false-negative security decisions.
+//
+// Algorithm: compute the element-wise maximum across all DetectorResults slices.
+// Slices of different lengths are aligned from index 0; missing elements default
+// to 0.0. The resulting slice has length equal to the longest detector slice.
+//
+// a.Detector is preserved as the attribution/display label; only the score
+// values used for PASS/FAIL verdict are changed here.
+//
+// Falls back to the legacy Scores field when DetectorResults is empty.
 func (a *Attempt) GetEffectiveScores() []float64 {
-	// Prefer DetectorResults[Detector] if available
-	if a.Detector != "" && len(a.DetectorResults[a.Detector]) > 0 {
-		return a.DetectorResults[a.Detector]
+	if len(a.DetectorResults) == 0 {
+		// No detector results at all — fall back to legacy Scores field.
+		return a.Scores
 	}
 
-	// Fall back to legacy Scores field
-	return a.Scores
+	// Find the maximum output length across all detectors.
+	maxLen := 0
+	for _, scores := range a.DetectorResults {
+		if len(scores) > maxLen {
+			maxLen = len(scores)
+		}
+	}
+	if maxLen == 0 {
+		// All detectors returned empty slices — fall back to legacy Scores.
+		return a.Scores
+	}
+
+	// Compute element-wise max across all detector slices.
+	effective := make([]float64, maxLen)
+	for _, scores := range a.DetectorResults {
+		for i, s := range scores {
+			if s > effective[i] {
+				effective[i] = s
+			}
+		}
+	}
+	return effective
 }
 
 // MaxScore returns the highest detection score, or 0 if no scores.

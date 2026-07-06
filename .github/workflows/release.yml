@@ -1,0 +1,24 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    uses: praetorian-inc/public-workflows/.github/workflows/go-release.yml@c5f6f98f1faf8f9ac6a870eced139b2509e08bfc  # v2.12.1
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+    with:
+      release-mode: auto-tag-from-main
+    # Push the auto-tag as the praetorian-ci-version-bumper App so it can bypass
+    # the org "Protected Version Tags" ruleset (creation-only bypass).
+    secrets:
+      VERSION_BUMPER_APP_ID: ${{ secrets.VERSION_BUMPER_APP_ID }}
+      VERSION_BUMPER_PRIVATE_KEY: ${{ secrets.VERSION_BUMPER_PRIVATE_KEY }}

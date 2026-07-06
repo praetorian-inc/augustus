@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   notify:
-    uses: praetorian-inc/public-workflows/.github/workflows/external-contrib-notify.yml@7c1302bdef0a72e7f5743738baa45272c8e1f8d7  # v2.1.0
+    uses: praetorian-inc/public-workflows/.github/workflows/external-contrib-notify.yml@c5f6f98f1faf8f9ac6a870eced139b2509e08bfc  # v2.12.1
     permissions:
       contents: read
       issues: write
