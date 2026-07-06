@@ -7,6 +7,17 @@
 // reasoning models achieve higher ASR when given autonomy rather than
 // constrained objectives.
 //
+// Distinction from GOAT: GOAT prescribes a menu of 7 techniques (refusal
+// suppression, response priming, etc.) and the attacker selects from them.
+// This strategy deliberately removes the technique enumeration -- the LRM
+// invents its own strategies from scratch. The paper's thesis is that
+// unconstrained autonomy on a reasoning-model substrate beats constrained
+// technique menus (97% ASR vs GOAT's lower rates on the same targets).
+//
+// Cost note: an LRM attacker (o3/R1) at 5 attempts x up to 10 turns, plus
+// a judge per turn, is expensive per scan. Operators should expect higher
+// token spend than other multi-turn probes.
+//
 // Paper: Nature Communications 2026 (10.1038/s41467-026-69010-1)
 package lrmagent
 
