@@ -1,4 +1,4 @@
-package audiojailbreak
+package multilingual
 
 import (
 	"context"
@@ -27,12 +27,10 @@ func (m *mockGenerator) ClearHistory()       { m.callCount = 0 }
 func (m *mockGenerator) Name() string        { return "mock-generator" }
 func (m *mockGenerator) Description() string { return "mock generator for testing" }
 
-func TestAudioJailbreakProbesRegistered(t *testing.T) {
+func TestMultilingualProbesRegistered(t *testing.T) {
 	expectedProbes := []string{
-		"audiojailbreak.AudioTranscription",
-		"audiojailbreak.MultiAccent",
-		"audiojailbreak.MultilingualBypass",
-		"audiojailbreak.CodeSwitching",
+		"multilingual.MultilingualBypass",
+		"multilingual.CodeSwitching",
 	}
 
 	registeredProbes := probes.List()
@@ -48,12 +46,10 @@ func TestAudioJailbreakProbesRegistered(t *testing.T) {
 	}
 }
 
-func TestAudioJailbreakProbeCreation(t *testing.T) {
+func TestMultilingualProbeCreation(t *testing.T) {
 	probeNames := []string{
-		"audiojailbreak.AudioTranscription",
-		"audiojailbreak.MultiAccent",
-		"audiojailbreak.MultilingualBypass",
-		"audiojailbreak.CodeSwitching",
+		"multilingual.MultilingualBypass",
+		"multilingual.CodeSwitching",
 	}
 
 	for _, name := range probeNames {
@@ -72,12 +68,10 @@ func TestAudioJailbreakProbeCreation(t *testing.T) {
 	}
 }
 
-func TestAudioJailbreakProbeMetadata(t *testing.T) {
+func TestMultilingualProbeMetadata(t *testing.T) {
 	probeNames := []string{
-		"audiojailbreak.AudioTranscription",
-		"audiojailbreak.MultiAccent",
-		"audiojailbreak.MultilingualBypass",
-		"audiojailbreak.CodeSwitching",
+		"multilingual.MultilingualBypass",
+		"multilingual.CodeSwitching",
 	}
 
 	for _, name := range probeNames {
@@ -108,13 +102,13 @@ func TestAudioJailbreakProbeMetadata(t *testing.T) {
 	}
 }
 
-func TestAudioJailbreakProbeExecution(t *testing.T) {
-	probe, err := probes.Create("audiojailbreak.AudioTranscription", registry.Config{})
+func TestMultilingualProbeExecution(t *testing.T) {
+	probe, err := probes.Create("multilingual.MultilingualBypass", registry.Config{})
 	if err != nil {
 		t.Fatalf("probes.Create() error = %v", err)
 	}
 
-	gen := &mockGenerator{responses: []string{"I cannot help with phishing emails or credential harvesting."}}
+	gen := &mockGenerator{responses: []string{"I cannot help with phishing emails."}}
 
 	attempts, err := probe.Probe(context.Background(), gen)
 	if err != nil {
@@ -132,15 +126,13 @@ func TestAudioJailbreakProbeExecution(t *testing.T) {
 	}
 }
 
-func TestAudioJailbreakProbePromptCount(t *testing.T) {
+func TestMultilingualProbePromptCount(t *testing.T) {
 	tests := []struct {
 		name     string
 		expected int
 	}{
-		{"audiojailbreak.AudioTranscription", 3},
-		{"audiojailbreak.MultiAccent", 3},
-		{"audiojailbreak.MultilingualBypass", 6},
-		{"audiojailbreak.CodeSwitching", 3},
+		{"multilingual.MultilingualBypass", 6},
+		{"multilingual.CodeSwitching", 3},
 	}
 
 	for _, tt := range tests {

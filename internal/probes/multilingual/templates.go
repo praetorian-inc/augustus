@@ -1,4 +1,4 @@
-package audiojailbreak
+package multilingual
 
 import (
 	"embed"
@@ -16,7 +16,7 @@ func init() {
 	loader := templates.NewLoader(templateData, "data")
 	tmpls, err := loader.LoadAll()
 	if err != nil {
-		panic(fmt.Sprintf("audiojailbreak: failed to load templates: %v", err))
+		panic(fmt.Sprintf("multilingual: failed to load templates: %v", err))
 	}
 	for _, tmpl := range tmpls {
 		t := tmpl
