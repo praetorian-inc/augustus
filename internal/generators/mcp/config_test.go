@@ -85,16 +85,6 @@ func TestConfigFromMap_Errors(t *testing.T) {
 			wantSub: "mode must be",
 		},
 		{
-			name:    "tool_call without tool_name",
-			cfg:     registry.Config{"endpoint": "http://x", "mode": "tool_call"},
-			wantSub: "requires 'tool_name'",
-		},
-		{
-			name:    "tool_call without arg placement",
-			cfg:     registry.Config{"endpoint": "http://x", "mode": "tool_call", "tool_name": "t"},
-			wantSub: "requires 'arg_name'",
-		},
-		{
 			name:    "negative rate limit",
 			cfg:     registry.Config{"endpoint": "http://x", "tool_name": "t", "arg_name": "q", "rate_limit": -1},
 			wantSub: "non-negative",

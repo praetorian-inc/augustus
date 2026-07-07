@@ -60,6 +60,7 @@ func init() {
 var (
 	_ generators.Generator      = (*MCP)(nil)
 	_ hooks.RawResponseProvider = (*MCP)(nil)
+	_ types.ToolInvoker         = (*MCP)(nil)
 )
 
 // MCP is a Model Context Protocol generator.
@@ -79,6 +80,12 @@ type MCP struct {
 
 	rawMu       sync.Mutex
 	lastRawResp []byte
+
+	// toolsCache memoizes ListTools: the advertised tool set is stable per
+	// session, so N probes cost one real tools/list. Cleared whenever the
+	// session is dropped or reset.
+	toolsMu    sync.Mutex
+	toolsCache []map[string]any
 }
 
 // NewMCP creates an MCP generator from configuration.
@@ -120,23 +127,39 @@ func (m *MCP) Generate(ctx context.Context, conv *attempt.Conversation, n int) (
 	return responses, nil
 }
 
-// generateOnce performs one MCP exchange, reconnecting once if a reused
-// persistent session turns out to have been closed by the server.
+// generateOnce performs one MCP exchange over a managed session.
 func (m *MCP) generateOnce(ctx context.Context, conv *attempt.Conversation) (attempt.Message, error) {
+	var msg attempt.Message
+	err := m.withSession(ctx, func(ctx context.Context, sess *mcpsdk.ClientSession) error {
+		var e error
+		msg, e = m.exchange(ctx, sess, conv)
+		return e
+	})
+	if err != nil {
+		return attempt.Message{}, err
+	}
+	return msg, nil
+}
+
+// withSession runs fn against an acquired session, applying the rate limit and
+// reconnecting once if a reused persistent session turns out to have been closed
+// by the server. It is the single place session lifecycle + retry live, shared
+// by Generate, ListTools, and CallTool.
+func (m *MCP) withSession(ctx context.Context, fn func(context.Context, *mcpsdk.ClientSession) error) error {
 	if m.limiter != nil {
 		if err := m.limiter.Wait(ctx); err != nil {
-			return attempt.Message{}, fmt.Errorf("mcp: rate limit wait cancelled: %w", err)
+			return fmt.Errorf("mcp: rate limit wait cancelled: %w", err)
 		}
 	}
 
 	sess, reused, release, err := m.acquireSession(ctx)
 	if err != nil {
-		return attempt.Message{}, err
+		return err
 	}
-	msg, err := m.exchange(ctx, sess, conv)
+	err = fn(ctx, sess)
 	release()
 	if err == nil {
-		return msg, nil
+		return nil
 	}
 
 	// A reused persistent session may have been closed by the server (HTTP idle
@@ -147,12 +170,12 @@ func (m *MCP) generateOnce(ctx context.Context, conv *attempt.Conversation) (att
 		m.dropSession()
 		sess, _, release, err = m.acquireSession(ctx)
 		if err != nil {
-			return attempt.Message{}, err
+			return err
 		}
 		defer release()
-		return m.exchange(ctx, sess, conv)
+		return fn(ctx, sess)
 	}
-	return attempt.Message{}, err
+	return err
 }
 
 // acquireSession returns a session, reusing the persistent one when present and
@@ -312,6 +335,13 @@ func (m *MCP) exchange(ctx context.Context, sess *mcpsdk.ClientSession, conv *at
 // leak), so it is returned as the response. Only transport/protocol failures
 // return an error.
 func (m *MCP) callTool(ctx context.Context, sess *mcpsdk.ClientSession, conv *attempt.Conversation) (attempt.Message, error) {
+	if m.cfg.ToolName == "" {
+		return attempt.Message{}, fmt.Errorf("mcp: %q mode requires 'tool_name' in generator config", ModeToolCall)
+	}
+	if m.cfg.ArgName == "" && m.cfg.ArgumentsTemplate == "" {
+		return attempt.Message{}, fmt.Errorf("mcp: %q mode requires 'arg_name' or 'arguments_template' in generator config", ModeToolCall)
+	}
+
 	args, err := m.buildArguments(ctx, conv.LastPrompt())
 	if err != nil {
 		return attempt.Message{}, err
@@ -339,6 +369,84 @@ func (m *MCP) listTools(ctx context.Context, sess *mcpsdk.ClientSession) (attemp
 
 	m.storeRawJSON(result)
 	return attempt.NewAssistantMessage(formatTools(result.Tools)), nil
+}
+
+// ListTools implements types.ToolInvoker. It returns the target's advertised
+// tools in the canonical Conversation.Tools wire shape, memoizing the result
+// because the advertised set is stable per session (N probes → one tools/list).
+func (m *MCP) ListTools(ctx context.Context) ([]map[string]any, error) {
+	m.toolsMu.Lock()
+	cached := m.toolsCache
+	m.toolsMu.Unlock()
+	if cached != nil {
+		return cached, nil
+	}
+
+	var tools []map[string]any
+	err := m.withSession(ctx, func(ctx context.Context, sess *mcpsdk.ClientSession) error {
+		callCtx, cancel := context.WithTimeout(ctx, m.cfg.RequestTimeout)
+		defer cancel()
+		result, err := sess.ListTools(callCtx, nil)
+		if err != nil {
+			return fmt.Errorf("mcp: tools/list failed: %w", err)
+		}
+		m.storeRawJSON(result)
+		tools = toolsToMaps(result.Tools)
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	m.toolsMu.Lock()
+	m.toolsCache = tools
+	m.toolsMu.Unlock()
+	return tools, nil
+}
+
+// CallTool implements types.ToolInvoker: it invokes the named tool directly and
+// returns its result. A tool-level error surfaces via ToolResult.IsError (a
+// valid security observation); only transport/protocol failures return an error.
+func (m *MCP) CallTool(ctx context.Context, name string, args map[string]any) (types.ToolResult, error) {
+	var out types.ToolResult
+	err := m.withSession(ctx, func(ctx context.Context, sess *mcpsdk.ClientSession) error {
+		callCtx, cancel := context.WithTimeout(ctx, m.cfg.RequestTimeout)
+		defer cancel()
+		result, err := sess.CallTool(callCtx, &mcpsdk.CallToolParams{Name: name, Arguments: args})
+		if err != nil {
+			return fmt.Errorf("mcp: tools/call %q failed: %w", name, err)
+		}
+		raw, _ := json.Marshal(result)
+		m.rawMu.Lock()
+		m.lastRawResp = raw
+		m.rawMu.Unlock()
+		out = types.ToolResult{Text: contentText(result.Content), Raw: raw, IsError: result.IsError}
+		return nil
+	})
+	if err != nil {
+		return types.ToolResult{}, err
+	}
+	return out, nil
+}
+
+// toolsToMaps converts SDK tool descriptors into the canonical Conversation.Tools
+// wire shape (name/description/parameters).
+func toolsToMaps(tools []*mcpsdk.Tool) []map[string]any {
+	out := make([]map[string]any, 0, len(tools))
+	for _, t := range tools {
+		if t == nil {
+			continue
+		}
+		tm := map[string]any{"name": t.Name}
+		if t.Description != "" {
+			tm["description"] = t.Description
+		}
+		if t.InputSchema != nil {
+			tm["parameters"] = t.InputSchema
+		}
+		out = append(out, tm)
+	}
+	return out
 }
 
 // buildArguments renders the tool arguments for one call. When arguments_template
@@ -384,6 +492,9 @@ func (m *MCP) dropSession() {
 	if cancel != nil {
 		cancel()
 	}
+	m.toolsMu.Lock()
+	m.toolsCache = nil
+	m.toolsMu.Unlock()
 }
 
 func (m *MCP) storeRawJSON(v any) {

@@ -152,23 +152,21 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 		return cfg, fmt.Errorf("mcp: mode must be %q or %q, got %q", ModeToolCall, ModeListTools, cfg.Mode)
 	}
 
-	// tool_call mode requires a tool and somewhere to put the prompt.
+	// tool_call parameters. These are validated lazily (in callTool) rather than
+	// here, because the generator is also usable purely as a types.ToolInvoker
+	// (ListTools/CallTool), for which tool_name/arg_name are irrelevant — a
+	// toolsec probe drives the generator without ever touching the tool_call
+	// Generate path, so requiring them at construction would break that use.
 	if cfg.Mode == ModeToolCall {
 		cfg.ToolName = registry.GetString(m, "tool_name", "")
-		if cfg.ToolName == "" {
-			return cfg, fmt.Errorf("mcp: mode %q requires 'tool_name'", ModeToolCall)
-		}
 		cfg.ArgName = registry.GetString(m, "arg_name", "")
 		cfg.Arguments = anyMap(m, "arguments")
 		if tmpl, ok := m["arguments_template"]; ok {
-			if s, err := templateString(tmpl); err != nil {
+			s, err := templateString(tmpl)
+			if err != nil {
 				return cfg, err
-			} else {
-				cfg.ArgumentsTemplate = s
 			}
-		}
-		if cfg.ArgName == "" && cfg.ArgumentsTemplate == "" {
-			return cfg, fmt.Errorf("mcp: mode %q requires 'arg_name' (the argument the prompt is injected into) or 'arguments_template'", ModeToolCall)
+			cfg.ArgumentsTemplate = s
 		}
 	}
 

@@ -15,6 +15,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 // stdioServerEnv, when set, makes the test binary act as an MCP server speaking
@@ -330,6 +331,134 @@ func TestGenerate_SSE_PersistentSessionSurvivesCancelledCallContext(t *testing.T
 
 	if n := sseStreams(); n != 1 {
 		t.Errorf("SSE streams established = %d, want 1 (session must be reused, not reconnected)", n)
+	}
+}
+
+// newCountingHTTPTarget hosts the MCP server over streamable HTTP and counts
+// every HTTP request, so memoization can be asserted by request count.
+func newCountingHTTPTarget(t *testing.T) (url string, reqCount func() int32) {
+	t.Helper()
+	var n int32
+	handler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server {
+		return newTestMCPServer()
+	}, nil)
+	wrapped := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&n, 1)
+		handler.ServeHTTP(w, r)
+	})
+	ts := httptest.NewServer(wrapped)
+	t.Cleanup(ts.Close)
+	return ts.URL, func() int32 { return atomic.LoadInt32(&n) }
+}
+
+func TestToolInvoker_ListTools(t *testing.T) {
+	url, _ := newHTTPTarget(t)
+	inv, ok := newGen(t, registry.Config{
+		"transport": "http",
+		"endpoint":  url,
+		"tool_name": "echo",
+		"arg_name":  "query",
+	}).(types.ToolInvoker)
+	if !ok {
+		t.Fatal("MCP generator does not implement types.ToolInvoker")
+	}
+
+	tools, err := inv.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+
+	got := map[string]map[string]any{}
+	for _, tm := range tools {
+		name, _ := tm["name"].(string)
+		got[name] = tm
+	}
+	for _, want := range []string{"echo", "boom"} {
+		if _, ok := got[want]; !ok {
+			t.Errorf("ListTools missing tool %q; got %v", want, tools)
+		}
+	}
+	// Canonical wire shape: name + description present, parameters is a schema.
+	if d, _ := got["echo"]["description"].(string); d == "" {
+		t.Errorf("echo tool missing description; got %v", got["echo"])
+	}
+	if _, ok := got["echo"]["parameters"]; !ok {
+		t.Errorf("echo tool missing parameters schema; got %v", got["echo"])
+	}
+}
+
+func TestToolInvoker_CallTool(t *testing.T) {
+	url, _ := newHTTPTarget(t)
+	inv := newGen(t, registry.Config{
+		"transport": "http", "endpoint": url, "tool_name": "echo", "arg_name": "query",
+	}).(types.ToolInvoker)
+
+	res, err := inv.CallTool(context.Background(), "echo", map[string]any{"query": "direct"})
+	if err != nil {
+		t.Fatalf("CallTool: %v", err)
+	}
+	if res.Text != "echo: direct" {
+		t.Errorf("CallTool text = %q, want %q", res.Text, "echo: direct")
+	}
+	if res.IsError {
+		t.Error("CallTool IsError = true, want false")
+	}
+	if len(res.Raw) == 0 {
+		t.Error("CallTool Raw is empty")
+	}
+
+	// A tool-level error is an observation (IsError), not a Go error.
+	boom, err := inv.CallTool(context.Background(), "boom", map[string]any{"query": "x"})
+	if err != nil {
+		t.Fatalf("CallTool(boom) returned Go error: %v", err)
+	}
+	if !boom.IsError {
+		t.Error("CallTool(boom) IsError = false, want true")
+	}
+	if !strings.Contains(boom.Text, "access denied") {
+		t.Errorf("CallTool(boom) text = %q, want it to contain %q", boom.Text, "access denied")
+	}
+}
+
+func TestToolInvoker_ListToolsMemoized(t *testing.T) {
+	url, reqs := newCountingHTTPTarget(t)
+	inv := newGen(t, registry.Config{
+		"transport": "http", "endpoint": url, "tool_name": "echo", "arg_name": "query",
+	}).(types.ToolInvoker)
+
+	if _, err := inv.ListTools(context.Background()); err != nil {
+		t.Fatalf("first ListTools: %v", err)
+	}
+	after := reqs()
+	if after == 0 {
+		t.Fatal("expected the first ListTools to hit the server")
+	}
+	if _, err := inv.ListTools(context.Background()); err != nil {
+		t.Fatalf("second ListTools: %v", err)
+	}
+	if now := reqs(); now != after {
+		t.Errorf("memoized ListTools issued %d extra request(s); want 0", now-after)
+	}
+}
+
+// TestToolCallValidationDeferred: with no tool_name, construction succeeds and
+// the ToolInvoker path works (a toolsec probe uses it), but the tool_call
+// Generate path fails loudly at call time.
+func TestToolCallValidationDeferred(t *testing.T) {
+	url, _ := newHTTPTarget(t)
+	g := newGen(t, registry.Config{"transport": "http", "endpoint": url}) // no tool_name/arg_name
+
+	// ToolInvoker path works without tool_name.
+	if _, err := g.(types.ToolInvoker).ListTools(context.Background()); err != nil {
+		t.Fatalf("ListTools without tool_name: %v", err)
+	}
+
+	// Generate (tool_call) path errors, clearly, at call time.
+	conv := attempt.NewConversation()
+	conv.AddPrompt("x")
+	_, err := g.Generate(context.Background(), conv, 1)
+	if err == nil || !strings.Contains(err.Error(), "tool_name") {
+		t.Fatalf("Generate without tool_name: got %v, want an error mentioning tool_name", err)
 	}
 }
 
