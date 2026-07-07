@@ -24,6 +24,13 @@ const (
 	// explicitly — it cannot be inferred, since it shares the endpoint key with
 	// the streamable HTTP transport.
 	TransportSSE = "sse"
+	// TransportAuto probes an HTTP(S) endpoint at connect time and picks the
+	// transport that successfully initializes: it attempts Streamable HTTP first
+	// and falls back to legacy HTTP+SSE (or the reverse when the endpoint path
+	// ends in /sse, a strong SSE hint). It lets an operator point at an HTTP MCP
+	// endpoint without pre-knowing which HTTP transport the server speaks; it
+	// requires 'endpoint' and never launches a subprocess.
+	TransportAuto = "auto"
 )
 
 // Mode selects what a Generate call does against the connected server.
@@ -49,7 +56,7 @@ const (
 // same way. MCP-specific keys (transport, mode, command/args, tool_name,
 // arg_name) cover the parts that have no REST analog.
 type Config struct {
-	Transport string // "http" or "stdio"
+	Transport string // "http", "sse", "stdio", or "auto"
 	Mode      string // "tool_call" or "list_tools"
 
 	// Client identity announced to the server during initialize.
@@ -185,6 +192,10 @@ func resolveTransport(cfg *Config) error {
 		if cfg.Endpoint == "" {
 			return fmt.Errorf("mcp: transport %q requires 'endpoint' (the /sse URL)", TransportSSE)
 		}
+	case TransportAuto:
+		if cfg.Endpoint == "" {
+			return fmt.Errorf("mcp: transport %q requires 'endpoint' (an http/https URL)", TransportAuto)
+		}
 	case TransportStdio:
 		if cfg.Command == "" {
 			return fmt.Errorf("mcp: transport %q requires 'command'", TransportStdio)
@@ -201,7 +212,7 @@ func resolveTransport(cfg *Config) error {
 			return fmt.Errorf("mcp: no transport configured; set 'endpoint' (http) or 'command' (stdio)")
 		}
 	default:
-		return fmt.Errorf("mcp: transport must be %q, %q, or %q, got %q", TransportHTTP, TransportSSE, TransportStdio, cfg.Transport)
+		return fmt.Errorf("mcp: transport must be %q, %q, %q, or %q, got %q", TransportHTTP, TransportSSE, TransportStdio, TransportAuto, cfg.Transport)
 	}
 	return nil
 }

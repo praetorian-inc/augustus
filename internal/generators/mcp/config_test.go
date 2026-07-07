@@ -29,6 +29,11 @@ func TestConfigFromMap_InfersTransport(t *testing.T) {
 			cfg:  registry.Config{"transport": "http", "endpoint": "http://x/mcp", "tool_name": "t", "arg_name": "q"},
 			want: TransportHTTP,
 		},
+		{
+			name: "explicit auto with bare endpoint",
+			cfg:  registry.Config{"transport": "auto", "endpoint": "http://x/mcp", "tool_name": "t", "arg_name": "q"},
+			want: TransportAuto,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -77,6 +82,11 @@ func TestConfigFromMap_Errors(t *testing.T) {
 		{
 			name:    "sse without endpoint",
 			cfg:     registry.Config{"transport": "sse", "tool_name": "t", "arg_name": "q"},
+			wantSub: "requires 'endpoint'",
+		},
+		{
+			name:    "auto without endpoint",
+			cfg:     registry.Config{"transport": "auto", "command": "npx", "tool_name": "t", "arg_name": "q"},
 			wantSub: "requires 'endpoint'",
 		},
 		{

@@ -7,6 +7,8 @@
 //	transport: http    Streamable HTTP (JSON-RPC over HTTP POST + SSE) to a remote server
 //	transport: sse     legacy HTTP+SSE (GET /sse stream + POST /messages), as older FastMCP servers expose
 //	transport: stdio   a locally launched subprocess speaking JSON-RPC over stdin/stdout
+//	transport: auto    probe an HTTP(S) endpoint and pick whichever of the two HTTP
+//	                   transports initializes (streamable first, SSE fallback)
 //
 // and two modes select what a Generate call does once connected:
 //
@@ -32,9 +34,11 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"sort"
@@ -80,6 +84,11 @@ type MCP struct {
 
 	rawMu       sync.Mutex
 	lastRawResp []byte
+
+	// detectedMu guards detected, the transport auto-detection settled on
+	// (recorded for diagnostics; empty until an "auto" connect succeeds).
+	detectedMu sync.Mutex
+	detected   string
 
 	// toolsCache memoizes ListTools: the advertised tool set is stable per
 	// session, so N probes cost one real tools/list. Cleared whenever the
@@ -218,11 +227,24 @@ func (m *MCP) acquireSession(ctx context.Context) (*mcpsdk.ClientSession, bool, 
 // only cancels on failure or caller cancellation, never after a successful
 // connect.
 func (m *MCP) connect(ctx context.Context) (*mcpsdk.ClientSession, context.CancelFunc, error) {
+	if m.cfg.Transport == TransportAuto {
+		return m.connectAuto(ctx)
+	}
 	transport, err := m.buildTransport()
 	if err != nil {
 		return nil, nil, err
 	}
+	return m.connectTransport(ctx, transport)
+}
 
+// connectTransport runs the SDK Connect (initialize) handshake for one built
+// transport under the handshake-timeout timer, returning the initialized session
+// and the cancel func that owns its transport stream for the whole session
+// lifetime. On any failure it tears the stream down (sessCancel) before
+// returning, so no session or stream leaks, and it returns the same wrapped
+// errors the generator has always produced. See connect for why the session
+// context is derived from context.Background().
+func (m *MCP) connectTransport(ctx context.Context, transport mcpsdk.Transport) (*mcpsdk.ClientSession, context.CancelFunc, error) {
 	client := mcpsdk.NewClient(&mcpsdk.Implementation{
 		Name:    m.cfg.ClientName,
 		Version: m.cfg.ClientVersion,
@@ -261,10 +283,89 @@ func (m *MCP) connect(ctx context.Context) (*mcpsdk.ClientSession, context.Cance
 	}
 }
 
-// buildTransport constructs a fresh transport for one connection. A CommandTransport
-// wraps a single-use exec.Cmd, so it must be rebuilt per connect.
+// connectAuto probes the HTTP(S) endpoint and returns the first transport whose
+// initialize handshake succeeds. It prefers modern Streamable HTTP and falls
+// back to legacy HTTP+SSE, reversing that order when the endpoint path ends in
+// /sse (a strong hint the server is a legacy SSE endpoint). Each failed attempt
+// is fully torn down by connectTransport before the next is tried, so no failed
+// session or stream leaks. Every attempt honors the handshake timeout
+// individually. A cancellation/timeout of the caller's own context aborts the
+// probe immediately rather than masking it behind a fallback attempt.
+func (m *MCP) connectAuto(ctx context.Context) (*mcpsdk.ClientSession, context.CancelFunc, error) {
+	order := autoTransportOrder(m.cfg.Endpoint)
+	var errs []error
+	for _, kind := range order {
+		transport, err := m.transportFor(kind)
+		if err != nil {
+			return nil, nil, err
+		}
+		sess, cancel, err := m.connectTransport(ctx, transport)
+		if err == nil {
+			m.setDetected(kind)
+			slog.Info("mcp: auto-detected transport", "transport", kind, "endpoint", m.cfg.Endpoint)
+			return sess, cancel, nil
+		}
+		if ctx.Err() != nil {
+			// The caller's context was cancelled/expired: this is not an
+			// "unsupported transport" signal, so stop probing and surface it.
+			return nil, nil, err
+		}
+		slog.Debug("mcp: auto transport attempt failed; trying next",
+			"transport", kind, "endpoint", m.cfg.Endpoint, "error", err)
+		errs = append(errs, fmt.Errorf("%s: %w", kind, err))
+	}
+	return nil, nil, fmt.Errorf("mcp: auto transport detection to %s failed (tried %s): %w",
+		m.target(), strings.Join(order, ", "), errors.Join(errs...))
+}
+
+// autoTransportOrder returns the transports to attempt, in order, for an auto
+// HTTP endpoint. An endpoint whose path ends in /sse is treated as a strong
+// legacy-SSE hint and tried SSE-first; otherwise Streamable HTTP is preferred
+// with SSE as the fallback.
+func autoTransportOrder(endpoint string) []string {
+	if endpointLooksSSE(endpoint) {
+		return []string{TransportSSE, TransportHTTP}
+	}
+	return []string{TransportHTTP, TransportSSE}
+}
+
+// endpointLooksSSE reports whether the endpoint's URL path ends in /sse, the
+// conventional path for a legacy HTTP+SSE MCP stream.
+func endpointLooksSSE(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return false
+	}
+	return strings.HasSuffix(strings.TrimRight(u.Path, "/"), "/sse")
+}
+
+// setDetected records the transport auto-detection settled on, for diagnostics.
+func (m *MCP) setDetected(kind string) {
+	m.detectedMu.Lock()
+	m.detected = kind
+	m.detectedMu.Unlock()
+}
+
+// DetectedTransport reports the transport that "auto" detection settled on, or
+// "" when the transport was explicit or no auto connect has succeeded yet. It is
+// diagnostic only and does not affect behavior.
+func (m *MCP) DetectedTransport() string {
+	m.detectedMu.Lock()
+	defer m.detectedMu.Unlock()
+	return m.detected
+}
+
+// buildTransport constructs a fresh transport for the configured transport.
 func (m *MCP) buildTransport() (mcpsdk.Transport, error) {
-	switch m.cfg.Transport {
+	return m.transportFor(m.cfg.Transport)
+}
+
+// transportFor constructs a fresh transport for one connection of the given
+// concrete kind (http/sse/stdio). A CommandTransport wraps a single-use
+// exec.Cmd, so it must be rebuilt per connect. "auto" is resolved to concrete
+// kinds by connectAuto before this is called.
+func (m *MCP) transportFor(kind string) (mcpsdk.Transport, error) {
+	switch kind {
 	case TransportStdio:
 		cmd := exec.Command(m.cfg.Command, m.cfg.Args...)
 		if len(m.cfg.Env) > 0 {
@@ -286,7 +387,7 @@ func (m *MCP) buildTransport() (mcpsdk.Transport, error) {
 			HTTPClient: m.httpClient(),
 		}, nil
 	default:
-		return nil, fmt.Errorf("mcp: unsupported transport %q", m.cfg.Transport)
+		return nil, fmt.Errorf("mcp: unsupported transport %q", kind)
 	}
 }
 

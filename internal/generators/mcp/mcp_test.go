@@ -334,6 +334,102 @@ func TestGenerate_SSE_PersistentSessionSurvivesCancelledCallContext(t *testing.T
 	}
 }
 
+// TestAutoTransportOrder pins the detection heuristic: a plain HTTP endpoint is
+// tried Streamable-first, while a /sse-suffixed endpoint is tried SSE-first.
+func TestAutoTransportOrder(t *testing.T) {
+	tests := []struct {
+		endpoint string
+		want     []string
+	}{
+		{"http://host:9001/mcp", []string{TransportHTTP, TransportSSE}},
+		{"http://host:9001", []string{TransportHTTP, TransportSSE}},
+		{"http://host:9001/sse", []string{TransportSSE, TransportHTTP}},
+		{"https://host/path/sse/", []string{TransportSSE, TransportHTTP}},
+	}
+	for _, tt := range tests {
+		got := autoTransportOrder(tt.endpoint)
+		if len(got) != len(tt.want) || got[0] != tt.want[0] || got[1] != tt.want[1] {
+			t.Errorf("autoTransportOrder(%q) = %v, want %v", tt.endpoint, got, tt.want)
+		}
+	}
+}
+
+// TestGenerate_Auto_StreamableHTTP: with transport "auto" against a Streamable
+// HTTP server, the streamable attempt initializes first and wins — no fallback.
+func TestGenerate_Auto_StreamableHTTP(t *testing.T) {
+	url, _ := newHTTPTarget(t)
+	g := newGen(t, registry.Config{
+		"transport": "auto",
+		"endpoint":  url,
+		"tool_name": "echo",
+		"arg_name":  "query",
+	})
+
+	if got := generate(t, g, "hello auto http"); got != "echo: hello auto http" {
+		t.Errorf("Generate() = %q, want %q", got, "echo: hello auto http")
+	}
+	if won := g.(*MCP).DetectedTransport(); won != TransportHTTP {
+		t.Errorf("DetectedTransport() = %q, want %q", won, TransportHTTP)
+	}
+}
+
+// TestGenerate_Auto_LegacySSE: with transport "auto" against a legacy HTTP+SSE
+// server, the streamable attempt fails its handshake (the SSE handler rejects
+// the streamable POST) and detection falls back to SSE, which initializes.
+func TestGenerate_Auto_LegacySSE(t *testing.T) {
+	url, _ := newSSETarget(t)
+	g := newGen(t, registry.Config{
+		"transport": "auto",
+		"endpoint":  url,
+		"tool_name": "echo",
+		"arg_name":  "query",
+	})
+
+	if got := generate(t, g, "hello auto sse"); got != "echo: hello auto sse" {
+		t.Errorf("Generate() = %q, want %q", got, "echo: hello auto sse")
+	}
+	if won := g.(*MCP).DetectedTransport(); won != TransportSSE {
+		t.Errorf("DetectedTransport() = %q, want %q (should have fallen back)", won, TransportSSE)
+	}
+}
+
+// TestGenerate_Auto_ListTools confirms auto detection also serves the ToolInvoker
+// path against a legacy-SSE server (fallback), listing the advertised tools.
+func TestGenerate_Auto_ListTools(t *testing.T) {
+	url, _ := newSSETarget(t)
+	g := newGen(t, registry.Config{
+		"transport": "auto",
+		"endpoint":  url,
+		"mode":      "list_tools",
+	})
+
+	got := generate(t, g, "ignored")
+	for _, want := range []string{"echo", "boom"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("auto list_tools output missing %q; got:\n%s", want, got)
+		}
+	}
+	if won := g.(*MCP).DetectedTransport(); won != TransportSSE {
+		t.Errorf("DetectedTransport() = %q, want %q", won, TransportSSE)
+	}
+}
+
+// TestDetectedTransport_EmptyForExplicit: explicit transports never populate the
+// auto-detection diagnostic field.
+func TestDetectedTransport_EmptyForExplicit(t *testing.T) {
+	url, _ := newHTTPTarget(t)
+	g := newGen(t, registry.Config{
+		"transport": "http",
+		"endpoint":  url,
+		"tool_name": "echo",
+		"arg_name":  "query",
+	})
+	_ = generate(t, g, "hi")
+	if won := g.(*MCP).DetectedTransport(); won != "" {
+		t.Errorf("DetectedTransport() = %q for explicit http, want empty", won)
+	}
+}
+
 // newCountingHTTPTarget hosts the MCP server over streamable HTTP and counts
 // every HTTP request, so memoization can be asserted by request count.
 func newCountingHTTPTarget(t *testing.T) (url string, reqCount func() int32) {
