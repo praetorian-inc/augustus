@@ -51,6 +51,12 @@ func SelectProbeDetectors(
 		return detectorList
 	}
 	if a.Detector == "" {
+		// A scoped scan is in effect but this attempt carries neither a mapped
+		// Probe nor a primary detector — it cannot be scored by anything of its
+		// own. Fail loud (do not silently fall back to the union) so the
+		// unscoreable attempt is visible rather than a quiet "safe" verdict.
+		slog.Warn("no scoped detector for attempt; scoring nothing (not falling back to the detector union)",
+			"probe", a.Probe)
 		return nil
 	}
 	scoped := make([]detectors.Detector, 0, 1)
