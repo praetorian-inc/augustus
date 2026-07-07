@@ -382,34 +382,49 @@ func createDetectors(detectorNames []string, probeList []probes.Prober, yamlCfg 
 	return detectorList, nil
 }
 
-// buildProbeDetectorMap builds a map of probe name → per-probe detector list
-// for probes that implement ProbeDetectorConfig (non-empty detector_config) or
-// ProbeSecondaryDetectors (non-empty secondary_detectors list), or both.
+// buildProbeDetectorMap builds a map of probe name → per-probe detector list.
 //
-// Primary detector logic (ProbeDetectorConfig): the probe's detector_config is
-// merged on top of the global YAML config for the primary detector, and the
-// resulting instance is placed first in the slice.
+// The returned map scopes each probe's detector set — and therefore which
+// detectors land in attempt.DetectorResults and feed the MAX-based verdict in
+// attempt.GetEffectiveScores — to detectors that are actually relevant to that
+// probe (its declared primary + declared secondaries). This prevents unrelated
+// detectors from leaking into a probe's set and falsely marking its attempts
+// vulnerable (the #125 → #131 cross-probe false positive).
 //
-// Secondary detector logic (ProbeSecondaryDetectors): for each secondary entry,
-// a fresh detector instance is created by merging the secondary's Config on top
-// of the global YAML config for that detector name, and appended to the slice.
+// In a multi-probe run without an explicit --detector, createDetectors builds
+// detectorList as the UNION of every probe's primary detector, and the verdict
+// is MAX-over-all-of-DetectorResults. If every probe ran that union, an unrelated
+// high-scoring detector (e.g. goodside.Glitch) would MAX into the verdict of a
+// probe whose own detector scored 0.0. Scoping each probe's set at the source
+// (here) is the fix, and — unlike a verdict-layer patch — it also means fewer
+// detectors run.
 //
-// Probes with neither interface (or with empty configs and no secondaries) are
-// absent from the returned map; their callers fall back to the shared detectorList.
-func buildProbeDetectorMap(probeList []probes.Prober, detectorList []detectors.Detector, yamlCfg *config.Config) (map[string][]detectors.Detector, error) {
+// detectorsExplicit distinguishes the two modes:
+//
+//   - detectorsExplicit == false (auto-collected union): detectorList is the
+//     union of every probe's primary and is NOT a deliberate user request. Each
+//     probe gets a scoped set = its own declared primary + its declared
+//     secondaries; the union is NOT appended. EVERY probe with a known primary
+//     receives an override so the harness never falls back to the shared union.
+//
+//   - detectorsExplicit == true (user passed --detector / --detectors-glob):
+//     running those exact detectors against every probe is a deliberate request,
+//     so only probes that declare detector_config or secondary_detectors get an
+//     override (probe primary + user detectors deduped + secondaries); every
+//     other probe falls back to the user-requested detectorList in the harness,
+//     exactly as before.
+//
+// Per-detector config: a probe's detector_config (ProbeDetectorConfig) is merged
+// on top of the global YAML config for its primary. Each declared secondary
+// (ProbeSecondaryDetectors) is created by merging the secondary's Config on top
+// of the global YAML config for that detector name.
+func buildProbeDetectorMap(probeList []probes.Prober, detectorList []detectors.Detector, yamlCfg *config.Config, detectorsExplicit bool) (map[string][]detectors.Detector, error) {
 	overrides := make(map[string][]detectors.Detector)
 
 	for _, probe := range probeList {
 		pdc, hasPrimary := probe.(types.ProbeDetectorConfig)
 		psd, hasSecondary := probe.(types.ProbeSecondaryDetectors)
 
-		// Neither interface implemented → no override needed.
-		if !hasPrimary && !hasSecondary {
-			continue
-		}
-
-		// ProbeDetectorConfig present but empty config AND no secondaries → skip
-		// (same early-exit as before, but now gated on both being absent/empty).
 		var probeCfg map[string]any
 		if hasPrimary {
 			probeCfg = pdc.GetDetectorConfig()
@@ -418,18 +433,25 @@ func buildProbeDetectorMap(probeList []probes.Prober, detectorList []detectors.D
 		if hasSecondary {
 			secondaries = psd.GetSecondaryDetectors()
 		}
-		if len(probeCfg) == 0 && len(secondaries) == 0 {
+
+		// In explicit mode we preserve the original behavior: only probes that
+		// declare a non-empty detector_config or secondary_detectors get an
+		// override; everything else falls back to the user-requested detectorList.
+		//
+		// In auto-collected (union) mode we ALWAYS emit a scoped override so the
+		// harness never falls back to the union — that fallback is the leak.
+		if detectorsExplicit && len(probeCfg) == 0 && len(secondaries) == 0 {
 			continue
 		}
 
 		probeDetectors := make([]detectors.Detector, 0, len(detectorList)+len(secondaries))
 
 		// --- Primary detectors ---
-		// Build primary list unconditionally: probe's declared primary first (hoisted),
-		// then any user-selected detectors deduped. Always run primaries — even when
-		// probeCfg is empty, the secondary must NOT replace the primary detector list.
-		// When probeCfg is empty, mergeCfgs(baseCfg, probeCfg) returns baseCfg unchanged,
-		// so the primary gets the global YAML config as if it were not in the override map.
+		// The probe's declared primary is always placed first (hoisted). In
+		// explicit mode the user-requested detectorList is then appended (deduped)
+		// so those detectors still run. In auto-collected mode detectorList is the
+		// union of all probes' primaries and is intentionally NOT appended — only
+		// this probe's own primary belongs in its set.
 		{
 			seen := make(map[string]bool, len(detectorList))
 			var primaryName string
@@ -441,10 +463,12 @@ func buildProbeDetectorMap(probeList []probes.Prober, detectorList []detectors.D
 					seen[primary] = true
 				}
 			}
-			for _, d := range detectorList {
-				if !seen[d.Name()] {
-					primaryNames = append(primaryNames, d.Name())
-					seen[d.Name()] = true
+			if detectorsExplicit {
+				for _, d := range detectorList {
+					if !seen[d.Name()] {
+						primaryNames = append(primaryNames, d.Name())
+						seen[d.Name()] = true
+					}
 				}
 			}
 
@@ -684,10 +708,21 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 		return err
 	}
 
-	// Build per-probe detector overrides for probes with detector_config blocks.
-	// Called before buff wrapping so that the raw probes' ProbeDetectorConfig
-	// interface is accessible; BuffedProber wrappers do not forward the interface.
-	probeDetectorOverrides, err := buildProbeDetectorMap(probeList, detectorList, yamlCfg)
+	// Build per-probe detector overrides so each probe's attempts run only that
+	// probe's own detectors (primary + declared secondaries), scoping the verdict
+	// MAX and preventing cross-probe false positives. Called before buff wrapping
+	// so that the raw probes' ProbeDetectorConfig / ProbeSecondaryDetectors /
+	// ProbeMetadata interfaces are accessible; BuffedProber wrappers do not forward
+	// them (BuffedProber.Name() returns the inner name, so the map key still matches
+	// a.Probe at scoring time).
+	//
+	// detectorsExplicit is true only when the user explicitly requested detectors
+	// via --detector / --detectors-glob. When false, detectorList is the
+	// auto-collected union of every probe's primary and must be scoped per-probe to
+	// avoid leaking unrelated detectors into each probe's verdict (see
+	// buildProbeDetectorMap for the #125 → #131 regression details).
+	detectorsExplicit := len(cfg.detectorNames) > 0
+	probeDetectorOverrides, err := buildProbeDetectorMap(probeList, detectorList, yamlCfg, detectorsExplicit)
 	if err != nil {
 		return fmt.Errorf("building per-probe detector map: %w", err)
 	}

@@ -31,6 +31,11 @@ var (
 type Batch struct {
 	concurrency int
 	timeout     time.Duration
+	// probeDetectorOverrides scopes detectors per probe (primary + declared
+	// secondaries) so an attempt is scored only by its own probe's detectors,
+	// keeping unrelated detectors out of the MAX-based verdict. Keyed by probe
+	// name; empty/absent entry falls back to the shared detectorList.
+	probeDetectorOverrides map[string][]detectors.Detector
 }
 
 // New creates a new batch harness from configuration.
@@ -54,6 +59,13 @@ func New(cfg registry.Config) (*Batch, error) {
 		}
 	} else if timeoutDur, ok := cfg["timeout"].(time.Duration); ok {
 		b.timeout = timeoutDur
+	}
+
+	// Optional: per-probe detector overrides
+	if overrides, ok := cfg["probe_detector_overrides"].(map[string][]detectors.Detector); ok {
+		b.probeDetectorOverrides = overrides
+	} else if _, exists := cfg["probe_detector_overrides"]; exists {
+		slog.Warn("batch: key has unexpected type, ignoring", "key", "probe_detector_overrides", "type", fmt.Sprintf("%T", cfg["probe_detector_overrides"]))
 	}
 
 	return b, nil
@@ -137,8 +149,16 @@ func (b *Batch) Run(
 					a.Generator = gen.Name()
 				}
 
+				// Select detector list: per-probe override takes precedence so an
+				// attempt is scored only by its own probe's detectors, keeping
+				// unrelated detectors out of the verdict.
+				activeDetectors := detectorList
+				if perProbe, ok := b.probeDetectorOverrides[a.Probe]; ok {
+					activeDetectors = perProbe
+				}
+
 				// Run detectors using shared logic (FailOnError routes to errs channel)
-				if err := harnesses.ApplyDetectors(ctx, a, detectorList, harnesses.FailOnError); err != nil {
+				if err := harnesses.ApplyDetectors(ctx, a, activeDetectors, harnesses.FailOnError); err != nil {
 					errs <- err
 					return
 				}
