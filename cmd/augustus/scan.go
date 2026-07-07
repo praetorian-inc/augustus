@@ -749,6 +749,11 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	if len(probeDetectorOverrides) > 0 {
 		harnessConfig["probe_detector_overrides"] = probeDetectorOverrides
 	}
+	// Tell the harness which detector-selection mode is in effect so its
+	// per-attempt fallback is correct: in explicit mode a probe without an
+	// override runs the user-requested detectorList; in auto mode it must be
+	// scoped to its own primary (never the union). See harnesses.SelectProbeDetectors.
+	harnessConfig["detectors_explicit"] = detectorsExplicit
 	harness, err := harnesses.Create(cfg.harnessName, harnessConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create harness %s: %w", cfg.harnessName, err)

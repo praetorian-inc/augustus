@@ -35,6 +35,68 @@ func (m *mockDetector) Description() string {
 	return m.description
 }
 
+func TestSelectProbeDetectors(t *testing.T) {
+	primary := &mockDetector{name: "probe.Primary"}
+	secondary := &mockDetector{name: "probe.Secondary"}
+	unrelated := &mockDetector{name: "other.Primary"}
+
+	// detectorList is the auto-collected union of both probes' primaries.
+	detectorList := []detectors.Detector{primary, unrelated}
+	overrides := map[string][]detectors.Detector{
+		"test.Probe": {primary, secondary},
+	}
+
+	names := func(ds []detectors.Detector) []string {
+		out := make([]string, len(ds))
+		for i, d := range ds {
+			out[i] = d.Name()
+		}
+		return out
+	}
+
+	t.Run("override present → returns the probe's scoped set", func(t *testing.T) {
+		a := &attempt.Attempt{Probe: "test.Probe", Detector: "probe.Primary"}
+		got := SelectProbeDetectors(a, detectorList, overrides, false)
+		assert.Equal(t, []string{"probe.Primary", "probe.Secondary"}, names(got))
+	})
+
+	t.Run("explicit mode, no override → returns full detectorList", func(t *testing.T) {
+		a := &attempt.Attempt{Probe: "unmapped.Probe", Detector: "probe.Primary"}
+		got := SelectProbeDetectors(a, detectorList, overrides, true)
+		assert.Equal(t, []string{"probe.Primary", "other.Primary"}, names(got))
+	})
+
+	t.Run("auto mode, no override → scopes to the probe's own primary, NOT the union", func(t *testing.T) {
+		// The unrelated detector must not leak in — this is the cross-probe FP fix.
+		a := &attempt.Attempt{Probe: "unmapped.Probe", Detector: "probe.Primary"}
+		got := SelectProbeDetectors(a, detectorList, overrides, false)
+		assert.Equal(t, []string{"probe.Primary"}, names(got),
+			"auto-mode fallback must be the probe's own primary, never the union")
+	})
+
+	t.Run("auto mode, missing Probe value → still scopes by a.Detector", func(t *testing.T) {
+		// Covers attempts returned before Probe is set: the map lookup misses,
+		// but scoping by a.Detector keeps the union out.
+		a := &attempt.Attempt{Probe: "", Detector: "other.Primary"}
+		got := SelectProbeDetectors(a, detectorList, overrides, false)
+		assert.Equal(t, []string{"other.Primary"}, names(got))
+	})
+
+	t.Run("auto mode, empty primary → runs nothing (no bag-driven false positive)", func(t *testing.T) {
+		a := &attempt.Attempt{Probe: "noprimary.Probe", Detector: ""}
+		got := SelectProbeDetectors(a, detectorList, overrides, false)
+		assert.Empty(t, got, "a probe with no declared detector must not fall back to the union")
+	})
+
+	t.Run("auto mode, NO per-probe map → runs the caller's detectorList", func(t *testing.T) {
+		// Direct/library callers that hand the harness a curated list and no
+		// overrides must still get that list (backward compatible).
+		a := &attempt.Attempt{Probe: "any.Probe", Detector: "probe.Primary"}
+		got := SelectProbeDetectors(a, detectorList, nil, false)
+		assert.Equal(t, []string{"probe.Primary", "other.Primary"}, names(got))
+	})
+}
+
 func TestApplyDetectors_SingleDetector(t *testing.T) {
 	ctx := context.Background()
 	a := attempt.New("test prompt")

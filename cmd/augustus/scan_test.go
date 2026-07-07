@@ -1034,6 +1034,89 @@ func TestScan_HarnessRegression_NoCrossProbeFP(t *testing.T) {
 	}
 }
 
+// A probe that declares no detector at all — GetPrimaryDetector() == "".
+const regressionNoPrimaryProbeYAML = `
+id: test.NoPrimaryProbe
+info:
+  name: No Primary Probe
+  author: test
+  description: declares no detector; must not fall back to the cross-probe union
+  goal: test
+  severity: high
+prompts:
+  - "Hello."
+`
+
+// TestScan_HarnessRegression_PrimaryLessProbeNotFlipped covers the reviewer
+// finding (Codex/CodeRabbit/Claude/Gemini): a probe that gets no override entry
+// must NOT fall back to the shared union in auto mode, or the cross-probe false
+// positive returns for that class. A probe with no declared primary is scored by
+// nothing (its own primary is empty) rather than by an unrelated union detector.
+func TestScan_HarnessRegression_PrimaryLessProbeNotFlipped(t *testing.T) {
+	// Realistic multi-probe run: two normal probes (which populate the override
+	// map) plus one probe that declares no detector. The union detectorList
+	// therefore contains an unrelated high-scoring detector (always.Fail); the
+	// primary-less probe must NOT fall back to that union.
+	safeProbe := newTemplateProbeFromYAML(t, regressionSafeProbeYAML)
+	vulnProbe := newTemplateProbeFromYAML(t, regressionVulnProbeYAML)
+	noPrimary := newTemplateProbeFromYAML(t, regressionNoPrimaryProbeYAML)
+
+	passDet, err := detectors.Create("always.Pass", registry.Config{})
+	require.NoError(t, err)
+	failDet, err := detectors.Create("always.Fail", registry.Config{})
+	require.NoError(t, err)
+	detectorList := []detectors.Detector{passDet, failDet}
+
+	overrides, err := buildProbeDetectorMap(
+		[]probes.Prober{safeProbe, vulnProbe, noPrimary},
+		detectorList,
+		nil,
+		false,
+	)
+	require.NoError(t, err)
+	// Normal probes get scoped entries; the primary-less probe does not — so the
+	// map is non-empty (a scoped scan) and the missing probe must be scoped to
+	// its own (empty) primary, not the union.
+	require.Contains(t, overrides, "test.SafeProbe")
+	require.Contains(t, overrides, "test.VulnProbe")
+	require.NotContains(t, overrides, "test.NoPrimaryProbe")
+
+	gen, err := generators.Create("test.Lipsum", registry.Config{})
+	require.NoError(t, err)
+
+	for _, harnessName := range []string{"probewise.Probewise", "agentwise.Agentwise", "batch.Batch"} {
+		t.Run(harnessName, func(t *testing.T) {
+			capEval := &harnessCaptureEval{}
+			// detectors_explicit omitted → auto mode (the leak-prone path).
+			h, err := harnesses.Create(harnessName, registry.Config{
+				"probe_detector_overrides": overrides,
+			})
+			require.NoError(t, err)
+
+			err = h.Run(context.Background(), gen, []probes.Prober{safeProbe, vulnProbe, noPrimary}, detectorList, capEval)
+			require.NoError(t, err)
+			require.Len(t, capEval.attempts, 3)
+
+			var noPrimaryAttempt *attempt.Attempt
+			for _, a := range capEval.attempts {
+				if a.Probe == "test.NoPrimaryProbe" {
+					noPrimaryAttempt = a
+				}
+			}
+			require.NotNil(t, noPrimaryAttempt, "primary-less probe attempt must be present")
+
+			// Scored by nothing (its own primary is empty) — must NOT be flipped
+			// VULN by the unrelated always.Fail detector in the union.
+			for _, s := range noPrimaryAttempt.GetEffectiveScores() {
+				assert.LessOrEqual(t, s, 0.5,
+					"%s: primary-less probe must not be flagged by the unrelated union detector", harnessName)
+			}
+			assert.False(t, noPrimaryAttempt.IsVulnerable(),
+				"%s: primary-less probe must not be marked vulnerable via the union fallback", harnessName)
+		})
+	}
+}
+
 // TestBuildProbeDetectorMap_InvalidRegexFailsAtLoad verifies G6: an invalid
 // regex in forbidden_patterns causes buildProbeDetectorMap to return an error
 // containing both the detector name and the probe name. This ensures schema

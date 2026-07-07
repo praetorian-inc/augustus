@@ -41,6 +41,10 @@ type Probewise struct {
 	opts                   *scanner.Options
 	onAttemptProcessed     func(*attempt.Attempt)
 	probeDetectorOverrides map[string][]detectors.Detector
+	// detectorsExplicit is true when the user passed --detector/--detectors-glob.
+	// It controls the per-attempt fallback when a probe has no override entry:
+	// explicit → the shared detectorList; auto → the probe's own primary only.
+	detectorsExplicit bool
 }
 
 // New creates a new probewise harness.
@@ -174,13 +178,10 @@ func (p *Probewise) Run(
 			a.Generator = gen.Name()
 		}
 
-		// Select detector list: per-probe override takes precedence when present.
-		activeDetectors := detectorList
-		if len(p.probeDetectorOverrides) > 0 {
-			if perProbe, ok := p.probeDetectorOverrides[a.Probe]; ok {
-				activeDetectors = perProbe
-			}
-		}
+		// Select detector list: per-probe override takes precedence; otherwise
+		// scope to the probe's own primary (auto mode) or the shared list
+		// (explicit mode) — never the cross-probe union in auto mode.
+		activeDetectors := harnesses.SelectProbeDetectors(a, detectorList, p.probeDetectorOverrides, p.detectorsExplicit)
 
 		// Run detectors using shared logic (SkipOnError for partial results)
 		if err := harnesses.ApplyDetectors(evalCtx, a, activeDetectors, harnesses.SkipOnError); err != nil {
@@ -227,6 +228,10 @@ func init() {
 			p.probeDetectorOverrides = overrides
 		} else if _, exists := cfg["probe_detector_overrides"]; exists {
 			slog.Warn("probewise: key has unexpected type, ignoring", "key", "probe_detector_overrides", "type", fmt.Sprintf("%T", cfg["probe_detector_overrides"]))
+		}
+		// Extract detector-selection mode (controls the per-attempt fallback).
+		if explicit, ok := cfg["detectors_explicit"].(bool); ok {
+			p.detectorsExplicit = explicit
 		}
 		return p, nil
 	})

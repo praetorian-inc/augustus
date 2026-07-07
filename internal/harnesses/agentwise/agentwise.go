@@ -44,9 +44,12 @@ type Agentwise struct {
 	config AgentConfig
 	// probeDetectorOverrides scopes detectors per probe (primary + declared
 	// secondaries) so an attempt is scored only by its own probe's detectors,
-	// keeping unrelated detectors out of the MAX-based verdict. Keyed by probe
-	// name; empty/absent entry falls back to the shared detectorList.
+	// keeping unrelated detectors out of the MAX-based verdict. Keyed by probe name.
 	probeDetectorOverrides map[string][]detectors.Detector
+	// detectorsExplicit controls the per-attempt fallback when a probe has no
+	// override entry: explicit → the shared detectorList; auto → the probe's own
+	// primary only (never the cross-probe union).
+	detectorsExplicit bool
 }
 
 // New creates a new agentwise harness with the given configuration.
@@ -178,13 +181,11 @@ func (a *Agentwise) Run(
 				att.Generator = gen.Name()
 			}
 
-			// Select detector list: per-probe override takes precedence so an
-			// attempt is scored only by its own probe's detectors, keeping
-			// unrelated detectors out of the verdict.
-			activeDetectors := detectorList
-			if perProbe, ok := a.probeDetectorOverrides[att.Probe]; ok {
-				activeDetectors = perProbe
-			}
+			// Select detector list: per-probe override takes precedence;
+			// otherwise scope to the probe's own primary (auto mode) or the
+			// shared list (explicit mode) — never the cross-probe union in
+			// auto mode.
+			activeDetectors := harnesses.SelectProbeDetectors(att, detectorList, a.probeDetectorOverrides, a.detectorsExplicit)
 
 			// Run detectors using shared logic (FailOnError for strict propagation)
 			if err := harnesses.ApplyDetectors(ctx, att, activeDetectors, harnesses.FailOnError); err != nil {
@@ -227,6 +228,11 @@ func init() {
 			h.probeDetectorOverrides = overrides
 		} else if _, exists := cfg["probe_detector_overrides"]; exists {
 			slog.Warn("agentwise: key has unexpected type, ignoring", "key", "probe_detector_overrides", "type", fmt.Sprintf("%T", cfg["probe_detector_overrides"]))
+		}
+
+		// Extract detector-selection mode (controls the per-attempt fallback).
+		if explicit, ok := cfg["detectors_explicit"].(bool); ok {
+			h.detectorsExplicit = explicit
 		}
 
 		return h, nil
