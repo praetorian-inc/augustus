@@ -13,8 +13,9 @@ import (
 
 // mockTarget implements types.Generator + types.ToolInvoker for tests.
 type mockTarget struct {
-	tools []map[string]any
-	call  func(name string, args map[string]any) types.ToolResult
+	tools    []map[string]any
+	call     func(name string, args map[string]any) types.ToolResult
+	listHook func() // optional: invoked whenever ListTools is called
 }
 
 func (m *mockTarget) Generate(context.Context, *attempt.Conversation, int) ([]attempt.Message, error) {
@@ -24,7 +25,13 @@ func (m *mockTarget) ClearHistory()       {}
 func (m *mockTarget) Name() string        { return "mock" }
 func (m *mockTarget) Description() string { return "mock" }
 
-func (m *mockTarget) ListTools(context.Context) ([]map[string]any, error) { return m.tools, nil }
+func (m *mockTarget) ListTools(context.Context) ([]map[string]any, error) {
+	if m.listHook != nil {
+		m.listHook()
+	}
+	return m.tools, nil
+}
+
 func (m *mockTarget) CallTool(_ context.Context, name string, args map[string]any) (types.ToolResult, error) {
 	return m.call(name, args), nil
 }

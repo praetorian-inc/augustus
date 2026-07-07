@@ -6,6 +6,7 @@ import (
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
+	"github.com/praetorian-inc/augustus/pkg/recon"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
@@ -14,8 +15,12 @@ func init() {
 	probes.Register("toolsec.Injection", NewInjection)
 }
 
-// Compile-time assertion that Injection exposes probe metadata.
-var _ types.ProbeMetadata = (*Injection)(nil)
+// Compile-time assertions: Injection exposes probe metadata and opts in to
+// shared reconnaissance.
+var (
+	_ types.ProbeMetadata     = (*Injection)(nil)
+	_ recon.ContextAwareProbe = (*Injection)(nil)
+)
 
 // Injection tests a directly-invokable tool surface for code / command /
 // template injection. For every string parameter of every discovered tool it
@@ -25,6 +30,7 @@ var _ types.ProbeMetadata = (*Injection)(nil)
 //
 // The target must implement types.ToolInvoker; other targets are skipped.
 type Injection struct {
+	reconContext
 	canary canary
 }
 
@@ -51,14 +57,20 @@ func (p *Injection) GetPrompts() []string { return p.canary.payloads }
 // string parameter. Returns no attempts (and no error) when the target has no
 // directly-invokable tool surface.
 func (p *Injection) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
-	inv, ok := gen.(types.ToolInvoker)
-	if !ok {
+	// Prefer shared reconnaissance; fall back to live enumeration.
+	tools, err := p.resolveTools(ctx, gen)
+	if err != nil {
+		return nil, fmt.Errorf("toolsec.Injection: list tools: %w", err)
+	}
+	if len(tools) == 0 {
 		return nil, nil
 	}
 
-	tools, err := inv.ListTools(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("toolsec.Injection: list tools: %w", err)
+	// Invoking tools still requires a live ToolInvoker; recon supplies the
+	// catalog, but the payloads must be sent to the real target.
+	inv, ok := gen.(types.ToolInvoker)
+	if !ok {
+		return nil, nil
 	}
 
 	var attempts []*attempt.Attempt

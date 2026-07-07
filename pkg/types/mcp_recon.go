@@ -17,19 +17,17 @@ import (
 // the target when the assertion fails, exactly as with ToolInvoker /
 // VisionCapable.
 //
-// The implementation assembles ONLY raw inventory data. Suspicious-pattern
-// analysis (tool poisoning, exfiltration hints, hidden unicode, name shadowing)
-// lives in the probe/detector layer, which fills in MCPInventory.Flags.
+// The implementation assembles ONLY the raw, descriptive inventory. It never
+// renders a verdict — reconnaissance is not a test. Suspicious-pattern analysis
+// (tool poisoning, etc.) is a separate test probe's concern.
 type MCPReconnaissance interface {
 	// MCPInventory reads the connected MCP session and returns the raw
-	// attack-surface inventory with Flags left empty.
+	// attack-surface inventory.
 	MCPInventory(ctx context.Context) (*MCPInventory, error)
 }
 
 // MCPInventory is a machine-readable, JSON-serializable snapshot of an MCP
-// server's attack surface. It is shared by the generator (which assembles the
-// raw fields), the probe (which fills Flags via suspicious-pattern scanning),
-// and the detector (which scores from Flags).
+// server's attack surface — purely descriptive reconnaissance data.
 type MCPInventory struct {
 	// Transport is the transport the generator connected over ("http", "sse",
 	// "stdio").
@@ -50,9 +48,29 @@ type MCPInventory struct {
 	Prompts           []MCPPrompt           `json:"prompts"`
 	// Counts is a convenience roll-up for reporting.
 	Counts MCPInventoryCounts `json:"counts"`
-	// Flags holds suspicious-pattern findings raised by the probe layer. Empty
-	// as returned by the generator.
-	Flags []MCPSuspiciousFlag `json:"flags,omitempty"`
+}
+
+// ToolMaps renders the inventory's tools in the same wire shape that
+// ToolInvoker.ListTools produces — a slice of {name, description, parameters}
+// maps — so probes can consume shared reconnaissance instead of enumerating the
+// tool surface a second time. The InputSchema raw JSON is decoded into the
+// "parameters" key; a tool with no (or malformed) schema simply omits the key.
+func (inv *MCPInventory) ToolMaps() []map[string]any {
+	out := make([]map[string]any, 0, len(inv.Tools))
+	for _, t := range inv.Tools {
+		tm := map[string]any{"name": t.Name}
+		if t.Description != "" {
+			tm["description"] = t.Description
+		}
+		if len(t.InputSchema) > 0 {
+			var schema map[string]any
+			if err := json.Unmarshal(t.InputSchema, &schema); err == nil {
+				tm["parameters"] = schema
+			}
+		}
+		out = append(out, tm)
+	}
+	return out
 }
 
 // MCPCapabilities records which capability blocks the server advertised in its
@@ -110,45 +128,10 @@ type MCPPromptArgument struct {
 	Required    bool   `json:"required,omitempty"`
 }
 
-// MCPInventoryCounts is a roll-up of catalog sizes plus the flag count.
+// MCPInventoryCounts is a roll-up of catalog sizes.
 type MCPInventoryCounts struct {
 	Tools             int `json:"tools"`
 	Resources         int `json:"resources"`
 	ResourceTemplates int `json:"resource_templates"`
 	Prompts           int `json:"prompts"`
-	Flags             int `json:"flags"`
-}
-
-// Suspicious-pattern flag categories raised over an MCP inventory. Shared by the
-// probe (which sets them) and the detector (which scores from them).
-const (
-	// MCPFlagImperativeInjection marks tool-poisoning imperative/injection
-	// phrasing ("ignore previous", "do not tell the user", "you must", "before
-	// using any other tool", ...).
-	MCPFlagImperativeInjection = "imperative_injection"
-	// MCPFlagExfiltration marks data-exfiltration hints (send/upload/forward to,
-	// read ~/.ssh or .env, include the api key, ...).
-	MCPFlagExfiltration = "exfiltration"
-	// MCPFlagEmbeddedURL marks an embedded http/https/ftp URL in a description or
-	// schema — a common tool-poisoning callback/exfil channel.
-	MCPFlagEmbeddedURL = "embedded_url"
-	// MCPFlagHiddenUnicode marks hidden/zero-width or bidirectional-control
-	// unicode used to conceal injected instructions.
-	MCPFlagHiddenUnicode = "hidden_unicode"
-	// MCPFlagToolShadowing marks tool-name shadowing/duplication (case-insensitive
-	// name collisions across the catalog).
-	MCPFlagToolShadowing = "tool_shadowing"
-)
-
-// MCPSuspiciousFlag is one suspicious-pattern finding over the inventory.
-type MCPSuspiciousFlag struct {
-	// Category is one of the MCPFlag* constants.
-	Category string `json:"category"`
-	// Tool is the offending tool name (empty for cross-tool findings).
-	Tool string `json:"tool,omitempty"`
-	// Location is where the pattern was found ("description", "input_schema",
-	// "param:<name>", "tool_name").
-	Location string `json:"location"`
-	// Evidence is the matched snippet (or a rune label like "U+200B").
-	Evidence string `json:"evidence,omitempty"`
 }

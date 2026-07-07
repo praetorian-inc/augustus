@@ -10,6 +10,7 @@ import (
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
+	"github.com/praetorian-inc/augustus/pkg/recon"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
@@ -18,7 +19,10 @@ func init() {
 	probes.Register("toolsec.SSRF", NewSSRF)
 }
 
-var _ types.ProbeMetadata = (*SSRF)(nil)
+var (
+	_ types.ProbeMetadata     = (*SSRF)(nil)
+	_ recon.ContextAwareProbe = (*SSRF)(nil)
+)
 
 // urlParamRE matches parameter names likely to accept a URL/host, so the probe
 // targets plausible SSRF sinks precisely. Set ssrf_all_string_params to widen to
@@ -31,6 +35,7 @@ var urlParamRE = regexp.MustCompile(`(?i)(^|[_\- ])(url|uri|endpoint|host|hostna
 // catching blind SSRF (callback with no returned content) as well as non-blind
 // SSRF (the tool returns the fetched body, matched by reflection).
 type SSRF struct {
+	reconContext
 	listen       string        // OOB collector bind address
 	baseOverride string        // URL the target should use to reach the collector (optional)
 	wait         time.Duration // grace period for callbacks after sending
@@ -70,14 +75,20 @@ func (p *SSRF) GetPrompts() []string {
 // for out-of-band callbacks, and records the callback/reflection signals per
 // attempt. Returns no attempts (no error) for non-ToolInvoker targets.
 func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
-	inv, ok := gen.(types.ToolInvoker)
-	if !ok {
+	// Prefer shared reconnaissance; fall back to live enumeration.
+	tools, err := p.resolveTools(ctx, gen)
+	if err != nil {
+		return nil, fmt.Errorf("toolsec.SSRF: list tools: %w", err)
+	}
+	if len(tools) == 0 {
 		return nil, nil
 	}
 
-	tools, err := inv.ListTools(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("toolsec.SSRF: list tools: %w", err)
+	// Invoking tools still requires a live ToolInvoker; recon supplies the
+	// catalog, but the canary URLs must be sent to the real target.
+	inv, ok := gen.(types.ToolInvoker)
+	if !ok {
+		return nil, nil
 	}
 
 	col, err := startCollector(p.listen, p.baseOverride, p.marker)
