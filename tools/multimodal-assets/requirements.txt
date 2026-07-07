@@ -1,2 +1,6 @@
 Pillow>=12.2.0
 numpy>=1.24
+# Only needed to regenerate the MaliciousFontInjection asset via
+# make_malicious_font.py (cmap glyph-substitution); the committed PNG is
+# pre-baked, so verify.py / generate.py do not require it.
+fonttools>=4.0
