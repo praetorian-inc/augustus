@@ -24,4 +24,13 @@ const (
 	MetadataKeySSRFReflected = "toolsec.ssrf_reflected"
 	// MetadataKeySSRFOOBURL (string) is the canary URL injected for this attempt.
 	MetadataKeySSRFOOBURL = "toolsec.ssrf_oob_url"
+
+	// MetadataKeyMCPInventory holds the *types.MCPInventory assembled by the
+	// toolsec.Recon probe: the target MCP server's full attack-surface inventory
+	// (capabilities, tools, resources, templates, prompts, counts, and flags).
+	MetadataKeyMCPInventory = "toolsec.mcp_inventory"
+	// MetadataKeyMCPSuspiciousFlags holds the []types.MCPSuspiciousFlag raised by
+	// the toolsec.Recon probe's suspicious-pattern scan. Read by the
+	// toolsec.Recon detector to score the attempt.
+	MetadataKeyMCPSuspiciousFlags = "toolsec.mcp_suspicious_flags"
 )
