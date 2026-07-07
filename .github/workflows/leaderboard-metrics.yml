@@ -14,6 +14,3 @@ jobs:
     uses: praetorian-inc/public-workflows/.github/workflows/leaderboard-metrics.yml@main
     with:
       capability_map: '[{"path": ".", "name": "augustus"}]'
-# e2e-verify: trust hotfix confirmation run  (no-op comment; safe to remove)
-# e2e-verify-2
-# e2e-verify-3
