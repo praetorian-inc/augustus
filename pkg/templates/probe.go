@@ -24,21 +24,41 @@ func (t *TemplateProbe) Probe(ctx context.Context, gen types.Generator) ([]*atte
 	tools := t.GetTools()
 	toolResults := t.template.Info.ToolResults
 
-	// Use 2-turn mode when both tools and tool_results are defined.
-	if len(tools) > 0 && len(toolResults) > 0 {
-		return probes.RunTwoTurnPrompts(
+	var attempts []*attempt.Attempt
+	var err error
+
+	switch {
+	case len(tools) > 0 && len(toolResults) > 0:
+		// Use 2-turn mode when both tools and tool_results are defined.
+		attempts, err = probes.RunTwoTurnPrompts(
 			ctx, gen, t.template.Prompts, t.Name(), t.GetPrimaryDetector(),
 			tools, t.GetToolChoice(), toolResults,
 		)
+	default:
+		// Standard single-turn mode.
+		var toolsFn func() ([]map[string]any, string)
+		if len(tools) > 0 {
+			toolChoice := t.GetToolChoice()
+			toolsFn = func() ([]map[string]any, string) { return tools, toolChoice }
+		}
+		attempts, err = probes.RunPrompts(ctx, gen, t.template.Prompts, t.Name(), t.GetPrimaryDetector(), nil, toolsFn)
 	}
 
-	// Standard single-turn mode.
-	var toolsFn func() ([]map[string]any, string)
-	if len(tools) > 0 {
-		toolChoice := t.GetToolChoice()
-		toolsFn = func() ([]map[string]any, string) { return tools, toolChoice }
+	// Surface the probe's declared goal on every attempt so goal-conditioned
+	// detectors (e.g. agent.ToolLeakJudge, judge.Judge) can read it.
+	// Prefer detector_goal if set (allows probe-specific judge criteria),
+	// otherwise fall back to the probe goal.
+	goal := t.template.Info.DetectorGoal
+	if goal == "" {
+		goal = t.Goal()
 	}
-	return probes.RunPrompts(ctx, gen, t.template.Prompts, t.Name(), t.GetPrimaryDetector(), nil, toolsFn)
+	if goal != "" {
+		for _, a := range attempts {
+			a.WithMetadata(attempt.MetadataKeyGoal, goal)
+		}
+	}
+
+	return attempts, err
 }
 
 // Name returns the probe's fully qualified name.

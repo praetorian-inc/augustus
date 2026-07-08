@@ -107,6 +107,9 @@ type Rest struct {
 	client             *http.Client
 	limiter            *ratelimit.Limiter // Pre-request rate limiter
 
+	// Optional: reasoning extraction (for reasoning models that expose CoT)
+	reasoningJSONField string // JSONPath for reasoning content (e.g., "$.choices[0].message.reasoning_content")
+
 	// Configurable SSE parsing
 	sseTextField   string // JSONPath for text extraction (e.g., "$.content.text")
 	sseMode        string // "delta" or "last"
@@ -204,6 +207,17 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 			slog.Warn("'response_path' would enable JSON parsing, but 'response_json' is explicitly false; respecting 'response_json: false'",
 				"response_path", responsePath)
 		} else {
+			r.responseJSON = true
+		}
+	}
+
+	// Optional: Reasoning extraction path (for reasoning models).
+	// An empty string is treated as unset (no-op) so it doesn't silently
+	// force JSON parsing on a target that returns plain text.
+	if reasoningPath, ok := cfg["reasoning_path"].(string); ok && reasoningPath != "" {
+		r.reasoningJSONField = reasoningPath
+		// Reasoning extraction requires JSON parsing
+		if !r.responseJSON {
 			r.responseJSON = true
 		}
 	}
@@ -429,7 +443,15 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 		return attempt.Message{}, err
 	}
 
-	return attempt.NewAssistantMessage(content), nil
+	msg := attempt.NewAssistantMessage(content)
+
+	// Extract reasoning content if configured
+	if r.reasoningJSONField != "" {
+		reasoning, _ := r.parseReasoning(respBody)
+		msg.Reasoning = reasoning
+	}
+
+	return msg, nil
 }
 
 // buildRequest constructs the outgoing HTTP request for a single call,
@@ -680,6 +702,16 @@ func (r *Rest) parseResponse(body []byte) (string, error) {
 
 	// Extract field using simple path or JSONPath
 	return r.extractField(data, r.responseJSONField)
+}
+
+// parseReasoning extracts reasoning/chain-of-thought content from a JSON response.
+// Returns empty string on any error (reasoning is optional).
+func (r *Rest) parseReasoning(body []byte) (string, error) {
+	var data any
+	if err := json.Unmarshal(body, &data); err != nil {
+		return "", err
+	}
+	return r.extractField(data, r.reasoningJSONField)
 }
 
 // extractField extracts a value from JSON data using a field path or JSONPath.

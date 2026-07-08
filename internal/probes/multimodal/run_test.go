@@ -147,3 +147,48 @@ func TestRunMultimodalPrompts_SkipsNonVisionGenerator(t *testing.T) {
 	assert.Nil(t, attempts, "no attempts should be produced for a skipped probe")
 	assert.Equal(t, 0, gen.callCount, "generator must not be called at all")
 }
+
+// docMockGen is a generator that optionally supports vision and/or documents,
+// and records how many document attachments it received across all turns.
+type docMockGen struct {
+	supportsDocs   bool
+	supportsVision bool
+	gotDocuments   int
+}
+
+func (m *docMockGen) Generate(_ context.Context, conv *attempt.Conversation, _ int) ([]attempt.Message, error) {
+	for _, turn := range conv.Turns {
+		m.gotDocuments += len(turn.Prompt.Documents)
+	}
+	return []attempt.Message{{Role: attempt.RoleAssistant, Content: "ok"}}, nil
+}
+func (m *docMockGen) ClearHistory()           {}
+func (m *docMockGen) Name() string            { return "mock.Doc" }
+func (m *docMockGen) Description() string     { return "doc mock" }
+func (m *docMockGen) SupportsVision() bool    { return m.supportsVision }
+func (m *docMockGen) SupportsDocuments() bool { return m.supportsDocs }
+
+func TestRunMultimodalPrompts_DocumentDelivered(t *testing.T) {
+	gen := &docMockGen{supportsDocs: true}
+	prompts := []MultimodalPrompt{{
+		Text:      "summarize",
+		Documents: []attempt.Document{{Data: []byte("%PDF-1.7\n"), MimeType: "application/pdf"}},
+		Canary:    "ABC123",
+	}}
+	attempts, err := RunMultimodalPrompts(context.Background(), gen, prompts, "pdf.Test", "multimodal.Canary", true)
+	require.NoError(t, err)
+	require.Len(t, attempts, 1)
+	require.Equal(t, 1, gen.gotDocuments, "document must reach the generator")
+	require.Equal(t, "ABC123", attempts[0].Metadata[attempt.MetaMultimodalCanary])
+	require.Equal(t, true, attempts[0].Metadata[attempt.MetaMultimodalCovert])
+}
+
+func TestRunMultimodalPrompts_DocumentUnsupported(t *testing.T) {
+	gen := &docMockGen{supportsDocs: false}
+	prompts := []MultimodalPrompt{{
+		Text:      "summarize",
+		Documents: []attempt.Document{{Data: []byte("%PDF-1.7\n"), MimeType: "application/pdf"}},
+	}}
+	_, err := RunMultimodalPrompts(context.Background(), gen, prompts, "pdf.Test", "multimodal.Canary", true)
+	require.ErrorIs(t, err, ErrDocumentUnsupported)
+}

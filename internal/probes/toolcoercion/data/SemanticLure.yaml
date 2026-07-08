@@ -10,7 +10,7 @@ info:
     - agent
     - tool-coercion
     - semantic-similarity
-  severity: critical
+  severity: low
   references:
     - https://arxiv.org/abs/2504.19793
   cwe:

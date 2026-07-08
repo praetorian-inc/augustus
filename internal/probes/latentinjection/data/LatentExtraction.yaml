@@ -10,7 +10,7 @@ info:
     - latent-injection
     - data-extraction
     - context-manipulation
-  severity: high
+  severity: medium
   cwe:
     - CWE-1427
   mitre_attack:

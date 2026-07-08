@@ -151,14 +151,17 @@ type messageResponse struct {
 
 // contentBlock represents a content block in the response.
 // For text blocks, Type is "text" and Text carries the content.
+// For thinking blocks, Type is "thinking" and Thinking carries the extended
+// thinking (chain-of-thought) content.
 // For tool_use blocks, Type is "tool_use", Name is the function name,
 // Input is the arguments object, and ID is the tool call identifier.
 type contentBlock struct {
-	Type  string          `json:"type"`
-	Text  string          `json:"text"`
-	Name  string          `json:"name"`
-	Input json.RawMessage `json:"input"`
-	ID    string          `json:"id"`
+	Type     string          `json:"type"`
+	Text     string          `json:"text"`
+	Thinking string          `json:"thinking,omitempty"`
+	Name     string          `json:"name"`
+	Input    json.RawMessage `json:"input"`
+	ID       string          `json:"id"`
 }
 
 // usageStats represents token usage statistics.
@@ -308,13 +311,18 @@ func (g *Anthropic) generateOne(ctx context.Context, conv *attempt.Conversation)
 	// Accumulate token usage per call (input + output).
 	g.AddTokens(int64(resp.Usage.InputTokens + resp.Usage.OutputTokens))
 
-	// Extract text and tool_use blocks from content.
-	var text string
+	// Extract text, thinking, and tool_use blocks from content.
+	var text, thinking string
 	toolUseBlocks := make([]attackengine.AnthropicToolUseBlock, 0, len(resp.Content))
 	for _, block := range resp.Content {
 		switch block.Type {
 		case "text":
 			text += block.Text
+		case "thinking":
+			if thinking != "" {
+				thinking += "\n"
+			}
+			thinking += block.Thinking
 		case "tool_use":
 			toolUseBlocks = append(toolUseBlocks, attackengine.AnthropicToolUseBlock{
 				Type:  block.Type,
@@ -326,6 +334,7 @@ func (g *Anthropic) generateOne(ctx context.Context, conv *attempt.Conversation)
 	}
 
 	msg := attempt.NewAssistantMessage(text)
+	msg.Reasoning = thinking
 	if toolCalls := attackengine.NormalizeAnthropicToolUseBlocks(toolUseBlocks); toolCalls != nil {
 		msg.ToolCalls = toolCalls
 	}
@@ -369,6 +378,10 @@ func (g *Anthropic) Name() string {
 // SupportsVision reports that the Anthropic Messages path transmits image
 // content blocks (Claude 3+ vision). See types.VisionCapable.
 func (g *Anthropic) SupportsVision() bool { return true }
+
+// SupportsDocuments reports that the Anthropic Messages path transmits native
+// PDF "document" content blocks (Claude 3+). See types.DocumentCapable.
+func (g *Anthropic) SupportsDocuments() bool { return true }
 
 // Description returns a human-readable description.
 func (g *Anthropic) Description() string {

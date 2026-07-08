@@ -19,6 +19,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/generators/groq"
 	_ "github.com/praetorian-inc/augustus/internal/generators/guardrails"
 	_ "github.com/praetorian-inc/augustus/internal/generators/huggingface"
+	_ "github.com/praetorian-inc/augustus/internal/generators/hybrid"
 	_ "github.com/praetorian-inc/augustus/internal/generators/langchain"
 	_ "github.com/praetorian-inc/augustus/internal/generators/langchainserve"
 	_ "github.com/praetorian-inc/augustus/internal/generators/litellm"
@@ -36,5 +37,6 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/generators/together"
 	_ "github.com/praetorian-inc/augustus/internal/generators/vertex"
 	_ "github.com/praetorian-inc/augustus/internal/generators/watsonx"
+	_ "github.com/praetorian-inc/augustus/internal/generators/websocket"
 	_ "github.com/praetorian-inc/augustus/internal/generators/xai"
 )

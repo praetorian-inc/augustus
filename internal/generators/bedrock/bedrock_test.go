@@ -405,3 +405,14 @@ func TestBedrockGenerator_ContextCancellation(t *testing.T) {
 		strings.Contains(err.Error(), "context") || strings.Contains(err.Error(), "deadline"),
 		"expected context/deadline error, got: %v", err)
 }
+
+func TestBedrock_SupportsDocuments(t *testing.T) {
+	claude := &Bedrock{modelID: "anthropic.claude-3-5-sonnet-20241022-v2:0"}
+	require.True(t, claude.SupportsDocuments())
+	// Nova supports vision but not documents — only the Claude builder emits
+	// document blocks, so SupportsDocuments must be false despite vision support.
+	nova := &Bedrock{modelID: "amazon.nova-pro-v1:0"}
+	require.False(t, nova.SupportsDocuments())
+	titan := &Bedrock{modelID: "amazon.titan-text-express-v1"}
+	require.False(t, titan.SupportsDocuments())
+}

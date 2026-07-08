@@ -10,7 +10,7 @@ info:
     - agent
     - tool-coercion
     - instruction-injection
-  severity: critical
+  severity: low
   references:
     - https://arxiv.org/abs/2504.19793
   cwe:

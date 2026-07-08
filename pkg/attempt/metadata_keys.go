@@ -9,6 +9,12 @@ const (
 	MetadataKeyVariant      = "variant"
 	MetadataKeyToolCalls    = "tool_calls"
 
+	// MetadataKeyGoal carries the probe's objective so goal-conditioned
+	// detectors (e.g. agent.ToolLeakJudge) can read it from the attempt. The
+	// multi-turn / PAIR-TAP attack engines already write this key; surfacing it
+	// for single-turn template probes lets judge detectors work in chat-mode.
+	MetadataKeyGoal = "goal"
+
 	// MetadataKeyInjectionCanaries holds the []string of canary markers a
 	// toolsec injection probe expects to see in a tool's output if the tool
 	// evaluated the injected payload. Read by the toolsec.Injection detector.
