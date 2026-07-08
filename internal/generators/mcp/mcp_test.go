@@ -4,7 +4,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -18,28 +17,13 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
-// stdioServerEnv, when set, makes the test binary act as an MCP server speaking
-// over stdio instead of running the test suite. The stdio transport test sets
-// this on the subprocess it launches via the generator's command config.
-const stdioServerEnv = "AUGUSTUS_MCP_TEST_STDIO_SERVER"
-
-func TestMain(m *testing.M) {
-	if os.Getenv(stdioServerEnv) == "1" {
-		srv := newTestMCPServer()
-		// Run blocks until the client closes stdin; then exit without running tests.
-		_ = srv.Run(context.Background(), &mcpsdk.StdioTransport{})
-		os.Exit(0)
-	}
-	os.Exit(m.Run())
-}
-
 type toolInput struct {
 	Query string `json:"query" jsonschema:"the text to act on"`
 	Actor string `json:"actor,omitempty" jsonschema:"optional caller identity"`
 }
 
 // newTestMCPServer builds an MCP server exposing a small, deterministic tool set
-// used by both the HTTP and stdio transport tests.
+// used by the HTTP and SSE transport tests.
 func newTestMCPServer() *mcpsdk.Server {
 	srv := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "augustus-test-server", Version: "v0"}, nil)
 
@@ -217,21 +201,6 @@ func TestGenerate_HTTP_LastRawResponse(t *testing.T) {
 	}
 }
 
-func TestGenerate_Stdio_ToolCall(t *testing.T) {
-	g := newGen(t, registry.Config{
-		"transport": "stdio",
-		"command":   os.Args[0],
-		"env":       map[string]any{stdioServerEnv: "1"},
-		"tool_name": "echo",
-		"arg_name":  "query",
-	})
-
-	got := generate(t, g, "over stdio")
-	if got != "echo: over stdio" {
-		t.Errorf("Generate() = %q, want %q", got, "echo: over stdio")
-	}
-}
-
 func TestClearHistory_AllowsReuse(t *testing.T) {
 	url, _ := newHTTPTarget(t)
 	g := newGen(t, registry.Config{
@@ -278,8 +247,8 @@ func newSSETarget(t *testing.T) (url string, sseStreams func() int32) {
 // the regression guard for the context-lifetime bug: connect() used to cancel the
 // context that owns the SSE GET /sse stream the moment it returned, so the stream
 // died before the first tools/call and every SSE request failed. The streamable
-// HTTP and stdio tests could not catch it because neither holds a ctx-bound
-// persistent stream.
+// HTTP tests could not catch it because they do not hold a ctx-bound persistent
+// stream.
 func TestGenerate_SSE_ToolCall(t *testing.T) {
 	url, _ := newSSETarget(t)
 	g := newGen(t, registry.Config{

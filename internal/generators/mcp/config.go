@@ -15,9 +15,6 @@ const (
 	// TransportHTTP speaks JSON-RPC over the Streamable HTTP transport (HTTP
 	// POST with optional SSE responses) against a remote/hosted MCP server.
 	TransportHTTP = "http"
-	// TransportStdio launches the MCP server as a local subprocess and speaks
-	// JSON-RPC over its stdin/stdout.
-	TransportStdio = "stdio"
 	// TransportSSE speaks the legacy HTTP+SSE transport (a GET /sse event stream
 	// plus POST /messages), which older FastMCP-based servers still expose. The
 	// endpoint is the SSE URL (e.g. http://host:9001/sse). Must be set
@@ -53,10 +50,17 @@ const (
 // The configuration vocabulary intentionally overlaps the REST and WebSocket
 // generators where it can (endpoint, headers, api_key, request_timeout,
 // rate_limit, insecure_skip_verify) so operators can reason about all three the
-// same way. MCP-specific keys (transport, mode, command/args, tool_name,
-// arg_name) cover the parts that have no REST analog.
+// same way. MCP-specific keys (transport, mode, tool_name, arg_name) cover the
+// parts that have no REST analog.
+//
+// Only network transports are supported (http, sse, auto). The MCP stdio
+// transport is intentionally NOT implemented: it works by launching the server
+// as a local subprocess, which is (a) irrelevant to scanning remote MCP targets
+// and (b) an arbitrary-code-execution surface if the config is ever driven by
+// untrusted input (e.g. augustus running as a hosted capability). Remote targets
+// are reached over http/sse, which execute nothing.
 type Config struct {
-	Transport string // "http", "sse", "stdio", or "auto"
+	Transport string // "http", "sse", or "auto"
 	Mode      string // "tool_call" or "list_tools"
 
 	// Client identity announced to the server during initialize.
@@ -69,11 +73,6 @@ type Config struct {
 	InsecureSkipVerify   bool              // Skip TLS verification (http transport only).
 	DisableStandaloneSSE bool              // Do not open the standalone server->client SSE stream.
 	ProxyURL             *url.URL          // Explicit HTTP(S) proxy (e.g. Burp); nil falls back to the *_PROXY env vars.
-
-	// stdio transport.
-	Command string            // Executable to launch (e.g. "npx").
-	Args    []string          // Arguments to the executable (e.g. ["-y", "@acme/mcp-server"]).
-	Env     map[string]string // Extra environment variables for the subprocess.
 
 	// tool_call mode.
 	ToolName          string         // Name of the MCP tool to invoke.
@@ -97,7 +96,6 @@ func DefaultConfig() Config {
 		ClientName:     "augustus",
 		ClientVersion:  "dev",
 		Headers:        make(map[string]string),
-		Env:            make(map[string]string),
 		Arguments:      make(map[string]any),
 		RequestTimeout: 60 * time.Second,
 		Persistent:     true,
@@ -139,9 +137,6 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 		}
 		cfg.ProxyURL = parsed
 	}
-	cfg.Command = registry.GetString(m, "command", "")
-	cfg.Args = registry.GetStringSlice(m, "args", nil)
-	cfg.Env = stringMap(m, "env")
 
 	// Transport: explicit if given, otherwise inferred from which connection
 	// details are present. Inference keeps simple configs terse while still
@@ -180,8 +175,9 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	return cfg, nil
 }
 
-// resolveTransport validates an explicit transport or infers one from the
-// presence of endpoint (http) vs command (stdio).
+// resolveTransport validates an explicit transport or, when none is given,
+// infers the streamable HTTP transport from the presence of 'endpoint'. All
+// supported transports are network transports; none launches a subprocess.
 func resolveTransport(cfg *Config) error {
 	switch cfg.Transport {
 	case TransportHTTP:
@@ -196,23 +192,13 @@ func resolveTransport(cfg *Config) error {
 		if cfg.Endpoint == "" {
 			return fmt.Errorf("mcp: transport %q requires 'endpoint' (an http/https URL)", TransportAuto)
 		}
-	case TransportStdio:
-		if cfg.Command == "" {
-			return fmt.Errorf("mcp: transport %q requires 'command'", TransportStdio)
-		}
 	case "":
-		switch {
-		case cfg.Endpoint != "" && cfg.Command != "":
-			return fmt.Errorf("mcp: both 'endpoint' and 'command' set; specify 'transport' (%q or %q)", TransportHTTP, TransportStdio)
-		case cfg.Endpoint != "":
-			cfg.Transport = TransportHTTP
-		case cfg.Command != "":
-			cfg.Transport = TransportStdio
-		default:
-			return fmt.Errorf("mcp: no transport configured; set 'endpoint' (http) or 'command' (stdio)")
+		if cfg.Endpoint == "" {
+			return fmt.Errorf("mcp: no transport configured; set 'endpoint' (http/https URL)")
 		}
+		cfg.Transport = TransportHTTP
 	default:
-		return fmt.Errorf("mcp: transport must be %q, %q, %q, or %q, got %q", TransportHTTP, TransportSSE, TransportStdio, TransportAuto, cfg.Transport)
+		return fmt.Errorf("mcp: transport must be %q, %q, or %q, got %q", TransportHTTP, TransportSSE, TransportAuto, cfg.Transport)
 	}
 	return nil
 }

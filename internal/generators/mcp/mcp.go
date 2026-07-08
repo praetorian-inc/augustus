@@ -6,9 +6,12 @@
 //
 //	transport: http    Streamable HTTP (JSON-RPC over HTTP POST + SSE) to a remote server
 //	transport: sse     legacy HTTP+SSE (GET /sse stream + POST /messages), as older FastMCP servers expose
-//	transport: stdio   a locally launched subprocess speaking JSON-RPC over stdin/stdout
 //	transport: auto    probe an HTTP(S) endpoint and pick whichever of the two HTTP
 //	                   transports initializes (streamable first, SSE fallback)
+//
+// The MCP stdio (local-subprocess) transport is intentionally not implemented —
+// it only reaches locally launched servers and is an arbitrary-exec surface;
+// scanning targets remote MCP servers over the network transports above.
 //
 // and two modes select what a Generate call does once connected:
 //
@@ -39,8 +42,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"os"
-	"os/exec"
 	"sort"
 	"strings"
 	"sync"
@@ -171,8 +172,8 @@ func (m *MCP) withSession(ctx context.Context, fn func(context.Context, *mcpsdk.
 		return nil
 	}
 
-	// A reused persistent session may have been closed by the server (HTTP idle
-	// timeout, stdio subprocess exit) since the previous call. Reconnect once and
+	// A reused persistent session may have been closed by the server (e.g. an
+	// HTTP idle timeout) since the previous call. Reconnect once and
 	// retry, but only when the failure was not a cancellation/timeout of our own
 	// request — otherwise a genuine target error on a fresh socket would be masked.
 	if reused && ctx.Err() == nil {
@@ -361,21 +362,11 @@ func (m *MCP) buildTransport() (mcpsdk.Transport, error) {
 }
 
 // transportFor constructs a fresh transport for one connection of the given
-// concrete kind (http/sse/stdio). A CommandTransport wraps a single-use
-// exec.Cmd, so it must be rebuilt per connect. "auto" is resolved to concrete
-// kinds by connectAuto before this is called.
+// concrete kind (http/sse). "auto" is resolved to a concrete kind by connectAuto
+// before this is called. Only network transports are supported — the MCP stdio
+// (local-subprocess) transport is intentionally not implemented.
 func (m *MCP) transportFor(kind string) (mcpsdk.Transport, error) {
 	switch kind {
-	case TransportStdio:
-		// #nosec G204 -- the stdio transport intentionally launches an operator-configured MCP server; command/args come from local scan config, not target-controlled input
-		cmd := exec.Command(m.cfg.Command, m.cfg.Args...)
-		if len(m.cfg.Env) > 0 {
-			cmd.Env = os.Environ()
-			for k, v := range m.cfg.Env {
-				cmd.Env = append(cmd.Env, k+"="+v)
-			}
-		}
-		return &mcpsdk.CommandTransport{Command: cmd}, nil
 	case TransportHTTP:
 		return &mcpsdk.StreamableClientTransport{
 			Endpoint:             m.cfg.Endpoint,
@@ -632,15 +623,12 @@ func (m *MCP) Name() string { return "mcp.MCP" }
 
 // Description returns a human-readable description.
 func (m *MCP) Description() string {
-	return "Model Context Protocol generator (stdio, streamable HTTP, and legacy SSE transports; tool_call and list_tools modes)"
+	return "Model Context Protocol generator (streamable HTTP and legacy SSE transports; tool_call and list_tools modes)"
 }
 
 // target returns a human-readable identifier of the connection endpoint for
 // error messages.
 func (m *MCP) target() string {
-	if m.cfg.Transport == TransportStdio {
-		return strings.TrimSpace(m.cfg.Command + " " + strings.Join(m.cfg.Args, " "))
-	}
 	return m.cfg.Endpoint
 }
 

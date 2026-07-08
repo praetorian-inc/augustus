@@ -20,11 +20,6 @@ func TestConfigFromMap_InfersTransport(t *testing.T) {
 			want: TransportHTTP,
 		},
 		{
-			name: "command infers stdio",
-			cfg:  registry.Config{"command": "npx", "tool_name": "t", "arg_name": "q"},
-			want: TransportStdio,
-		},
-		{
 			name: "explicit http",
 			cfg:  registry.Config{"transport": "http", "endpoint": "http://x/mcp", "tool_name": "t", "arg_name": "q"},
 			want: TransportHTTP,
@@ -60,19 +55,14 @@ func TestConfigFromMap_Errors(t *testing.T) {
 			wantSub: "no transport configured",
 		},
 		{
-			name:    "ambiguous transport",
-			cfg:     registry.Config{"endpoint": "http://x", "command": "npx", "tool_name": "t", "arg_name": "q"},
-			wantSub: "specify 'transport'",
-		},
-		{
 			name:    "http without endpoint",
 			cfg:     registry.Config{"transport": "http", "tool_name": "t", "arg_name": "q"},
 			wantSub: "requires 'endpoint'",
 		},
 		{
-			name:    "stdio without command",
-			cfg:     registry.Config{"transport": "stdio", "tool_name": "t", "arg_name": "q"},
-			wantSub: "requires 'command'",
+			name:    "stdio is no longer a valid transport",
+			cfg:     registry.Config{"transport": "stdio", "command": "npx", "tool_name": "t", "arg_name": "q"},
+			wantSub: "transport must be",
 		},
 		{
 			name:    "bad transport",
@@ -86,7 +76,7 @@ func TestConfigFromMap_Errors(t *testing.T) {
 		},
 		{
 			name:    "auto without endpoint",
-			cfg:     registry.Config{"transport": "auto", "command": "npx", "tool_name": "t", "arg_name": "q"},
+			cfg:     registry.Config{"transport": "auto", "tool_name": "t", "arg_name": "q"},
 			wantSub: "requires 'endpoint'",
 		},
 		{
