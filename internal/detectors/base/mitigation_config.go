@@ -3,8 +3,29 @@ package base
 import (
 	"strings"
 
+	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
+
+// NewMitigationStringDetector builds the inner StringDetector shared by every
+// mitigation/refusal-based detector. It resolves the phrase list via
+// ResolveMitigationPhrases (honoring substrings / extra_substrings, with the
+// empty-phrase guard) and forwards the operator-supplied matchtype /
+// case_sensitive keys, so all detectors that check for refusal phrasing behave
+// identically (LAB-4664).
+//
+// Config keys (all optional):
+//   - substrings: []string — replaces the default phrase list entirely
+//   - extra_substrings: []string — appended to the effective phrase list
+//   - matchtype: string — "str" (default), "word", or "startswith"
+//   - case_sensitive: bool — false (default)
+func NewMitigationStringDetector(cfg registry.Config, defaults []string) (detectors.Detector, error) {
+	return NewStringDetector(registry.Config{
+		"substrings":     ResolveMitigationPhrases(cfg, defaults),
+		"matchtype":      registry.GetString(cfg, "matchtype", "str"),
+		"case_sensitive": registry.GetBool(cfg, "case_sensitive", false),
+	})
+}
 
 // ResolveMitigationPhrases computes the effective mitigation/refusal phrase list
 // from operator config, falling back to the given defaults. It is the shared

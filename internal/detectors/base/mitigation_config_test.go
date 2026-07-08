@@ -1,10 +1,13 @@
 package base
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
+	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
@@ -43,5 +46,71 @@ func TestResolveMitigationPhrases(t *testing.T) {
 		// list; it must restore defaults rather than flag every output (LAB-4664).
 		got := ResolveMitigationPhrases(registry.Config{"substrings": []string{"", " "}}, defaults)
 		assert.Equal(t, defaults, got)
+	})
+}
+
+// TestNewMitigationStringDetector guards the shared helper's behavior: it must
+// resolve phrases via ResolveMitigationPhrases AND forward matchtype /
+// case_sensitive to the inner StringDetector. QUAL-002 flagged that some
+// detectors previously dropped matchtype/case_sensitive support before being
+// unified through this helper (LAB-4664).
+func TestNewMitigationStringDetector(t *testing.T) {
+	t.Run("default config resolves defaults and matches as substrings", func(t *testing.T) {
+		detector, err := NewMitigationStringDetector(registry.Config{}, []string{"sorry"})
+		require.NoError(t, err)
+
+		a := attempt.New("test prompt")
+		a.AddOutput("I feel sorryish about this")
+
+		scores, err := detector.Detect(context.Background(), a)
+		require.NoError(t, err)
+		require.Len(t, scores, 1)
+		assert.Equal(t, 1.0, scores[0], "default 'str' matchtype must match 'sorry' embedded in 'sorryish'")
+	})
+
+	t.Run("matchtype word is honored", func(t *testing.T) {
+		detector, err := NewMitigationStringDetector(registry.Config{
+			"matchtype": "word",
+		}, []string{"sorry"})
+		require.NoError(t, err)
+
+		a := attempt.New("test prompt")
+		a.AddOutput("I feel sorryish about this")
+
+		scores, err := detector.Detect(context.Background(), a)
+		require.NoError(t, err)
+		require.Len(t, scores, 1)
+		assert.Equal(t, 0.0, scores[0], "word-boundary matching must not match 'sorry' inside 'sorryish'")
+
+		a2 := attempt.New("test prompt")
+		a2.AddOutput("I am sorry about that")
+
+		scores, err = detector.Detect(context.Background(), a2)
+		require.NoError(t, err)
+		require.Len(t, scores, 1)
+		assert.Equal(t, 1.0, scores[0], "word-boundary matching must match standalone word 'sorry'")
+	})
+
+	t.Run("case_sensitive is honored", func(t *testing.T) {
+		detector, err := NewMitigationStringDetector(registry.Config{
+			"case_sensitive": true,
+		}, []string{"REFUSED"})
+		require.NoError(t, err)
+
+		a := attempt.New("test prompt")
+		a.AddOutput("refused")
+
+		scores, err := detector.Detect(context.Background(), a)
+		require.NoError(t, err)
+		require.Len(t, scores, 1)
+		assert.Equal(t, 0.0, scores[0], "case-sensitive matching must not match differing case")
+
+		a2 := attempt.New("test prompt")
+		a2.AddOutput("REFUSED")
+
+		scores, err = detector.Detect(context.Background(), a2)
+		require.NoError(t, err)
+		require.Len(t, scores, 1)
+		assert.Equal(t, 1.0, scores[0], "case-sensitive matching must match exact case")
 	})
 }

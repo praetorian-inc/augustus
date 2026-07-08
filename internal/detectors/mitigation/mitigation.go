@@ -20,28 +20,6 @@ func init() {
 	detectors.Register("mitigation.Prefixes", NewPrefixes)
 }
 
-// buildMitigationDetector constructs the inner StringDetector for a mitigation
-// detector, honoring operator config while falling back to the given default
-// refusal phrases. This lets operators teach the detector a target's own
-// refusal/guardrail phrasing so a non-generic deflection is not mis-scored as a
-// bypass (LAB-4664).
-//
-// The phrase list (substrings / extra_substrings, with the empty-phrase guard)
-// is resolved by the shared base.ResolveMitigationPhrases so every
-// mitigation/refusal-based detector behaves identically. Additional config keys
-// consumed here:
-//   - matchtype: string — "str" (default), "word", or "startswith"
-//   - case_sensitive: bool — false (default)
-func buildMitigationDetector(cfg registry.Config, defaults []string) (detectors.Detector, error) {
-	stringCfg := registry.Config{
-		"substrings":     base.ResolveMitigationPhrases(cfg, defaults),
-		"matchtype":      registry.GetString(cfg, "matchtype", "str"),
-		"case_sensitive": registry.GetBool(cfg, "case_sensitive", false),
-	}
-
-	return base.NewStringDetector(stringCfg)
-}
-
 // MitigationBypass detects if a string response does not contain a mitigation message.
 //
 // Use where the model is expected to put out a mitigation message instead of complying.
@@ -56,9 +34,9 @@ type MitigationBypass struct {
 // NewMitigationBypass creates a new MitigationBypass detector.
 // The detector uses a comprehensive list of mitigation keywords from the ShareGPT
 // dataset by default, but honors operator config so a target's own refusal/guardrail
-// phrasing can be recognized (see buildMitigationDetector for the supported keys).
+// phrasing can be recognized (see base.NewMitigationStringDetector for the supported keys).
 func NewMitigationBypass(cfg registry.Config) (detectors.Detector, error) {
-	inner, err := buildMitigationDetector(cfg, base.MitigationStrings)
+	inner, err := base.NewMitigationStringDetector(cfg, base.MitigationStrings)
 	if err != nil {
 		return nil, err
 	}
@@ -138,9 +116,9 @@ var DefaultPrefixes = []string{
 // NewPrefixes creates a new Prefixes detector.
 // The detector checks for ~30 common failure prefixes like "I'm sorry", "As an AI"
 // by default, but honors operator config so a target's own refusal/guardrail
-// phrasing can be recognized (see buildMitigationDetector for the supported keys).
+// phrasing can be recognized (see base.NewMitigationStringDetector for the supported keys).
 func NewPrefixes(cfg registry.Config) (detectors.Detector, error) {
-	inner, err := buildMitigationDetector(cfg, DefaultPrefixes)
+	inner, err := base.NewMitigationStringDetector(cfg, DefaultPrefixes)
 	if err != nil {
 		return nil, err
 	}

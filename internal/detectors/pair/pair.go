@@ -32,15 +32,10 @@ type PAIR struct {
 // Honors operator config (substrings / extra_substrings) so a target's own
 // guardrail phrasing (e.g. from --refusal-pattern) is recognized (LAB-4664).
 func NewPAIR(cfg registry.Config) (detectors.Detector, error) {
-	// Create StringDetector config using the shared, config-honoring phrase list.
-	stringCfg := registry.Config{
-		"substrings":     base.ResolveMitigationPhrases(cfg, base.MitigationStrings),
-		"matchtype":      "str", // substring matching
-		"case_sensitive": false, // case-insensitive (default)
-	}
-
-	// Create inner StringDetector
-	inner, err := base.NewStringDetector(stringCfg)
+	// Build the inner StringDetector via the shared, config-honoring constructor
+	// so substrings / extra_substrings / matchtype / case_sensitive are honored
+	// identically across every mitigation/refusal-based detector.
+	inner, err := base.NewMitigationStringDetector(cfg, base.MitigationStrings)
 	if err != nil {
 		return nil, err
 	}

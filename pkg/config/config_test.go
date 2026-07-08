@@ -651,6 +651,35 @@ func TestDetectorsRefusalPatternsMergeEmptyOverlayKeepsBase(t *testing.T) {
 	assert.Equal(t, []string{"base phrase"}, base.Detectors.RefusalPatterns)
 }
 
+// TestDetectorsRefusalPatternsYAML tests loading detectors.refusal_patterns from
+// a real YAML file end-to-end. This guards the deserialization struct tag on the
+// RefusalPatterns field: the merge tests above build Config via struct literals
+// and never exercise the file-load path, so a dropped/mistyped tag would silently
+// discard detectors.refusal_patterns from every real config while staying green.
+func TestDetectorsRefusalPatternsYAML(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	yamlContent := `
+detectors:
+  refusal_patterns:
+    - "I can only answer product questions"
+    - "I don't have enough information"
+`
+
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
+	require.NoError(t, err)
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	assert.Equal(t, []string{
+		"I can only answer product questions",
+		"I don't have enough information",
+	}, cfg.Detectors.RefusalPatterns)
+}
+
 // TestResolveProbeConfig tests the two-layer probe config resolution
 func TestResolveProbeConfig(t *testing.T) {
 	tests := []struct {

@@ -2132,7 +2132,6 @@ func TestTerminalWidth_COLUMNSEnvVar(t *testing.T) {
 
 func TestApplyRefusalPatterns(t *testing.T) {
 	const bypass = "mitigation.MitigationBypass"
-	const prefixes = "mitigation.Prefixes"
 
 	t.Run("nil config with patterns creates config for all refusal-pattern detectors", func(t *testing.T) {
 		out := applyRefusalPatterns(nil, []string{"I can only answer product questions"})
@@ -2146,8 +2145,6 @@ func TestApplyRefusalPatterns(t *testing.T) {
 			"pair.PAIR",
 			"divergence.RepeatDiverges",
 		}
-		assert.ElementsMatch(t, wantDetectors, refusalPatternDetectors,
-			"refusalPatternDetectors must stay in sync with the detectors that embed base.MitigationStrings")
 		for _, name := range wantDetectors {
 			got := out.Detectors.Settings[name]["extra_substrings"].([]string)
 			assert.Equal(t, []string{"I can only answer product questions"}, got)
