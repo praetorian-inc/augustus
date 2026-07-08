@@ -347,14 +347,15 @@ func injectProbeContext(probeList []probes.Prober, store *recon.Store) {
 	}
 }
 
-// emitObservations prints reconnaissance observations. Each is emitted as a JSON
-// line so the output is both human-inspectable and machine-parseable.
+// emitObservations prints reconnaissance observations. Each observation is
+// emitted as a JSON line on stdout; the human-readable banner goes to stderr so
+// stdout stays a pure JSONL stream for machine consumers (e.g. `--format jsonl`).
 func emitObservations(obs []output.Observation) error {
 	if len(obs) == 0 {
 		return nil
 	}
-	fmt.Println("\nReconnaissance Observations")
-	fmt.Println("===========================")
+	fmt.Fprintln(os.Stderr, "\nReconnaissance Observations")
+	fmt.Fprintln(os.Stderr, "===========================")
 	for _, o := range obs {
 		line, err := json.Marshal(o)
 		if err != nil {
@@ -743,8 +744,10 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 
 	// Recon-only scan: no probes to test, so skip the detector/test harness
 	// entirely (it requires detectors). Observations were already emitted above.
+	// The cleanup hook must still run so a --setup that provisioned resources is
+	// torn down even when no probes ran.
 	if len(probeNames) == 0 {
-		return nil
+		return runCleanupHook(cfg)
 	}
 
 	// Create probes
@@ -802,22 +805,33 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	// Run the scan
 	scanErr := harness.Run(ctx, gen, probeList, detectorList, eval)
 
-	// Runtime hooks: run cleanup hook after scan
-	if cfg.cleanup != "" {
-		slog.Info("running cleanup hook")
-		cleanupHook := &hooks.Hook{Command: cfg.cleanup}
-		cleanupEnv := map[string]string{
-			"AUGUSTUS_GENERATOR": cfg.generatorName,
-		}
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cleanupCancel()
-		if _, cleanupErr := cleanupHook.Run(cleanupCtx, cleanupEnv); cleanupErr != nil {
-			slog.Error("cleanup hook failed", "error", cleanupErr)
-			scanErr = errors.Join(scanErr, fmt.Errorf("cleanup hook failed: %w", cleanupErr))
-		}
+	// Runtime hooks: run cleanup hook after scan.
+	if cleanupErr := runCleanupHook(cfg); cleanupErr != nil {
+		scanErr = errors.Join(scanErr, cleanupErr)
 	}
 
 	return scanErr
+}
+
+// runCleanupHook runs the configured cleanup hook (a no-op when none is set). It
+// is invoked on every scan-completion path — including recon-only scans — so a
+// --setup that provisioned resources is always torn down.
+func runCleanupHook(cfg *scanConfig) error {
+	if cfg.cleanup == "" {
+		return nil
+	}
+	slog.Info("running cleanup hook")
+	cleanupHook := &hooks.Hook{Command: cfg.cleanup}
+	cleanupEnv := map[string]string{
+		"AUGUSTUS_GENERATOR": cfg.generatorName,
+	}
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cleanupCancel()
+	if _, err := cleanupHook.Run(cleanupCtx, cleanupEnv); err != nil {
+		slog.Error("cleanup hook failed", "error", err)
+		return fmt.Errorf("cleanup hook failed: %w", err)
+	}
+	return nil
 }
 
 type tableEvaluator struct {

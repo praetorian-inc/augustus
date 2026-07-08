@@ -397,6 +397,31 @@ func TestScanCommand_CleanupHook(t *testing.T) {
 	assert.NoError(t, err, "cleanup hook should have created marker file")
 }
 
+// TestScanCommand_CleanupHook_ReconOnly tests that the cleanup hook still runs
+// on a recon-only scan (no probes). A --setup that provisions resources paired
+// with a --cleanup that tears them down must not leak when only recon runs.
+func TestScanCommand_CleanupHook_ReconOnly(t *testing.T) {
+	ctx := context.Background()
+
+	tmpDir := t.TempDir()
+	markerFile := filepath.Join(tmpDir, "cleanup_ran")
+
+	cfg := &scanConfig{
+		generatorName: "test.Repeat",
+		reconNames:    []string{"recon.MCP"}, // skips non-MCP target; recon phase still runs
+		harnessName:   "probewise.Probewise",
+		outputFormat:  "table",
+		cleanup:       fmt.Sprintf(`touch %s`, markerFile),
+	}
+
+	eval := &mockEvaluator{}
+	err := runScan(ctx, cfg, eval)
+	require.NoError(t, err, "recon-only runScan with cleanup hook should succeed")
+
+	_, err = os.Stat(markerFile)
+	assert.NoError(t, err, "cleanup hook should run even on a recon-only scan")
+}
+
 // TestScanCommand_SetupHookFailure tests that a failing setup hook causes scan to fail.
 func TestScanCommand_SetupHookFailure(t *testing.T) {
 	ctx := context.Background()

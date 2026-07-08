@@ -54,6 +54,70 @@ func (m *mockGenerator) Name() string            { return m.name }
 func (m *mockGenerator) Description() string     { return "mock generator" }
 func (m *mockGenerator) LastRawResponse() []byte { return m.rawResp }
 
+// mcpInnerGenerator implements types.Generator + types.ToolInvoker +
+// types.MCPReconnaissance, recording the hook vars visible in each call's
+// context so tests can assert that hook-provided credentials are threaded
+// through the forwarded calls.
+type mcpInnerGenerator struct {
+	mockGenerator
+	seenVars map[string]string
+}
+
+func (m *mcpInnerGenerator) ListTools(ctx context.Context) ([]map[string]any, error) {
+	m.seenVars = types.HookVarsFromContext(ctx)
+	return []map[string]any{{"name": "echo"}}, nil
+}
+
+func (m *mcpInnerGenerator) CallTool(ctx context.Context, _ string, _ map[string]any) (types.ToolResult, error) {
+	m.seenVars = types.HookVarsFromContext(ctx)
+	return types.ToolResult{Text: "ok"}, nil
+}
+
+func (m *mcpInnerGenerator) MCPInventory(ctx context.Context) (*types.MCPInventory, error) {
+	m.seenVars = types.HookVarsFromContext(ctx)
+	return &types.MCPInventory{ServerName: "fake"}, nil
+}
+
+// A hooked MCP generator must still satisfy ToolInvoker + MCPReconnaissance, and
+// must thread the current hook vars into those forwarded calls so header/arg
+// substitution (e.g. Authorization: Bearer $TOKEN) works on tool calls & recon.
+func TestHookedGenerator_PreservesMCPCapabilities(t *testing.T) {
+	inner := &mcpInnerGenerator{mockGenerator: mockGenerator{name: "mcp"}}
+	h := NewHookedGenerator(inner, nil, map[string]string{"TOKEN": "secret"})
+
+	ti, ok := h.(types.ToolInvoker)
+	require.True(t, ok, "wrapped MCP generator must still be a ToolInvoker")
+	rc, ok := h.(types.MCPReconnaissance)
+	require.True(t, ok, "wrapped MCP generator must still be MCPReconnaissance")
+
+	_, err := ti.ListTools(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "secret", inner.seenVars["TOKEN"], "ListTools must see hook vars")
+
+	inner.seenVars = nil
+	_, err = ti.CallTool(context.Background(), "echo", nil)
+	require.NoError(t, err)
+	assert.Equal(t, "secret", inner.seenVars["TOKEN"], "CallTool must see hook vars")
+
+	inner.seenVars = nil
+	_, err = rc.MCPInventory(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, "secret", inner.seenVars["TOKEN"], "MCPInventory must see hook vars")
+}
+
+// A hooked PLAIN generator must NOT advertise MCP capabilities — otherwise the
+// type-assert-and-skip pattern in toolsec/recon would falsely match and fail at
+// runtime.
+func TestHookedGenerator_PlainGeneratorHasNoMCPCapabilities(t *testing.T) {
+	h := NewHookedGenerator(&mockGenerator{name: "plain"}, nil, nil)
+	if _, ok := h.(types.ToolInvoker); ok {
+		t.Error("plain generator must NOT be advertised as ToolInvoker")
+	}
+	if _, ok := h.(types.MCPReconnaissance); ok {
+		t.Error("plain generator must NOT be advertised as MCPReconnaissance")
+	}
+}
+
 func TestHookedGeneratorNoHooks(t *testing.T) {
 	inner := &mockGenerator{
 		name:      "test.Mock",
@@ -348,6 +412,8 @@ func TestHookedGenerator_ClearHistory_PreservesUsage(t *testing.T) {
 	}
 
 	hg := NewHookedGenerator(inner, nil, nil)
+	ur, ok := hg.(types.UsageReporter)
+	require.True(t, ok, "hooked generator must expose UsageReporter")
 	conv := attempt.NewConversation()
 	conv.AddPrompt("test")
 
@@ -355,11 +421,11 @@ func TestHookedGenerator_ClearHistory_PreservesUsage(t *testing.T) {
 	require.NoError(t, err)
 
 	// inner has accumulated 13 tokens; forwarding must reflect it
-	require.Equal(t, int64(13), hg.AccumulatedTokens(), "AccumulatedTokens must forward inner's total")
+	require.Equal(t, int64(13), ur.AccumulatedTokens(), "AccumulatedTokens must forward inner's total")
 
 	hg.ClearHistory()
 
-	require.Equal(t, int64(13), hg.AccumulatedTokens(),
+	require.Equal(t, int64(13), ur.AccumulatedTokens(),
 		"ClearHistory must not reset the forwarded AccumulatedTokens")
 }
 
@@ -380,19 +446,21 @@ func TestHookedGenerator_ForwardsUsage(t *testing.T) {
 	}
 
 	hg := NewHookedGenerator(inner, nil, nil)
+	ur, ok := hg.(types.UsageReporter)
+	require.True(t, ok, "hooked generator must expose UsageReporter")
 	conv := attempt.NewConversation()
 	conv.AddPrompt("test")
 
 	// First call
 	_, err := hg.Generate(context.Background(), conv, 1)
 	require.NoError(t, err)
-	require.Equal(t, tokensPerCall, hg.AccumulatedTokens(),
+	require.Equal(t, tokensPerCall, ur.AccumulatedTokens(),
 		"after one Generate, wrapper must forward inner's accumulated tokens")
 
 	// Second call
 	_, err = hg.Generate(context.Background(), conv, 1)
 	require.NoError(t, err)
-	require.Equal(t, tokensPerCall*2, hg.AccumulatedTokens(),
+	require.Equal(t, tokensPerCall*2, ur.AccumulatedTokens(),
 		"after two Generate calls, wrapper must forward inner's cumulative total")
 }
 
@@ -406,9 +474,11 @@ func TestHookedGenerator_InnerNoUsage_Zero(t *testing.T) {
 	}
 	hg := NewHookedGenerator(inner, nil, nil)
 
-	// Compile-time assertion: HookedGenerator still satisfies UsageReporter.
-	var _ types.UsageReporter = hg
+	// The wrapper always satisfies UsageReporter (returns 0 for a non-reporting
+	// inner) — unlike the MCP interfaces, a zero token count is a safe answer.
+	ur, ok := hg.(types.UsageReporter)
+	require.True(t, ok, "wrapper must always expose UsageReporter")
 
-	assert.Equal(t, int64(0), hg.AccumulatedTokens(),
+	assert.Equal(t, int64(0), ur.AccumulatedTokens(),
 		"wrapper around non-UsageReporter inner must return 0 without panicking")
 }

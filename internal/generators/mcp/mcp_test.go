@@ -447,6 +447,46 @@ func newCountingHTTPTarget(t *testing.T) (url string, reqCount func() int32) {
 	return ts.URL, func() int32 { return atomic.LoadInt32(&n) }
 }
 
+// Regression: ListTools must expose "parameters" as a decoded JSON-schema map
+// (not the SDK schema object), so toolsec.toolParams can read a tool's params on
+// the live-enumeration path (when no --recon inventory was gathered). Storing the
+// raw *jsonschema.Schema made toolParams see nothing → probes sent no payloads.
+func TestToolInvoker_ListTools_ParametersDecoded(t *testing.T) {
+	url, _ := newHTTPTarget(t)
+	inv := newGen(t, registry.Config{
+		"transport": "http",
+		"endpoint":  url,
+		"tool_name": "echo",
+		"arg_name":  "query",
+	}).(types.ToolInvoker)
+
+	tools, err := inv.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+
+	var echo map[string]any
+	for _, tm := range tools {
+		if tm["name"] == "echo" {
+			echo = tm
+		}
+	}
+	if echo == nil {
+		t.Fatal("echo tool not found")
+	}
+	params, ok := echo["parameters"].(map[string]any)
+	if !ok {
+		t.Fatalf("parameters is %T, want map[string]any", echo["parameters"])
+	}
+	props, ok := params["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("parameters.properties is %T, want map[string]any: %v", params["properties"], params)
+	}
+	if _, ok := props["query"]; !ok {
+		t.Errorf("expected 'query' property in decoded schema, got %v", props)
+	}
+}
+
 func TestToolInvoker_ListTools(t *testing.T) {
 	url, _ := newHTTPTarget(t)
 	inv, ok := newGen(t, registry.Config{

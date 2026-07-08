@@ -367,6 +367,7 @@ func (m *MCP) buildTransport() (mcpsdk.Transport, error) {
 func (m *MCP) transportFor(kind string) (mcpsdk.Transport, error) {
 	switch kind {
 	case TransportStdio:
+		// #nosec G204 -- the stdio transport intentionally launches an operator-configured MCP server; command/args come from local scan config, not target-controlled input
 		cmd := exec.Command(m.cfg.Command, m.cfg.Args...)
 		if len(m.cfg.Env) > 0 {
 			cmd.Env = os.Environ()
@@ -391,32 +392,33 @@ func (m *MCP) transportFor(kind string) (mcpsdk.Transport, error) {
 	}
 }
 
-// httpClient builds the HTTP client for the streamable transport, injecting
-// configured headers (with $KEY substituted from api_key) on every request and
-// honoring insecure_skip_verify. The cloned transport keeps Go's default
-// ProxyFromEnvironment (HTTPS_PROXY/HTTP_PROXY); an explicit `proxy` config key
-// overrides that for the common Burp-interception workflow.
+// httpClient builds the HTTP client for the streamable transport. Configured
+// headers are injected per request with $KEY (api_key) and $VARNAME (runtime
+// hook vars) substituted from the request context, and insecure_skip_verify is
+// honored. The cloned transport keeps Go's default ProxyFromEnvironment
+// (HTTPS_PROXY/HTTP_PROXY); an explicit `proxy` config key overrides that for
+// the common Burp-interception workflow.
 func (m *MCP) httpClient() *http.Client {
 	base := http.DefaultTransport.(*http.Transport).Clone()
 	if m.cfg.ProxyURL != nil {
 		base.Proxy = http.ProxyURL(m.cfg.ProxyURL)
 	}
 	if m.cfg.InsecureSkipVerify {
-		base.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec // operator-opt-in for scanning self-signed targets
+		// #nosec G402 -- InsecureSkipVerify is opt-in via insecure_skip_verify; targets are operator-chosen test endpoints
+		base.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 		slog.Warn("mcp: TLS certificate verification disabled (insecure_skip_verify=true)", "endpoint", m.cfg.Endpoint)
 	}
 
-	headers := make(map[string]string, len(m.cfg.Headers))
-	for k, v := range m.cfg.Headers {
-		if m.cfg.APIKey != "" {
-			v = strings.ReplaceAll(v, "$KEY", m.cfg.APIKey)
-		}
-		headers[k] = v
-	}
-	if len(headers) == 0 {
+	if len(m.cfg.Headers) == 0 {
 		return &http.Client{Transport: base}
 	}
-	return &http.Client{Transport: &headerTransport{base: base, headers: headers}}
+	// Pass raw header templates; substitution happens per request in
+	// headerTransport so hook-provided credentials are honored.
+	headers := make(map[string]string, len(m.cfg.Headers))
+	for k, v := range m.cfg.Headers {
+		headers[k] = v
+	}
+	return &http.Client{Transport: &headerTransport{base: base, apiKey: m.cfg.APIKey, headers: headers}}
 }
 
 // exchange dispatches one request according to the configured mode.
@@ -642,19 +644,48 @@ func (m *MCP) target() string {
 	return m.cfg.Endpoint
 }
 
-// headerTransport injects a fixed set of headers on every outgoing request.
+// headerTransport injects configured headers on every outgoing request,
+// substituting $KEY (the static api_key) and $VARNAME placeholders from the
+// per-request hook variables in the request context. Substituting per request —
+// rather than baking header values once when the client is built — lets
+// credentials provided by a prepare/setup hook (e.g. "Authorization: Bearer
+// $TOKEN") reach MCP HTTP/SSE requests, matching the REST generator.
 type headerTransport struct {
 	base    http.RoundTripper
-	headers map[string]string
+	apiKey  string
+	headers map[string]string // raw templates (may contain $KEY / $VARNAME)
 }
 
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// Clone before mutating: RoundTrippers must not modify the caller's request.
 	clone := req.Clone(req.Context())
-	for k, v := range t.headers {
-		clone.Header.Set(k, v)
+	hookVars := types.HookVarsFromContext(req.Context())
+	for k, tmpl := range t.headers {
+		clone.Header.Set(k, substituteHeader(tmpl, t.apiKey, hookVars))
 	}
 	return t.base.RoundTrip(clone)
+}
+
+// substituteHeader replaces $KEY (api_key) and $VARNAME (hook vars) in a header
+// value template. Hook-var keys are applied longest-first so $ID_TOKEN resolves
+// before $ID. Header values are not JSON-escaped (unlike REST body templates).
+func substituteHeader(tmpl, apiKey string, hookVars map[string]string) string {
+	out := tmpl
+	if apiKey != "" && strings.Contains(out, "$KEY") {
+		out = strings.ReplaceAll(out, "$KEY", apiKey)
+	}
+	keys := make([]string, 0, len(hookVars))
+	for k := range hookVars {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool { return len(keys[i]) > len(keys[j]) })
+	for _, k := range keys {
+		placeholder := "$" + k
+		if strings.Contains(out, placeholder) {
+			out = strings.ReplaceAll(out, placeholder, hookVars[k])
+		}
+	}
+	return out
 }
 
 // contentText assembles the text of a tool result, concatenating all text
