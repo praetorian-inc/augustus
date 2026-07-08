@@ -51,6 +51,19 @@ probes:
 detectors:
   always:
     enabled: true
+  # A target's own refusal/guardrail phrasing to treat as a mitigation. These
+  # fan out to every mitigation/refusal detector (mitigation.*, multiagent.*,
+  # latentinjection.Detector, pair.PAIR, divergence.RepeatDiverges) so a custom
+  # deflection is not mis-scored as a bypass. YAML equivalent of the repeatable
+  # --refusal-pattern CLI flag; the flag's values augment these.
+  refusal_patterns:
+    - "I can only help with questions about our product"
+    - "That request is outside the scope of what I can assist with"
+  # For finer control you can instead target a single detector's phrase list:
+  # settings:
+  #   pair.PAIR:
+  #     extra_substrings:
+  #       - "custom refusal phrase for PAIR only"
 
 # Output configuration
 output:

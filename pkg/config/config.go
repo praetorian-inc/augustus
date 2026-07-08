@@ -109,6 +109,13 @@ type EncodingProbeConfig struct {
 type DetectorConfig struct {
 	Always   AlwaysDetectorConfig      `yaml:"always"`
 	Settings map[string]map[string]any `yaml:"settings,omitempty" koanf:"settings"`
+	// RefusalPatterns is the YAML equivalent of the --refusal-pattern CLI flag:
+	// a target's own refusal/guardrail phrases that every mitigation/refusal
+	// detector should treat as a mitigation. They are fanned out (appended to
+	// each detector's extra_substrings) at scan time so a non-generic deflection
+	// is not mis-scored as a bypass (LAB-4664). CLI --refusal-pattern values
+	// augment these; both compose with any per-detector extra_substrings above.
+	RefusalPatterns []string `yaml:"refusal_patterns,omitempty" koanf:"refusal_patterns"`
 }
 
 // BuffConfig contains buff-specific configuration
@@ -340,6 +347,9 @@ func (c *Config) Merge(other *Config) {
 	// Merge detectors
 	if other.Detectors.Always.Enabled {
 		c.Detectors.Always.Enabled = other.Detectors.Always.Enabled
+	}
+	if len(other.Detectors.RefusalPatterns) > 0 {
+		c.Detectors.RefusalPatterns = other.Detectors.RefusalPatterns
 	}
 
 	// Merge buffs

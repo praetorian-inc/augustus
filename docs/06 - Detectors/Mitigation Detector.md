@@ -37,9 +37,9 @@ Inverted relative to a normal keyword detector. See [[Scoring & Verdicts]].
 
 ## Configuration
 
-By default both variants recognize only their built-in refusal phrasings. A target that deflects with its **own** guardrail message (e.g. *"I can only answer questions related to the product documentation…"*) is not in that list, so every such response is scored `1.0` (bypassed) — a false positive. Teach the detector the target's phrasing with either of:
+By default both variants recognize only their built-in refusal phrasings. A target that deflects with its **own** guardrail message (e.g. *"I can only answer questions related to the product documentation…"*) is not in that list, so every such response is scored `1.0` (bypassed) — a false positive. Teach the detectors the target's phrasing with any of:
 
-- **`--refusal-pattern` CLI flag** (repeatable) — the quickest option. Each value is added to the recognized phrases of *both* `mitigation.MitigationBypass` and `mitigation.Prefixes`:
+- **`--refusal-pattern` CLI flag** (repeatable) — the quickest option. Each value fans out to the recognized phrases of *every* mitigation/refusal detector that shares the `base.MitigationStrings` list: `mitigation.MitigationBypass`, `mitigation.Prefixes`, `multiagent.OrchestratorDetector`, `multiagent.Detector`, `latentinjection.Detector`, `pair.PAIR`, and `divergence.RepeatDiverges`:
 
   ```bash
   augustus scan rest.Rest --all \
@@ -47,7 +47,16 @@ By default both variants recognize only their built-in refusal phrasings. A targ
     --refusal-pattern "I don't have enough information"
   ```
 
-- **YAML `detectors:` config keys** — for per-detector control:
+- **YAML `detectors.refusal_patterns`** — the config-file equivalent of the flag (same fan-out to all the detectors above), so a reproducible run or [[Configuration System|profile]] can express it without repeating per-detector keys. CLI `--refusal-pattern` values augment these:
+
+  ```yaml
+  detectors:
+    refusal_patterns:
+      - "I can only answer questions related to the product documentation"
+      - "I don't have enough information"
+  ```
+
+- **YAML `detectors.settings.<name>` config keys** — for per-detector control:
 
   | Key | Type | Effect |
   | --- | --- | --- |

@@ -2185,4 +2185,31 @@ func TestApplyRefusalPatterns(t *testing.T) {
 		got := out.Detectors.Settings[bypass]["extra_substrings"].([]string)
 		assert.Equal(t, []string{"existing phrase", "new phrase"}, got)
 	})
+
+	t.Run("yaml refusal_patterns fan out to all detectors when no flag patterns", func(t *testing.T) {
+		cfg := &config.Config{
+			Detectors: config.DetectorConfig{
+				RefusalPatterns: []string{"yaml guardrail"},
+			},
+		}
+		out := applyRefusalPatterns(cfg, nil)
+		require.NotNil(t, out)
+		for _, name := range refusalPatternDetectors {
+			got := out.Detectors.Settings[name]["extra_substrings"].([]string)
+			assert.Equal(t, []string{"yaml guardrail"}, got)
+		}
+	})
+
+	t.Run("yaml refusal_patterns and flag patterns compose", func(t *testing.T) {
+		cfg := &config.Config{
+			Detectors: config.DetectorConfig{
+				RefusalPatterns: []string{"yaml guardrail"},
+			},
+		}
+		out := applyRefusalPatterns(cfg, []string{"flag guardrail"})
+		for _, name := range refusalPatternDetectors {
+			got := out.Detectors.Settings[name]["extra_substrings"].([]string)
+			assert.Equal(t, []string{"yaml guardrail", "flag guardrail"}, got)
+		}
+	})
 }

@@ -616,6 +616,41 @@ func TestBuffsMerge(t *testing.T) {
 	assert.Equal(t, 5.0, base.Buffs.Settings["lrl.LRLBuff"]["rate_limit"])
 }
 
+// TestDetectorsRefusalPatternsMerge tests merging detectors.refusal_patterns configuration
+func TestDetectorsRefusalPatternsMerge(t *testing.T) {
+	base := &Config{
+		Detectors: DetectorConfig{
+			RefusalPatterns: []string{"base phrase"},
+		},
+	}
+	overlay := &Config{
+		Detectors: DetectorConfig{
+			RefusalPatterns: []string{"overlay phrase"},
+		},
+	}
+
+	base.Merge(overlay)
+
+	// Overlay should win
+	assert.Equal(t, []string{"overlay phrase"}, base.Detectors.RefusalPatterns)
+}
+
+// TestDetectorsRefusalPatternsMergeEmptyOverlayKeepsBase tests that an empty
+// overlay does not clobber the base's detectors.refusal_patterns
+func TestDetectorsRefusalPatternsMergeEmptyOverlayKeepsBase(t *testing.T) {
+	base := &Config{
+		Detectors: DetectorConfig{
+			RefusalPatterns: []string{"base phrase"},
+		},
+	}
+	overlay := &Config{}
+
+	base.Merge(overlay)
+
+	// Base should be preserved
+	assert.Equal(t, []string{"base phrase"}, base.Detectors.RefusalPatterns)
+}
+
 // TestResolveProbeConfig tests the two-layer probe config resolution
 func TestResolveProbeConfig(t *testing.T) {
 	tests := []struct {

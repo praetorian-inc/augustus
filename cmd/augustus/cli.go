@@ -64,7 +64,7 @@ type ScanCmd struct {
 	DetectorsGlob string   `help:"Comma-separated detector glob patterns." name:"detectors-glob"`
 
 	// Detector tuning
-	RefusalPattern []string `help:"Target's own refusal/guardrail phrase to treat as a mitigation (repeatable). Added to the recognized phrases of the mitigation/refusal detectors (mitigation.*, multiagent.*, latentinjection.Detector, pair.PAIR, divergence.RepeatDiverges) to avoid false positives on custom guardrails." name:"refusal-pattern"`
+	RefusalPattern []string `help:"Target's own refusal/guardrail phrase to treat as a mitigation (repeatable). Added to the recognized phrases of the mitigation/refusal detectors (mitigation.*, multiagent.*, latentinjection.Detector, pair.PAIR, divergence.RepeatDiverges) to avoid false positives on custom guardrails. YAML equivalent: detectors.refusal_patterns." name:"refusal-pattern"`
 
 	// Buff selection
 	Buff      []string `help:"Buff names to apply (repeatable)." short:"b" name:"buff"`

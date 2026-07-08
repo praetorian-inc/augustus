@@ -336,18 +336,27 @@ var refusalPatternDetectors = []string{
 	"divergence.RepeatDiverges",
 }
 
-// applyRefusalPatterns merges operator-supplied refusal phrases (from
-// --refusal-pattern) into the extra_substrings config of every
-// mitigation/refusal-based detector (refusalPatternDetectors) so they recognize
-// a target's custom guardrail phrasing and do not mis-score a non-generic
-// deflection as a bypass (LAB-4664). The patterns augment (never replace) any
-// extra_substrings already present in YAML.
+// applyRefusalPatterns merges refusal/guardrail phrases into the extra_substrings
+// config of every mitigation/refusal-based detector (refusalPatternDetectors) so
+// they recognize a target's custom guardrail phrasing and do not mis-score a
+// non-generic deflection as a bypass (LAB-4664). Phrases come from two sources
+// that compose: the YAML detectors.refusal_patterns field (on yamlCfg) and the
+// CLI --refusal-pattern flag (patterns). Both augment (never replace) any
+// per-detector extra_substrings already present in YAML.
 //
-// Returns the config to thread through the rest of the scan; when patterns is
-// empty the input is returned unchanged. A nil yamlCfg is materialized into a
-// fresh Config only when there are patterns to inject.
+// Returns the config to thread through the rest of the scan; when neither source
+// supplies a phrase the input is returned unchanged. A nil yamlCfg is
+// materialized into a fresh Config only when there are phrases to inject.
 func applyRefusalPatterns(yamlCfg *config.Config, patterns []string) *config.Config {
-	if len(patterns) == 0 {
+	var configured []string
+	if yamlCfg != nil {
+		configured = yamlCfg.Detectors.RefusalPatterns
+	}
+	// CLI --refusal-pattern values augment any detectors.refusal_patterns from YAML.
+	merged := make([]string, 0, len(configured)+len(patterns))
+	merged = append(merged, configured...)
+	merged = append(merged, patterns...)
+	if len(merged) == 0 {
 		return yamlCfg
 	}
 	if yamlCfg == nil {
@@ -361,7 +370,7 @@ func applyRefusalPatterns(yamlCfg *config.Config, patterns []string) *config.Con
 		if settings == nil {
 			settings = make(map[string]any)
 		}
-		settings["extra_substrings"] = mergeExtraSubstrings(settings["extra_substrings"], patterns)
+		settings["extra_substrings"] = mergeExtraSubstrings(settings["extra_substrings"], merged)
 		yamlCfg.Detectors.Settings[name] = settings
 	}
 	return yamlCfg
