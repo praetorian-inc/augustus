@@ -8,6 +8,7 @@ package mitigation
 
 import (
 	"context"
+	"strings"
 
 	"github.com/praetorian-inc/augustus/internal/detectors/base"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -34,8 +35,12 @@ func init() {
 //   - matchtype: string — "str" (default), "word", or "startswith"
 //   - case_sensitive: bool — false (default)
 //
-// Empty phrases are dropped: an empty substring matches every output via
-// strings.Contains, which would silently mark all attempts as mitigated.
+// Empty and whitespace-only phrases are dropped: a blank substring matches every
+// output via strings.Contains, which would silently mark all attempts as
+// mitigated. If filtering removes every phrase (e.g. substrings: [""]), the
+// detector falls back to the defaults rather than becoming a match-nothing
+// detector that flags every attempt as a bypass — the exact 100%-false-positive
+// class LAB-4664 fixes.
 func buildMitigationDetector(cfg registry.Config, defaults []string) (detectors.Detector, error) {
 	phrases := defaults
 	if override := registry.GetStringSlice(cfg, "substrings", nil); len(override) > 0 {
@@ -48,8 +53,13 @@ func buildMitigationDetector(cfg registry.Config, defaults []string) (detectors.
 		phrases = merged
 	}
 
+	phrases = nonEmpty(phrases)
+	if len(phrases) == 0 {
+		phrases = nonEmpty(defaults)
+	}
+
 	stringCfg := registry.Config{
-		"substrings":     nonEmpty(phrases),
+		"substrings":     phrases,
 		"matchtype":      registry.GetString(cfg, "matchtype", "str"),
 		"case_sensitive": registry.GetBool(cfg, "case_sensitive", false),
 	}
@@ -57,11 +67,13 @@ func buildMitigationDetector(cfg registry.Config, defaults []string) (detectors.
 	return base.NewStringDetector(stringCfg)
 }
 
-// nonEmpty returns a copy of phrases with empty strings removed.
+// nonEmpty returns a copy of phrases with empty and whitespace-only strings
+// removed. A blank substring matches every output via strings.Contains, which
+// would silently invert the detector to score every attempt SAFE.
 func nonEmpty(phrases []string) []string {
 	filtered := make([]string, 0, len(phrases))
 	for _, p := range phrases {
-		if p != "" {
+		if strings.TrimSpace(p) != "" {
 			filtered = append(filtered, p)
 		}
 	}

@@ -470,6 +470,18 @@ func TestLoadScanConfig_HookFields(t *testing.T) {
 	assert.Equal(t, "echo cleanup", cfg.cleanup)
 }
 
+// TestLoadScanConfig_RefusalPatternFlag tests that loadScanConfig wires the
+// --refusal-pattern flag into cfg.refusalPatterns (TEST-001).
+func TestLoadScanConfig_RefusalPatternFlag(t *testing.T) {
+	cmd := &ScanCmd{
+		Generator:      "test.Repeat",
+		Probe:          []string{"test.Test"},
+		RefusalPattern: []string{"phrase a", "phrase b"},
+	}
+	cfg := cmd.loadScanConfig()
+	assert.Equal(t, []string{"phrase a", "phrase b"}, cfg.refusalPatterns)
+}
+
 func TestScanCommand_CleanupDoesNotRunOnEarlyFailure(t *testing.T) {
 	ctx := context.Background()
 	tmpDir := t.TempDir()
@@ -2142,6 +2154,19 @@ func TestApplyRefusalPatterns(t *testing.T) {
 			Detectors: config.DetectorConfig{
 				Settings: map[string]map[string]any{
 					bypass: {"extra_substrings": []any{"existing phrase"}},
+				},
+			},
+		}
+		out := applyRefusalPatterns(cfg, []string{"new phrase"})
+		got := out.Detectors.Settings[bypass]["extra_substrings"].([]string)
+		assert.Equal(t, []string{"existing phrase", "new phrase"}, got)
+	})
+
+	t.Run("patterns augment existing []string extra_substrings", func(t *testing.T) {
+		cfg := &config.Config{
+			Detectors: config.DetectorConfig{
+				Settings: map[string]map[string]any{
+					bypass: {"extra_substrings": []string{"existing phrase"}},
 				},
 			},
 		}
