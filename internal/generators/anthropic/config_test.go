@@ -12,7 +12,7 @@ import (
 func TestAnthropicConfigDefaults(t *testing.T) {
 	cfg := DefaultConfig()
 
-	assert.Equal(t, float64(0.7), cfg.Temperature)
+	assert.Nil(t, cfg.Temperature) // opt-in: unset by default, omitted from the request
 	assert.Equal(t, 150, cfg.MaxTokens)
 	assert.Equal(t, "2023-06-01", cfg.APIVersion)
 	assert.Equal(t, "https://api.anthropic.com/v1", cfg.BaseURL)
@@ -38,7 +38,8 @@ func TestAnthropicConfigFromMap(t *testing.T) {
 
 	assert.Equal(t, "claude-3-opus-20240229", cfg.Model)
 	assert.Equal(t, "sk-ant-test", cfg.APIKey)
-	assert.Equal(t, float64(0.5), cfg.Temperature)
+	require.NotNil(t, cfg.Temperature)
+	assert.Equal(t, float64(0.5), *cfg.Temperature)
 	assert.Equal(t, 300, cfg.MaxTokens)
 	assert.Equal(t, float64(0.9), cfg.TopP)
 	assert.Equal(t, 50, cfg.TopK)
@@ -82,7 +83,8 @@ func TestAnthropicConfigFunctionalOptions(t *testing.T) {
 
 	assert.Equal(t, "claude-3-opus-20240229", cfg.Model)
 	assert.Equal(t, "sk-ant-test", cfg.APIKey)
-	assert.Equal(t, float64(0.3), cfg.Temperature)
+	require.NotNil(t, cfg.Temperature)
+	assert.Equal(t, float64(0.3), *cfg.Temperature)
 	assert.Equal(t, 500, cfg.MaxTokens)
 	assert.Equal(t, float64(0.95), cfg.TopP)
 	assert.Equal(t, 100, cfg.TopK)
