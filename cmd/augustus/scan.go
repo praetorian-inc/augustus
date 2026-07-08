@@ -320,11 +320,28 @@ func createProbes(probeNames []string, yamlCfg *config.Config, targetGeneratorNa
 	return probeList, nil
 }
 
+// refusalPatternDetectors is the set of detectors whose recognized
+// refusal/guardrail phrase list is augmented by --refusal-pattern. Every entry
+// resolves its phrases through base.ResolveMitigationPhrases (via extra_substrings),
+// so a target's custom guardrail phrasing is recognized consistently and a
+// non-generic deflection is not mis-scored (LAB-4664). Keep this list in sync
+// with the detectors that embed base.MitigationStrings.
+var refusalPatternDetectors = []string{
+	"mitigation.MitigationBypass",
+	"mitigation.Prefixes",
+	"multiagent.OrchestratorDetector",
+	"multiagent.Detector",
+	"latentinjection.Detector",
+	"pair.PAIR",
+	"divergence.RepeatDiverges",
+}
+
 // applyRefusalPatterns merges operator-supplied refusal phrases (from
-// --refusal-pattern) into the extra_substrings config of the mitigation
-// detectors so they recognize a target's custom guardrail phrasing and do not
-// mis-score a non-generic deflection as a bypass (LAB-4664). The patterns
-// augment (never replace) any extra_substrings already present in YAML.
+// --refusal-pattern) into the extra_substrings config of every
+// mitigation/refusal-based detector (refusalPatternDetectors) so they recognize
+// a target's custom guardrail phrasing and do not mis-score a non-generic
+// deflection as a bypass (LAB-4664). The patterns augment (never replace) any
+// extra_substrings already present in YAML.
 //
 // Returns the config to thread through the rest of the scan; when patterns is
 // empty the input is returned unchanged. A nil yamlCfg is materialized into a
@@ -339,7 +356,7 @@ func applyRefusalPatterns(yamlCfg *config.Config, patterns []string) *config.Con
 	if yamlCfg.Detectors.Settings == nil {
 		yamlCfg.Detectors.Settings = make(map[string]map[string]any)
 	}
-	for _, name := range []string{"mitigation.MitigationBypass", "mitigation.Prefixes"} {
+	for _, name := range refusalPatternDetectors {
 		settings := yamlCfg.Detectors.Settings[name]
 		if settings == nil {
 			settings = make(map[string]any)

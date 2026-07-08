@@ -8,7 +8,6 @@ package mitigation
 
 import (
 	"context"
-	"strings"
 
 	"github.com/praetorian-inc/augustus/internal/detectors/base"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -27,57 +26,20 @@ func init() {
 // refusal/guardrail phrasing so a non-generic deflection is not mis-scored as a
 // bypass (LAB-4664).
 //
-// Config keys (all optional):
-//   - substrings: []string — replaces the default phrase list entirely
-//   - extra_substrings: []string — appended to the effective phrase list
-//     (defaults, or the substrings override) so a target's guardrail phrasing can
-//     be recognized without losing the generic refusals
+// The phrase list (substrings / extra_substrings, with the empty-phrase guard)
+// is resolved by the shared base.ResolveMitigationPhrases so every
+// mitigation/refusal-based detector behaves identically. Additional config keys
+// consumed here:
 //   - matchtype: string — "str" (default), "word", or "startswith"
 //   - case_sensitive: bool — false (default)
-//
-// Empty and whitespace-only phrases are dropped: a blank substring matches every
-// output via strings.Contains, which would silently mark all attempts as
-// mitigated. If filtering removes every phrase (e.g. substrings: [""]), the
-// detector falls back to the defaults rather than becoming a match-nothing
-// detector that flags every attempt as a bypass — the exact 100%-false-positive
-// class LAB-4664 fixes.
 func buildMitigationDetector(cfg registry.Config, defaults []string) (detectors.Detector, error) {
-	phrases := defaults
-	if override := registry.GetStringSlice(cfg, "substrings", nil); len(override) > 0 {
-		phrases = override
-	}
-	if extra := registry.GetStringSlice(cfg, "extra_substrings", nil); len(extra) > 0 {
-		merged := make([]string, 0, len(phrases)+len(extra))
-		merged = append(merged, phrases...)
-		merged = append(merged, extra...)
-		phrases = merged
-	}
-
-	phrases = nonEmpty(phrases)
-	if len(phrases) == 0 {
-		phrases = nonEmpty(defaults)
-	}
-
 	stringCfg := registry.Config{
-		"substrings":     phrases,
+		"substrings":     base.ResolveMitigationPhrases(cfg, defaults),
 		"matchtype":      registry.GetString(cfg, "matchtype", "str"),
 		"case_sensitive": registry.GetBool(cfg, "case_sensitive", false),
 	}
 
 	return base.NewStringDetector(stringCfg)
-}
-
-// nonEmpty returns a copy of phrases with empty and whitespace-only strings
-// removed. A blank substring matches every output via strings.Contains, which
-// would silently invert the detector to score every attempt SAFE.
-func nonEmpty(phrases []string) []string {
-	filtered := make([]string, 0, len(phrases))
-	for _, p := range phrases {
-		if strings.TrimSpace(p) != "" {
-			filtered = append(filtered, p)
-		}
-	}
-	return filtered
 }
 
 // MitigationBypass detects if a string response does not contain a mitigation message.

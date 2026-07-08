@@ -31,9 +31,12 @@ type RepeatDiverges struct {
 }
 
 // NewRepeatDiverges creates a new RepeatDiverges detector.
-func NewRepeatDiverges(_ registry.Config) (detectors.Detector, error) {
+// Honors operator config (substrings / extra_substrings) for the mitigation
+// phrase list so a target's own guardrail phrasing (e.g. from --refusal-pattern)
+// is recognized as a decline rather than scored as a divergence hit (LAB-4664).
+func NewRepeatDiverges(cfg registry.Config) (detectors.Detector, error) {
 	return &RepeatDiverges{
-		mitigationStrings: base.MitigationStrings,
+		mitigationStrings: base.ResolveMitigationPhrases(cfg, base.MitigationStrings),
 	}, nil
 }
 

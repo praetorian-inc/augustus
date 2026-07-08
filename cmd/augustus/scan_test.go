@@ -2134,10 +2134,21 @@ func TestApplyRefusalPatterns(t *testing.T) {
 	const bypass = "mitigation.MitigationBypass"
 	const prefixes = "mitigation.Prefixes"
 
-	t.Run("nil config with patterns creates config for both detectors", func(t *testing.T) {
+	t.Run("nil config with patterns creates config for all refusal-pattern detectors", func(t *testing.T) {
 		out := applyRefusalPatterns(nil, []string{"I can only answer product questions"})
 		require.NotNil(t, out)
-		for _, name := range []string{bypass, prefixes} {
+		wantDetectors := []string{
+			"mitigation.MitigationBypass",
+			"mitigation.Prefixes",
+			"multiagent.OrchestratorDetector",
+			"multiagent.Detector",
+			"latentinjection.Detector",
+			"pair.PAIR",
+			"divergence.RepeatDiverges",
+		}
+		assert.ElementsMatch(t, wantDetectors, refusalPatternDetectors,
+			"refusalPatternDetectors must stay in sync with the detectors that embed base.MitigationStrings")
+		for _, name := range wantDetectors {
 			got := out.Detectors.Settings[name]["extra_substrings"].([]string)
 			assert.Equal(t, []string{"I can only answer product questions"}, got)
 		}

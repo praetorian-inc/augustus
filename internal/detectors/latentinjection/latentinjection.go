@@ -29,11 +29,13 @@ type Detector struct {
 }
 
 // NewDetector creates a new Detector.
-// Uses comprehensive mitigation strings to detect refusal.
+// Uses comprehensive mitigation strings to detect refusal, honoring operator
+// config (substrings / extra_substrings) so a target's own guardrail phrasing
+// (e.g. from --refusal-pattern) is recognized (LAB-4664).
 func NewDetector(cfg registry.Config) (detectors.Detector, error) {
-	// Create StringDetector config using shared mitigation strings
+	// Create StringDetector config using the shared, config-honoring phrase list.
 	stringCfg := registry.Config{
-		"substrings":     base.MitigationStrings,
+		"substrings":     base.ResolveMitigationPhrases(cfg, base.MitigationStrings),
 		"matchtype":      "str", // substring matching
 		"case_sensitive": false, // case-insensitive (default)
 	}
