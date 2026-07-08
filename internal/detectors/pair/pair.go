@@ -29,16 +29,13 @@ type PAIR struct {
 }
 
 // NewPAIR creates a new PAIR detector using the mitigation-absence pattern.
+// Honors operator config (substrings / extra_substrings) so a target's own
+// guardrail phrasing (e.g. from --refusal-pattern) is recognized (LAB-4664).
 func NewPAIR(cfg registry.Config) (detectors.Detector, error) {
-	// Create StringDetector config using shared mitigation strings
-	stringCfg := registry.Config{
-		"substrings":     base.MitigationStrings,
-		"matchtype":      "str", // substring matching
-		"case_sensitive": false, // case-insensitive (default)
-	}
-
-	// Create inner StringDetector
-	inner, err := base.NewStringDetector(stringCfg)
+	// Build the inner StringDetector via the shared, config-honoring constructor
+	// so substrings / extra_substrings / matchtype / case_sensitive are honored
+	// identically across every mitigation/refusal-based detector.
+	inner, err := base.NewMitigationStringDetector(cfg, base.MitigationStrings)
 	if err != nil {
 		return nil, err
 	}

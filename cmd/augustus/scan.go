@@ -29,24 +29,25 @@ import (
 
 // scanConfig holds the configuration for a scan command.
 type scanConfig struct {
-	generatorName string
-	probeNames    []string
-	detectorNames []string
-	buffNames     []string
-	harnessName   string
-	configFile    string // YAML config file path
-	configJSON    string
-	outputFormat  string
-	outputFile    string // JSONL output file path
-	htmlFile      string // HTML report file path
-	verbose       bool
-	allProbes     bool          // Run all registered probes
-	timeout       time.Duration // Overall scan timeout
-	concurrency   int           // Max concurrent probes
-	probeTimeout  time.Duration // Per-probe timeout
-	setup         string        // Shell command: once before all probes
-	prepare       string        // Shell command: before each probe
-	cleanup       string        // Shell command: after all probes
+	generatorName   string
+	probeNames      []string
+	detectorNames   []string
+	buffNames       []string
+	harnessName     string
+	configFile      string // YAML config file path
+	configJSON      string
+	outputFormat    string
+	outputFile      string // JSONL output file path
+	htmlFile        string // HTML report file path
+	verbose         bool
+	allProbes       bool          // Run all registered probes
+	timeout         time.Duration // Overall scan timeout
+	concurrency     int           // Max concurrent probes
+	probeTimeout    time.Duration // Per-probe timeout
+	setup           string        // Shell command: once before all probes
+	prepare         string        // Shell command: before each probe
+	cleanup         string        // Shell command: after all probes
+	refusalPatterns []string      // Target refusal/guardrail phrases for mitigation.* detectors
 }
 
 // Kong helper methods
@@ -106,24 +107,25 @@ func (s *ScanCmd) execute() error {
 // loadScanConfig converts Kong struct to legacy scanConfig
 func (s *ScanCmd) loadScanConfig() *scanConfig {
 	return &scanConfig{
-		generatorName: s.Generator,
-		probeNames:    s.Probe,
-		detectorNames: s.Detectors,
-		buffNames:     s.Buff,
-		harnessName:   s.Harness,
-		configFile:    s.ConfigFile,
-		configJSON:    s.Config,
-		outputFormat:  s.Format,
-		outputFile:    s.Output,
-		htmlFile:      s.HTML,
-		verbose:       s.Verbose,
-		allProbes:     s.All,
-		timeout:       s.Timeout,
-		concurrency:   s.Concurrency,
-		probeTimeout:  s.ProbeTimeout,
-		setup:         s.Setup,
-		prepare:       s.Prepare,
-		cleanup:       s.Cleanup,
+		generatorName:   s.Generator,
+		probeNames:      s.Probe,
+		detectorNames:   s.Detectors,
+		buffNames:       s.Buff,
+		harnessName:     s.Harness,
+		configFile:      s.ConfigFile,
+		configJSON:      s.Config,
+		outputFormat:    s.Format,
+		outputFile:      s.Output,
+		htmlFile:        s.HTML,
+		verbose:         s.Verbose,
+		allProbes:       s.All,
+		timeout:         s.Timeout,
+		concurrency:     s.Concurrency,
+		probeTimeout:    s.ProbeTimeout,
+		setup:           s.Setup,
+		prepare:         s.Prepare,
+		cleanup:         s.Cleanup,
+		refusalPatterns: s.RefusalPattern,
 	}
 }
 
@@ -316,6 +318,28 @@ func createProbes(probeNames []string, yamlCfg *config.Config, targetGeneratorNa
 		probeList = append(probeList, probe)
 	}
 	return probeList, nil
+}
+
+// foldRefusalPatternFlag folds the CLI --refusal-pattern values into the single
+// global detectors.refusal_patterns list (config.DetectorConfig.RefusalPatterns).
+// That list is the one source of refusal/guardrail phrases; config.ResolveDetectorConfig
+// then broadcasts it into every detector's config, and only the mitigation/refusal
+// detectors read it (via base.ResolveMitigationPhrases). There is no per-detector
+// routing list to keep in sync: a detector is fed these phrases iff its constructor
+// resolves them, so consumption and membership are the same act (LAB-4664).
+//
+// CLI values augment any detectors.refusal_patterns already loaded from YAML. When
+// no CLI values are supplied the input is returned unchanged; a nil yamlCfg is
+// materialized into a fresh Config only when there are flag values to fold in.
+func foldRefusalPatternFlag(yamlCfg *config.Config, flagPatterns []string) *config.Config {
+	if len(flagPatterns) == 0 {
+		return yamlCfg
+	}
+	if yamlCfg == nil {
+		yamlCfg = &config.Config{}
+	}
+	yamlCfg.Detectors.RefusalPatterns = append(yamlCfg.Detectors.RefusalPatterns, flagPatterns...)
+	return yamlCfg
 }
 
 // createDetectors creates detector instances from explicit names or auto-discovers from probes.
@@ -677,6 +701,11 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	if err != nil {
 		return err
 	}
+
+	// Fold CLI --refusal-pattern values into the global detectors.refusal_patterns
+	// list; ResolveDetectorConfig broadcasts it to every detector and only the
+	// mitigation/refusal detectors read it (LAB-4664).
+	yamlCfg = foldRefusalPatternFlag(yamlCfg, cfg.refusalPatterns)
 
 	// Create detectors
 	detectorList, err := createDetectors(cfg.detectorNames, probeList, yamlCfg)

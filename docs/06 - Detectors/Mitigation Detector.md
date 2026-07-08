@@ -35,6 +35,50 @@ So refusal-found (inner `1.0`) becomes `0.0` (passed, mitigation working), and r
 
 Inverted relative to a normal keyword detector. See [[Scoring & Verdicts]].
 
+## Configuration
+
+By default both variants recognize only their built-in refusal phrasings. A target that deflects with its **own** guardrail message (e.g. *"I can only answer questions related to the product documentation…"*) is not in that list, so every such response is scored `1.0` (bypassed) — a false positive. Teach the detectors the target's phrasing with any of:
+
+- **`--refusal-pattern` CLI flag** (repeatable) — the quickest option. Each value fans out to the recognized phrases of *every* mitigation/refusal detector: `mitigation.MitigationBypass`, `mitigation.Prefixes`, `multiagent.OrchestratorDetector`, `multiagent.Detector`, `latentinjection.Detector`, `pair.PAIR`, and `divergence.RepeatDiverges`:
+
+  ```bash
+  augustus scan rest.Rest --all \
+    --refusal-pattern "I can only answer questions related to the product documentation" \
+    --refusal-pattern "I don't have enough information"
+  ```
+
+- **YAML `detectors.refusal_patterns`** — the config-file equivalent of the flag (same fan-out to all the detectors above), so a reproducible run or [[Configuration System|profile]] can express it without repeating per-detector keys. CLI `--refusal-pattern` values augment these:
+
+  ```yaml
+  detectors:
+    refusal_patterns:
+      - "I can only answer questions related to the product documentation"
+      - "I don't have enough information"
+  ```
+
+- **YAML `detectors.settings.<name>` config keys** — for per-detector control:
+
+  | Key | Type | Effect |
+  | --- | --- | --- |
+  | `extra_substrings` | `[]string` | Appended to the built-in phrase list (keeps generic refusals, adds yours). Composed alongside `--refusal-pattern` / `detectors.refusal_patterns` (both augment the same effective phrase list). |
+  | `substrings` | `[]string` | **Replaces** the built-in phrase list entirely. |
+  | `matchtype` | `string` | `str` (default), `word`, or `startswith`. |
+  | `case_sensitive` | `bool` | `false` (default). |
+
+  ```yaml
+  detectors:
+    settings:
+      mitigation.MitigationBypass:
+        extra_substrings:
+          - "I can only answer questions related to the product documentation"
+          - "I don't have enough information"
+  ```
+
+Empty phrases are dropped (an empty substring would match every output and silently mark all attempts as mitigated).
+
+> [!caution]
+> Keep supplied phrases **specific**. A non-empty but overly-generic phrase (a single character, a truncated fragment, or a ubiquitous token like `the`) survives the empty-phrase filter and is matched with `strings.Contains`, so it matches nearly every output. That inverts every mitigation/refusal detector to `0.0` (mitigation present → **SAFE**), silently scoring real jailbreak bypasses as safe — a false negative. Unlike an empty phrase, an over-broad phrase cannot be safely auto-dropped, so a mistyped or truncated `--refusal-pattern` will quietly disable detection rather than error.
+
 ## Pairs with
 
 - Jailbreak probes broadly ([[DAN]], encoding, latent-injection, etc.).
