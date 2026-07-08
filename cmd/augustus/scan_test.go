@@ -2130,83 +2130,25 @@ func TestTerminalWidth_COLUMNSEnvVar(t *testing.T) {
 	}
 }
 
-func TestApplyRefusalPatterns(t *testing.T) {
-	const bypass = "mitigation.MitigationBypass"
-
-	t.Run("nil config with patterns creates config for all refusal-pattern detectors", func(t *testing.T) {
-		out := applyRefusalPatterns(nil, []string{"I can only answer product questions"})
-		require.NotNil(t, out)
-		wantDetectors := []string{
-			"mitigation.MitigationBypass",
-			"mitigation.Prefixes",
-			"multiagent.OrchestratorDetector",
-			"multiagent.Detector",
-			"latentinjection.Detector",
-			"pair.PAIR",
-			"divergence.RepeatDiverges",
-		}
-		for _, name := range wantDetectors {
-			got := out.Detectors.Settings[name]["extra_substrings"].([]string)
-			assert.Equal(t, []string{"I can only answer product questions"}, got)
-		}
-	})
-
-	t.Run("empty patterns returns input unchanged", func(t *testing.T) {
-		assert.Nil(t, applyRefusalPatterns(nil, nil))
+func TestFoldRefusalPatternFlag(t *testing.T) {
+	t.Run("nil flags returns input unchanged", func(t *testing.T) {
+		assert.Nil(t, foldRefusalPatternFlag(nil, nil))
 		in := &config.Config{}
-		assert.Same(t, in, applyRefusalPatterns(in, nil))
+		assert.Same(t, in, foldRefusalPatternFlag(in, nil))
 	})
 
-	t.Run("patterns augment existing extra_substrings", func(t *testing.T) {
-		cfg := &config.Config{
-			Detectors: config.DetectorConfig{
-				Settings: map[string]map[string]any{
-					bypass: {"extra_substrings": []any{"existing phrase"}},
-				},
-			},
-		}
-		out := applyRefusalPatterns(cfg, []string{"new phrase"})
-		got := out.Detectors.Settings[bypass]["extra_substrings"].([]string)
-		assert.Equal(t, []string{"existing phrase", "new phrase"}, got)
-	})
-
-	t.Run("patterns augment existing []string extra_substrings", func(t *testing.T) {
-		cfg := &config.Config{
-			Detectors: config.DetectorConfig{
-				Settings: map[string]map[string]any{
-					bypass: {"extra_substrings": []string{"existing phrase"}},
-				},
-			},
-		}
-		out := applyRefusalPatterns(cfg, []string{"new phrase"})
-		got := out.Detectors.Settings[bypass]["extra_substrings"].([]string)
-		assert.Equal(t, []string{"existing phrase", "new phrase"}, got)
-	})
-
-	t.Run("yaml refusal_patterns fan out to all detectors when no flag patterns", func(t *testing.T) {
-		cfg := &config.Config{
-			Detectors: config.DetectorConfig{
-				RefusalPatterns: []string{"yaml guardrail"},
-			},
-		}
-		out := applyRefusalPatterns(cfg, nil)
+	t.Run("nil config with flags materializes a config", func(t *testing.T) {
+		out := foldRefusalPatternFlag(nil, []string{"phrase a", "phrase b"})
 		require.NotNil(t, out)
-		for _, name := range refusalPatternDetectors {
-			got := out.Detectors.Settings[name]["extra_substrings"].([]string)
-			assert.Equal(t, []string{"yaml guardrail"}, got)
-		}
+		assert.Equal(t, []string{"phrase a", "phrase b"}, out.Detectors.RefusalPatterns)
 	})
 
-	t.Run("yaml refusal_patterns and flag patterns compose", func(t *testing.T) {
-		cfg := &config.Config{
-			Detectors: config.DetectorConfig{
-				RefusalPatterns: []string{"yaml guardrail"},
-			},
+	t.Run("CLI flags augment existing YAML refusal_patterns", func(t *testing.T) {
+		in := &config.Config{
+			Detectors: config.DetectorConfig{RefusalPatterns: []string{"yaml phrase"}},
 		}
-		out := applyRefusalPatterns(cfg, []string{"flag guardrail"})
-		for _, name := range refusalPatternDetectors {
-			got := out.Detectors.Settings[name]["extra_substrings"].([]string)
-			assert.Equal(t, []string{"yaml guardrail", "flag guardrail"}, got)
-		}
+		out := foldRefusalPatternFlag(in, []string{"cli phrase"})
+		assert.Same(t, in, out)
+		assert.Equal(t, []string{"yaml phrase", "cli phrase"}, out.Detectors.RefusalPatterns)
 	})
 }

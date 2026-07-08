@@ -680,6 +680,30 @@ detectors:
 	}, cfg.Detectors.RefusalPatterns)
 }
 
+// TestResolveDetectorConfigInjectsRefusalPatterns verifies the global
+// detectors.refusal_patterns list is broadcast into every detector's resolved
+// config under the "refusal_patterns" key (consumed by base.ResolveMitigationPhrases),
+// with no per-detector routing list. Absent a global list, the key is not set.
+func TestResolveDetectorConfigInjectsRefusalPatterns(t *testing.T) {
+	t.Run("broadcast into an arbitrary detector", func(t *testing.T) {
+		c := &Config{
+			Detectors: DetectorConfig{
+				RefusalPatterns: []string{"I can only answer product questions"},
+			},
+		}
+		// pair.PAIR has no per-detector settings here, yet still receives the broadcast.
+		cfg := c.ResolveDetectorConfig("pair.PAIR")
+		assert.Equal(t, []string{"I can only answer product questions"}, cfg["refusal_patterns"])
+	})
+
+	t.Run("no global list means no key", func(t *testing.T) {
+		c := &Config{}
+		cfg := c.ResolveDetectorConfig("pair.PAIR")
+		_, ok := cfg["refusal_patterns"]
+		assert.False(t, ok)
+	})
+}
+
 // TestResolveProbeConfig tests the two-layer probe config resolution
 func TestResolveProbeConfig(t *testing.T) {
 	tests := []struct {

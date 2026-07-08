@@ -320,79 +320,26 @@ func createProbes(probeNames []string, yamlCfg *config.Config, targetGeneratorNa
 	return probeList, nil
 }
 
-// refusalPatternDetectors is the set of detectors whose recognized
-// refusal/guardrail phrase list is augmented by --refusal-pattern. Every entry
-// resolves its phrases through base.ResolveMitigationPhrases (via extra_substrings),
-// so a target's custom guardrail phrasing is recognized consistently and a
-// non-generic deflection is not mis-scored (LAB-4664). Keep this list in sync
-// with the detectors that embed base.MitigationStrings.
-var refusalPatternDetectors = []string{
-	"mitigation.MitigationBypass",
-	"mitigation.Prefixes",
-	"multiagent.OrchestratorDetector",
-	"multiagent.Detector",
-	"latentinjection.Detector",
-	"pair.PAIR",
-	"divergence.RepeatDiverges",
-}
-
-// applyRefusalPatterns merges refusal/guardrail phrases into the extra_substrings
-// config of every mitigation/refusal-based detector (refusalPatternDetectors) so
-// they recognize a target's custom guardrail phrasing and do not mis-score a
-// non-generic deflection as a bypass (LAB-4664). Phrases come from two sources
-// that compose: the YAML detectors.refusal_patterns field (on yamlCfg) and the
-// CLI --refusal-pattern flag (patterns). Both augment (never replace) any
-// per-detector extra_substrings already present in YAML.
+// foldRefusalPatternFlag folds the CLI --refusal-pattern values into the single
+// global detectors.refusal_patterns list (config.DetectorConfig.RefusalPatterns).
+// That list is the one source of refusal/guardrail phrases; config.ResolveDetectorConfig
+// then broadcasts it into every detector's config, and only the mitigation/refusal
+// detectors read it (via base.ResolveMitigationPhrases). There is no per-detector
+// routing list to keep in sync: a detector is fed these phrases iff its constructor
+// resolves them, so consumption and membership are the same act (LAB-4664).
 //
-// Returns the config to thread through the rest of the scan; when neither source
-// supplies a phrase the input is returned unchanged. A nil yamlCfg is
-// materialized into a fresh Config only when there are phrases to inject.
-func applyRefusalPatterns(yamlCfg *config.Config, patterns []string) *config.Config {
-	var configured []string
-	if yamlCfg != nil {
-		configured = yamlCfg.Detectors.RefusalPatterns
-	}
-	// CLI --refusal-pattern values augment any detectors.refusal_patterns from YAML.
-	merged := make([]string, 0, len(configured)+len(patterns))
-	merged = append(merged, configured...)
-	merged = append(merged, patterns...)
-	if len(merged) == 0 {
+// CLI values augment any detectors.refusal_patterns already loaded from YAML. When
+// no CLI values are supplied the input is returned unchanged; a nil yamlCfg is
+// materialized into a fresh Config only when there are flag values to fold in.
+func foldRefusalPatternFlag(yamlCfg *config.Config, flagPatterns []string) *config.Config {
+	if len(flagPatterns) == 0 {
 		return yamlCfg
 	}
 	if yamlCfg == nil {
 		yamlCfg = &config.Config{}
 	}
-	if yamlCfg.Detectors.Settings == nil {
-		yamlCfg.Detectors.Settings = make(map[string]map[string]any)
-	}
-	for _, name := range refusalPatternDetectors {
-		settings := yamlCfg.Detectors.Settings[name]
-		if settings == nil {
-			settings = make(map[string]any)
-		}
-		settings["extra_substrings"] = mergeExtraSubstrings(settings["extra_substrings"], merged)
-		yamlCfg.Detectors.Settings[name] = settings
-	}
+	yamlCfg.Detectors.RefusalPatterns = append(yamlCfg.Detectors.RefusalPatterns, flagPatterns...)
 	return yamlCfg
-}
-
-// mergeExtraSubstrings appends patterns to an existing extra_substrings config
-// value (which may be nil, []string, or []any parsed from YAML) and returns the
-// combined []string.
-func mergeExtraSubstrings(existing any, patterns []string) []string {
-	var out []string
-	switch v := existing.(type) {
-	case []string:
-		out = append(out, v...)
-	case []any:
-		for _, item := range v {
-			if s, ok := item.(string); ok {
-				out = append(out, s)
-			}
-		}
-	}
-	out = append(out, patterns...)
-	return out
 }
 
 // createDetectors creates detector instances from explicit names or auto-discovers from probes.
@@ -755,9 +702,10 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 		return err
 	}
 
-	// Inject operator-supplied refusal phrases into the mitigation detectors so
-	// a target's custom guardrail phrasing is recognized as a refusal (LAB-4664).
-	yamlCfg = applyRefusalPatterns(yamlCfg, cfg.refusalPatterns)
+	// Fold CLI --refusal-pattern values into the global detectors.refusal_patterns
+	// list; ResolveDetectorConfig broadcasts it to every detector and only the
+	// mitigation/refusal detectors read it (LAB-4664).
+	yamlCfg = foldRefusalPatternFlag(yamlCfg, cfg.refusalPatterns)
 
 	// Create detectors
 	detectorList, err := createDetectors(cfg.detectorNames, probeList, yamlCfg)

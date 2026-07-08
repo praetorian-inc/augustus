@@ -47,6 +47,20 @@ func TestResolveMitigationPhrases(t *testing.T) {
 		got := ResolveMitigationPhrases(registry.Config{"substrings": []string{"", " "}}, defaults)
 		assert.Equal(t, defaults, got)
 	})
+
+	t.Run("refusal_patterns augments like extra_substrings", func(t *testing.T) {
+		got := ResolveMitigationPhrases(registry.Config{"refusal_patterns": []string{"guardrail"}}, defaults)
+		assert.Equal(t, []string{"I'm sorry", "I cannot", "guardrail"}, got)
+	})
+
+	t.Run("extra_substrings and refusal_patterns both augment, in order", func(t *testing.T) {
+		cfg := registry.Config{
+			"extra_substrings": []string{"extra"},
+			"refusal_patterns": []string{"guardrail"},
+		}
+		assert.Equal(t, []string{"I'm sorry", "I cannot", "extra", "guardrail"},
+			ResolveMitigationPhrases(cfg, defaults))
+	})
 }
 
 // TestNewMitigationStringDetector guards the shared helper's behavior: it must

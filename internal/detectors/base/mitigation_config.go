@@ -38,6 +38,8 @@ func NewMitigationStringDetector(cfg registry.Config, defaults []string) (detect
 //   - extra_substrings: []string — appended to the effective phrase list
 //     (defaults, or the substrings override) so a target's guardrail phrasing can
 //     be recognized without losing the generic refusals
+//   - refusal_patterns: []string — the global detectors.refusal_patterns list,
+//     broadcast by config.ResolveDetectorConfig; appended like extra_substrings
 //
 // Empty and whitespace-only phrases are dropped: a blank substring matches every
 // output via strings.Contains, which would silently treat every output as
@@ -54,6 +56,17 @@ func ResolveMitigationPhrases(cfg registry.Config, defaults []string) []string {
 		merged := make([]string, 0, len(phrases)+len(extra))
 		merged = append(merged, phrases...)
 		merged = append(merged, extra...)
+		phrases = merged
+	}
+
+	// refusal_patterns is the global detectors.refusal_patterns list, broadcast into
+	// every detector's config by config.ResolveDetectorConfig. It augments the phrase
+	// list exactly like extra_substrings so a target's own guardrail phrasing is
+	// recognized without a per-detector routing list (LAB-4664).
+	if refusal := registry.GetStringSlice(cfg, "refusal_patterns", nil); len(refusal) > 0 {
+		merged := make([]string, 0, len(phrases)+len(refusal))
+		merged = append(merged, phrases...)
+		merged = append(merged, refusal...)
 		phrases = merged
 	}
 

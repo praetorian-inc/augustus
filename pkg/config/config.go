@@ -158,6 +158,18 @@ func (c *Config) injectJudgeConfig(cfg map[string]any) {
 	}
 }
 
+// injectRefusalPatterns broadcasts the global detectors.refusal_patterns list into
+// a detector's resolved config under the "refusal_patterns" key. Every detector
+// receives it (exactly like injectJudgeConfig); only the mitigation/refusal
+// detectors read it, via base.ResolveMitigationPhrases. This is what lets
+// --refusal-pattern / detectors.refusal_patterns reach those detectors without a
+// per-detector routing list to maintain (LAB-4664).
+func (c *Config) injectRefusalPatterns(cfg map[string]any) {
+	if len(c.Detectors.RefusalPatterns) > 0 {
+		cfg["refusal_patterns"] = c.Detectors.RefusalPatterns
+	}
+}
+
 // ResolveProbeConfig builds a registry config for a specific probe by merging
 // global judge defaults, probe-level attacker/judge defaults, and per-probe settings.
 // Resolution order: global judge → probe-level globals → per-probe settings.
@@ -202,6 +214,10 @@ func (c *Config) ResolveDetectorConfig(detectorName string) map[string]any {
 
 	// Layer 0: Global judge config (inherited by all detectors; non-judge detectors ignore these keys)
 	c.injectJudgeConfig(cfg)
+
+	// Layer 0: Global refusal patterns (inherited by all detectors; only the
+	// mitigation/refusal detectors read this key, via base.ResolveMitigationPhrases)
+	c.injectRefusalPatterns(cfg)
 
 	// Layer 1: Per-detector settings override globals
 	if c.Detectors.Settings != nil {
