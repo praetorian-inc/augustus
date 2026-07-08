@@ -29,24 +29,25 @@ import (
 
 // scanConfig holds the configuration for a scan command.
 type scanConfig struct {
-	generatorName string
-	probeNames    []string
-	detectorNames []string
-	buffNames     []string
-	harnessName   string
-	configFile    string // YAML config file path
-	configJSON    string
-	outputFormat  string
-	outputFile    string // JSONL output file path
-	htmlFile      string // HTML report file path
-	verbose       bool
-	allProbes     bool          // Run all registered probes
-	timeout       time.Duration // Overall scan timeout
-	concurrency   int           // Max concurrent probes
-	probeTimeout  time.Duration // Per-probe timeout
-	setup         string        // Shell command: once before all probes
-	prepare       string        // Shell command: before each probe
-	cleanup       string        // Shell command: after all probes
+	generatorName   string
+	probeNames      []string
+	detectorNames   []string
+	buffNames       []string
+	harnessName     string
+	configFile      string // YAML config file path
+	configJSON      string
+	outputFormat    string
+	outputFile      string // JSONL output file path
+	htmlFile        string // HTML report file path
+	verbose         bool
+	allProbes       bool          // Run all registered probes
+	timeout         time.Duration // Overall scan timeout
+	concurrency     int           // Max concurrent probes
+	probeTimeout    time.Duration // Per-probe timeout
+	setup           string        // Shell command: once before all probes
+	prepare         string        // Shell command: before each probe
+	cleanup         string        // Shell command: after all probes
+	refusalPatterns []string      // Target refusal/guardrail phrases for mitigation.* detectors
 }
 
 // Kong helper methods
@@ -106,24 +107,25 @@ func (s *ScanCmd) execute() error {
 // loadScanConfig converts Kong struct to legacy scanConfig
 func (s *ScanCmd) loadScanConfig() *scanConfig {
 	return &scanConfig{
-		generatorName: s.Generator,
-		probeNames:    s.Probe,
-		detectorNames: s.Detectors,
-		buffNames:     s.Buff,
-		harnessName:   s.Harness,
-		configFile:    s.ConfigFile,
-		configJSON:    s.Config,
-		outputFormat:  s.Format,
-		outputFile:    s.Output,
-		htmlFile:      s.HTML,
-		verbose:       s.Verbose,
-		allProbes:     s.All,
-		timeout:       s.Timeout,
-		concurrency:   s.Concurrency,
-		probeTimeout:  s.ProbeTimeout,
-		setup:         s.Setup,
-		prepare:       s.Prepare,
-		cleanup:       s.Cleanup,
+		generatorName:   s.Generator,
+		probeNames:      s.Probe,
+		detectorNames:   s.Detectors,
+		buffNames:       s.Buff,
+		harnessName:     s.Harness,
+		configFile:      s.ConfigFile,
+		configJSON:      s.Config,
+		outputFormat:    s.Format,
+		outputFile:      s.Output,
+		htmlFile:        s.HTML,
+		verbose:         s.Verbose,
+		allProbes:       s.All,
+		timeout:         s.Timeout,
+		concurrency:     s.Concurrency,
+		probeTimeout:    s.ProbeTimeout,
+		setup:           s.Setup,
+		prepare:         s.Prepare,
+		cleanup:         s.Cleanup,
+		refusalPatterns: s.RefusalPattern,
 	}
 }
 
@@ -316,6 +318,55 @@ func createProbes(probeNames []string, yamlCfg *config.Config, targetGeneratorNa
 		probeList = append(probeList, probe)
 	}
 	return probeList, nil
+}
+
+// applyRefusalPatterns merges operator-supplied refusal phrases (from
+// --refusal-pattern) into the extra_substrings config of the mitigation
+// detectors so they recognize a target's custom guardrail phrasing and do not
+// mis-score a non-generic deflection as a bypass (LAB-4664). The patterns
+// augment (never replace) any extra_substrings already present in YAML.
+//
+// Returns the config to thread through the rest of the scan; when patterns is
+// empty the input is returned unchanged. A nil yamlCfg is materialized into a
+// fresh Config only when there are patterns to inject.
+func applyRefusalPatterns(yamlCfg *config.Config, patterns []string) *config.Config {
+	if len(patterns) == 0 {
+		return yamlCfg
+	}
+	if yamlCfg == nil {
+		yamlCfg = &config.Config{}
+	}
+	if yamlCfg.Detectors.Settings == nil {
+		yamlCfg.Detectors.Settings = make(map[string]map[string]any)
+	}
+	for _, name := range []string{"mitigation.MitigationBypass", "mitigation.Prefixes"} {
+		settings := yamlCfg.Detectors.Settings[name]
+		if settings == nil {
+			settings = make(map[string]any)
+		}
+		settings["extra_substrings"] = mergeExtraSubstrings(settings["extra_substrings"], patterns)
+		yamlCfg.Detectors.Settings[name] = settings
+	}
+	return yamlCfg
+}
+
+// mergeExtraSubstrings appends patterns to an existing extra_substrings config
+// value (which may be nil, []string, or []any parsed from YAML) and returns the
+// combined []string.
+func mergeExtraSubstrings(existing any, patterns []string) []string {
+	var out []string
+	switch v := existing.(type) {
+	case []string:
+		out = append(out, v...)
+	case []any:
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+	}
+	out = append(out, patterns...)
+	return out
 }
 
 // createDetectors creates detector instances from explicit names or auto-discovers from probes.
@@ -677,6 +728,10 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	if err != nil {
 		return err
 	}
+
+	// Inject operator-supplied refusal phrases into the mitigation detectors so
+	// a target's custom guardrail phrasing is recognized as a refusal (LAB-4664).
+	yamlCfg = applyRefusalPatterns(yamlCfg, cfg.refusalPatterns)
 
 	// Create detectors
 	detectorList, err := createDetectors(cfg.detectorNames, probeList, yamlCfg)

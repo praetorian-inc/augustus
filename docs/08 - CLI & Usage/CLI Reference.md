@@ -69,6 +69,7 @@ See [[Probe Selection & Globs]].
 |---|---|
 | `--detector` | Detector name; repeatable. |
 | `--detectors-glob` | Comma-separated detector glob patterns. |
+| `--refusal-pattern` | Target's own refusal/guardrail phrase to treat as a mitigation; repeatable. Added to the `mitigation.*` detectors' recognized phrases (via `extra_substrings`) to avoid false positives on custom guardrails. See [[Mitigation Detector]]. |
 
 If omitted, detectors are **auto-discovered** from each probe's primary detector metadata (`cmd/augustus/scan.go`, `createDetectors`).
 

@@ -2117,3 +2117,36 @@ func TestTerminalWidth_COLUMNSEnvVar(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyRefusalPatterns(t *testing.T) {
+	const bypass = "mitigation.MitigationBypass"
+	const prefixes = "mitigation.Prefixes"
+
+	t.Run("nil config with patterns creates config for both detectors", func(t *testing.T) {
+		out := applyRefusalPatterns(nil, []string{"I can only answer product questions"})
+		require.NotNil(t, out)
+		for _, name := range []string{bypass, prefixes} {
+			got := out.Detectors.Settings[name]["extra_substrings"].([]string)
+			assert.Equal(t, []string{"I can only answer product questions"}, got)
+		}
+	})
+
+	t.Run("empty patterns returns input unchanged", func(t *testing.T) {
+		assert.Nil(t, applyRefusalPatterns(nil, nil))
+		in := &config.Config{}
+		assert.Same(t, in, applyRefusalPatterns(in, nil))
+	})
+
+	t.Run("patterns augment existing extra_substrings", func(t *testing.T) {
+		cfg := &config.Config{
+			Detectors: config.DetectorConfig{
+				Settings: map[string]map[string]any{
+					bypass: {"extra_substrings": []any{"existing phrase"}},
+				},
+			},
+		}
+		out := applyRefusalPatterns(cfg, []string{"new phrase"})
+		got := out.Detectors.Settings[bypass]["extra_substrings"].([]string)
+		assert.Equal(t, []string{"existing phrase", "new phrase"}, got)
+	})
+}

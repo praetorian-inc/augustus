@@ -63,6 +63,9 @@ type ScanCmd struct {
 	Detectors     []string `help:"Detector names (repeatable)." name:"detector"`
 	DetectorsGlob string   `help:"Comma-separated detector glob patterns." name:"detectors-glob"`
 
+	// Detector tuning
+	RefusalPattern []string `help:"Target's own refusal/guardrail phrase to treat as a mitigation (repeatable). Added to the mitigation.* detectors' recognized phrases to avoid false positives on custom guardrails." name:"refusal-pattern"`
+
 	// Buff selection
 	Buff      []string `help:"Buff names to apply (repeatable)." short:"b" name:"buff"`
 	BuffsGlob string   `help:"Comma-separated buff glob patterns (e.g., 'encoding.*')." name:"buffs-glob"`
