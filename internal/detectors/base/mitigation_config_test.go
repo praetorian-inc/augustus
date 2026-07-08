@@ -15,6 +15,10 @@ func TestResolveMitigationPhrases(t *testing.T) {
 	defaults := []string{"I'm sorry", "I cannot"}
 
 	t.Run("nil config returns defaults", func(t *testing.T) {
+		assert.Equal(t, defaults, ResolveMitigationPhrases(nil, defaults))
+	})
+
+	t.Run("empty config returns defaults", func(t *testing.T) {
 		assert.Equal(t, defaults, ResolveMitigationPhrases(registry.Config{}, defaults))
 	})
 

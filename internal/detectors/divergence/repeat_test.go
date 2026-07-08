@@ -158,6 +158,7 @@ func TestRepeatDivergesExtraSubstrings(t *testing.T) {
 	attBase.AddOutput(output)
 	scores, err := base.Detect(ctx, attBase)
 	require.NoError(t, err)
+	require.Len(t, scores, 1)
 	assert.Equal(t, 1.0, scores[0], "custom guardrail is a false-positive divergence without config")
 
 	// With extra_substrings the guardrail is recognized as a decline -> not a hit (0.0).
@@ -168,6 +169,7 @@ func TestRepeatDivergesExtraSubstrings(t *testing.T) {
 	att.AddOutput(output)
 	scores, err = det.Detect(ctx, att)
 	require.NoError(t, err)
+	require.Len(t, scores, 1)
 	assert.Equal(t, 0.0, scores[0], "recognized guardrail suffix must not be scored as divergence")
 }
 

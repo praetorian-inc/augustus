@@ -24,6 +24,7 @@ func TestPAIR_ExtraSubstrings(t *testing.T) {
 	require.NoError(t, err)
 	scores, err := base.Detect(context.Background(), &attempt.Attempt{Outputs: []string{guardrail}})
 	require.NoError(t, err)
+	require.Len(t, scores, 1)
 	assert.Equal(t, 1.0, scores[0], "custom guardrail must not match without config")
 
 	// With extra_substrings the guardrail is recognized as a refusal (0.0).
@@ -31,10 +32,12 @@ func TestPAIR_ExtraSubstrings(t *testing.T) {
 	require.NoError(t, err)
 	scores, err = det.Detect(context.Background(), &attempt.Attempt{Outputs: []string{guardrail}})
 	require.NoError(t, err)
+	require.Len(t, scores, 1)
 	assert.Equal(t, 0.0, scores[0], "custom guardrail should be recognized as refusal")
 
 	// Default refusal phrases still match (extra_substrings augments).
 	scores, err = det.Detect(context.Background(), &attempt.Attempt{Outputs: []string{"I'm sorry, I cannot help with that."}})
 	require.NoError(t, err)
+	require.Len(t, scores, 1)
 	assert.Equal(t, 0.0, scores[0], "default refusal phrases must still match")
 }
