@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/praetorian-inc/augustus/internal/runtimetemplates"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/buffs"
 	"github.com/praetorian-inc/augustus/pkg/cli"
@@ -53,6 +54,19 @@ type scanConfig struct {
 
 func (s *ScanCmd) execute() error {
 	cfg := s.loadScanConfig()
+
+	// Load runtime probe templates before glob expansion so they are selectable
+	// by name and by --probes-glob without rebuilding the binary.
+	if s.TemplatesDir != "" {
+		ids, err := runtimetemplates.RegisterFromPath(s.TemplatesDir)
+		if err != nil {
+			return fmt.Errorf("failed to load probe templates from %s: %w", s.TemplatesDir, err)
+		}
+		if len(ids) > 0 {
+			fmt.Fprintf(os.Stderr, "Loaded %d runtime probe template(s) from %s: %s\n",
+				len(ids), s.TemplatesDir, strings.Join(ids, ", "))
+		}
+	}
 
 	if err := s.expandGlobPatterns(cfg); err != nil {
 		return err

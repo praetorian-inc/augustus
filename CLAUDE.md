@@ -100,6 +100,8 @@ Scanner uses `errgroup` for bounded concurrency (default 10 goroutines).
 
 For YAML-based probes, create `.yaml` files in `data/` subdirectory and use `templates.NewLoader()`. YAML templates support advanced fields consumed via the optional interfaces above: `detector_config`, `secondary_detectors`, and — for tool-use/function-calling probes — `tools`, `tool_choice`, `tool_results`, and `mode: [chat, native]`. The canonical `TemplateProbe` (`pkg/templates/probe.go`) implements all optional interfaces; see `internal/probes/tooluse/data/*.yaml` for tool-use attack examples (unauthorized invocation, parameter injection, selection hijacking, etc.).
 
+**Runtime templates (no rebuild).** Probes can also be loaded from a directory of YAML files at scan time via `--templates-dir`, registered before probe selection (so they work with `--probe`, `--probes-glob`, and `--all`). Two `type:` values are supported: `static` (default — a fixed list of single-turn prompts, like the `data/` templates above) and `multiturn` — a new multi-turn attack *strategy* defined entirely in YAML (`engine` + `strategy` blocks) and run by the unified multi-turn engine (`internal/multiturn`, the same engine behind Crescendo/GOAT/Hydra). This adds new prompt-and-config strategies without Go; new detector/generator *implementations* or engine control-flow still require a rebuild. A template ID that collides with an existing probe fails to load (rename the `id:`). See `examples/runtime-templates/` (`static-example.yaml`, `multiturn-example.yaml`, `README.md`) and `internal/runtimetemplates/`.
+
 ### New Generator
 
 1. Create `internal/generators/<provider>/`
@@ -136,6 +138,9 @@ augustus scan openai.OpenAI --all --buff encoding.Base64
 
 # Custom REST endpoint
 augustus scan rest.Rest --probe dan.Dan_11_0 --config '{"uri":"https://api.example.com/v1/chat"}'
+
+# Load runtime probe templates from a directory (no rebuild); works with --probe/--probes-glob/--all
+augustus scan openai.OpenAI --templates-dir ./examples/runtime-templates --probe runtime.AuthorityEscalation
 ```
 
 ## Commit Convention
