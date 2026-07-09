@@ -49,6 +49,15 @@ func attemptFor(attempts []*attempt.Attempt, tool string) *attempt.Attempt {
 	return nil
 }
 
+// TestSSRF_FailsLoudOnNonToolInvoker: like Injection, SSRF must error rather than
+// return a clean-looking empty result when the target cannot be tool-invoked.
+func TestSSRF_FailsLoudOnNonToolInvoker(t *testing.T) {
+	p := newSSRFProbe(t)
+	if _, err := p.Probe(context.Background(), plainGen{}); err == nil {
+		t.Fatal("expected an error for a non-ToolInvoker target, got nil")
+	}
+}
+
 // TestSSRF_BlindCallback: a tool that fetches the URL but returns no content is
 // still caught via the out-of-band callback.
 func TestSSRF_BlindCallback(t *testing.T) {

@@ -173,11 +173,20 @@ func (m *MCP) withSession(ctx context.Context, fn func(context.Context, *mcpsdk.
 	}
 
 	// A reused persistent session may have been closed by the server (e.g. an
-	// HTTP idle timeout) since the previous call. Reconnect once and
-	// retry, but only when the failure was not a cancellation/timeout of our own
-	// request — otherwise a genuine target error on a fresh socket would be masked.
-	if reused && ctx.Err() == nil {
-		m.dropSession()
+	// HTTP idle timeout) since the previous call. Reconnect once and retry — but
+	// only when the failure was neither a cancellation/timeout of the caller's
+	// context NOR of our own per-call RequestTimeout. The per-call deadline lives
+	// on an inner callCtx (see exchange/ListTools/CallTool), so the parent ctx.Err()
+	// stays nil when a slow tools/call times out; retrying then would reconnect and
+	// invoke the tool a SECOND time — a duplicated side effect against real
+	// infrastructure. errors.Is catches the inner-deadline error wrapped by fn.
+	if reused && ctx.Err() == nil &&
+		!errors.Is(err, context.DeadlineExceeded) &&
+		!errors.Is(err, context.Canceled) {
+		// Drop only the session THIS call used: under concurrent probes sharing one
+		// generator, another goroutine may already have reconnected, and an
+		// unconditional drop would close that healthy new session out from under it.
+		m.dropSessionIf(sess)
 		sess, _, release, err = m.acquireSession(ctx)
 		if err != nil {
 			return err
@@ -356,6 +365,17 @@ func (m *MCP) DetectedTransport() string {
 	return m.detected
 }
 
+// resolvedTransport returns the concrete transport in effect: the auto-detected
+// one when the configured transport was "auto" and a connect has succeeded,
+// otherwise the configured value. Used so reconnaissance reports the real
+// transport rather than the literal "auto".
+func (m *MCP) resolvedTransport() string {
+	if d := m.DetectedTransport(); d != "" {
+		return d
+	}
+	return m.cfg.Transport
+}
+
 // buildTransport constructs a fresh transport for the configured transport.
 func (m *MCP) buildTransport() (mcpsdk.Transport, error) {
 	return m.transportFor(m.cfg.Transport)
@@ -409,7 +429,14 @@ func (m *MCP) httpClient() *http.Client {
 	for k, v := range m.cfg.Headers {
 		headers[k] = v
 	}
-	return &http.Client{Transport: &headerTransport{base: base, apiKey: m.cfg.APIKey, headers: headers}}
+	// Record the endpoint host so headerTransport only replays configured
+	// headers (which may carry credentials) to the configured target, never to
+	// a host reached via redirect.
+	var allowedHost string
+	if u, err := url.Parse(m.cfg.Endpoint); err == nil {
+		allowedHost = u.Host
+	}
+	return &http.Client{Transport: &headerTransport{base: base, apiKey: m.cfg.APIKey, headers: headers, allowedHost: allowedHost}}
 }
 
 // exchange dispatches one request according to the configured mode.
@@ -538,6 +565,13 @@ func toolsToMaps(tools []*mcpsdk.Tool) []map[string]any {
 		if t.InputSchema != nil {
 			tm["parameters"] = t.InputSchema
 		}
+		// Carry the safety annotations (read-only / destructive hints) so the
+		// tool-surface probes can gate destructive tools. Stored as a value so
+		// both the live-enumeration path (here) and the recon-inventory path
+		// (MCPInventory.ToolMaps) expose the same concrete type to consumers.
+		if a := annotationsFrom(t.Annotations); a != nil {
+			tm["annotations"] = *a
+		}
 		out = append(out, tm)
 	}
 	return out
@@ -573,8 +607,23 @@ func (m *MCP) buildArguments(ctx context.Context, prompt string) (map[string]any
 
 // dropSession closes and clears the stored persistent session, then cancels the
 // context that owns its transport stream.
-func (m *MCP) dropSession() {
+func (m *MCP) dropSession() { m.clearSession(nil) }
+
+// dropSessionIf drops the persistent session only if it is still the given one.
+// A reused-session retry uses this so a concurrent caller that has already
+// reconnected (replacing m.sess) is not torn down: closing its fresh, healthy
+// session would turn one caller's transient failure into another's.
+func (m *MCP) dropSessionIf(sess *mcpsdk.ClientSession) { m.clearSession(sess) }
+
+// clearSession closes and clears the persistent session. When want is non-nil it
+// is a no-op unless the stored session is still want (compare-and-clear);
+// when want is nil it clears unconditionally.
+func (m *MCP) clearSession(want *mcpsdk.ClientSession) {
 	m.mu.Lock()
+	if want != nil && m.sess != want {
+		m.mu.Unlock()
+		return
+	}
 	sess := m.sess
 	cancel := m.sessCancel
 	m.sess = nil
@@ -639,17 +688,30 @@ func (m *MCP) target() string {
 // credentials provided by a prepare/setup hook (e.g. "Authorization: Bearer
 // $TOKEN") reach MCP HTTP/SSE requests, matching the REST generator.
 type headerTransport struct {
-	base    http.RoundTripper
-	apiKey  string
-	headers map[string]string // raw templates (may contain $KEY / $VARNAME)
+	base        http.RoundTripper
+	apiKey      string
+	headers     map[string]string // raw templates (may contain $KEY / $VARNAME)
+	allowedHost string            // host of the configured endpoint; "" disables gating
 }
 
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	// Clone before mutating: RoundTrippers must not modify the caller's request.
 	clone := req.Clone(req.Context())
-	hookVars := types.HookVarsFromContext(req.Context())
-	for k, tmpl := range t.headers {
-		clone.Header.Set(k, substituteHeader(tmpl, t.apiKey, hookVars))
+
+	// Only inject the configured headers (which may carry credentials) when the
+	// request targets the configured endpoint host. A malicious MCP target can
+	// answer with a 302 to a host it controls; Go strips the Authorization
+	// header it set itself across a cross-host redirect, but NOT headers added
+	// by a custom RoundTripper like this one — so without this gate the token
+	// would be replayed to the attacker's host on the redirected request.
+	if t.allowedHost == "" || strings.EqualFold(req.URL.Host, t.allowedHost) {
+		hookVars := types.HookVarsFromContext(req.Context())
+		for k, tmpl := range t.headers {
+			clone.Header.Set(k, substituteHeader(tmpl, t.apiKey, hookVars))
+		}
+	} else {
+		slog.Warn("mcp: withholding configured headers from off-endpoint redirect target",
+			"request_host", req.URL.Host, "endpoint_host", t.allowedHost)
 	}
 	return t.base.RoundTrip(clone)
 }

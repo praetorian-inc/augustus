@@ -139,15 +139,18 @@ func TestInjection_NoFalsePositiveOnEcho(t *testing.T) {
 	}
 }
 
-// TestInjection_SkipsNonToolInvoker: a plain generator yields no attempts.
-func TestInjection_SkipsNonToolInvoker(t *testing.T) {
+// TestInjection_FailsLoudOnNonToolInvoker: a target that cannot be tool-invoked
+// must produce a loud error, not a clean-looking empty result. Silently
+// returning no attempts would read as "no injection sinks" — a false negative,
+// the worst outcome for a scanner.
+func TestInjection_FailsLoudOnNonToolInvoker(t *testing.T) {
 	p := newInjectionProbe(t)
 	attempts, err := p.Probe(context.Background(), plainGen{})
-	if err != nil {
-		t.Fatalf("Probe: %v", err)
+	if err == nil {
+		t.Fatalf("expected an error for non-ToolInvoker target, got nil (attempts=%d)", len(attempts))
 	}
-	if attempts != nil {
-		t.Errorf("expected nil attempts for non-ToolInvoker target, got %d", len(attempts))
+	if !strings.Contains(err.Error(), "direct tool invocation") {
+		t.Errorf("error = %q, want it to explain the target is not tool-invokable", err)
 	}
 }
 

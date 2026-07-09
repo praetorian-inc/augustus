@@ -32,11 +32,13 @@ var (
 type Injection struct {
 	reconContext
 	canary canary
+	policy toolPolicy
 }
 
-// NewInjection constructs the probe with a fresh canary.
-func NewInjection(_ registry.Config) (probes.Prober, error) {
-	return &Injection{canary: newCanary()}, nil
+// NewInjection constructs the probe with a fresh canary and the tool-safety
+// policy parsed from config (allow_destructive, tool_allowlist, tool_denylist).
+func NewInjection(cfg registry.Config) (probes.Prober, error) {
+	return &Injection{canary: newCanary(), policy: newToolPolicy(cfg)}, nil
 }
 
 func (p *Injection) Name() string { return "toolsec.Injection" }
@@ -57,19 +59,25 @@ func (p *Injection) GetPrompts() []string { return p.canary.payloads }
 // string parameter. Returns no attempts (and no error) when the target has no
 // directly-invokable tool surface.
 func (p *Injection) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
+	// Invoking tools requires a live ToolInvoker; recon only supplies the
+	// catalog, so the payloads must be sent to the real target. A non-ToolInvoker
+	// target cannot be tested by this probe — fail loud rather than return a
+	// clean-looking empty result (a silent false negative for a scanner).
+	inv, ok := gen.(types.ToolInvoker)
+	if !ok {
+		return nil, fmt.Errorf("toolsec.Injection: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
+	}
+
 	// Prefer shared reconnaissance; fall back to live enumeration.
 	tools, err := p.resolveTools(ctx, gen)
 	if err != nil {
 		return nil, fmt.Errorf("toolsec.Injection: list tools: %w", err)
 	}
+	// Apply the safety gate before invoking anything (skips destructive tools
+	// unless opted in). A target that genuinely advertises no testable tools is a
+	// legitimate empty result, not an error.
+	tools = p.policy.filterTools(p.Name(), tools)
 	if len(tools) == 0 {
-		return nil, nil
-	}
-
-	// Invoking tools still requires a live ToolInvoker; recon supplies the
-	// catalog, but the payloads must be sent to the real target.
-	inv, ok := gen.(types.ToolInvoker)
-	if !ok {
 		return nil, nil
 	}
 

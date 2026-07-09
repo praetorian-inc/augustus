@@ -24,7 +24,7 @@ var _ types.MCPReconnaissance = (*MCP)(nil)
 // leaves that catalog empty rather than failing the whole inventory, so a
 // partially reachable server still yields a usable fingerprint.
 func (m *MCP) MCPInventory(ctx context.Context) (*types.MCPInventory, error) {
-	inv := &types.MCPInventory{Transport: m.cfg.Transport}
+	inv := &types.MCPInventory{}
 
 	err := m.withSession(ctx, func(ctx context.Context, sess *mcpsdk.ClientSession) error {
 		callCtx, cancel := context.WithTimeout(ctx, m.cfg.RequestTimeout)
@@ -63,6 +63,11 @@ func (m *MCP) MCPInventory(ctx context.Context) (*types.MCPInventory, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Record the transport actually used, not the configured value: an "auto"
+	// target resolves to a concrete "http"/"sse" during connect, and the
+	// inventory should report what it really connected over.
+	inv.Transport = m.resolvedTransport()
 
 	inv.Counts = types.MCPInventoryCounts{
 		Tools:             len(inv.Tools),
@@ -108,7 +113,7 @@ func mcpToolsFrom(tools []*mcpsdk.Tool) []types.MCPTool {
 		if t == nil {
 			continue
 		}
-		mt := types.MCPTool{Name: t.Name, Title: t.Title, Description: t.Description}
+		mt := types.MCPTool{Name: t.Name, Title: t.Title, Description: t.Description, Annotations: annotationsFrom(t.Annotations)}
 		if t.InputSchema != nil {
 			if raw, err := json.Marshal(t.InputSchema); err == nil {
 				mt.InputSchema = raw
@@ -117,6 +122,23 @@ func mcpToolsFrom(tools []*mcpsdk.Tool) []types.MCPTool {
 		out = append(out, mt)
 	}
 	return out
+}
+
+// annotationsFrom maps the SDK's tool annotations to the descriptive recon type,
+// returning nil when the tool declared none so consumers can tell "no hints" from
+// "hints, all false". It is the single converter used by both the recon-inventory
+// path (mcpToolsFrom) and the live ListTools path (toolsToMaps).
+func annotationsFrom(a *mcpsdk.ToolAnnotations) *types.MCPToolAnnotations {
+	if a == nil {
+		return nil
+	}
+	return &types.MCPToolAnnotations{
+		ReadOnly:    a.ReadOnlyHint,
+		Destructive: a.DestructiveHint,
+		Idempotent:  a.IdempotentHint,
+		OpenWorld:   a.OpenWorldHint,
+		Title:       a.Title,
+	}
 }
 
 func mcpResourcesFrom(res []*mcpsdk.Resource) []types.MCPResource {

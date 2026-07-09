@@ -408,7 +408,7 @@ func TestScanCommand_CleanupHook_ReconOnly(t *testing.T) {
 
 	cfg := &scanConfig{
 		generatorName: "test.Repeat",
-		reconNames:    []string{"recon.MCP"}, // skips non-MCP target; recon phase still runs
+		reconNames:    []string{reconFakeOK}, // produces one observation → a successful recon-only scan
 		harnessName:   "probewise.Probewise",
 		outputFormat:  "table",
 		cleanup:       fmt.Sprintf(`touch %s`, markerFile),
@@ -420,6 +420,49 @@ func TestScanCommand_CleanupHook_ReconOnly(t *testing.T) {
 
 	_, err = os.Stat(markerFile)
 	assert.NoError(t, err, "cleanup hook should run even on a recon-only scan")
+}
+
+// TestScanCommand_ReconOnly_FailsWhenNothingGathered: a recon-only scan whose
+// only module gathered no observations (e.g. the target was not applicable or
+// unreachable) must NOT exit 0 — that would be a false green for the only
+// requested activity. The cleanup hook must still run.
+func TestScanCommand_ReconOnly_FailsWhenNothingGathered(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	markerFile := filepath.Join(tmpDir, "cleanup_ran")
+
+	cfg := &scanConfig{
+		generatorName: "test.Repeat",
+		reconNames:    []string{reconFakeEmpty}, // gathers nothing, no error
+		harnessName:   "probewise.Probewise",
+		outputFormat:  "table",
+		cleanup:       fmt.Sprintf(`touch %s`, markerFile),
+	}
+
+	err := runScan(ctx, cfg, &mockEvaluator{})
+	require.Error(t, err, "recon-only scan that gathered nothing must not exit 0")
+	assert.Contains(t, err.Error(), "no observations")
+
+	_, statErr := os.Stat(markerFile)
+	assert.NoError(t, statErr, "cleanup hook must still run when a recon-only scan fails")
+}
+
+// TestScanCommand_ReconOnly_FailsOnModuleError: a recon-only scan whose module
+// errored (e.g. unreachable server / inventory failure) must surface that as a
+// non-zero exit, not swallow it.
+func TestScanCommand_ReconOnly_FailsOnModuleError(t *testing.T) {
+	ctx := context.Background()
+
+	cfg := &scanConfig{
+		generatorName: "test.Repeat",
+		reconNames:    []string{reconFakeErr},
+		harnessName:   "probewise.Probewise",
+		outputFormat:  "table",
+	}
+
+	err := runScan(ctx, cfg, &mockEvaluator{})
+	require.Error(t, err, "recon-only scan whose module errored must not exit 0")
+	assert.Contains(t, err.Error(), "reconnaissance failed")
 }
 
 // TestScanCommand_SetupHookFailure tests that a failing setup hook causes scan to fail.

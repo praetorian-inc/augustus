@@ -41,6 +41,7 @@ type SSRF struct {
 	wait         time.Duration // grace period for callbacks after sending
 	allParams    bool          // inject into every string param, not just URL-like ones
 	marker       string        // collector body marker (reflection signal)
+	policy       toolPolicy    // destructive-tool safety gate
 }
 
 // NewSSRF constructs the probe. All OOB settings default so a localhost target
@@ -52,6 +53,7 @@ func NewSSRF(cfg registry.Config) (probes.Prober, error) {
 		wait:         time.Duration(registry.GetInt(cfg, "oob_wait_seconds", 3)) * time.Second,
 		allParams:    registry.GetBool(cfg, "ssrf_all_string_params", false),
 		marker:       "AUGOOB" + randToken(),
+		policy:       newToolPolicy(cfg),
 	}, nil
 }
 
@@ -75,19 +77,24 @@ func (p *SSRF) GetPrompts() []string {
 // for out-of-band callbacks, and records the callback/reflection signals per
 // attempt. Returns no attempts (no error) for non-ToolInvoker targets.
 func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
+	// Invoking tools requires a live ToolInvoker; recon only supplies the
+	// catalog, so the canary URLs must be sent to the real target. A
+	// non-ToolInvoker target cannot be tested — fail loud rather than return a
+	// clean-looking empty result (a silent false negative for a scanner).
+	inv, ok := gen.(types.ToolInvoker)
+	if !ok {
+		return nil, fmt.Errorf("toolsec.SSRF: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
+	}
+
 	// Prefer shared reconnaissance; fall back to live enumeration.
 	tools, err := p.resolveTools(ctx, gen)
 	if err != nil {
 		return nil, fmt.Errorf("toolsec.SSRF: list tools: %w", err)
 	}
+	// Apply the safety gate before invoking anything (skips destructive tools
+	// unless opted in).
+	tools = p.policy.filterTools(p.Name(), tools)
 	if len(tools) == 0 {
-		return nil, nil
-	}
-
-	// Invoking tools still requires a live ToolInvoker; recon supplies the
-	// catalog, but the canary URLs must be sent to the real target.
-	inv, ok := gen.(types.ToolInvoker)
-	if !ok {
 		return nil, nil
 	}
 

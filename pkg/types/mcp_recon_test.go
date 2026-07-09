@@ -50,3 +50,46 @@ func TestMCPInventory_ToolMaps(t *testing.T) {
 		t.Errorf("noschema tool should have no parameters key, got %v", got[1]["parameters"])
 	}
 }
+
+// ToolMaps must expose safety annotations under "annotations" as a concrete
+// MCPToolAnnotations value, so the tool-surface probes gate destructive tools the
+// same way on the recon path as on the live-enumeration path.
+func TestMCPInventory_ToolMaps_Annotations(t *testing.T) {
+	tru := true
+	inv := &MCPInventory{Tools: []MCPTool{
+		{Name: "wipe", Annotations: &MCPToolAnnotations{Destructive: &tru}},
+		{Name: "plain"},
+	}}
+	got := inv.ToolMaps()
+
+	ann, ok := got[0]["annotations"].(MCPToolAnnotations)
+	if !ok {
+		t.Fatalf("annotations is %T, want MCPToolAnnotations", got[0]["annotations"])
+	}
+	if !ann.IsDestructive() {
+		t.Error("wipe tool should report destructive")
+	}
+	if _, has := got[1]["annotations"]; has {
+		t.Error("un-annotated tool must not carry an annotations key")
+	}
+}
+
+func TestMCPToolAnnotations_IsDestructive(t *testing.T) {
+	tru, fls := true, false
+	tests := []struct {
+		name string
+		ann  *MCPToolAnnotations
+		want bool
+	}{
+		{"nil annotations are not known-destructive", nil, false},
+		{"read-only is never destructive", &MCPToolAnnotations{ReadOnly: true, Destructive: &tru}, false},
+		{"explicit destructive", &MCPToolAnnotations{Destructive: &tru}, true},
+		{"explicit non-destructive", &MCPToolAnnotations{Destructive: &fls}, false},
+		{"non-read-only with no destructive hint defaults to destructive (MCP spec)", &MCPToolAnnotations{}, true},
+	}
+	for _, tt := range tests {
+		if got := tt.ann.IsDestructive(); got != tt.want {
+			t.Errorf("%s: IsDestructive() = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}

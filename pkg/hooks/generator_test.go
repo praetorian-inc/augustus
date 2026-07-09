@@ -118,6 +118,72 @@ func TestHookedGenerator_PlainGeneratorHasNoMCPCapabilities(t *testing.T) {
 	}
 }
 
+// visionDocGenerator implements the multimodal optional interfaces (and, via the
+// embedded mockGenerator, RawResponseProvider) but NOT the MCP ones.
+type visionDocGenerator struct {
+	mockGenerator
+	vision bool
+	docs   bool
+}
+
+func (g *visionDocGenerator) SupportsVision() bool    { return g.vision }
+func (g *visionDocGenerator) SupportsDocuments() bool { return g.docs }
+
+// bareGenerator implements ONLY types.Generator — no optional interfaces.
+type bareGenerator struct{ name string }
+
+func (bareGenerator) Generate(context.Context, *attempt.Conversation, int) ([]attempt.Message, error) {
+	return nil, nil
+}
+func (bareGenerator) ClearHistory()       {}
+func (g bareGenerator) Name() string      { return g.name }
+func (bareGenerator) Description() string { return "bare" }
+
+// The hook wrapper must preserve the multimodal + raw-response optional
+// interfaces, not just the MCP ones — otherwise a vision/document probe run WITH
+// a hook mis-reports a capable target as unsupported (a silent false negative).
+func TestHookedGenerator_PreservesVisionDocumentRawResponse(t *testing.T) {
+	inner := &visionDocGenerator{
+		mockGenerator: mockGenerator{name: "mm", rawResp: []byte("raw-bytes")},
+		vision:        true,
+		docs:          true,
+	}
+	h := NewHookedGenerator(inner, nil, nil)
+
+	vc, ok := h.(types.VisionCapable)
+	require.True(t, ok, "wrapper must preserve VisionCapable")
+	assert.True(t, vc.SupportsVision(), "SupportsVision must forward to inner")
+
+	dc, ok := h.(types.DocumentCapable)
+	require.True(t, ok, "wrapper must preserve DocumentCapable")
+	assert.True(t, dc.SupportsDocuments(), "SupportsDocuments must forward to inner")
+
+	rp, ok := h.(RawResponseProvider)
+	require.True(t, ok, "wrapper must preserve RawResponseProvider")
+	assert.Equal(t, []byte("raw-bytes"), rp.LastRawResponse(), "LastRawResponse must forward to inner")
+
+	if _, ok := h.(types.ToolInvoker); ok {
+		t.Error("wrapper must not advertise ToolInvoker for a non-tool generator")
+	}
+}
+
+// A bare generator must gain no optional interfaces through the wrapper.
+func TestHookedGenerator_BareGeneratorGainsNoInterfaces(t *testing.T) {
+	h := NewHookedGenerator(bareGenerator{name: "bare"}, nil, nil)
+	if _, ok := h.(types.VisionCapable); ok {
+		t.Error("bare generator must not become VisionCapable")
+	}
+	if _, ok := h.(types.DocumentCapable); ok {
+		t.Error("bare generator must not become DocumentCapable")
+	}
+	if _, ok := h.(RawResponseProvider); ok {
+		t.Error("bare generator must not become RawResponseProvider")
+	}
+	if _, ok := h.(types.ToolInvoker); ok {
+		t.Error("bare generator must not become ToolInvoker")
+	}
+}
+
 func TestHookedGeneratorNoHooks(t *testing.T) {
 	inner := &mockGenerator{
 		name:      "test.Mock",

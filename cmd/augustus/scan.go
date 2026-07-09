@@ -690,14 +690,18 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	// it). It is always non-nil, so context-aware probes get a valid — possibly
 	// empty — store.
 	store := recon.NewStore()
+	var reconErr error
 	if len(cfg.reconNames) > 0 {
 		reconModules, rerr := createRecons(cfg.reconNames)
 		if rerr != nil {
 			return rerr
 		}
 		if rerr := recon.Run(ctx, gen, reconModules, store); rerr != nil {
-			// Best-effort: surface recon errors but do not abort the scan.
+			// Best-effort for a full scan: recon feeds the probes, which are the
+			// real activity, so a recon error must not abort them. It is retained
+			// so a recon-ONLY scan (no probes) can report it rather than exiting 0.
 			slog.Warn("reconnaissance completed with errors", "error", rerr)
+			reconErr = rerr
 		}
 		if oerr := emitObservations(store.Observations()); oerr != nil {
 			return oerr
@@ -747,7 +751,20 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	// The cleanup hook must still run so a --setup that provisioned resources is
 	// torn down even when no probes ran.
 	if len(probeNames) == 0 {
-		return runCleanupHook(cfg)
+		cleanupErr := runCleanupHook(cfg)
+		// Recon was the only activity, so its outcome IS the scan's outcome: do
+		// not report a false green. Fail if any module errored, or if the run
+		// produced no observations at all (e.g. an unreachable server), so
+		// `augustus scan --recon ...` cannot exit 0 having discovered nothing.
+		if len(cfg.reconNames) > 0 {
+			switch {
+			case reconErr != nil:
+				return errors.Join(fmt.Errorf("reconnaissance failed: %w", reconErr), cleanupErr)
+			case len(store.Observations()) == 0:
+				return errors.Join(errors.New("reconnaissance produced no observations"), cleanupErr)
+			}
+		}
+		return cleanupErr
 	}
 
 	// Create probes

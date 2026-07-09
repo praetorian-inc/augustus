@@ -29,8 +29,9 @@ type MCPReconnaissance interface {
 // MCPInventory is a machine-readable, JSON-serializable snapshot of an MCP
 // server's attack surface — purely descriptive reconnaissance data.
 type MCPInventory struct {
-	// Transport is the transport the generator connected over ("http", "sse",
-	// "stdio").
+	// Transport is the transport the generator connected over ("http" or "sse").
+	// For an "auto" target it is the transport auto-detection resolved to, not the
+	// literal "auto".
 	Transport string `json:"transport"`
 	// ProtocolVersion is the MCP protocol version the server negotiated.
 	ProtocolVersion string `json:"protocol_version,omitempty"`
@@ -51,10 +52,13 @@ type MCPInventory struct {
 }
 
 // ToolMaps renders the inventory's tools in the same wire shape that
-// ToolInvoker.ListTools produces — a slice of {name, description, parameters}
-// maps — so probes can consume shared reconnaissance instead of enumerating the
-// tool surface a second time. The InputSchema raw JSON is decoded into the
-// "parameters" key; a tool with no (or malformed) schema simply omits the key.
+// ToolInvoker.ListTools produces — a slice of {name, description, parameters,
+// annotations} maps — so probes can consume shared reconnaissance instead of
+// enumerating the tool surface a second time. The InputSchema raw JSON is decoded
+// into the "parameters" key; a tool with no (or malformed) schema simply omits
+// the key. Safety annotations, when present, are exposed under "annotations" as a
+// concrete MCPToolAnnotations value — the same type the live ListTools path
+// stores — so tool-surface probes can gate destructive tools on either path.
 func (inv *MCPInventory) ToolMaps() []map[string]any {
 	out := make([]map[string]any, 0, len(inv.Tools))
 	for _, t := range inv.Tools {
@@ -67,6 +71,9 @@ func (inv *MCPInventory) ToolMaps() []map[string]any {
 			if err := json.Unmarshal(t.InputSchema, &schema); err == nil {
 				tm["parameters"] = schema
 			}
+		}
+		if t.Annotations != nil {
+			tm["annotations"] = *t.Annotations
 		}
 		out = append(out, tm)
 	}
@@ -93,6 +100,45 @@ type MCPTool struct {
 	Title       string          `json:"title,omitempty"`
 	Description string          `json:"description,omitempty"`
 	InputSchema json.RawMessage `json:"input_schema,omitempty"`
+	// Annotations holds the server-declared behavioral hints (read-only /
+	// destructive), nil when the tool carries none. It is descriptive recon data;
+	// the tool-surface probes read it to decide whether calling the tool with
+	// adversarial arguments is safe.
+	Annotations *MCPToolAnnotations `json:"annotations,omitempty"`
+}
+
+// MCPToolAnnotations mirrors the MCP tool behavioral hints. The pointer fields
+// distinguish "declared false" from "not declared": per the MCP spec their
+// defaults differ from the Go zero value (DestructiveHint and OpenWorldHint
+// default to true), so a nil pointer means the server said nothing.
+type MCPToolAnnotations struct {
+	// ReadOnly: the tool does not modify its environment (spec default false).
+	ReadOnly bool `json:"read_only,omitempty"`
+	// Destructive: the tool may perform destructive updates; meaningful only when
+	// ReadOnly is false (spec default true, hence a pointer).
+	Destructive *bool `json:"destructive,omitempty"`
+	// Idempotent: repeated calls with the same args have no additional effect
+	// (spec default false).
+	Idempotent bool `json:"idempotent,omitempty"`
+	// OpenWorld: the tool interacts with an open world of external entities (spec
+	// default true, hence a pointer).
+	OpenWorld *bool `json:"open_world,omitempty"`
+	// Title is the human-readable tool title, when the server supplied one.
+	Title string `json:"title,omitempty"`
+}
+
+// IsDestructive reports whether calling the tool with adversarial arguments is
+// potentially state-changing. A read-only tool is never destructive. Otherwise
+// it follows the MCP spec default: absent a DestructiveHint, a non-read-only tool
+// is assumed destructive.
+func (a *MCPToolAnnotations) IsDestructive() bool {
+	if a == nil {
+		return false // no annotations: unknown, not "known destructive"
+	}
+	if a.ReadOnly {
+		return false
+	}
+	return a.Destructive == nil || *a.Destructive
 }
 
 // MCPResource is one advertised concrete resource.

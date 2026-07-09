@@ -10,15 +10,13 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
-// Compile-time interface assertions.
+//go:generate go run gen_caps.go
+
+// Compile-time interface assertions. The optional-interface wrappers and their
+// assertions are generated (see hooked_caps_gen.go).
 var (
 	_ types.Generator     = (*HookedGenerator)(nil)
 	_ types.UsageReporter = (*HookedGenerator)(nil)
-
-	_ types.ToolInvoker       = (*hookedToolInvoker)(nil)
-	_ types.MCPReconnaissance = (*hookedMCPRecon)(nil)
-	_ types.ToolInvoker       = (*hookedMCP)(nil)
-	_ types.MCPReconnaissance = (*hookedMCP)(nil)
 )
 
 // HookedGenerator wraps a generator with runtime hook support.
@@ -46,21 +44,14 @@ func NewHookedGenerator(inner types.Generator, prepare *Hook, initialVars map[st
 		vars:    vars,
 	}
 
-	// Expose exactly the optional interfaces the inner generator implements —
+	// Preserve exactly the optional interfaces the inner generator implements —
 	// no more (a plain chat model must not appear MCP-capable), no less (an MCP
-	// target must stay a ToolInvoker/MCPReconnaissance through the wrapper).
-	_, isToolInvoker := inner.(types.ToolInvoker)
-	_, isMCPRecon := inner.(types.MCPReconnaissance)
-	switch {
-	case isToolInvoker && isMCPRecon:
-		return &hookedMCP{base}
-	case isToolInvoker:
-		return &hookedToolInvoker{base}
-	case isMCPRecon:
-		return &hookedMCPRecon{base}
-	default:
-		return base
-	}
+	// target must stay a ToolInvoker/MCPReconnaissance, a multimodal target must
+	// stay VisionCapable/DocumentCapable, a raw-response target must stay a
+	// RawResponseProvider). capMask + wrapCaps and the 2^N combination wrappers
+	// are generated (gen_caps.go), so this stays correct as capabilities are added
+	// without hand-writing a wrapper per combination.
+	return wrapCaps(base, capMask(inner))
 }
 
 // hookedListTools, hookedCallTool and hookedMCPInventory forward one optional-
@@ -91,39 +82,10 @@ func hookedMCPInventory(h *HookedGenerator, ctx context.Context) (*types.MCPInve
 	return h.inner.(types.MCPReconnaissance).MCPInventory(hctx)
 }
 
-// hookedToolInvoker wraps HookedGenerator when the inner is a ToolInvoker only.
-type hookedToolInvoker struct{ *HookedGenerator }
-
-func (h *hookedToolInvoker) ListTools(ctx context.Context) ([]map[string]any, error) {
-	return hookedListTools(h.HookedGenerator, ctx)
-}
-
-func (h *hookedToolInvoker) CallTool(ctx context.Context, name string, args map[string]any) (types.ToolResult, error) {
-	return hookedCallTool(h.HookedGenerator, ctx, name, args)
-}
-
-// hookedMCPRecon wraps HookedGenerator when the inner is MCPReconnaissance only.
-type hookedMCPRecon struct{ *HookedGenerator }
-
-func (h *hookedMCPRecon) MCPInventory(ctx context.Context) (*types.MCPInventory, error) {
-	return hookedMCPInventory(h.HookedGenerator, ctx)
-}
-
-// hookedMCP wraps HookedGenerator when the inner is both a ToolInvoker and
-// MCPReconnaissance (the MCP generator).
-type hookedMCP struct{ *HookedGenerator }
-
-func (h *hookedMCP) ListTools(ctx context.Context) ([]map[string]any, error) {
-	return hookedListTools(h.HookedGenerator, ctx)
-}
-
-func (h *hookedMCP) CallTool(ctx context.Context, name string, args map[string]any) (types.ToolResult, error) {
-	return hookedCallTool(h.HookedGenerator, ctx, name, args)
-}
-
-func (h *hookedMCP) MCPInventory(ctx context.Context) (*types.MCPInventory, error) {
-	return hookedMCPInventory(h.HookedGenerator, ctx)
-}
+// The optional-interface capability predicates (SupportsVision,
+// SupportsDocuments, LastRawResponse) are pure pass-throughs to the inner
+// generator — no hook context needed — and are forwarded directly by the
+// generated combination wrappers (hooked_caps_gen.go).
 
 // Generate runs the prepare hook (if set), merges its output variables,
 // injects all variables into the context, and delegates to the inner generator.
