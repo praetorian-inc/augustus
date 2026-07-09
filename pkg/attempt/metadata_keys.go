@@ -96,4 +96,27 @@ const (
 	// MetadataKeyDNSRebindAllowCreds (bool) records whether the response's
 	// Access-Control-Allow-Credentials header was true.
 	MetadataKeyDNSRebindAllowCreds = "toolsec.dnsrebind_allow_credentials"
+
+	// MetadataKeySSESessionAccepted (bool) records whether an SSE session-
+	// hijack probe attempt succeeded (weakness confirmed). Read by the
+	// toolsec.SSESessionHijack detector.
+	MetadataKeySSESessionAccepted = "toolsec.sse_session_accepted"
+	// MetadataKeySSESessionClass (string) categorises the SSE session
+	// weakness the attempt exercised:
+	//
+	//	session-id-short           IDs shorter than 16 chars (< ~64 bits of state)
+	//	session-id-low-entropy     insufficient char-space diversity
+	//	session-id-common-prefix   shared prefix across independent sessions
+	//	session-id-collision       two independent sessions had the same ID
+	//	session-not-tcp-bound      POST accepted from a fresh TCP conn without holding the SSE stream
+	//	session-post-close-alive   POST accepted after the SSE stream was closed
+	//	baseline                   informational sampling attempt
+	MetadataKeySSESessionClass = "toolsec.sse_session_class"
+	// MetadataKeySSESessionSample (string) is the session id (or a short
+	// preview) the attempt worked with. Recorded for reproducibility; probe
+	// output truncates to the first 24 characters.
+	MetadataKeySSESessionSample = "toolsec.sse_session_sample"
+	// MetadataKeySSESessionEndpoint (string) is the POST endpoint the server
+	// advertised for this session (via the `event: endpoint` SSE frame).
+	MetadataKeySSESessionEndpoint = "toolsec.sse_session_endpoint"
 )
