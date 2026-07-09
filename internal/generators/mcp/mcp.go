@@ -681,6 +681,16 @@ func (m *MCP) target() string {
 	return m.cfg.Endpoint
 }
 
+// EndpointURL implements types.MCPEndpoint. It surfaces the configured HTTP
+// endpoint to transport-layer probes (DNS-rebinding, TLS checks, ...) that
+// need to talk to the underlying HTTP server directly rather than going
+// through the MCP protocol layer. Returns "" if the target has no URL surface.
+func (m *MCP) EndpointURL() string { return m.cfg.Endpoint }
+
+// Transport implements types.MCPEndpoint. Mirrors the value that ends up in
+// MCPInventory.Transport once a session is established.
+func (m *MCP) Transport() string { return m.cfg.Transport }
+
 // headerTransport injects configured headers on every outgoing request,
 // substituting $KEY (the static api_key) and $VARNAME placeholders from the
 // per-request hook variables in the request context. Substituting per request —

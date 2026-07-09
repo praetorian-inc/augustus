@@ -59,4 +59,41 @@ const (
 	// it in metadata means the detector never re-derives it and stays id-format
 	// agnostic.
 	MetadataKeyBOLANonexistentID = "toolsec.bola.nonexistent_id"
+
+	// MetadataKeyPathTraversalSignatures holds the []string of well-known file
+	// signatures (e.g. "root:x:0:") a toolsec path-traversal probe expects to
+	// see in a tool's output if the traversal payload resolved to the target
+	// file. Read by the toolsec.PathTraversal detector.
+	MetadataKeyPathTraversalSignatures = "toolsec.pathtraversal_signatures"
+
+	// MetadataKeyDNSRebindAccepted (bool) records whether the target processed
+	// a request that a rebinding-protected MCP server should have refused
+	// (external Origin, credentialed CORS reflection, etc). Read by the
+	// toolsec.DNSRebinding detector.
+	MetadataKeyDNSRebindAccepted = "toolsec.dnsrebind_accepted"
+	// MetadataKeyDNSRebindClass (string) categorises how the attempt bypassed
+	// the expected Origin/Host validation. Values are stable strings suitable
+	// for grouping in a finding report:
+	//
+	//	external-origin        server accepted a plausibly-external Origin (root cause)
+	//	null-origin            server accepted Origin: null (sandbox iframes, file://)
+	//	extension-origin       server accepted a chrome-extension://[uuid] Origin
+	//	localhost-lookalike    server accepted an Origin that spoofs "localhost" (weak substring/prefix validator)
+	//	case-variant           server accepted a case-shifted variant of the expected host
+	//	unexpected-host        server processed a request bearing a non-canonical Host header
+	//	cors-reflect-creds     server reflected the attacker Origin AND allow-credentials in an OPTIONS preflight
+	//	baseline               spec-compliant baseline (missing Origin) — informational, not a finding
+	MetadataKeyDNSRebindClass = "toolsec.dnsrebind_class"
+	// MetadataKeyDNSRebindOrigin (string) is the Origin header value sent.
+	MetadataKeyDNSRebindOrigin = "toolsec.dnsrebind_origin"
+	// MetadataKeyDNSRebindHost (string) is the Host header value sent.
+	MetadataKeyDNSRebindHost = "toolsec.dnsrebind_host"
+	// MetadataKeyDNSRebindAllowOrigin (string) is the Access-Control-Allow-Origin
+	// value the server returned to a preflight request, when present. Recorded
+	// even for non-finding attempts because it lets a reviewer confirm a
+	// cors-reflect-creds classification.
+	MetadataKeyDNSRebindAllowOrigin = "toolsec.dnsrebind_allow_origin"
+	// MetadataKeyDNSRebindAllowCreds (bool) records whether the response's
+	// Access-Control-Allow-Credentials header was true.
+	MetadataKeyDNSRebindAllowCreds = "toolsec.dnsrebind_allow_credentials"
 )
