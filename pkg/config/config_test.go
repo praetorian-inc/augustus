@@ -616,6 +616,94 @@ func TestBuffsMerge(t *testing.T) {
 	assert.Equal(t, 5.0, base.Buffs.Settings["lrl.LRLBuff"]["rate_limit"])
 }
 
+// TestDetectorsRefusalPatternsMerge tests merging detectors.refusal_patterns configuration
+func TestDetectorsRefusalPatternsMerge(t *testing.T) {
+	base := &Config{
+		Detectors: DetectorConfig{
+			RefusalPatterns: []string{"base phrase"},
+		},
+	}
+	overlay := &Config{
+		Detectors: DetectorConfig{
+			RefusalPatterns: []string{"overlay phrase"},
+		},
+	}
+
+	base.Merge(overlay)
+
+	// Overlay should win
+	assert.Equal(t, []string{"overlay phrase"}, base.Detectors.RefusalPatterns)
+}
+
+// TestDetectorsRefusalPatternsMergeEmptyOverlayKeepsBase tests that an empty
+// overlay does not clobber the base's detectors.refusal_patterns
+func TestDetectorsRefusalPatternsMergeEmptyOverlayKeepsBase(t *testing.T) {
+	base := &Config{
+		Detectors: DetectorConfig{
+			RefusalPatterns: []string{"base phrase"},
+		},
+	}
+	overlay := &Config{}
+
+	base.Merge(overlay)
+
+	// Base should be preserved
+	assert.Equal(t, []string{"base phrase"}, base.Detectors.RefusalPatterns)
+}
+
+// TestDetectorsRefusalPatternsYAML tests loading detectors.refusal_patterns from
+// a real YAML file end-to-end. This guards the deserialization struct tag on the
+// RefusalPatterns field: the merge tests above build Config via struct literals
+// and never exercise the file-load path, so a dropped/mistyped tag would silently
+// discard detectors.refusal_patterns from every real config while staying green.
+func TestDetectorsRefusalPatternsYAML(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.yaml")
+
+	yamlContent := `
+detectors:
+  refusal_patterns:
+    - "I can only answer product questions"
+    - "I don't have enough information"
+`
+
+	err := os.WriteFile(configPath, []byte(yamlContent), 0o644)
+	require.NoError(t, err)
+
+	cfg, err := LoadConfig(configPath)
+	require.NoError(t, err)
+	require.NotNil(t, cfg)
+
+	assert.Equal(t, []string{
+		"I can only answer product questions",
+		"I don't have enough information",
+	}, cfg.Detectors.RefusalPatterns)
+}
+
+// TestResolveDetectorConfigInjectsRefusalPatterns verifies the global
+// detectors.refusal_patterns list is broadcast into every detector's resolved
+// config under the "refusal_patterns" key (consumed by base.ResolveMitigationPhrases),
+// with no per-detector routing list. Absent a global list, the key is not set.
+func TestResolveDetectorConfigInjectsRefusalPatterns(t *testing.T) {
+	t.Run("broadcast into an arbitrary detector", func(t *testing.T) {
+		c := &Config{
+			Detectors: DetectorConfig{
+				RefusalPatterns: []string{"I can only answer product questions"},
+			},
+		}
+		// pair.PAIR has no per-detector settings here, yet still receives the broadcast.
+		cfg := c.ResolveDetectorConfig("pair.PAIR")
+		assert.Equal(t, []string{"I can only answer product questions"}, cfg["refusal_patterns"])
+	})
+
+	t.Run("no global list means no key", func(t *testing.T) {
+		c := &Config{}
+		cfg := c.ResolveDetectorConfig("pair.PAIR")
+		_, ok := cfg["refusal_patterns"]
+		assert.False(t, ok)
+	})
+}
+
 // TestResolveProbeConfig tests the two-layer probe config resolution
 func TestResolveProbeConfig(t *testing.T) {
 	tests := []struct {

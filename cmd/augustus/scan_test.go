@@ -538,6 +538,18 @@ func TestLoadScanConfig_HookFields(t *testing.T) {
 	assert.Equal(t, "echo cleanup", cfg.cleanup)
 }
 
+// TestLoadScanConfig_RefusalPatternFlag tests that loadScanConfig wires the
+// --refusal-pattern flag into cfg.refusalPatterns (TEST-001).
+func TestLoadScanConfig_RefusalPatternFlag(t *testing.T) {
+	cmd := &ScanCmd{
+		Generator:      "test.Repeat",
+		Probe:          []string{"test.Test"},
+		RefusalPattern: []string{"phrase a", "phrase b"},
+	}
+	cfg := cmd.loadScanConfig()
+	assert.Equal(t, []string{"phrase a", "phrase b"}, cfg.refusalPatterns)
+}
+
 func TestScanCommand_CleanupDoesNotRunOnEarlyFailure(t *testing.T) {
 	ctx := context.Background()
 	tmpDir := t.TempDir()
@@ -2184,4 +2196,27 @@ func TestTerminalWidth_COLUMNSEnvVar(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestFoldRefusalPatternFlag(t *testing.T) {
+	t.Run("nil flags returns input unchanged", func(t *testing.T) {
+		assert.Nil(t, foldRefusalPatternFlag(nil, nil))
+		in := &config.Config{}
+		assert.Same(t, in, foldRefusalPatternFlag(in, nil))
+	})
+
+	t.Run("nil config with flags materializes a config", func(t *testing.T) {
+		out := foldRefusalPatternFlag(nil, []string{"phrase a", "phrase b"})
+		require.NotNil(t, out)
+		assert.Equal(t, []string{"phrase a", "phrase b"}, out.Detectors.RefusalPatterns)
+	})
+
+	t.Run("CLI flags augment existing YAML refusal_patterns", func(t *testing.T) {
+		in := &config.Config{
+			Detectors: config.DetectorConfig{RefusalPatterns: []string{"yaml phrase"}},
+		}
+		out := foldRefusalPatternFlag(in, []string{"cli phrase"})
+		assert.Same(t, in, out)
+		assert.Equal(t, []string{"yaml phrase", "cli phrase"}, out.Detectors.RefusalPatterns)
+	})
 }

@@ -109,6 +109,13 @@ type EncodingProbeConfig struct {
 type DetectorConfig struct {
 	Always   AlwaysDetectorConfig      `yaml:"always"`
 	Settings map[string]map[string]any `yaml:"settings,omitempty" koanf:"settings"`
+	// RefusalPatterns is the YAML equivalent of the --refusal-pattern CLI flag:
+	// a target's own refusal/guardrail phrases that every mitigation/refusal
+	// detector should treat as a mitigation. They are fanned out (appended to
+	// each detector's extra_substrings) at scan time so a non-generic deflection
+	// is not mis-scored as a bypass (LAB-4664). CLI --refusal-pattern values
+	// augment these; both compose with any per-detector extra_substrings above.
+	RefusalPatterns []string `yaml:"refusal_patterns,omitempty" koanf:"refusal_patterns"`
 }
 
 // BuffConfig contains buff-specific configuration
@@ -148,6 +155,18 @@ func (c *Config) injectJudgeConfig(cfg map[string]any) {
 			genCfg[k] = v
 		}
 		cfg["judge_config"] = genCfg
+	}
+}
+
+// injectRefusalPatterns broadcasts the global detectors.refusal_patterns list into
+// a detector's resolved config under the "refusal_patterns" key. Every detector
+// receives it (exactly like injectJudgeConfig); only the mitigation/refusal
+// detectors read it, via base.ResolveMitigationPhrases. This is what lets
+// --refusal-pattern / detectors.refusal_patterns reach those detectors without a
+// per-detector routing list to maintain (LAB-4664).
+func (c *Config) injectRefusalPatterns(cfg map[string]any) {
+	if len(c.Detectors.RefusalPatterns) > 0 {
+		cfg["refusal_patterns"] = c.Detectors.RefusalPatterns
 	}
 }
 
@@ -195,6 +214,10 @@ func (c *Config) ResolveDetectorConfig(detectorName string) map[string]any {
 
 	// Layer 0: Global judge config (inherited by all detectors; non-judge detectors ignore these keys)
 	c.injectJudgeConfig(cfg)
+
+	// Layer 0: Global refusal patterns (inherited by all detectors; only the
+	// mitigation/refusal detectors read this key, via base.ResolveMitigationPhrases)
+	c.injectRefusalPatterns(cfg)
 
 	// Layer 1: Per-detector settings override globals
 	if c.Detectors.Settings != nil {
@@ -340,6 +363,9 @@ func (c *Config) Merge(other *Config) {
 	// Merge detectors
 	if other.Detectors.Always.Enabled {
 		c.Detectors.Always.Enabled = other.Detectors.Always.Enabled
+	}
+	if len(other.Detectors.RefusalPatterns) > 0 {
+		c.Detectors.RefusalPatterns = other.Detectors.RefusalPatterns
 	}
 
 	// Merge buffs
