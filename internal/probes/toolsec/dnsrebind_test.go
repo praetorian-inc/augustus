@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -33,6 +34,10 @@ func (g endpointGen) Transport() string   { return g.transport }
 func (g endpointGen) HTTPClient() *http.Client {
 	return &http.Client{Timeout: 3 * time.Second}
 }
+
+// ProxyURL returns nil — tests that need to simulate a proxy in path use a
+// separate stub (see proxiedGen below).
+func (g endpointGen) ProxyURL() *url.URL { return nil }
 
 func newDNSRebindProbe(t *testing.T, cfg registry.Config) *DNSRebinding {
 	t.Helper()

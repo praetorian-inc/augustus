@@ -691,6 +691,11 @@ func (m *MCP) EndpointURL() string { return m.cfg.Endpoint }
 // MCPInventory.Transport once a session is established.
 func (m *MCP) Transport() string { return m.cfg.Transport }
 
+// ProxyURL implements types.MCPEndpoint. Returns the configured outbound
+// proxy or nil. Used by transport-layer probes to suppress connection-
+// lifetime findings that a proxy would generate as false positives.
+func (m *MCP) ProxyURL() *url.URL { return m.cfg.ProxyURL }
+
 // HTTPClient implements types.MCPEndpoint by returning a freshly constructed
 // http.Client carrying the generator's proxy, TLS, and header configuration.
 // It is the single source of truth for outbound routing — every transport-

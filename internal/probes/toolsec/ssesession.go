@@ -150,18 +150,45 @@ func (p *SSESessionHijack) Probe(ctx context.Context, gen types.Generator) ([]*a
 	// it's the earliest-captured; if any session is guaranteed to have been
 	// "cleanly closed" by our client it's this one.
 	//
-	// The control test runs first. If it shows the server accepts a
-	// fabricated id, the replay tests would be false positives (they'd
-	// merely re-confirm the same broken behaviour), so we suppress them by
-	// passing serverAcceptsAnyID=true into the replay methods.
+	// Two independent suppressions apply:
+	//   (a) if the target accepts a FABRICATED session id, the server has
+	//       no session handling at all and the replay tests would be false
+	//       positives (they'd re-confirm the same broken behaviour).
+	//   (b) if an explicit outbound proxy is configured on the target
+	//       generator, the "distinct client" property the replay tests
+	//       claim to measure is compromised at the proxy layer, not the
+	//       server. A keep-alive proxy holds the SSE conn open on our
+	//       behalf, so the server sees the session as still active when
+	//       the "fresh" client's POST arrives — 202 responses in that
+	//       setting are proxy artifacts, not target vulnerabilities.
+	//       When (b) is true we still RUN the replay tests (they may
+	//       still fire e.g. if the server accepts unknown ids), but we
+	//       record their findings as inconclusive so the report doesn't
+	//       mis-attribute a proxy behaviour to the target.
 	target := samples[0]
 	control := p.controlUnknownID(ctx, client, target)
 	attempts = append(attempts, control)
 	serverAcceptsAnyID := metaBool(control, attempt.MetadataKeySSESessionAccepted)
-	attempts = append(attempts, p.replayCrossConnection(ctx, client, target, serverAcceptsAnyID))
-	attempts = append(attempts, p.replayPostClose(ctx, client, target, serverAcceptsAnyID))
+	proxied := p.proxyInPath(gen)
+	if proxied {
+		slog.Info("toolsec.SSESessionHijack: proxy in path; connection-lifetime replay findings will be recorded as inconclusive",
+			"reason", "keep-alive proxies hold SSE upstream open, making session-lifetime tests unreliable")
+	}
+	attempts = append(attempts, p.replayCrossConnection(ctx, client, target, serverAcceptsAnyID, proxied))
+	attempts = append(attempts, p.replayPostClose(ctx, client, target, serverAcceptsAnyID, proxied))
 
 	return attempts, nil
+}
+
+// proxyInPath reports whether the target generator has an explicit outbound
+// proxy configured. See the comment on types.MCPEndpoint.ProxyURL for why
+// only explicit proxies count.
+func (p *SSESessionHijack) proxyInPath(gen types.Generator) bool {
+	end, ok := gen.(types.MCPEndpoint)
+	if !ok {
+		return false
+	}
+	return end.ProxyURL() != nil
 }
 
 // resolveEndpoint returns the SSE endpoint from probe config or generator.
@@ -324,7 +351,7 @@ func (p *SSESessionHijack) controlUnknownID(ctx context.Context, client *http.Cl
 // fabricated id) the finding is suppressed regardless of outcome — the
 // server has no session enforcement at all, which is a different (broader)
 // bug the control attempt already carries.
-func (p *SSESessionHijack) replayCrossConnection(ctx context.Context, client *http.Client, ref sseSample, serverAcceptsAnyID bool) *attempt.Attempt {
+func (p *SSESessionHijack) replayCrossConnection(ctx context.Context, client *http.Client, ref sseSample, serverAcceptsAnyID, proxied bool) *attempt.Attempt {
 	a := attempt.New(fmt.Sprintf("[%s] POST from fresh TCP conn with sampled id", sseClassNotTCPBound))
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
@@ -333,9 +360,12 @@ func (p *SSESessionHijack) replayCrossConnection(ctx context.Context, client *ht
 
 	// The generator's client returns a fresh instance each call; we don't
 	// share connection pool state with the SSE stream (which we closed after
-	// reading the endpoint frame). No need to disable keepalives — the SSE
-	// conn has already been evicted from the pool, so this POST opens a new
-	// TCP conn to the target (or to the proxy, if one is configured).
+	// reading the endpoint frame). The SSE conn is evicted from OUR client's
+	// pool, so this POST opens a new TCP conn from us. Whether the SERVER
+	// still sees the session as alive depends on whether an intermediary
+	// (proxy) held the upstream open on our behalf — the `proxied` guard
+	// below suppresses this finding in that case (see the ProxyURL comment
+	// in Probe).
 	status, body, err := p.postInitialize(ctx, client, ref.postURL)
 	if err != nil {
 		a.SetError(err)
@@ -345,6 +375,10 @@ func (p *SSESessionHijack) replayCrossConnection(ctx context.Context, client *ht
 	if serverAcceptsAnyID {
 		accepted = false // suppressed — server accepts everything
 		a.AddOutput("[suppressed by unknown-id control: server accepts any session id]\n")
+	} else if proxied && accepted {
+		accepted = false // suppressed — proxy-artefact prone
+		a.AddOutput("[inconclusive — outbound proxy configured; a keep-alive proxy holds the SSE conn open upstream, so the server may see the session as active regardless of the target's own session model]\n")
+		a.Metadata["toolsec.sse_session_proxied"] = true
 	}
 	a.AddOutput(fmt.Sprintf("HTTP %d\n%s", status, truncBody(body)))
 	a.Metadata[attempt.MetadataKeySSESessionAccepted] = accepted
@@ -356,7 +390,7 @@ func (p *SSESessionHijack) replayCrossConnection(ctx context.Context, client *ht
 // original SSE stream is fully torn down. A server that still accepts the
 // POST is treating the session ID as a naked bearer token with no TTL bound
 // to stream lifetime. Same control-suppression rule as replayCrossConnection.
-func (p *SSESessionHijack) replayPostClose(ctx context.Context, client *http.Client, ref sseSample, serverAcceptsAnyID bool) *attempt.Attempt {
+func (p *SSESessionHijack) replayPostClose(ctx context.Context, client *http.Client, ref sseSample, serverAcceptsAnyID, proxied bool) *attempt.Attempt {
 	a := attempt.New(fmt.Sprintf("[%s] POST after stream close + delay", sseClassPostCloseAlive))
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
@@ -386,6 +420,10 @@ func (p *SSESessionHijack) replayPostClose(ctx context.Context, client *http.Cli
 	if serverAcceptsAnyID {
 		accepted = false
 		a.AddOutput("[suppressed by unknown-id control: server accepts any session id]\n")
+	} else if proxied && accepted {
+		accepted = false
+		a.AddOutput("[inconclusive — outbound proxy configured; upstream conn survives our FIN so server may still see the session]\n")
+		a.Metadata["toolsec.sse_session_proxied"] = true
 	}
 	a.AddOutput(fmt.Sprintf("HTTP %d\n%s", status, truncBody(body)))
 	a.Metadata[attempt.MetadataKeySSESessionAccepted] = accepted

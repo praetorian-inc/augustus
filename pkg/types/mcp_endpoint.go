@@ -1,6 +1,9 @@
 package types
 
-import "net/http"
+import (
+	"net/http"
+	"net/url"
+)
 
 // MCPEndpoint is an OPTIONAL interface a Generator implements when its target
 // is reached over an HTTP-based MCP transport. It exists so transport-layer
@@ -35,4 +38,15 @@ type MCPEndpoint interface {
 	// interception proxy, and you should never have to duplicate proxy/TLS
 	// config on the probe side.
 	HTTPClient() *http.Client
+	// ProxyURL returns the outbound proxy the generator is configured to
+	// route through, or nil when no explicit proxy is in play. Probes that
+	// make security claims sensitive to connection-lifetime semantics
+	// (SSE session-hijack replay tests, streaming session-timeout checks)
+	// inspect this to suppress findings that a persistent-connection
+	// intermediary would generate as artifacts rather than as real target
+	// weaknesses. This is deliberately just the explicit config value —
+	// transparent / env-var / PAC proxies aren't reported here; callers
+	// who need to worry about those must check ProxyFromEnvironment
+	// themselves.
+	ProxyURL() *url.URL
 }

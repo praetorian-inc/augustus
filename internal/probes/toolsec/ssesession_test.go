@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -251,6 +252,56 @@ func TestSSESession_ControlSuppresses(t *testing.T) {
 	}
 	if fired[string(sseClassPostCloseAlive)] {
 		t.Errorf("session-post-close-alive should be suppressed when server accepts any id; fired=%v", fired)
+	}
+}
+
+// proxiedGen is an endpointGen that reports a non-nil ProxyURL so tests can
+// exercise the connection-lifetime-finding suppression path.
+type proxiedGen struct {
+	endpointGen
+	proxy string
+}
+
+func (g proxiedGen) ProxyURL() *url.URL {
+	u, _ := url.Parse(g.proxy)
+	return u
+}
+
+// TestSSESession_ProxiedSuppressesReplayFindings: a target reached through a
+// proxy that ALSO happens to be a vulnerable "session-not-tcp-bound" server
+// must NOT report the two connection-lifetime findings, because a keep-alive
+// proxy would produce the same signal regardless of the target's real
+// session model. The ID-space findings (short/etc) are still valid.
+func TestSSESession_ProxiedSuppressesReplayFindings(t *testing.T) {
+	// Same setup as TestSSESession_NotTCPBound: strong ids, POSTs accepted.
+	pool := []string{
+		"9b1deb4d3b7d4bad9bdd2b0d7b3dcb6d",
+		"ce5b8c7c5f9c47c988c14c5b21b8b2f5",
+		"7d3a1c4e0e2b48e5b7d9a1e2f3d4c5b6",
+		"1122334455667788aabbccddeeff0011",
+	}
+	seen := map[string]bool{}
+	for _, id := range pool {
+		seen[id] = true
+	}
+	nextID := func(i int) string { return pool[i%len(pool)] }
+	acceptPost := func(id string) bool { return seen[id] }
+
+	srv := newSSETestServer(t, nextID, acceptPost)
+	defer srv.Close()
+
+	p := newSSESessionProbe(t, registry.Config{"endpoint": srv.URL + "/sse", "sample_count": len(pool)})
+	gen := proxiedGen{endpointGen: endpointGen{url: srv.URL + "/sse", transport: "sse"}, proxy: "http://127.0.0.1:9999"}
+	attempts, err := p.Probe(context.Background(), gen)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	fired := findingsBySSEClass(attempts)
+	if fired[string(sseClassNotTCPBound)] {
+		t.Errorf("session-not-tcp-bound must be suppressed when proxy configured; fired=%v", fired)
+	}
+	if fired[string(sseClassPostCloseAlive)] {
+		t.Errorf("session-post-close-alive must be suppressed when proxy configured; fired=%v", fired)
 	}
 }
 
