@@ -793,6 +793,7 @@ func TestWriteHTML_ErroredAttempt(t *testing.T) {
 
 	assert.Contains(t, out, "status-badge error", "errored attempt should get an ERROR badge")
 	assert.Contains(t, out, ">ERROR<", "errored attempt should be labeled ERROR")
+	assert.Contains(t, out, "no verdict", "errored attempt should show 'no verdict' instead of a fabricated score")
 	assert.Contains(t, out, "404, not_found_error", "error message must be surfaced for diagnosis")
 	assert.Contains(t, out, "Errored", "summary should include the Errored card")
 	// The single errored attempt must not be rendered as a fail/pass verdict.

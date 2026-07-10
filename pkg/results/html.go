@@ -106,8 +106,14 @@ func WriteHTML(outputPath string, attempts []*attempt.Attempt) (err error) {
 
 		for probeName, probeAtts := range probeAttempts {
 			stats := summary.ByProbe[probeName]
-			fmt.Fprintf(&sb, "        <div class=\"probe-section\">\n            <div class=\"probe-header\">\n                <h2>%s</h2>\n                <div class=\"probe-stats\">%d/%d passed</div>\n            </div>\n            <div class=\"probe-content\">\n",
-				html.EscapeString(probeName), stats.Passed, stats.Total)
+			// Surface the errored count so "1/3 passed" is not misread as
+			// "2 failed" when the breakdown is 1 failed + 1 errored (LAB-4316).
+			statsLine := fmt.Sprintf("%d/%d passed", stats.Passed, stats.Total)
+			if stats.Errored > 0 {
+				statsLine += fmt.Sprintf(", %d errored", stats.Errored)
+			}
+			fmt.Fprintf(&sb, "        <div class=\"probe-section\">\n            <div class=\"probe-header\">\n                <h2>%s</h2>\n                <div class=\"probe-stats\">%s</div>\n            </div>\n            <div class=\"probe-content\">\n",
+				html.EscapeString(probeName), statsLine)
 
 			for _, att := range probeAtts {
 				writeAttemptHTML(&sb, att)
@@ -254,7 +260,12 @@ func writeAttemptHTML(sb *strings.Builder, att *attempt.Attempt) {
 	// [0.00] when only a secondary detector flagged the attempt.
 	effectiveScores := att.GetEffectiveScores()
 	scoresStr := "[]"
-	if len(effectiveScores) > 0 {
+	switch {
+	case verdict == "error":
+		// An errored attempt has no score — show "no verdict" rather than an
+		// empty "[]" that could be misread as a real 0.00/safe result (LAB-4316).
+		scoresStr = "no verdict"
+	case len(effectiveScores) > 0:
 		parts := make([]string, len(effectiveScores))
 		for i, s := range effectiveScores {
 			parts[i] = fmt.Sprintf("%.2f", s)
