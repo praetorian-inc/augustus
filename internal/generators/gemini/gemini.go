@@ -217,7 +217,7 @@ func (g *Gemini) generateOne(ctx context.Context, conv *attempt.Conversation) (a
 func (g *Gemini) conversationToContents(conv *attempt.Conversation) ([]googleai.Content, error) {
 	contents := make([]googleai.Content, 0, len(conv.Turns)*2)
 	for _, turn := range conv.Turns {
-		parts, err := buildParts(turn.Prompt.Content, turn.Prompt.Images)
+		parts, err := buildParts(turn.Prompt.Content, turn.Prompt.Images, turn.Prompt.Documents)
 		if err != nil {
 			return nil, err
 		}
@@ -236,12 +236,13 @@ func (g *Gemini) conversationToContents(conv *attempt.Conversation) ([]googleai.
 }
 
 // buildParts assembles a Gemini parts list: text first (if non-empty), then
-// one inlineData part per image. Image parts are built by the shared
-// googleai.BuildImageParts helper (also used by vertex) so the two Gemini-schema
-// generators cannot diverge on multimodal handling. It returns an error if an
-// image has an unset/unsupported MIME type or cannot be resolved to base64.
-func buildParts(text string, images []attempt.Image) ([]googleai.ContentPart, error) {
-	parts := make([]googleai.ContentPart, 0, 1+len(images))
+// one inlineData part per image, then one inlineData part per document. The
+// media parts are built by the shared googleai.BuildImageParts /
+// BuildDocumentParts helpers (also used by vertex) so the two Gemini-schema
+// generators cannot diverge on multimodal handling. It returns an error if any
+// attachment has an unset/unsupported MIME type or cannot be resolved to base64.
+func buildParts(text string, images []attempt.Image, docs []attempt.Document) ([]googleai.ContentPart, error) {
+	parts := make([]googleai.ContentPart, 0, 1+len(images)+len(docs))
 	if text != "" {
 		parts = append(parts, googleai.ContentPart{Text: text})
 	}
@@ -250,6 +251,11 @@ func buildParts(text string, images []attempt.Image) ([]googleai.ContentPart, er
 		return nil, err
 	}
 	parts = append(parts, imgParts...)
+	docParts, err := googleai.BuildDocumentParts(docs)
+	if err != nil {
+		return nil, err
+	}
+	parts = append(parts, docParts...)
 	return parts, nil
 }
 
@@ -263,6 +269,10 @@ func (g *Gemini) Name() string {
 // See types.VisionCapable.
 func (g *Gemini) SupportsVision() bool { return true }
 
+// SupportsDocuments reports that the Gemini path transmits inlineData document
+// (PDF) parts. See types.DocumentCapable.
+func (g *Gemini) SupportsDocuments() bool { return true }
+
 func (g *Gemini) Description() string {
-	return "Google Gemini API generator (direct API, key-auth; multimodal text + image)"
+	return "Google Gemini API generator (direct API, key-auth; multimodal text + image + document)"
 }
