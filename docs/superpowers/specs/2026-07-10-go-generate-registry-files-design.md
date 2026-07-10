@@ -116,10 +116,14 @@ PR that added a capability without regenerating.
 
 ### 4. CI wiring
 
-Add `generate-check` to the CI flow (alongside the existing lint/test gates) so
-drift fails the build. Exact wiring depends on the shared workflow; if the
-reusable `go-ci.yml` does not expose a hook, add a minimal step/job that runs
-`make generate-check`.
+CI delegates entirely to the centralized `public-workflows/go-ci.yml`, which
+runs `go test ./...` and exposes no step hook for a `make` target, and the repo
+convention avoids bespoke jobs pinning third-party action SHAs. So drift
+enforcement is implemented as a **Go drift-guard test**
+(`TestRegisterFilesUpToDate`) that regenerates in-memory and compares against the
+committed `pkg/register/<type>/*.go` files. It runs under the existing CI test
+job with no workflow changes, and locally via `make test`. The
+`make generate-check` target remains for explicit local verification.
 
 ## Testing
 
