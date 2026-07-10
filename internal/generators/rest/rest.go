@@ -1238,6 +1238,12 @@ func (r *Rest) configureUpload(cfg registry.Config) error {
 			if !validCaptureKey.MatchString(k) {
 				return fmt.Errorf("rest: upload capture key %q must match ^[A-Z0-9_]+$", k)
 			}
+			if vs == "" {
+				return fmt.Errorf("rest: upload capture %q must have a non-empty source", k)
+			}
+			if strings.HasPrefix(vs, "header:") && strings.TrimPrefix(vs, "header:") == "" {
+				return fmt.Errorf("rest: upload capture %q: header source must name a header (got %q)", k, vs)
+			}
 			u.capture[k] = vs
 		}
 	}

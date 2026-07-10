@@ -2483,4 +2483,45 @@ func TestNewRest_Upload_Validation(t *testing.T) {
 		assert.Equal(t, r.upload.bodyMode, spec.bodyMode)
 		assert.Equal(t, r.upload.multipart, spec.multipart)
 	})
+
+	t.Run("upload capture with empty value errors", func(t *testing.T) {
+		_, err := NewRest(registry.Config{
+			"uri": "http://example.invalid",
+			"upload": map[string]any{
+				"uri":       "http://upload.invalid",
+				"body_mode": "raw_binary",
+				"capture":   map[string]any{"FILE_ID": ""},
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "capture")
+	})
+
+	t.Run("upload capture header source requires header name", func(t *testing.T) {
+		_, err := NewRest(registry.Config{
+			"uri": "http://example.invalid",
+			"upload": map[string]any{
+				"uri":       "http://upload.invalid",
+				"body_mode": "raw_binary",
+				"capture":   map[string]any{"FILE_ID": "header:"},
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "header")
+	})
+
+	t.Run("upload capture with bare simple field name is accepted", func(t *testing.T) {
+		g, err := NewRest(registry.Config{
+			"uri": "http://example.invalid/analyze/$FILE_ID",
+			"upload": map[string]any{
+				"uri":       "http://upload.invalid",
+				"body_mode": "raw_binary",
+				"capture":   map[string]any{"FILE_ID": "id"},
+			},
+		})
+		require.NoError(t, err)
+		r := g.(*Rest)
+		require.NotNil(t, r.upload)
+		assert.Equal(t, "id", r.upload.capture["FILE_ID"])
+	})
 }
