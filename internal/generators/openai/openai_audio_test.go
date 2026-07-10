@@ -50,3 +50,51 @@ func TestOpenAI_Generate_AudioPath(t *testing.T) {
 		t.Fatalf("tokens = %d, want 10", g.AccumulatedTokens())
 	}
 }
+
+// TestOpenAI_Generate_AudioFanOut verifies that n>1 on the audio path issues n
+// separate requests (gpt-4o-audio-preview can't return n>1 in one call) and
+// aggregates the responses, honoring Generate's contract instead of silently
+// returning a single message.
+func TestOpenAI_Generate_AudioFanOut(t *testing.T) {
+	var requests int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"ok"}}],"usage":{"total_tokens":3}}`)
+	}))
+	defer srv.Close()
+
+	g, err := NewOpenAITyped(Config{Model: "gpt-4o-audio-preview", APIKey: "sk-test", BaseURL: srv.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	conv := attempt.NewConversation()
+	conv.AddPromptMessage(attempt.NewUserMessageWithAudio("play this", []attempt.Audio{{MimeType: "audio/wav", Base64: "UklGRg=="}}))
+
+	resp, err := g.Generate(context.Background(), conv, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if requests != 3 {
+		t.Fatalf("requests = %d, want 3 (one per requested completion)", requests)
+	}
+	if len(resp) != 3 {
+		t.Fatalf("len(resp) = %d, want 3", len(resp))
+	}
+	if g.AccumulatedTokens() != 9 {
+		t.Fatalf("tokens = %d, want 9 (3 requests x 3)", g.AccumulatedTokens())
+	}
+}
+
+// TestOpenAI_AudioHTTPClientHasTimeout verifies the custom audio HTTP client
+// carries a finite request timeout so a hung upstream can't block indefinitely.
+func TestOpenAI_AudioHTTPClientHasTimeout(t *testing.T) {
+	g, err := NewOpenAITyped(Config{Model: "gpt-4o-audio-preview", APIKey: "sk-test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g.httpClient.Timeout <= 0 {
+		t.Fatalf("httpClient.Timeout = %v, want > 0", g.httpClient.Timeout)
+	}
+}

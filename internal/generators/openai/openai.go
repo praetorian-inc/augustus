@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	goopenai "github.com/sashabaranov/go-openai"
 
@@ -25,6 +26,12 @@ import (
 func init() {
 	generators.Register("openai.OpenAI", NewOpenAI)
 }
+
+// audioHTTPTimeout bounds a single custom-HTTP audio request so a hung upstream
+// connection cannot block indefinitely when the caller's context carries no
+// deadline. It is generous because audio synthesis is slower than text
+// generation; per-request context cancellation still applies on top of it.
+const audioHTTPTimeout = 120 * time.Second
 
 // chatModels references the shared set of models that use the chat completions API.
 var chatModels = openaicompat.ChatModels
@@ -104,7 +111,7 @@ func NewOpenAITyped(cfg Config) (*OpenAI, error) {
 	if g.baseURL == "" {
 		g.baseURL = "https://api.openai.com/v1"
 	}
-	g.httpClient = &http.Client{}
+	g.httpClient = &http.Client{Timeout: audioHTTPTimeout}
 
 	return g, nil
 }
@@ -139,7 +146,7 @@ func (g *OpenAI) Generate(ctx context.Context, conv *attempt.Conversation, n int
 // generateChat handles chat completion requests.
 func (g *OpenAI) generateChat(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
 	if conversationHasAudio(conv) {
-		return g.generateChatAudio(ctx, conv)
+		return g.generateChatAudio(ctx, conv, n)
 	}
 
 	// Convert conversation to OpenAI message format
@@ -320,7 +327,12 @@ func conversationHasAudio(conv *attempt.Conversation) bool {
 // generateChatAudio sends an audio-bearing chat request over a custom HTTP path.
 // The pinned go-openai SDK cannot model input_audio content parts, so the request
 // body is built and posted manually via openaicompat helpers.
-func (g *OpenAI) generateChatAudio(ctx context.Context, conv *attempt.Conversation) ([]attempt.Message, error) {
+//
+// gpt-4o-audio-preview does not support n>1 with the audio modality (the API
+// rejects it), so to honor Generate's contract of returning n responses this
+// fans out n separate requests and aggregates their messages. Callers pass n=1
+// in the common path, which issues exactly one request.
+func (g *OpenAI) generateChatAudio(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
 	params := openaicompat.AudioChatParams{
 		Voice:       "alloy",
 		Format:      "wav",
@@ -333,6 +345,21 @@ func (g *OpenAI) generateChatAudio(ctx context.Context, conv *attempt.Conversati
 		return nil, openaicompat.WrapError("openai", err)
 	}
 
+	all := make([]attempt.Message, 0, n)
+	for range n {
+		messages, err := g.doAudioRequest(ctx, body, params.Format)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, messages...)
+	}
+	return all, nil
+}
+
+// doAudioRequest issues a single custom-HTTP audio completion request and parses
+// its response. format is the requested output audio format, used to label any
+// returned audio bytes.
+func (g *OpenAI) doAudioRequest(ctx context.Context, body []byte, format string) ([]attempt.Message, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.baseURL+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
 		return nil, openaicompat.WrapError("openai", err)
@@ -354,7 +381,7 @@ func (g *OpenAI) generateChatAudio(ctx context.Context, conv *attempt.Conversati
 		return nil, fmt.Errorf("openai: audio request failed (status %d): %s", resp.StatusCode, string(respBody))
 	}
 
-	messages, tokens, err := openaicompat.ParseAudioChatResponse(respBody, params.Format)
+	messages, tokens, err := openaicompat.ParseAudioChatResponse(respBody, format)
 	if err != nil {
 		return nil, openaicompat.WrapError("openai", err)
 	}
