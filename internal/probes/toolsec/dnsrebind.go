@@ -3,7 +3,6 @@ package toolsec
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -46,9 +45,8 @@ var _ types.ProbeMetadata = (*DNSRebinding)(nil)
 // value the probe sends is a static regex match for a signature-based WAF —
 // yet every value is a domain a real attacker could plausibly control.
 type DNSRebinding struct {
-	endpointOverride   string
-	insecureSkipVerify bool
-	timeout            time.Duration
+	endpointOverride string
+	timeout          time.Duration
 	// nonce is used to build randomised Origin/Host values so the probe never
 	// sends the same wire-string twice across runs, defeating cheap blocklist
 	// WAFs and letting re-scans confirm intermittent behaviour.
@@ -57,13 +55,14 @@ type DNSRebinding struct {
 
 // NewDNSRebinding constructs the probe. The endpoint is resolved from the
 // target generator when it implements types.MCPEndpoint; the "endpoint" config
-// key overrides that when set.
+// key overrides that when set. Proxy, TLS, and per-request headers are
+// inherited from the target generator's HTTPClient — configure them there,
+// not on this probe.
 func NewDNSRebinding(cfg registry.Config) (probes.Prober, error) {
 	return &DNSRebinding{
-		endpointOverride:   registry.GetString(cfg, "endpoint", ""),
-		insecureSkipVerify: registry.GetBool(cfg, "insecure_skip_verify", false),
-		timeout:            time.Duration(registry.GetInt(cfg, "request_timeout", 10)) * time.Second,
-		nonce:              randToken(),
+		endpointOverride: registry.GetString(cfg, "endpoint", ""),
+		timeout:          time.Duration(registry.GetInt(cfg, "request_timeout", 10)) * time.Second,
+		nonce:            randToken(),
 	}, nil
 }
 
@@ -218,7 +217,10 @@ func (p *DNSRebinding) Probe(ctx context.Context, gen types.Generator) ([]*attem
 		transport = "sse"
 	}
 
-	client := p.newHTTPClient()
+	client, err := p.borrowHTTPClient(gen)
+	if err != nil {
+		return nil, err
+	}
 	var attempts []*attempt.Attempt
 
 	// 1. Baseline: no Origin. Spec-compliant servers pass this; if it fails,
@@ -496,23 +498,29 @@ func metaBool(a *attempt.Attempt, key string) bool {
 	return b
 }
 
-// newHTTPClient builds the client used for the probe. It does NOT follow
-// redirects (a 302 to a different host confuses the Origin/Host signal) and
-// honours insecure_skip_verify for lab targets.
-func (p *DNSRebinding) newHTTPClient() *http.Client {
-	tr := &http.Transport{
-		// #nosec G402 -- insecure_skip_verify is opt-in for lab targets, matching the MCP generator.
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: p.insecureSkipVerify},
-	}
+// borrowHTTPClient returns the target generator's http.Client, layered with
+// this probe's per-run overrides (short timeout, no redirect-follow). The
+// underlying Transport — proxy, TLS, header injection — is entirely the
+// generator's, so `proxy: http://127.0.0.1:8080` in the generator config
+// intercepts every request this probe emits.
+//
+// If the target generator does not expose types.MCPEndpoint (probe was
+// pointed at an endpoint URL directly via config, no live generator), we
+// fall back to a plain client — the operator has explicitly opted out of
+// the generator layer and no proxy inheritance is possible.
+func (p *DNSRebinding) borrowHTTPClient(gen types.Generator) (*http.Client, error) {
 	timeout := p.timeout
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
-	return &http.Client{
-		Transport: tr,
-		Timeout:   timeout,
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
+	noRedirect := func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
 	}
+	if end, ok := gen.(types.MCPEndpoint); ok {
+		client := end.HTTPClient()
+		client.Timeout = timeout
+		client.CheckRedirect = noRedirect
+		return client, nil
+	}
+	return &http.Client{Timeout: timeout, CheckRedirect: noRedirect}, nil
 }

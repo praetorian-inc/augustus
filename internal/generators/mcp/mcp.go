@@ -691,6 +691,14 @@ func (m *MCP) EndpointURL() string { return m.cfg.Endpoint }
 // MCPInventory.Transport once a session is established.
 func (m *MCP) Transport() string { return m.cfg.Transport }
 
+// HTTPClient implements types.MCPEndpoint by returning a freshly constructed
+// http.Client carrying the generator's proxy, TLS, and header configuration.
+// It is the single source of truth for outbound routing — every transport-
+// layer probe that sends raw HTTP MUST borrow the client from here so a
+// `proxy: ...` config actually intercepts probe traffic and per-generator
+// headers (X-Augustus-Scan, auth tokens) stamp automatically.
+func (m *MCP) HTTPClient() *http.Client { return m.httpClient() }
+
 // headerTransport injects configured headers on every outgoing request,
 // substituting $KEY (the static api_key) and $VARNAME placeholders from the
 // per-request hook variables in the request context. Substituting per request —

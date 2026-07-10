@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -26,6 +27,12 @@ func (g endpointGen) Name() string        { return "endpointGen" }
 func (g endpointGen) Description() string { return "endpointGen" }
 func (g endpointGen) EndpointURL() string { return g.url }
 func (g endpointGen) Transport() string   { return g.transport }
+
+// HTTPClient returns a plain client. Tests that need a proxy-aware client can
+// override this by using a different generator stub.
+func (g endpointGen) HTTPClient() *http.Client {
+	return &http.Client{Timeout: 3 * time.Second}
+}
 
 func newDNSRebindProbe(t *testing.T, cfg registry.Config) *DNSRebinding {
 	t.Helper()

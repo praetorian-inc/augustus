@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"log/slog"
@@ -45,19 +44,19 @@ var _ types.ProbeMetadata = (*SSESessionHijack)(nil)
 // The probe targets only SSE transports; streamable HTTP has a different
 // session model (Mcp-Session-Id header) covered by a future probe.
 type SSESessionHijack struct {
-	endpointOverride   string
-	sampleCount        int
-	insecureSkipVerify bool
-	timeout            time.Duration
+	endpointOverride string
+	sampleCount      int
+	timeout          time.Duration
 }
 
-// NewSSESessionHijack constructs the probe.
+// NewSSESessionHijack constructs the probe. Proxy, TLS, and per-request
+// headers are inherited from the target generator's HTTPClient — configure
+// them on the generator, not on this probe.
 func NewSSESessionHijack(cfg registry.Config) (probes.Prober, error) {
 	return &SSESessionHijack{
-		endpointOverride:   registry.GetString(cfg, "endpoint", ""),
-		sampleCount:        registry.GetInt(cfg, "sample_count", 6),
-		insecureSkipVerify: registry.GetBool(cfg, "insecure_skip_verify", false),
-		timeout:            time.Duration(registry.GetInt(cfg, "request_timeout", 10)) * time.Second,
+		endpointOverride: registry.GetString(cfg, "endpoint", ""),
+		sampleCount:      registry.GetInt(cfg, "sample_count", 6),
+		timeout:          time.Duration(registry.GetInt(cfg, "request_timeout", 10)) * time.Second,
 	}, nil
 }
 
@@ -122,7 +121,10 @@ func (p *SSESessionHijack) Probe(ctx context.Context, gen types.Generator) ([]*a
 		}
 	}
 
-	client := p.newHTTPClient()
+	client, err := p.borrowHTTPClient(gen)
+	if err != nil {
+		return nil, err
+	}
 
 	// Step 1: sample N sessions.
 	samples := make([]sseSample, 0, p.sampleCount)
@@ -329,10 +331,12 @@ func (p *SSESessionHijack) replayCrossConnection(ctx context.Context, client *ht
 	a.Metadata[attempt.MetadataKeySSESessionClass] = string(sseClassNotTCPBound)
 	a.Metadata[attempt.MetadataKeySSESessionSample] = truncID(ref.id)
 
-	freshClient := p.newHTTPClient()
-	freshClient.Transport.(*http.Transport).DisableKeepAlives = true
-
-	status, body, err := p.postInitialize(ctx, freshClient, ref.postURL)
+	// The generator's client returns a fresh instance each call; we don't
+	// share connection pool state with the SSE stream (which we closed after
+	// reading the endpoint frame). No need to disable keepalives — the SSE
+	// conn has already been evicted from the pool, so this POST opens a new
+	// TCP conn to the target (or to the proxy, if one is configured).
+	status, body, err := p.postInitialize(ctx, client, ref.postURL)
 	if err != nil {
 		a.SetError(err)
 		return a
@@ -368,10 +372,12 @@ func (p *SSESessionHijack) replayPostClose(ctx context.Context, client *http.Cli
 	case <-time.After(500 * time.Millisecond):
 	}
 
-	freshClient := p.newHTTPClient()
-	freshClient.Transport.(*http.Transport).DisableKeepAlives = true
-
-	status, body, err := p.postInitialize(ctx, freshClient, ref.postURL)
+	// The generator's client returns a fresh instance each call; we don't
+	// share connection pool state with the SSE stream (which we closed after
+	// reading the endpoint frame). No need to disable keepalives — the SSE
+	// conn has already been evicted from the pool, so this POST opens a new
+	// TCP conn to the target (or to the proxy, if one is configured).
+	status, body, err := p.postInitialize(ctx, client, ref.postURL)
 	if err != nil {
 		a.SetError(err)
 		return a
@@ -405,23 +411,25 @@ func (p *SSESessionHijack) postInitialize(ctx context.Context, client *http.Clie
 	return resp.StatusCode, string(body), nil
 }
 
-// newHTTPClient builds the client used for probes.
-func (p *SSESessionHijack) newHTTPClient() *http.Client {
-	tr := &http.Transport{
-		// #nosec G402 -- insecure_skip_verify opt-in for lab targets.
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: p.insecureSkipVerify},
-	}
+// borrowHTTPClient returns the target generator's http.Client, layered with
+// this probe's per-run overrides (short timeout, no redirect-follow). See
+// DNSRebinding.borrowHTTPClient for the fallback rationale when the target
+// does not expose types.MCPEndpoint.
+func (p *SSESessionHijack) borrowHTTPClient(gen types.Generator) (*http.Client, error) {
 	timeout := p.timeout
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
-	return &http.Client{
-		Transport: tr,
-		Timeout:   timeout,
-		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
+	noRedirect := func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
 	}
+	if end, ok := gen.(types.MCPEndpoint); ok {
+		client := end.HTTPClient()
+		client.Timeout = timeout
+		client.CheckRedirect = noRedirect
+		return client, nil
+	}
+	return &http.Client{Timeout: timeout, CheckRedirect: noRedirect}, nil
 }
 
 // readEndpointEvent reads SSE frames from body until it finds an
