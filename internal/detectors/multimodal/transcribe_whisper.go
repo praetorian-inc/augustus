@@ -93,23 +93,42 @@ func (w *whisperTranscriber) Transcribe(_ context.Context, a attempt.Audio) (str
 
 // --- Minimal WAV (RIFF/PCM) decoder -----------------------------------------
 //
-// whisper.cpp expects mono float32 samples in [-1, 1] at 16kHz. The
-// multimodal audio fixtures ship as 16-bit PCM WAV, so a full-featured audio
-// library is unnecessary; this parser handles the "fmt " and "data" chunks of
-// a canonical WAV file and converts PCM16 samples to float32. It rejects
-// anything it can't confidently convert (non-PCM formats, missing chunks)
-// rather than silently mis-transcribing.
+// whisper.cpp expects mono float32 samples in [-1, 1] at 16kHz. This decoder
+// handles audio returned by the MODEL under test (e.g. OpenAI
+// gpt-4o-audio-preview, which returns 24kHz mono PCM16 WAV), not just the
+// probe's outbound fixtures, so the incoming sample rate is provider-set and
+// not guaranteed to already be 16kHz mono. It parses the "fmt " and "data"
+// chunks of a canonical WAV file, converts PCM16 samples to float32, downmixes
+// multi-channel audio to mono, and resamples to whisper's required 16kHz
+// using linear interpolation. It still rejects anything it can't confidently
+// convert (non-PCM formats, missing chunks, unrecognized sample rates) rather
+// than silently mis-transcribing.
 //
-// It intentionally does not resample or downmix: callers are expected to
-// supply 16kHz mono audio (as whisper.cpp itself requires), matching what the
-// multimodal probes generate. If stereo or non-16kHz audio is encountered, an
-// error is returned rather than guessing at a conversion.
+// NOTE: this file is compiled only under the "whisper" build tag (see the
+// build constraint at the top of the file) and this environment has no
+// libwhisper installed, so the resampling logic below has NOT been exercised
+// against a live whisper.cpp build or real provider audio — it is unverified
+// beyond code review and the reasoning documented here. Re-verify with a real
+// 24kHz sample from gpt-4o-audio-preview on a machine with whisper.cpp built.
 
 const (
 	wavFmtPCM        = 1
 	wavHeaderMinSize = 44
 	whisperSampleHz  = 16000
 )
+
+// supportedWAVSampleRates lists the PCM16 WAV sample rates this decoder will
+// resample down to whisper's required 16kHz, rather than reject outright.
+// These cover the common rates seen from LLM audio providers: 16000 (already
+// whisper-native, e.g. some TTS/ASR pipelines), 24000 (OpenAI
+// gpt-4o-audio-preview's response audio), 44100 and 48000 (standard CD/DAT and
+// professional-audio rates other providers or client-side encoders may use).
+var supportedWAVSampleRates = map[uint32]bool{
+	16000: true,
+	24000: true,
+	44100: true,
+	48000: true,
+}
 
 func decodeWAVToFloat32(b []byte) ([]float32, error) {
 	if len(b) < wavHeaderMinSize {
@@ -179,12 +198,65 @@ func decodeWAVToFloat32(b []byte) ([]float32, error) {
 	if samples == nil {
 		return nil, errors.New("wav: missing data chunk")
 	}
-	if sampleRate != whisperSampleHz {
-		return nil, fmt.Errorf("wav: expected %d Hz sample rate, got %d", whisperSampleHz, sampleRate)
+	if numChannels == 0 {
+		return nil, errors.New("wav: fmt chunk declares 0 channels")
 	}
-	if numChannels != 1 {
-		return nil, fmt.Errorf("wav: expected mono audio, got %d channels", numChannels)
+	if !supportedWAVSampleRates[sampleRate] {
+		return nil, fmt.Errorf("wav: unsupported sample rate %d Hz (supported: 16000, 24000, 44100, 48000)", sampleRate)
 	}
 
-	return samples, nil
+	mono := downmixToMono(samples, int(numChannels))
+	resampled := resampleLinear(mono, int(sampleRate), whisperSampleHz)
+
+	return resampled, nil
+}
+
+// downmixToMono averages interleaved multi-channel PCM samples down to a
+// single mono channel. If numChannels is 1, samples is returned unchanged.
+func downmixToMono(samples []float32, numChannels int) []float32 {
+	if numChannels <= 1 {
+		return samples
+	}
+	frames := len(samples) / numChannels
+	mono := make([]float32, frames)
+	for i := 0; i < frames; i++ {
+		var sum float32
+		base := i * numChannels
+		for c := 0; c < numChannels; c++ {
+			sum += samples[base+c]
+		}
+		mono[i] = sum / float32(numChannels)
+	}
+	return mono
+}
+
+// resampleLinear converts mono float32 samples from srcHz to dstHz using
+// linear interpolation. This is a low-fidelity resampler (no anti-aliasing
+// filter), but it is adequate for feeding whisper.cpp, which is robust to
+// modest resampling artifacts; a proper sinc/polyphase resampler is not
+// warranted for this use case. If srcHz already equals dstHz, samples is
+// returned unchanged.
+func resampleLinear(samples []float32, srcHz, dstHz int) []float32 {
+	if srcHz == dstHz || len(samples) == 0 {
+		return samples
+	}
+
+	ratio := float64(srcHz) / float64(dstHz)
+	outLen := int(float64(len(samples)) / ratio)
+	if outLen < 1 {
+		outLen = 1
+	}
+	out := make([]float32, outLen)
+	for i := range out {
+		srcPos := float64(i) * ratio
+		idx := int(srcPos)
+		frac := srcPos - float64(idx)
+
+		if idx >= len(samples)-1 {
+			out[i] = samples[len(samples)-1]
+			continue
+		}
+		out[i] = samples[idx]*float32(1-frac) + samples[idx+1]*float32(frac)
+	}
+	return out
 }

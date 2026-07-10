@@ -3,6 +3,7 @@ package multimodal
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/praetorian-inc/augustus/internal/detectors/mitigation"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -70,10 +71,23 @@ func NewAudioTranscribe(cfg registry.Config) (detectors.Detector, error) {
 func (d *AudioTranscribe) Name() string        { return d.name }
 func (d *AudioTranscribe) Description() string { return d.description }
 
-// Detect transcribes output audio (when present) into a shadow attempt whose
-// Outputs are the transcripts, then delegates scoring to the policy detector.
-// When no output audio is present it scores the attempt's existing text outputs.
+// Detect is transcript-first, whisper-fallback:
+//
+//  1. If the attempt already carries a usable (non-whitespace) text output —
+//     the normal path for providers like OpenAI's gpt-4o-audio-preview, which
+//     return both a transcript and raw audio — that transcript is scored
+//     directly by the policy detector on the original attempt. Whisper is not
+//     invoked; the provider transcript is authoritative.
+//  2. Otherwise, if there is output audio in Metadata[attempt.MetaAudioOutput]
+//     (an audio-only response with no transcript), each clip is transcribed
+//     with whisper and the transcripts are scored via a shadow attempt.
+//  3. Otherwise (no usable text and no output audio), the policy detector
+//     scores the attempt unchanged.
 func (d *AudioTranscribe) Detect(ctx context.Context, a *attempt.Attempt) ([]float64, error) {
+	if hasUsableText(a.Outputs) {
+		return d.policy.Detect(ctx, a)
+	}
+
 	outAudio, ok := a.Metadata[attempt.MetaAudioOutput].([]attempt.Audio)
 	if !ok || len(outAudio) == 0 {
 		return d.policy.Detect(ctx, a)
@@ -94,4 +108,15 @@ func (d *AudioTranscribe) Detect(ctx context.Context, a *attempt.Attempt) ([]flo
 		shadow.AddOutput(t)
 	}
 	return d.policy.Detect(ctx, shadow)
+}
+
+// hasUsableText reports whether any output is non-empty once whitespace is
+// trimmed.
+func hasUsableText(outputs []string) bool {
+	for _, o := range outputs {
+		if strings.TrimSpace(o) != "" {
+			return true
+		}
+	}
+	return false
 }
