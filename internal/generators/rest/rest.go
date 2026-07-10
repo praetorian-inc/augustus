@@ -88,6 +88,30 @@ type multipartConfig struct {
 	fields    map[string]string
 }
 
+// requestSpec carries the per-request fields the builders need, so the same
+// builders serve both the main ("analyze") request and the pre-request upload.
+type requestSpec struct {
+	uri         string
+	method      string
+	headers     map[string]string
+	reqTemplate string
+	bodyMode    string
+	multipart   *multipartConfig
+}
+
+// mainSpec returns the requestSpec for the generator's primary request,
+// populated from the top-level configuration.
+func (r *Rest) mainSpec() requestSpec {
+	return requestSpec{
+		uri:         r.uri,
+		method:      r.method,
+		headers:     r.headers,
+		reqTemplate: r.reqTemplate,
+		bodyMode:    r.bodyMode,
+		multipart:   r.multipart,
+	}
+}
+
 // Rest is a generic REST API generator that makes HTTP requests to configured endpoints.
 // It supports request templating, JSON response parsing, and various HTTP methods.
 type Rest struct {
@@ -384,7 +408,7 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 
 	// Build the HTTP request body and content type according to the configured
 	// wire mode (raw binary, multipart, or JSON template).
-	req, err := r.buildRequest(ctx, conv, prompt, hookVars, img)
+	req, err := r.buildRequest(ctx, r.mainSpec(), conv, prompt, hookVars, img)
 	if err != nil {
 		return attempt.Message{}, err
 	}
@@ -454,24 +478,27 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 	return msg, nil
 }
 
-// buildRequest constructs the outgoing HTTP request for a single call,
-// dispatching on the configured image-transport mode. Image bytes (when an
-// image is attached) are placed on the wire per mode; img.Bytes()/ToBase64()
-// errors are surfaced (wrapped), never silently dropped.
+// buildRequest constructs an outgoing HTTP request for spec, dispatching on the
+// spec's image-transport mode. The spec's URI is run through populateTemplate so
+// $INPUT/$KEY/hook/captured vars (e.g. /analyze/$FILE_ID) resolve. Image bytes
+// (when an image is attached) are placed on the wire per mode; encode errors are
+// surfaced (wrapped), never silently dropped.
 func (r *Rest) buildRequest(
 	ctx context.Context,
+	spec requestSpec,
 	conv *attempt.Conversation,
 	prompt string,
 	hookVars map[string]string,
 	img *attempt.Image,
 ) (*http.Request, error) {
+	spec.uri = r.populateTemplate(spec.uri, prompt, hookVars)
 	switch {
-	case r.bodyMode == bodyModeRawBinary:
-		return r.buildRawBinaryRequest(ctx, prompt, hookVars, img)
-	case r.multipart != nil:
-		return r.buildMultipartRequest(ctx, prompt, hookVars, img)
+	case spec.bodyMode == bodyModeRawBinary:
+		return r.buildRawBinaryRequest(ctx, spec, prompt, hookVars, img)
+	case spec.multipart != nil:
+		return r.buildMultipartRequest(ctx, spec, prompt, hookVars, img)
 	default:
-		return r.buildTemplateRequest(ctx, conv, prompt, hookVars, img)
+		return r.buildTemplateRequest(ctx, spec, conv, prompt, hookVars, img)
 	}
 }
 
@@ -481,20 +508,17 @@ func (r *Rest) buildRequest(
 // and MIME values are JSON-safe, so no additional escaping is applied.
 func (r *Rest) buildTemplateRequest(
 	ctx context.Context,
+	spec requestSpec,
 	conv *attempt.Conversation,
 	prompt string,
 	hookVars map[string]string,
 	img *attempt.Image,
 ) (*http.Request, error) {
-	body := r.populateTemplate(r.reqTemplate, prompt, hookVars)
+	body := r.populateTemplate(spec.reqTemplate, prompt, hookVars)
 
-	// Replace $MESSAGES with full conversation as a JSON array of
-	// {"role","content"} objects. Enables multi-turn probes to send
-	// conversation history to REST endpoints.
-	// Template usage: "messages": $MESSAGES  (no quotes — raw JSON)
-	// Replaced after populateTemplate to prevent $INPUT/$KEY substitution
-	// inside message content.
-	if strings.Contains(body, "$MESSAGES") {
+	// Replace $MESSAGES with the full conversation as a JSON array. Guarded on a
+	// non-nil conv because the upload pre-request may build without one.
+	if conv != nil && strings.Contains(body, "$MESSAGES") {
 		body = strings.ReplaceAll(body, "$MESSAGES", conversationToJSON(conv))
 	}
 
@@ -510,17 +534,16 @@ func (r *Rest) buildTemplateRequest(
 
 	var req *http.Request
 	var err error
-	if r.method == "GET" {
-		// For GET requests, append to URL as query params
-		req, err = http.NewRequestWithContext(ctx, r.method, r.uri+"?"+body, nil)
+	if spec.method == "GET" {
+		req, err = http.NewRequestWithContext(ctx, spec.method, spec.uri+"?"+body, nil)
 	} else {
-		req, err = http.NewRequestWithContext(ctx, r.method, r.uri, bytes.NewBufferString(body))
+		req, err = http.NewRequestWithContext(ctx, spec.method, spec.uri, bytes.NewBufferString(body))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("rest: failed to create request: %w", err)
 	}
 
-	r.applyHeaders(req, prompt, hookVars)
+	r.applyHeaders(req, spec.headers, prompt, hookVars)
 	return req, nil
 }
 
@@ -530,6 +553,7 @@ func (r *Rest) buildTemplateRequest(
 // can override it. $INPUT/$MESSAGES template population is skipped.
 func (r *Rest) buildRawBinaryRequest(
 	ctx context.Context,
+	spec requestSpec,
 	prompt string,
 	hookVars map[string]string,
 	img *attempt.Image,
@@ -543,13 +567,13 @@ func (r *Rest) buildRawBinaryRequest(
 		return nil, fmt.Errorf("rest: read image bytes: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, r.method, r.uri, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, spec.method, spec.uri, bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("rest: failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", img.MimeType)
-	r.applyHeaders(req, prompt, hookVars)
+	r.applyHeaders(req, spec.headers, prompt, hookVars)
 	return req, nil
 }
 
@@ -561,6 +585,7 @@ func (r *Rest) buildRawBinaryRequest(
 // the actual body.
 func (r *Rest) buildMultipartRequest(
 	ctx context.Context,
+	spec requestSpec,
 	prompt string,
 	hookVars map[string]string,
 	img *attempt.Image,
@@ -568,13 +593,13 @@ func (r *Rest) buildMultipartRequest(
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 
-	keys := make([]string, 0, len(r.multipart.fields))
-	for k := range r.multipart.fields {
+	keys := make([]string, 0, len(spec.multipart.fields))
+	for k := range spec.multipart.fields {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		value := r.populateTemplate(r.multipart.fields[k], prompt, hookVars)
+		value := r.populateTemplate(spec.multipart.fields[k], prompt, hookVars)
 		if err := writer.WriteField(k, value); err != nil {
 			return nil, fmt.Errorf("rest: write multipart field %q: %w", k, err)
 		}
@@ -587,7 +612,7 @@ func (r *Rest) buildMultipartRequest(
 		}
 		header := textproto.MIMEHeader{}
 		header.Set("Content-Disposition", fmt.Sprintf(
-			`form-data; name=%q; filename=%q`, r.multipart.fileField, r.multipart.filename))
+			`form-data; name=%q; filename=%q`, spec.multipart.fileField, spec.multipart.filename))
 		header.Set("Content-Type", img.MimeType)
 		part, err := writer.CreatePart(header)
 		if err != nil {
@@ -602,20 +627,19 @@ func (r *Rest) buildMultipartRequest(
 		return nil, fmt.Errorf("rest: close multipart writer: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, r.method, r.uri, &buf)
+	req, err := http.NewRequestWithContext(ctx, spec.method, spec.uri, &buf)
 	if err != nil {
 		return nil, fmt.Errorf("rest: failed to create request: %w", err)
 	}
 
-	r.applyHeaders(req, prompt, hookVars)
-	// Set the multipart Content-Type (with boundary) last so it matches the body.
+	r.applyHeaders(req, spec.headers, prompt, hookVars)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	return req, nil
 }
 
-// applyHeaders sets the configured headers on req, substituting templates.
-func (r *Rest) applyHeaders(req *http.Request, prompt string, hookVars map[string]string) {
-	for k, v := range r.headers {
+// applyHeaders sets the given headers on req, substituting templates.
+func (r *Rest) applyHeaders(req *http.Request, headers map[string]string, prompt string, hookVars map[string]string) {
+	for k, v := range headers {
 		req.Header.Set(k, r.populateTemplate(v, prompt, hookVars))
 	}
 }
