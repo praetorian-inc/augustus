@@ -1,6 +1,6 @@
 # Makefile for Augustus - LLM Vulnerability Scanner
 
-.PHONY: all build test test-cover lint clean install help multimodal-assets-verify generate generate-check
+.PHONY: all build build-whisper test test-cover lint clean install help multimodal-assets-verify generate generate-check
 .DEFAULT_GOAL := help
 .DELETE_ON_ERROR:
 
@@ -61,6 +61,9 @@ generate-check: generate ## Fail if generated register files are out of date
 		echo "pkg/register is out of date; run 'make generate' and commit the result." >&2; \
 		exit 1; \
 	}
+
+build-whisper: ## Build with whisper.cpp audio transcription (requires libwhisper + CGO)
+	CGO_ENABLED=1 $(GO) build -tags whisper -o $(BUILD_DIR)/$(BINARY) ./cmd/augustus
 
 clean: ## Remove build artifacts
 	rm -rf $(BUILD_DIR) coverage.out coverage.html
