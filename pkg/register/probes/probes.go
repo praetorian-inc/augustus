@@ -12,6 +12,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/ansiescape"
 	_ "github.com/praetorian-inc/augustus/internal/probes/apikey"
 	_ "github.com/praetorian-inc/augustus/internal/probes/artprompts"
+	_ "github.com/praetorian-inc/augustus/internal/probes/audio"
 	_ "github.com/praetorian-inc/augustus/internal/probes/autodan"
 	_ "github.com/praetorian-inc/augustus/internal/probes/avspamscanning"
 	_ "github.com/praetorian-inc/augustus/internal/probes/badchars"
