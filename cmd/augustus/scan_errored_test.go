@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -22,6 +24,12 @@ func captureStdout(t *testing.T, fn func()) string {
 	r, w, err := os.Pipe()
 	require.NoError(t, err)
 	os.Stdout = w
+	// Restore stdout unconditionally so a panic or failed assertion in fn does
+	// not leave process-wide stdout attached to the pipe for later tests.
+	defer func() {
+		os.Stdout = orig
+		_ = r.Close()
+	}()
 
 	done := make(chan string, 1)
 	go func() {
@@ -30,9 +38,11 @@ func captureStdout(t *testing.T, fn func()) string {
 	}()
 
 	fn()
-	require.NoError(t, w.Close())
+	closeErr := w.Close()
 	os.Stdout = orig
-	return <-done
+	output := <-done
+	require.NoError(t, closeErr)
+	return output
 }
 
 func erroredAttempt() *attempt.Attempt {
@@ -154,4 +164,34 @@ func TestCollectingEvaluator_WritesFilesDespiteErroredProbes(t *testing.T) {
 	htmlData, err := os.ReadFile(htmlPath)
 	require.NoError(t, err, "HTML must be written even when probes errored")
 	assert.True(t, strings.Contains(string(htmlData), "Errored"), "HTML summary should include Errored")
+}
+
+// TestOnlyProbesErrored verifies the exit-code precedence: a scan whose only
+// failure is errored probes maps to the distinct code, but an operational error
+// (e.g. a failed cleanup hook) joined alongside it must take precedence (exit 1).
+func TestOnlyProbesErrored(t *testing.T) {
+	cleanupErr := errors.New("cleanup hook failed")
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{"nil", nil, false},
+		{"unrelated runtime error", errors.New("boom"), false},
+		{"bare sentinel", errProbesErrored, true},
+		{"wrapped sentinel", fmt.Errorf("evaluation failed: %w", errProbesErrored), true},
+		{"sentinel joined with operational error", errors.Join(errProbesErrored, cleanupErr), false},
+		{
+			"wrapped sentinel joined with operational error",
+			errors.Join(fmt.Errorf("evaluation failed: %w", errProbesErrored), cleanupErr), false,
+		},
+		{"operational error only", errors.Join(nil, cleanupErr), false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, onlyProbesErrored(tt.err))
+		})
+	}
 }

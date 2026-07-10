@@ -44,11 +44,31 @@ func main() {
 	err := ctx.Run()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		// A fully- or partially-errored scan is reported with a distinct exit
-		// code so it is not mistaken for a clean pass or a generic failure.
-		if errors.Is(err, errProbesErrored) {
+		// A scan whose only failure is errored probes gets a distinct exit code
+		// so it is not mistaken for a clean pass or a generic failure. If an
+		// operational error (e.g. a failed cleanup hook) is joined alongside it,
+		// that runtime failure takes precedence and we exit 1.
+		if onlyProbesErrored(err) {
 			os.Exit(exitCodeProbesErrored)
 		}
 		os.Exit(1)
 	}
+}
+
+// onlyProbesErrored reports whether err represents solely the errored-probes
+// signal, with no operational error joined alongside it. errors.Join exposes
+// Unwrap() []error; if any branch is a non-sentinel error, a runtime failure is
+// also present and must take precedence over the errored-probes exit code.
+func onlyProbesErrored(err error) bool {
+	if err == nil || !errors.Is(err, errProbesErrored) {
+		return false
+	}
+	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+		for _, e := range joined.Unwrap() {
+			if !errors.Is(e, errProbesErrored) {
+				return false
+			}
+		}
+	}
+	return true
 }

@@ -117,6 +117,15 @@ type ProbeStats struct {
 	Errored int `json:"errored"`
 }
 
+// IsErrored reports whether an attempt never produced a verdict about the
+// target — it errored or never completed. Such an attempt carries no signal
+// about the target's safety, so it must not be scored as passed or failed
+// (LAB-4316). Exported so the CLI evaluators share a single errored-status
+// predicate with Verdict rather than re-deriving it.
+func IsErrored(status attempt.Status) bool {
+	return status == attempt.StatusError || status == attempt.StatusPending
+}
+
 // Verdict classifies an attempt for display. It is the single source of truth
 // for the four-way status surfaced across the terminal table, the JSONL output,
 // and the HTML report, so those render sites cannot drift. Returns one of:
@@ -135,7 +144,7 @@ type ProbeStats struct {
 //     the threshold), or an at-threshold score outside the visible-multimodal
 //     case above.
 func Verdict(a *attempt.Attempt) string {
-	if a.Status == attempt.StatusError || a.Status == attempt.StatusPending {
+	if IsErrored(a.Status) {
 		return "error"
 	}
 

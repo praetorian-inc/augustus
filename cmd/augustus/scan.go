@@ -933,11 +933,12 @@ var errProbesErrored = errors.New("scan completed with errored probes; results d
 
 // countErrored returns the number of attempts that errored before producing a
 // verdict. These carry no signal about the target and are reported separately
-// from passed/failed.
+// from passed/failed. Uses the shared results.IsErrored predicate so table
+// rendering, verbose output, and exit signaling cannot diverge.
 func countErrored(attempts []*attempt.Attempt) int {
 	n := 0
 	for _, a := range attempts {
-		if a.Status == attempt.StatusError || a.Status == attempt.StatusPending {
+		if results.IsErrored(a.Status) {
 			n++
 		}
 	}
@@ -980,7 +981,7 @@ func (t *tableEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 		// An errored attempt never reached the model, so it carries no signal
 		// about the target. Report it as ERROR with no verdict rather than
 		// scoring the absent response as 0.00/SAFE/passed (LAB-4316).
-		if a.Status == attempt.StatusError || a.Status == attempt.StatusPending {
+		if results.IsErrored(a.Status) {
 			totalErrored++
 			rows = append(rows, row{
 				probe:    a.Probe,
@@ -1061,7 +1062,7 @@ func (t *tableEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 		for i, a := range attempts {
 			// Errored attempts have no verdict — surface the error instead of a
 			// misleading PASS/FAIL derived from an absent response (LAB-4316).
-			if a.Status == attempt.StatusError || a.Status == attempt.StatusPending {
+			if results.IsErrored(a.Status) {
 				errMsg := a.Error
 				if errMsg == "" {
 					errMsg = "probe did not complete"
