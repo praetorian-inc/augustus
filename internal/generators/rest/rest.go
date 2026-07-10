@@ -1241,7 +1241,7 @@ func (r *Rest) configureUpload(cfg registry.Config) error {
 			if vs == "" {
 				return fmt.Errorf("rest: upload capture %q must have a non-empty source", k)
 			}
-			if strings.HasPrefix(vs, "header:") && strings.TrimPrefix(vs, "header:") == "" {
+			if strings.HasPrefix(vs, captureHeaderPrefix) && strings.TrimPrefix(vs, captureHeaderPrefix) == "" {
 				return fmt.Errorf("rest: upload capture %q: header source must name a header (got %q)", k, vs)
 			}
 			u.capture[k] = vs
@@ -1250,4 +1250,55 @@ func (r *Rest) configureUpload(cfg registry.Config) error {
 
 	r.upload = u
 	return nil
+}
+
+// captureHeaderPrefix marks a capture source that reads a response header
+// ("header:Location") rather than a JSONPath into the response body.
+const captureHeaderPrefix = "header:"
+
+// parseCapture applies the upload step's capture rules to the upload response,
+// returning variable name -> captured value. Body captures use the JSON field /
+// JSONPath engine; "header:Name" captures read a response header. A declared
+// capture that resolves to an empty value is an error (fail-loud: never let the
+// main request proceed with a missing handle).
+func (r *Rest) parseCapture(resp *http.Response, body []byte) (map[string]string, error) {
+	out := make(map[string]string, len(r.upload.capture))
+
+	// Decode the body once, only if a body capture is present.
+	var decoded any
+	var decodedErr error
+	var decodedOnce bool
+	ensureDecoded := func() error {
+		if !decodedOnce {
+			decodedOnce = true
+			decodedErr = json.Unmarshal(body, &decoded)
+		}
+		return decodedErr
+	}
+
+	for name, source := range r.upload.capture {
+		if strings.HasPrefix(source, captureHeaderPrefix) {
+			headerName := strings.TrimPrefix(source, captureHeaderPrefix)
+			val := resp.Header.Get(headerName)
+			if val == "" {
+				return nil, fmt.Errorf("rest: upload capture %q: response header %q is empty or absent", name, headerName)
+			}
+			out[name] = val
+			continue
+		}
+
+		if err := ensureDecoded(); err != nil {
+			return nil, fmt.Errorf("rest: upload capture %q: parse response JSON: %w", name, err)
+		}
+		val, err := r.extractField(decoded, source)
+		if err != nil {
+			return nil, fmt.Errorf("rest: upload capture %q: %w", name, err)
+		}
+		if val == "" {
+			return nil, fmt.Errorf("rest: upload capture %q resolved to an empty value at %q", name, source)
+		}
+		out[name] = val
+	}
+
+	return out, nil
 }

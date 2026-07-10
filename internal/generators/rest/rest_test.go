@@ -2525,3 +2525,44 @@ func TestNewRest_Upload_Validation(t *testing.T) {
 		assert.Equal(t, "id", r.upload.capture["FILE_ID"])
 	})
 }
+
+func TestRest_parseCapture(t *testing.T) {
+	r := &Rest{
+		upload: &uploadConfig{
+			capture: map[string]string{
+				"FILE_ID":    "$.data.id",
+				"UPLOAD_URL": "header:Location",
+			},
+		},
+	}
+
+	t.Run("captures body JSONPath and response header", func(t *testing.T) {
+		resp := &http.Response{Header: http.Header{}}
+		resp.Header.Set("Location", "https://cdn.example/obj/42")
+		body := []byte(`{"data":{"id":"abc123"}}`)
+
+		got, err := r.parseCapture(resp, body)
+		require.NoError(t, err)
+		assert.Equal(t, "abc123", got["FILE_ID"])
+		assert.Equal(t, "https://cdn.example/obj/42", got["UPLOAD_URL"])
+	})
+
+	t.Run("missing body path errors", func(t *testing.T) {
+		resp := &http.Response{Header: http.Header{}}
+		resp.Header.Set("Location", "https://cdn.example/obj/42")
+		body := []byte(`{"data":{}}`)
+
+		_, err := r.parseCapture(resp, body)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "FILE_ID")
+	})
+
+	t.Run("missing header errors", func(t *testing.T) {
+		resp := &http.Response{Header: http.Header{}}
+		body := []byte(`{"data":{"id":"abc123"}}`)
+
+		_, err := r.parseCapture(resp, body)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "UPLOAD_URL")
+	})
+}
