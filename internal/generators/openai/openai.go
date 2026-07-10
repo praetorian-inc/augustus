@@ -6,8 +6,11 @@
 package openai
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 
 	goopenai "github.com/sashabaranov/go-openai"
 
@@ -36,6 +39,12 @@ type OpenAI struct {
 	client *goopenai.Client
 	model  string
 	isChat bool
+
+	// apiKey, baseURL, and httpClient support the custom audio HTTP path
+	// (generateChatAudio), which bypasses the go-openai SDK.
+	apiKey     string
+	baseURL    string
+	httpClient *http.Client
 
 	// Configuration parameters
 	temperature      float32
@@ -90,6 +99,13 @@ func NewOpenAITyped(cfg Config) (*OpenAI, error) {
 	}
 	g.client = goopenai.NewClientWithConfig(clientCfg)
 
+	g.apiKey = cfg.APIKey
+	g.baseURL = cfg.BaseURL
+	if g.baseURL == "" {
+		g.baseURL = "https://api.openai.com/v1"
+	}
+	g.httpClient = &http.Client{}
+
 	return g, nil
 }
 
@@ -122,6 +138,10 @@ func (g *OpenAI) Generate(ctx context.Context, conv *attempt.Conversation, n int
 
 // generateChat handles chat completion requests.
 func (g *OpenAI) generateChat(ctx context.Context, conv *attempt.Conversation, n int) ([]attempt.Message, error) {
+	if conversationHasAudio(conv) {
+		return g.generateChatAudio(ctx, conv)
+	}
+
 	// Convert conversation to OpenAI message format
 	messages, err := openaicompat.ConversationToMessages(conv)
 	if err != nil {
@@ -278,7 +298,66 @@ func (g *OpenAI) SupportsVision() bool {
 	return true
 }
 
+// SupportsAudio reports that the chat path can transmit audio attachments.
+// The legacy completion path cannot, so it mirrors isChat.
+func (g *OpenAI) SupportsAudio() bool { return g.isChat }
+
 // Description returns a human-readable description.
 func (g *OpenAI) Description() string {
 	return "OpenAI API generator for GPT models (chat and completion)"
+}
+
+// conversationHasAudio reports whether any user turn carries audio attachments.
+func conversationHasAudio(conv *attempt.Conversation) bool {
+	for _, turn := range conv.Turns {
+		if len(turn.Prompt.Audio) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// generateChatAudio sends an audio-bearing chat request over a custom HTTP path.
+// The pinned go-openai SDK cannot model input_audio content parts, so the request
+// body is built and posted manually via openaicompat helpers.
+func (g *OpenAI) generateChatAudio(ctx context.Context, conv *attempt.Conversation) ([]attempt.Message, error) {
+	params := openaicompat.AudioChatParams{
+		Voice:       "alloy",
+		Format:      "wav",
+		Temperature: g.temperature,
+		TopP:        g.topP,
+		MaxTokens:   g.maxTokens,
+	}
+	body, err := openaicompat.BuildAudioChatBody(g.model, conv, params)
+	if err != nil {
+		return nil, openaicompat.WrapError("openai", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.baseURL+"/chat/completions", bytes.NewReader(body))
+	if err != nil {
+		return nil, openaicompat.WrapError("openai", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+g.apiKey)
+
+	resp, err := g.httpClient.Do(req)
+	if err != nil {
+		return nil, openaicompat.WrapError("openai", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, openaicompat.WrapError("openai", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("openai: audio request failed (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	messages, tokens, err := openaicompat.ParseAudioChatResponse(respBody, params.Format)
+	if err != nil {
+		return nil, openaicompat.WrapError("openai", err)
+	}
+	g.AddTokens(int64(tokens))
+	return messages, nil
 }
