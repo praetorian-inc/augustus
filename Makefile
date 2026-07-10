@@ -62,8 +62,8 @@ generate-check: generate ## Fail if generated register files are out of date
 		exit 1; \
 	}
 
-build-whisper: ## Build with whisper.cpp audio transcription (requires libwhisper + CGO)
-	CGO_ENABLED=1 $(GO) build -tags whisper -o $(BUILD_DIR)/$(BINARY) ./cmd/augustus
+build-whisper: | $(BUILD_DIR) ## Build with whisper.cpp audio transcription (requires libwhisper + CGO)
+	CGO_ENABLED=1 $(GO) build $(LDFLAGS) -tags whisper -o $(BUILD_DIR)/$(BINARY) ./cmd/augustus
 
 clean: ## Remove build artifacts
 	rm -rf $(BUILD_DIR) coverage.out coverage.html
