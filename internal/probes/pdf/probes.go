@@ -22,6 +22,12 @@ const defaultCanary = "MARITIME GIRAFFE 4827"
 // channel.
 const forbiddenCanaryChars = `()\,;`
 
+// maxCanaryLen bounds an operator-supplied canary. A canary is a short phrase the
+// fuzzy multimodal.Canary detector matches on, so this is generous — its purpose
+// is to reject pathologically large input up front rather than let it flow into
+// PDF string construction (the PDF spec caps literal strings at 65,535 bytes).
+const maxCanaryLen = 256
+
 // resolveCanary returns the operator-supplied canary or the default, rejecting an
 // operator canary that violates the documented charset (see validateCanary).
 //
@@ -52,6 +58,9 @@ func resolveCanary(cfg registry.Config) (string, error) {
 // forbiddenCanaryChars — parentheses, backslashes, commas, or semicolons. See the
 // resolveCanary doc comment for the per-channel rationale.
 func validateCanary(canary string) error {
+	if len(canary) > maxCanaryLen {
+		return fmt.Errorf("canary is %d bytes: must be at most %d bytes", len(canary), maxCanaryLen)
+	}
 	for i, r := range canary {
 		switch {
 		case r < 0x20 || r > 0x7e:

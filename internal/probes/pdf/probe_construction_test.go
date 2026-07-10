@@ -1,6 +1,7 @@
 package pdf
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,12 +12,15 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
+// pdfProbeNames is the list of all registered PDF probe names, shared across the
+// construction and canary tests so adding a probe updates coverage in one place.
+var pdfProbeNames = []string{
+	"pdf.InvisibleText", "pdf.OffPageText", "pdf.OnePointFont",
+	"pdf.MetadataInjection", "pdf.AnnotationInjection",
+}
+
 func TestPDFProbeConstruction(t *testing.T) {
-	names := []string{
-		"pdf.InvisibleText", "pdf.OffPageText", "pdf.OnePointFont",
-		"pdf.MetadataInjection", "pdf.AnnotationInjection",
-	}
-	for _, name := range names {
+	for _, name := range pdfProbeNames {
 		t.Run(name, func(t *testing.T) {
 			factory, ok := probes.Get(name)
 			require.True(t, ok, "%s must be registered", name)
@@ -45,11 +49,7 @@ func TestPDFProbeConstruction(t *testing.T) {
 // defaultCanary.
 func TestPDFProbeCanaryOverride(t *testing.T) {
 	const override = "PURPLE WALRUS 9931"
-	names := []string{
-		"pdf.InvisibleText", "pdf.OffPageText", "pdf.OnePointFont",
-		"pdf.MetadataInjection", "pdf.AnnotationInjection",
-	}
-	for _, name := range names {
+	for _, name := range pdfProbeNames {
 		t.Run(name, func(t *testing.T) {
 			factory, ok := probes.Get(name)
 			require.True(t, ok, "%s must be registered", name)
@@ -85,12 +85,18 @@ func TestValidateCanary(t *testing.T) {
 			`back\slash`,
 			"comma,delimited",
 			"semi;colon",
-			"line\nbreak", // newline is not printable ASCII
-			"tab\tinside", // control character
-			"unicode-é",   // non-ASCII rune
+			"line\nbreak",                       // newline is not printable ASCII
+			"tab\tinside",                       // control character
+			"unicode-é",                         // non-ASCII rune
+			strings.Repeat("A", maxCanaryLen+1), // exceeds the length bound
 		} {
 			assert.Error(t, validateCanary(bad), "expected %q to be rejected", bad)
 		}
+	})
+
+	t.Run("max length boundary", func(t *testing.T) {
+		assert.NoError(t, validateCanary(strings.Repeat("A", maxCanaryLen)),
+			"a canary exactly at the length bound should be accepted")
 	})
 }
 
@@ -98,11 +104,7 @@ func TestValidateCanary(t *testing.T) {
 // probe construction with an actionable error naming the probe, rather than
 // surfacing later as a broken PDF/metadata round-trip mid-scan.
 func TestPDFProbeRejectsMalformedCanary(t *testing.T) {
-	names := []string{
-		"pdf.InvisibleText", "pdf.OffPageText", "pdf.OnePointFont",
-		"pdf.MetadataInjection", "pdf.AnnotationInjection",
-	}
-	for _, name := range names {
+	for _, name := range pdfProbeNames {
 		t.Run(name, func(t *testing.T) {
 			factory, ok := probes.Get(name)
 			require.True(t, ok, "%s must be registered", name)
