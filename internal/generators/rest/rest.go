@@ -420,6 +420,24 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 		img = &pm.Images[0]
 	}
 
+	// Two-step flow: upload the image first, capture handle(s) into the var map,
+	// then send the main request with the image omitted (it was consumed above).
+	if r.upload != nil {
+		captured, err := r.doUpload(ctx, conv, prompt, hookVars, img)
+		if err != nil {
+			return attempt.Message{}, err
+		}
+		merged := make(map[string]string, len(hookVars)+len(captured))
+		for k, v := range hookVars {
+			merged[k] = v
+		}
+		for k, v := range captured {
+			merged[k] = v // captured values win on key collision
+		}
+		hookVars = merged
+		img = nil
+	}
+
 	// Build the HTTP request body and content type according to the configured
 	// wire mode (raw binary, multipart, or JSON template).
 	req, err := r.buildRequest(ctx, r.mainSpec(), conv, prompt, hookVars, img)
@@ -1078,6 +1096,9 @@ func (r *Rest) Description() string {
 // the configured wire shape can actually carry the image: raw-binary body,
 // multipart file part, or a JSON template containing an $IMAGE_ placeholder.
 func (r *Rest) SupportsVision() bool {
+	if r.upload != nil && r.upload.carriesImage() {
+		return true
+	}
 	return r.bodyMode == bodyModeRawBinary ||
 		r.multipart != nil ||
 		strings.Contains(r.reqTemplate, "$IMAGE_")
@@ -1301,4 +1322,43 @@ func (r *Rest) parseCapture(resp *http.Response, body []byte) (map[string]string
 	}
 
 	return out, nil
+}
+
+// doUpload runs the two-step flow's pre-request: it sends the probe's image to
+// the upload endpoint and returns the captured variables. Any non-2xx status or
+// an unresolved capture is an error, so the main request never proceeds with a
+// missing handle.
+func (r *Rest) doUpload(
+	ctx context.Context,
+	conv *attempt.Conversation,
+	prompt string,
+	hookVars map[string]string,
+	img *attempt.Image,
+) (map[string]string, error) {
+	if img == nil {
+		return nil, fmt.Errorf("rest: upload flow requires an image attachment")
+	}
+
+	req, err := r.buildRequest(ctx, r.upload.toRequestSpec(), conv, prompt, hookVars, img)
+	if err != nil {
+		return nil, fmt.Errorf("rest: build upload request: %w", err)
+	}
+
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("rest: upload request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("rest: upload returned non-2xx status: %d %s", resp.StatusCode, resp.Status)
+	}
+
+	const maxResponseSize = 10 * 1024 * 1024
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
+	if err != nil {
+		return nil, fmt.Errorf("rest: read upload response: %w", err)
+	}
+
+	return r.parseCapture(resp, body)
 }
