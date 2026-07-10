@@ -1260,23 +1260,39 @@ func (r *Rest) configureUpload(cfg registry.Config) error {
 			"(body_mode raw_binary, multipart, or a req_template containing $IMAGE_)")
 	}
 
-	if rawCapture, ok := m["capture"].(map[string]any); ok {
-		for k, v := range rawCapture {
-			vs, ok := v.(string)
-			if !ok {
-				return fmt.Errorf("rest: upload capture %q must be a string", k)
-			}
-			if !validCaptureKey.MatchString(k) {
-				return fmt.Errorf("rest: upload capture key %q must match ^[A-Z0-9_]+$", k)
-			}
-			if vs == "" {
-				return fmt.Errorf("rest: upload capture %q must have a non-empty source", k)
-			}
-			if strings.HasPrefix(vs, captureHeaderPrefix) && strings.TrimPrefix(vs, captureHeaderPrefix) == "" {
-				return fmt.Errorf("rest: upload capture %q: header source must name a header (got %q)", k, vs)
-			}
-			u.capture[k] = vs
+	// The capture map is mandatory: a two-step flow exists to pull a handle out
+	// of the upload response and substitute it into the main request. A missing,
+	// wrong-typed, or empty capture is a config error, not a silent skip — else
+	// the upload would run and the main request would fire with placeholders like
+	// $FILE_ID unresolved, defeating the fail-loud contract.
+	rawCaptureAny, hasCapture := m["capture"]
+	if !hasCapture {
+		return fmt.Errorf("rest: upload requires a capture map " +
+			"(a two-step flow must capture at least one handle to substitute into the main request)")
+	}
+	rawCapture, ok := rawCaptureAny.(map[string]any)
+	if !ok {
+		return fmt.Errorf("rest: upload capture must be an object mapping NAME to a source " +
+			"($jsonpath into the body or header:Name)")
+	}
+	for k, v := range rawCapture {
+		vs, ok := v.(string)
+		if !ok {
+			return fmt.Errorf("rest: upload capture %q must be a string", k)
 		}
+		if !validCaptureKey.MatchString(k) {
+			return fmt.Errorf("rest: upload capture key %q must match ^[A-Z0-9_]+$", k)
+		}
+		if vs == "" {
+			return fmt.Errorf("rest: upload capture %q must have a non-empty source", k)
+		}
+		if strings.HasPrefix(vs, captureHeaderPrefix) && strings.TrimPrefix(vs, captureHeaderPrefix) == "" {
+			return fmt.Errorf("rest: upload capture %q: header source must name a header (got %q)", k, vs)
+		}
+		u.capture[k] = vs
+	}
+	if len(u.capture) == 0 {
+		return fmt.Errorf("rest: upload capture must define at least one entry")
 	}
 
 	r.upload = u

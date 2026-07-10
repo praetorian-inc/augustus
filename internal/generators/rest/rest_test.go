@@ -2524,6 +2524,46 @@ func TestNewRest_Upload_Validation(t *testing.T) {
 		require.NotNil(t, r.upload)
 		assert.Equal(t, "id", r.upload.capture["FILE_ID"])
 	})
+
+	t.Run("upload without a capture map errors", func(t *testing.T) {
+		_, err := NewRest(registry.Config{
+			"uri": "http://example.invalid",
+			"upload": map[string]any{
+				"uri":       "http://upload.invalid",
+				"body_mode": "raw_binary",
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "capture")
+	})
+
+	t.Run("upload capture of the wrong type errors", func(t *testing.T) {
+		// A list (not an object) must be rejected, not silently skipped — else the
+		// upload runs and the main request fires with $VAR placeholders unresolved.
+		_, err := NewRest(registry.Config{
+			"uri": "http://example.invalid",
+			"upload": map[string]any{
+				"uri":       "http://upload.invalid",
+				"body_mode": "raw_binary",
+				"capture":   []any{"FILE_ID"},
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "capture")
+	})
+
+	t.Run("upload with an empty capture map errors", func(t *testing.T) {
+		_, err := NewRest(registry.Config{
+			"uri": "http://example.invalid",
+			"upload": map[string]any{
+				"uri":       "http://upload.invalid",
+				"body_mode": "raw_binary",
+				"capture":   map[string]any{},
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "capture")
+	})
 }
 
 func TestRest_parseCapture(t *testing.T) {
