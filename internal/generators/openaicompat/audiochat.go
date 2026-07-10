@@ -114,10 +114,26 @@ type audioChatResponse struct {
 	} `json:"error"`
 }
 
+// mimeForAudioFormat maps a requested audio output format (as passed to
+// BuildAudioChatBody) to the MIME type used to label captured response audio.
+// Unknown or empty formats default to "audio/wav".
+func mimeForAudioFormat(format string) string {
+	switch format {
+	case "mp3":
+		return "audio/mpeg"
+	case "wav":
+		return "audio/wav"
+	default:
+		return "audio/wav"
+	}
+}
+
 // ParseAudioChatResponse parses an OpenAI audio chat response into attempt
-// messages. Returned audio bytes populate Message.Audio; when the text content
-// is empty the audio transcript is used as the message content.
-func ParseAudioChatResponse(body []byte) ([]attempt.Message, int, error) {
+// messages. Returned audio bytes populate Message.Audio, labeled with the MIME
+// type corresponding to format (the same format requested via
+// AudioChatParams.Format when building the request); when the text content is
+// empty the audio transcript is used as the message content.
+func ParseAudioChatResponse(body []byte, format string) ([]attempt.Message, int, error) {
 	var resp audioChatResponse
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, 0, fmt.Errorf("openaicompat: decode audio response: %w", err)
@@ -126,12 +142,13 @@ func ParseAudioChatResponse(body []byte) ([]attempt.Message, int, error) {
 		return nil, 0, fmt.Errorf("openaicompat: api error: %s", resp.Error.Message)
 	}
 
+	mime := mimeForAudioFormat(format)
 	messages := make([]attempt.Message, 0, len(resp.Choices))
 	for _, c := range resp.Choices {
 		content := c.Message.Content
 		msg := attempt.NewAssistantMessage(content)
 		if c.Message.Audio != nil && c.Message.Audio.Data != "" {
-			msg.Audio = []attempt.Audio{{MimeType: "audio/wav", Base64: c.Message.Audio.Data}}
+			msg.Audio = []attempt.Audio{{MimeType: mime, Base64: c.Message.Audio.Data}}
 			if content == "" {
 				msg.Content = c.Message.Audio.Transcript
 			}
