@@ -111,14 +111,29 @@ A decorator detector: audio output → transcript → wrapped policy detector.
 - **Detector logic** (`audiotranscribe.go`, build-tag-agnostic):
   - Config keys: `policy_detector` (name, default `mitigation.MitigationBypass`),
     `whisper_model` (path, passed to the transcriber).
-  - `Detect(ctx, a)`:
-    1. Read output audio from `a.Metadata[MetaAudioOutput]`.
-    2. If present, transcribe each clip; build a shadow attempt whose `Outputs`
-       are the transcripts; delegate to the wrapped policy detector and return
-       its scores.
-    3. If absent, delegate the policy detector to the original attempt (scores
-       the provider transcript text already in `Outputs`).
+  - `Detect(ctx, a)` — **transcript-first, whisper fallback** (see Deviation below):
+    1. If any of `a.Outputs` carries non-whitespace text (the provider transcript,
+       which `gpt-4o-audio-preview` returns alongside audio), delegate the policy
+       detector to the original attempt and return — the transcriber is not called.
+    2. Otherwise, if output audio is present (`a.Metadata[MetaAudioOutput]`), whisper-
+       transcribe each clip; build a shadow attempt whose `Outputs` are the
+       transcripts; delegate to the policy detector on the shadow.
+    3. If neither usable text nor output audio is present, delegate to the policy
+       detector on the original attempt.
   - Register: `detectors.Register("multimodal.AudioTranscribe", NewAudioTranscribe)`.
+
+> **Deviation from original design (approved during implementation):** the spec
+> originally specified whisper-first — always independently transcribe the audio
+> bytes and never trust the provider transcript. In practice `gpt-4o-audio-preview`
+> returns a text transcript with every response, and requiring whisper would (a)
+> gate the acceptance criteria on a CGo `-tags whisper` build + model file, and (b)
+> hit a sample-rate mismatch (the model returns 24 kHz audio; whisper needs 16 kHz).
+> The detector is therefore transcript-first: it scores the provider transcript when
+> present and falls back to whisper (with a resample-to-16 kHz decode) only for
+> audio-only responses that carry no transcript. This lets acceptance criterion (c)
+> pass on the default CGo-free build. Trade-off: for providers that return a
+> transcript we trust that transcript rather than re-deriving it; a provider that
+> sanitizes its transcript could under-report — revisit if that materializes.
 
 The wrapped `mitigation.MitigationBypass` scores high when the (transcribed)
 response lacks refusal/mitigation language — i.e. the model complied with the
@@ -200,6 +215,7 @@ framing, no authored harmful how-to content).
   `whisper` build tag and a model file. The stub keeps the default build green.
 - **`gpt-4o-audio-preview` request shape**: audio models require `modalities` +
   `audio` config; the custom HTTP builder must set these or the API errors.
-- **Independent transcription**: the detector transcribes the model's audio
-  bytes with whisper rather than trusting the provider transcript, since a
-  provider transcript could omit unsafe content.
+- **Transcription source**: superseded by the transcript-first Deviation in §3 —
+  the detector scores the provider transcript when present and uses whisper only
+  as a fallback for audio-only responses. The original "always independently
+  transcribe with whisper" intent is retained as the fallback path.
