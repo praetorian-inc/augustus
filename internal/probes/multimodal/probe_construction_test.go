@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -99,5 +100,15 @@ func TestProbeRegistration(t *testing.T) {
 			assert.True(t, ok, "%s should be registered in the global probe registry", name)
 			assert.NotNil(t, factory)
 		})
+	}
+}
+
+func TestBaseMultimodalProbe_GetAudioAggregates(t *testing.T) {
+	p := &BaseMultimodalProbe{Prompts: []MultimodalPrompt{
+		{Audio: []attempt.Audio{{MimeType: "audio/wav"}}},
+		{Audio: []attempt.Audio{{MimeType: "audio/mp3"}}},
+	}}
+	if got := p.GetAudio(); len(got) != 2 {
+		t.Fatalf("GetAudio len = %d, want 2", len(got))
 	}
 }
