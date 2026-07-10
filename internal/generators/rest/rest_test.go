@@ -2407,3 +2407,80 @@ func TestRestGenerator_Vision_ConfigValidation(t *testing.T) {
 		assert.Contains(t, err.Error(), "file_field")
 	})
 }
+
+func TestNewRest_Upload_Validation(t *testing.T) {
+	t.Run("upload requires uri", func(t *testing.T) {
+		_, err := NewRest(registry.Config{
+			"uri": "http://example.invalid",
+			"upload": map[string]any{
+				"body_mode": "raw_binary",
+				"capture":   map[string]any{"FILE_ID": "$.id"},
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "upload")
+		assert.Contains(t, err.Error(), "uri")
+	})
+
+	t.Run("upload requires an image transport mode", func(t *testing.T) {
+		_, err := NewRest(registry.Config{
+			"uri": "http://example.invalid",
+			"upload": map[string]any{
+				"uri":     "http://upload.invalid",
+				"capture": map[string]any{"FILE_ID": "$.id"},
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "image")
+	})
+
+	t.Run("upload capture key must be uppercase alnum", func(t *testing.T) {
+		_, err := NewRest(registry.Config{
+			"uri": "http://example.invalid",
+			"upload": map[string]any{
+				"uri":       "http://upload.invalid",
+				"body_mode": "raw_binary",
+				"capture":   map[string]any{"file-id": "$.id"},
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "capture")
+	})
+
+	t.Run("upload raw_binary and multipart are mutually exclusive", func(t *testing.T) {
+		_, err := NewRest(registry.Config{
+			"uri": "http://example.invalid",
+			"upload": map[string]any{
+				"uri":       "http://upload.invalid",
+				"body_mode": "raw_binary",
+				"multipart": map[string]any{"file_field": "file"},
+				"capture":   map[string]any{"FILE_ID": "$.id"},
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "mutually exclusive")
+	})
+
+	t.Run("valid upload config parses", func(t *testing.T) {
+		g, err := NewRest(registry.Config{
+			"uri": "http://example.invalid/analyze/$FILE_ID",
+			"upload": map[string]any{
+				"uri":       "http://upload.invalid",
+				"body_mode": "raw_binary",
+				"capture":   map[string]any{"FILE_ID": "$.id"},
+			},
+		})
+		require.NoError(t, err)
+		r := g.(*Rest)
+		require.NotNil(t, r.upload)
+		assert.Equal(t, "http://upload.invalid", r.upload.uri)
+		assert.True(t, r.upload.carriesImage())
+		assert.Equal(t, "$.id", r.upload.capture["FILE_ID"])
+
+		spec := r.upload.toRequestSpec()
+		assert.Equal(t, r.upload.uri, spec.uri)
+		assert.Equal(t, r.upload.method, spec.method)
+		assert.Equal(t, r.upload.bodyMode, spec.bodyMode)
+		assert.Equal(t, r.upload.multipart, spec.multipart)
+	})
+}

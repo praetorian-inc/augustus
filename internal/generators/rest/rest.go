@@ -19,6 +19,7 @@ import (
 	"net/textproto"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -78,6 +79,10 @@ var (
 // bodyModeRawBinary is the body_mode value that sends the probe's image as the
 // raw HTTP request body (e.g. for endpoints that accept image/* directly).
 const bodyModeRawBinary = "raw_binary"
+
+// validCaptureKey restricts upload capture variable names to uppercase
+// alphanumeric and underscores, matching the runtime hook-var key rule.
+var validCaptureKey = regexp.MustCompile(`^[A-Z0-9_]+$`)
 
 // multipartConfig describes how to send the request as multipart/form-data.
 // The probe's image is attached as a file part under fileField; any additional
@@ -143,6 +148,10 @@ type Rest struct {
 	// Multimodal image transport
 	bodyMode  string           // "" (template) or bodyModeRawBinary
 	multipart *multipartConfig // non-nil when sending multipart/form-data
+
+	// Two-step upload flow: when set, an upload pre-request runs before the main
+	// request, capturing values substituted into it via $VAR placeholders.
+	upload *uploadConfig
 
 	// Raw response storage for runtime hooks
 	mu          sync.Mutex // protects lastRawResp
@@ -340,6 +349,11 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 
 	// Optional: multimodal image transport.
 	if err := r.configureImageTransport(cfg); err != nil {
+		return nil, err
+	}
+
+	// Optional: two-step upload flow.
+	if err := r.configureUpload(cfg); err != nil {
 		return nil, err
 	}
 
@@ -1069,33 +1083,34 @@ func (r *Rest) SupportsVision() bool {
 		strings.Contains(r.reqTemplate, "$IMAGE_")
 }
 
-// configureImageTransport parses the optional body_mode and multipart settings
-// that control how a probe's image is placed on the wire. body_mode raw_binary
-// and multipart are mutually exclusive.
-func (r *Rest) configureImageTransport(cfg registry.Config) error {
-	if mode, ok := cfg["body_mode"].(string); ok && mode != "" {
+// parseImageTransport reads the optional body_mode and multipart settings from a
+// config sub-map and returns the resulting transport. body_mode raw_binary and
+// multipart are mutually exclusive. Used for both the top-level request and the
+// upload pre-request.
+func parseImageTransport(m map[string]any) (string, *multipartConfig, error) {
+	var bodyMode string
+	if mode, ok := m["body_mode"].(string); ok && mode != "" {
 		if mode != bodyModeRawBinary {
-			return fmt.Errorf("rest: invalid body_mode %q (only %q is supported)", mode, bodyModeRawBinary)
+			return "", nil, fmt.Errorf("rest: invalid body_mode %q (only %q is supported)", mode, bodyModeRawBinary)
 		}
-		r.bodyMode = mode
+		bodyMode = mode
 	}
 
-	raw, ok := cfg["multipart"]
+	raw, ok := m["multipart"]
 	if !ok {
-		return nil
+		return bodyMode, nil, nil
 	}
 	mpRaw, ok := raw.(map[string]any)
 	if !ok {
-		return fmt.Errorf("rest: multipart must be an object")
+		return "", nil, fmt.Errorf("rest: multipart must be an object")
 	}
-
-	if r.bodyMode == bodyModeRawBinary {
-		return fmt.Errorf("rest: body_mode %q and multipart are mutually exclusive", bodyModeRawBinary)
+	if bodyMode == bodyModeRawBinary {
+		return "", nil, fmt.Errorf("rest: body_mode %q and multipart are mutually exclusive", bodyModeRawBinary)
 	}
 
 	fileField, _ := mpRaw["file_field"].(string)
 	if fileField == "" {
-		return fmt.Errorf("rest: multipart requires a non-empty file_field")
+		return "", nil, fmt.Errorf("rest: multipart requires a non-empty file_field")
 	}
 
 	filename := "image.png"
@@ -1112,10 +1127,121 @@ func (r *Rest) configureImageTransport(cfg registry.Config) error {
 		}
 	}
 
-	r.multipart = &multipartConfig{
-		fileField: fileField,
-		filename:  filename,
-		fields:    fields,
+	return bodyMode, &multipartConfig{fileField: fileField, filename: filename, fields: fields}, nil
+}
+
+// configureImageTransport parses the top-level body_mode and multipart settings
+// that control how a probe's image is placed on the wire.
+func (r *Rest) configureImageTransport(cfg registry.Config) error {
+	bodyMode, mp, err := parseImageTransport(cfg)
+	if err != nil {
+		return err
 	}
+	r.bodyMode = bodyMode
+	r.multipart = mp
+	return nil
+}
+
+// uploadConfig describes the pre-request "upload" step of a two-step multimodal
+// flow: it sends the probe's image to an upload endpoint and captures named
+// values from the response for substitution into the main ("analyze") request.
+type uploadConfig struct {
+	uri         string
+	method      string
+	headers     map[string]string
+	reqTemplate string
+	bodyMode    string
+	multipart   *multipartConfig
+	// capture maps a variable name (^[A-Z0-9_]+$) to a source: a JSONPath into
+	// the response body ("$.data.id"), or "header:Name" for a response header.
+	capture map[string]string
+}
+
+// toRequestSpec adapts the upload config to the shared requestSpec used by the
+// request builders.
+func (u *uploadConfig) toRequestSpec() requestSpec {
+	return requestSpec{
+		uri:         u.uri,
+		method:      u.method,
+		headers:     u.headers,
+		reqTemplate: u.reqTemplate,
+		bodyMode:    u.bodyMode,
+		multipart:   u.multipart,
+	}
+}
+
+// carriesImage reports whether the upload step is configured with somewhere for
+// the image to go (raw-binary body, multipart file part, or an $IMAGE_ template).
+func (u *uploadConfig) carriesImage() bool {
+	return u.bodyMode == bodyModeRawBinary ||
+		u.multipart != nil ||
+		strings.Contains(u.reqTemplate, "$IMAGE_")
+}
+
+// configureUpload parses and validates the optional "upload" config block.
+func (r *Rest) configureUpload(cfg registry.Config) error {
+	raw, ok := cfg["upload"]
+	if !ok {
+		return nil
+	}
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return fmt.Errorf("rest: upload must be an object")
+	}
+
+	u := &uploadConfig{
+		method:  "POST",
+		headers: make(map[string]string),
+		capture: make(map[string]string),
+	}
+
+	uri, _ := m["uri"].(string)
+	if uri == "" {
+		return fmt.Errorf("rest: upload requires a non-empty uri")
+	}
+	u.uri = uri
+
+	if method, ok := m["method"].(string); ok && method != "" {
+		u.method = strings.ToUpper(method)
+	}
+
+	if headers, ok := m["headers"].(map[string]any); ok {
+		for k, v := range headers {
+			if vs, ok := v.(string); ok {
+				u.headers[k] = vs
+			}
+		}
+	}
+
+	if tmpl, ok := m["req_template"].(string); ok {
+		u.reqTemplate = tmpl
+	}
+
+	bodyMode, mp, err := parseImageTransport(m)
+	if err != nil {
+		return err
+	}
+	u.bodyMode = bodyMode
+	u.multipart = mp
+
+	if !u.carriesImage() {
+		return fmt.Errorf("rest: upload requires an image transport mode " +
+			"(body_mode raw_binary, multipart, or a req_template containing $IMAGE_)")
+	}
+
+	if rawCapture, ok := m["capture"].(map[string]any); ok {
+		for k, v := range rawCapture {
+			vs, ok := v.(string)
+			if !ok {
+				return fmt.Errorf("rest: upload capture %q must be a string", k)
+			}
+			if !validCaptureKey.MatchString(k) {
+				return fmt.Errorf("rest: upload capture key %q must match ^[A-Z0-9_]+$", k)
+			}
+			u.capture[k] = vs
+		}
+	}
+
+	r.upload = u
 	return nil
 }
