@@ -97,8 +97,9 @@ substitution. `upload` is entirely optional; absent it, behavior is unchanged.
 - **Errors (fail loud, never silently analyze with an empty handle):**
   - Upload non-2xx → `Generate` returns an error.
   - A declared capture (JSONPath or header) that resolves to nothing → error.
-  - Rate-limit / skip status codes on the upload are honored the same way the main
-    request honors them.
+  - Any non-2xx upload status → error. Skip/rate-limit codes are not specially
+    handled for the upload step: a skipped or rate-limited upload cannot yield a
+    handle, so proceeding would violate fail-loud.
   - `upload` configured but no image attached on the prompt → error (the two-step
     flow requires an image to upload).
 - **Validation (`NewRest`)**:
