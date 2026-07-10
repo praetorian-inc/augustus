@@ -5,6 +5,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -35,9 +36,38 @@ func registeredSubpackages(scanDir, registerImportPath string) ([]string, error)
 		if ok {
 			names = append(names, e.Name())
 		}
+		// The generator only emits blank imports for immediate subdirectories.
+		// A registration nested deeper would be silently dropped — and the drift
+		// guard could not catch it, since it compares against this same
+		// generator. Fail loudly instead.
+		if err := assertNoNestedRegistration(dir, registerImportPath); err != nil {
+			return nil, err
+		}
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+// assertNoNestedRegistration returns an error if any package strictly below
+// pkgDir registers itself, which genregister does not support (it only imports
+// packages one level under internal/<type>/).
+func assertNoNestedRegistration(pkgDir, registerImportPath string) error {
+	return filepath.WalkDir(pkgDir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.IsDir() || p == pkgDir {
+			return nil
+		}
+		ok, err := packageRegisters(p, registerImportPath)
+		if err != nil {
+			return err
+		}
+		if ok {
+			return fmt.Errorf("package %s registers itself but is nested below %s; genregister only supports registrations one level under internal/<type>/", p, pkgDir)
+		}
+		return nil
+	})
 }
 
 // packageRegisters reports whether the Go package in dir calls Register on the

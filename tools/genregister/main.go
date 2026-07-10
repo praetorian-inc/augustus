@@ -112,14 +112,16 @@ func (c capability) render(modulePath string, importPaths []string) ([]byte, err
 // writeIfChanged writes content to path only when it differs from the current
 // file contents, avoiding needless mtime churn.
 func writeIfChanged(path string, content []byte) error {
-	existing, err := os.ReadFile(path)
+	// #nosec G304 -- path is derived from the module root and the fixed
+	// capabilities table, never from external input.
+	existing, err := os.ReadFile(filepath.Clean(path))
 	if err == nil && bytes.Equal(existing, content) {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("mkdir for %s: %w", path, err)
 	}
-	if err := os.WriteFile(path, content, 0o644); err != nil {
+	if err := os.WriteFile(path, content, 0o600); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
@@ -147,7 +149,9 @@ func moduleRoot() (string, error) {
 
 // modulePathOf reads the module path from root/go.mod.
 func modulePathOf(root string) (string, error) {
-	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	// #nosec G304 -- root is the module root located via moduleRoot(), not
+	// external input.
+	data, err := os.ReadFile(filepath.Clean(filepath.Join(root, "go.mod")))
 	if err != nil {
 		return "", fmt.Errorf("read go.mod: %w", err)
 	}

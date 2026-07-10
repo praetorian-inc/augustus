@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -26,12 +27,21 @@ func writePkg(t *testing.T, root, sub, filename, src string) {
 func TestRegisteredSubpackages(t *testing.T) {
 	root := t.TempDir()
 
-	// (a) Registers via the target import path -> included.
+	// (a) Registers via an aliased import of the target path -> included.
 	writePkg(t, root, "included", "included.go", `package included
 
 import reg "example.com/reg/detectors"
 
 func init() { reg.Register("included.Thing", nil) }
+`)
+
+	// (a2) Registers via an UNALIASED import -> included. Exercises the
+	//      path.Base local-name resolution in importLocalName.
+	writePkg(t, root, "included2", "included2.go", `package included2
+
+import "example.com/reg/detectors"
+
+func init() { detectors.Register("included2.Thing", nil) }
 `)
 
 	// (b) Helper package with no Register call -> excluded.
@@ -70,8 +80,30 @@ func TestX(t *testing.T) { reg.Register("testonly.Thing", nil) }
 		t.Fatalf("registeredSubpackages: %v", err)
 	}
 
-	want := []string{"included"}
+	want := []string{"included", "included2"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("registeredSubpackages() = %v, want %v", got, want)
+	}
+}
+
+// TestRegisteredSubpackagesNestedRegistrationFails ensures the generator refuses
+// to silently drop a registration nested more than one level under the scan dir.
+func TestRegisteredSubpackagesNestedRegistrationFails(t *testing.T) {
+	root := t.TempDir()
+
+	// A registering package two levels deep: <root>/outer/inner.
+	writePkg(t, root, filepath.Join("outer", "inner"), "inner.go", `package inner
+
+import reg "example.com/reg/detectors"
+
+func init() { reg.Register("inner.Thing", nil) }
+`)
+
+	_, err := registeredSubpackages(root, testRegisterPath)
+	if err == nil {
+		t.Fatal("expected error for nested registration, got nil")
+	}
+	if !strings.Contains(err.Error(), "nested") {
+		t.Fatalf("error = %q, want it to mention nesting", err)
 	}
 }
