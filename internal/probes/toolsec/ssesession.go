@@ -238,7 +238,16 @@ func (p *SSESessionHijack) sampleOne(ctx context.Context, client *http.Client, e
 		a.SetError(err)
 		return nil, a
 	}
-	postURL := resolvePostURL(endpoint, endpointPath)
+	postURL, err := resolvePostURL(endpoint, endpointPath)
+	if err != nil {
+		// A malicious or compromised MCP server can return an ABSOLUTE URL
+		// in the endpoint event that points at cloud metadata, internal
+		// admin endpoints, or any other host. We refuse to follow it —
+		// the probe's contract is to talk to the operator-chosen target,
+		// not wherever the target tells us to go.
+		a.SetError(fmt.Errorf("refusing off-host endpoint URL: %w", err))
+		return nil, a
+	}
 	a.Metadata[attempt.MetadataKeySSESessionSample] = truncID(sessionID)
 	a.Metadata[attempt.MetadataKeySSESessionEndpoint] = postURL
 	a.AddOutput(fmt.Sprintf("session_id=%s post_url=%s", truncID(sessionID), postURL))
@@ -490,12 +499,18 @@ func readEndpointEvent(body io.Reader, deadline time.Duration) (string, string, 
 		var eventName, dataLine string
 		for scanner.Scan() {
 			line := scanner.Text()
-			if strings.HasPrefix(line, "event:") {
+			switch {
+			case strings.HasPrefix(line, "event:"):
 				eventName = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
-			} else if strings.HasPrefix(line, "data:") {
+			case strings.HasPrefix(line, "data:"):
 				dataLine = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-			} else if line == "" && eventName != "" && dataLine != "" {
-				if eventName == "endpoint" {
+			case line == "":
+				// Blank line = end of frame. If this frame was the
+				// endpoint event we care about, capture it; otherwise
+				// discard. State MUST reset unconditionally so a
+				// data-less keepalive frame ("event: ping\n\n") doesn't
+				// leak `eventName` into the next frame's context.
+				if eventName == "endpoint" && dataLine != "" {
 					id := extractSessionID(dataLine)
 					ch <- result{id: id, path: dataLine}
 					return
@@ -533,18 +548,27 @@ func extractSessionID(dataLine string) string {
 	return ""
 }
 
-// resolvePostURL merges the SSE base URL with the endpoint frame path so we
-// have a fully-qualified URL for the POST replay tests.
-func resolvePostURL(base, endpointPath string) string {
-	u, err := url.Parse(base)
+// resolvePostURL merges the SSE base URL with the endpoint-frame path from
+// the target and returns the fully-qualified URL to POST to. It REFUSES a
+// resolved URL whose scheme or host differs from the base — a malicious MCP
+// server could otherwise redirect the probe to 169.254.169.254, an internal
+// admin endpoint, or downgrade https→http. Returns ("", err) on any
+// mismatch; callers MUST treat the error as a hard stop.
+func resolvePostURL(base, endpointPath string) (string, error) {
+	b, err := url.Parse(base)
 	if err != nil {
-		return endpointPath
+		return "", fmt.Errorf("parse base %q: %w", base, err)
 	}
 	rel, err := url.Parse(endpointPath)
 	if err != nil {
-		return endpointPath
+		return "", fmt.Errorf("parse endpoint path %q: %w", endpointPath, err)
 	}
-	return u.ResolveReference(rel).String()
+	resolved := b.ResolveReference(rel)
+	if resolved.Scheme != b.Scheme || resolved.Host != b.Host {
+		return "", fmt.Errorf("resolved URL %q leaves base host (expected %s://%s, got %s://%s)",
+			resolved.String(), b.Scheme, b.Host, resolved.Scheme, resolved.Host)
+	}
+	return resolved.String(), nil
 }
 
 // replaceSessionID substitutes a new session id into a URL, keeping other

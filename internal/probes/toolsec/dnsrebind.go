@@ -242,9 +242,16 @@ func (p *DNSRebinding) Probe(ctx context.Context, gen types.Generator) ([]*attem
 	// insensitive matching against whatever hostname the server considers
 	// canonical. Case-shifted request Origin matches the target's host with
 	// scheme forced to http.
+	//
+	// Skip when the host is all-numeric (e.g. "127.0.0.1:9003") — swapCase
+	// is a no-op there, so we'd send the server's OWN canonical Origin and
+	// a correctly-hardened allowlist server would accept it, giving a false
+	// positive on the case-variant class.
 	if u.Host != "" {
-		caseHost := "http://" + swapCase(u.Host)
-		attempts = append(attempts, p.probeAccess(ctx, client, endpoint, transport, caseHost, "", classCaseVariant))
+		caseHost := swapCase(u.Host)
+		if caseHost != u.Host {
+			attempts = append(attempts, p.probeAccess(ctx, client, endpoint, transport, "http://"+caseHost, "", classCaseVariant))
+		}
 	}
 
 	// 4. Host header sweep.
@@ -301,25 +308,29 @@ func (p *DNSRebinding) probeAccess(ctx context.Context, client *http.Client, end
 	)
 	if transport == "sse" {
 		// GET /sse — the browser-reachable half of legacy MCP. We use a very
-		// short context deadline (see newHTTPClient's sseCtx) so we don't
-		// hang on the stream; we only need to know whether the server BEGAN
-		// serving it.
+		// short context deadline so we don't hang on the stream; we only
+		// need to know whether the server BEGAN serving it (status +
+		// content-type; body is drained without reading — see below).
 		sseCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 		defer cancel()
 		req, err = http.NewRequestWithContext(sseCtx, http.MethodGet, endpoint, nil)
-		req.Header.Set("Accept", "text/event-stream")
 		method = "GET"
 	} else {
 		req, err = http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewBufferString(mcpInitializePayload))
-		if req != nil {
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("Accept", "application/json, text/event-stream")
-		}
 		method = "POST"
 	}
 	if err != nil {
 		a.SetError(err)
 		return a
+	}
+	// Set method-specific headers AFTER the nil check so both branches share
+	// the same guard (previously the SSE branch touched req before the check,
+	// a latent panic if NewRequestWithContext ever returned err+nil-req).
+	if transport == "sse" {
+		req.Header.Set("Accept", "text/event-stream")
+	} else {
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
 	}
 	if origin != "" {
 		req.Header.Set("Origin", origin)
@@ -358,7 +369,14 @@ func (p *DNSRebinding) probeAccess(ctx context.Context, client *http.Client, end
 	if resp != nil {
 		status = resp.StatusCode
 		contentType = resp.Header.Get("Content-Type")
-		body, _ = io.ReadAll(io.LimitReader(resp.Body, 8*1024))
+		// For SSE we deliberately DON'T read the body: the stream stays
+		// open indefinitely and io.ReadAll would block until the 2-second
+		// context deadline for every payload (~26s total across the sweep).
+		// serverStartedSSEStream inspects only status + content-type, so
+		// the body doesn't add information — just latency.
+		if transport != "sse" {
+			body, _ = io.ReadAll(io.LimitReader(resp.Body, 8*1024))
+		}
 	}
 	a.AddOutput(fmt.Sprintf("%s %s -> HTTP %d\nContent-Type: %s\n%s", method, endpoint, status, contentType, string(body)))
 	a.Complete()
@@ -430,8 +448,19 @@ func (p *DNSRebinding) probePreflight(ctx context.Context, client *http.Client, 
 }
 
 // serverProcessedInitialize reports whether the response looks like the
-// server actually handled the JSON-RPC (as opposed to rejecting it at the
-// HTTP layer). 2xx with a JSON-RPC-shaped body, or an SSE stream.
+// server actually ACCEPTED our request (as opposed to rejecting it, either
+// at the HTTP layer or inside the JSON-RPC envelope). Accepted means:
+//   - 2xx + text/event-stream (streamable-HTTP servers may respond with SSE
+//     to initialize; the stream itself is proof of acceptance), OR
+//   - 2xx + a JSON-RPC 2.0 envelope with a non-empty `result` field.
+//
+// A 2xx bearing a JSON-RPC `error` envelope is NOT counted as accepted:
+// a well-behaved server may catch an Origin/Host violation at the app
+// layer and surface it inside the RPC envelope (returning 200 + error)
+// rather than as an HTTP 403. Treating that as "processed" would flag a
+// hardened server as vulnerable. When only an error is present, the
+// server engaged with the request but explicitly refused it — no bypass
+// to report.
 func serverProcessedInitialize(status int, contentType string, body []byte) bool {
 	if status < 200 || status >= 300 {
 		return false
@@ -452,7 +481,7 @@ func serverProcessedInitialize(status int, contentType string, body []byte) bool
 	if err := json.Unmarshal(trimmed, &envelope); err != nil {
 		return false
 	}
-	return envelope.JSONRPC == "2.0" && (len(envelope.Result) > 0 || len(envelope.Error) > 0)
+	return envelope.JSONRPC == "2.0" && len(envelope.Result) > 0
 }
 
 // describeAttempt renders a short label for the attempt list.

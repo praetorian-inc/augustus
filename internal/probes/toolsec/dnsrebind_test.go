@@ -158,12 +158,14 @@ func TestDNSRebinding_VulnerableServer(t *testing.T) {
 	}
 	fired := findingsByClass(attempts)
 
+	// httptest binds 127.0.0.1:PORT, so swapCase is a no-op on the host and
+	// the case-variant class is (correctly) skipped — see the
+	// TestDNSRebinding_CaseVariantSkippedOnNumericHost test below.
 	wantClasses := []string{
 		string(classExternalOrigin),
 		string(classNullOrigin),
 		string(classExtensionOrigin),
 		string(classLocalhostLookalike),
-		string(classCaseVariant),
 		string(classUnexpectedHost),
 	}
 	for _, c := range wantClasses {
@@ -173,6 +175,35 @@ func TestDNSRebinding_VulnerableServer(t *testing.T) {
 	}
 	if fired[string(classBaseline)] {
 		t.Errorf("baseline should never fire as a finding")
+	}
+	if fired[string(classCaseVariant)] {
+		t.Errorf("case-variant must NOT fire on an all-numeric host (would be an FP)")
+	}
+}
+
+// TestDNSRebinding_CaseVariantSkippedOnNumericHost: on hosts with no ASCII
+// letters (127.0.0.1:X, [::1]:X, cloud IP literals) swapCase is a no-op, so
+// the probe would otherwise send the target's OWN canonical Origin and a
+// hardened allowlist server would legitimately accept it — false positive.
+// This locks in the skip. Regression guard for Claude review LAB-4462.
+func TestDNSRebinding_CaseVariantSkippedOnNumericHost(t *testing.T) {
+	srv := vulnServer(t)
+	defer srv.Close()
+
+	p := newDNSRebindProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	// Look for any attempt whose class is case-variant.
+	for _, a := range attempts {
+		raw, ok := a.GetMetadata(attempt.MetadataKeyDNSRebindClass)
+		if !ok {
+			continue
+		}
+		if s, _ := raw.(string); s == string(classCaseVariant) {
+			t.Errorf("case-variant attempt should be skipped on numeric host; got attempt %v", a.Prompt)
+		}
 	}
 }
 
@@ -321,7 +352,7 @@ func TestServerProcessedInitialize(t *testing.T) {
 		want        bool
 	}{
 		{"200 json-rpc result", 200, "application/json", `{"jsonrpc":"2.0","id":1,"result":{}}`, true},
-		{"200 json-rpc error still counts as processed", 200, "application/json", `{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"bad"}}`, true},
+		{"200 json-rpc error — server refused inside envelope, NOT accepted", 200, "application/json", `{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"bad"}}`, false},
 		{"200 sse stream", 200, "text/event-stream", "event: message\ndata: {}\n", true},
 		{"200 non-jsonrpc body", 200, "application/json", `{"hello":"world"}`, false},
 		{"403 rejected", 403, "text/plain", "origin not allowed", false},

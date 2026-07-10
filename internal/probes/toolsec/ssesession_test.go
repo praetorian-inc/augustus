@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -315,6 +316,58 @@ func TestSSESession_SkipsNonSSETransport(t *testing.T) {
 	}
 	if attempts != nil {
 		t.Errorf("expected nil attempts for non-SSE transport, got %d", len(attempts))
+	}
+}
+
+// TestReadEndpointEvent_KeepaliveDoesNotLeakState: a data-less keepalive
+// frame like `event: ping\n\n` must not leak `eventName` into the next
+// frame's context (Gemini review LAB-4462). Feeds a keepalive followed by
+// a `data: /messages/?session_id=abc` frame with no `event:` and expects
+// NO match (endpoint requires event=endpoint), then feeds a proper endpoint
+// frame afterwards and expects a match.
+func TestReadEndpointEvent_KeepaliveDoesNotLeakState(t *testing.T) {
+	stream := strings.NewReader(
+		"event: ping\n\n" + // keepalive: eventName=ping, no data
+			"data: /messages/?session_id=stale\n\n" + // orphan data — must NOT match endpoint
+			"event: endpoint\ndata: /messages/?session_id=real\n\n", // real endpoint frame
+	)
+	id, path, err := readEndpointEvent(stream, 500*time.Millisecond)
+	if err != nil {
+		t.Fatalf("readEndpointEvent: %v", err)
+	}
+	if id != "real" {
+		t.Errorf("id=%q, want 'real' (state leaked from ping keepalive)", id)
+	}
+	if !strings.Contains(path, "session_id=real") {
+		t.Errorf("path=%q, want session_id=real", path)
+	}
+}
+
+// TestResolvePostURL_RefusesOffHost: a malicious MCP that returns an
+// absolute URL pointing at cloud metadata or an internal host must be
+// refused. Enforcing scheme+host equality closes an SSRF primitive
+// (Gemini review LAB-4462).
+func TestResolvePostURL_RefusesOffHost(t *testing.T) {
+	tests := []struct {
+		name         string
+		base         string
+		endpointPath string
+		wantErr      bool
+	}{
+		{"relative path — allowed", "http://127.0.0.1:9003/sse", "/messages/?session_id=x", false},
+		{"same-host absolute — allowed", "http://127.0.0.1:9003/sse", "http://127.0.0.1:9003/messages/?session_id=x", false},
+		{"IMDS absolute — refused", "http://127.0.0.1:9003/sse", "http://169.254.169.254/latest/meta-data/", true},
+		{"cross-host absolute — refused", "http://127.0.0.1:9003/sse", "http://internal.corp/admin", true},
+		{"scheme-downgrade — refused", "https://mcp.example.com/sse", "http://mcp.example.com/messages/", true},
+		{"different port — refused", "http://127.0.0.1:9003/sse", "http://127.0.0.1:22/", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := resolvePostURL(tt.base, tt.endpointPath)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("resolvePostURL(%q, %q) err=%v, wantErr=%v", tt.base, tt.endpointPath, err, tt.wantErr)
+			}
+		})
 	}
 }
 
