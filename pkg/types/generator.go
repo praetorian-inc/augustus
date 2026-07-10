@@ -54,6 +54,15 @@ type DocumentCapable interface {
 	SupportsDocuments() bool
 }
 
+// AudioCapable declares that the generator's wire layer can transmit audio
+// attachments (Message.Audio). Audio probes gate on this so a generator that
+// cannot carry audio fails the probe rather than silently sending a text-only
+// request and mis-reporting the target as safe. Report structural capability
+// (the generator emits audio content blocks), not per-model support.
+type AudioCapable interface {
+	SupportsAudio() bool
+}
+
 // UsageReporter is an OPTIONAL interface a Generator (or a Generator decorator)
 // may implement to expose the cumulative number of tokens it has consumed across
 // all Generate calls since construction. Generators whose provider does not report
