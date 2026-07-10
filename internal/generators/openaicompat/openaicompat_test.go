@@ -106,3 +106,28 @@ func TestCanonicalToOpenAIToolCalls_NilArgs(t *testing.T) {
 	// json.Marshal(nil) produces "null"
 	assert.Equal(t, "null", result[0].Function.Arguments)
 }
+
+// ---------------------------------------------------------------------------
+// Group 7: CompatGenerator Structural Capabilities
+// ---------------------------------------------------------------------------
+
+func TestCompatGenerator_SupportsAudioFalse(t *testing.T) {
+	// Construct a CompatGenerator with minimal config
+	cfg := map[string]any{
+		"model":   "groq-test-model",
+		"api_key": "test-api-key",
+	}
+	pc := ProviderConfig{
+		Name:        "groq.Groq",
+		Description: "Groq test generator",
+		Provider:    "groq",
+		EnvVar:      "GROQ_API_KEY",
+	}
+
+	g, err := NewGenerator(cfg, pc)
+	require.NoError(t, err)
+
+	// Audio capability must be false: the go-openai SDK path
+	// (ConversationToMessages) cannot emit audio content blocks
+	assert.False(t, g.SupportsAudio(), "CompatGenerator.SupportsAudio() must return false: SDK builder does not emit audio")
+}

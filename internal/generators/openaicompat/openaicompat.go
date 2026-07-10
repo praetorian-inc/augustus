@@ -430,9 +430,11 @@ func (g *CompatGenerator) Description() string { return g.description }
 // operator's responsibility. See types.VisionCapable.
 func (g *CompatGenerator) SupportsVision() bool { return true }
 
-// SupportsAudio reports structural audio capability: the chat path emits
-// input_audio content parts via the custom audio HTTP path.
-func (g *CompatGenerator) SupportsAudio() bool { return true }
+// SupportsAudio reports structural audio capability. The go-openai SDK path
+// (ConversationToMessages) emits text and image content only; audio content is
+// not supported, so structural audio capability is false until a compat audio
+// path exists.
+func (g *CompatGenerator) SupportsAudio() bool { return false }
 
 // Client returns the underlying OpenAI client for advanced usage.
 func (g *CompatGenerator) Client() *goopenai.Client { return g.client }
