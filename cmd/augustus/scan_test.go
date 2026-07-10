@@ -2503,15 +2503,19 @@ func TestTableEvaluator_FourWayVerdict(t *testing.T) {
 	require.NoError(t, readErr)
 	output := string(outputBytes)
 
-	require.NoError(t, evalErr)
+	// An errored attempt is present, so Evaluate must return the errored-probes
+	// sentinel (LAB-4316) — driving the distinct exit code — while still rendering
+	// the full four-way verdict below.
+	require.ErrorIs(t, evalErr, errProbesErrored)
 	assert.Contains(t, output, "SAFE")
 	assert.Contains(t, output, "REVIEW")
 	assert.Contains(t, output, "VULN")
 	assert.Contains(t, output, "ERROR")
 	assert.Contains(t, output, "Overall: 1 passed, 1 review, 1 failed, 1 errored (total: 4)")
 
-	// PASSED column must be true only for the SAFE row; REVIEW, VULN, and ERROR
-	// rows must all show PASSED=false, matching the disjoint summary counters.
+	// PASSED column must be true only for the SAFE row. REVIEW and VULN show
+	// PASSED=false; the ERROR row carries no verdict, so its PASSED (and score)
+	// render as "-" rather than a misleading false/0.00 (LAB-4316).
 	for _, line := range strings.Split(output, "\n") {
 		switch {
 		case strings.Contains(line, "SAFE"):
@@ -2521,7 +2525,7 @@ func TestTableEvaluator_FourWayVerdict(t *testing.T) {
 		case strings.Contains(line, "VULN"):
 			assert.Contains(t, line, "false", "VULN row should show PASSED=false: %q", line)
 		case strings.Contains(line, "ERROR"):
-			assert.Contains(t, line, "false", "ERROR row should show PASSED=false: %q", line)
+			assert.Contains(t, line, "-", "ERROR row should show PASSED=- (no verdict): %q", line)
 		}
 	}
 }

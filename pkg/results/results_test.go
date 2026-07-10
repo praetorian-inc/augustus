@@ -32,9 +32,9 @@ func TestToAttemptResults_ErrorStatus(t *testing.T) {
 	assert.False(t, result.Passed, "error status should result in passed=false")
 }
 
-// TestComputeSummary_ErrorStatus tests that ComputeSummary() correctly
-// counts attempts with error status as failed.
-// This is part of Bug #2 fix.
+// TestComputeSummary_ErrorStatus tests that ComputeSummary() counts errored
+// attempts in a distinct bucket rather than folding them into Failed, so a
+// broken scan is visibly distinct from a clean one (LAB-4316).
 func TestComputeSummary_ErrorStatus(t *testing.T) {
 	attempts := []*attempt.Attempt{
 		{
@@ -44,7 +44,7 @@ func TestComputeSummary_ErrorStatus(t *testing.T) {
 		},
 		{
 			Probe:  "test.Test",
-			Status: attempt.StatusError, // should be counted as failed
+			Status: attempt.StatusError, // errored: no verdict
 			Scores: []float64{},
 			Error:  "rate limit exceeded",
 		},
@@ -61,4 +61,10 @@ func TestComputeSummary_ErrorStatus(t *testing.T) {
 	assert.Equal(t, 1, summary.Passed, "only one attempt should pass")
 	assert.Equal(t, 1, summary.Failed, "only the high-score attempt should count as failed")
 	assert.Equal(t, 1, summary.Errored, "the errored attempt should be counted in Errored, not Failed")
+
+	stats := summary.ByProbe["test.Test"]
+	assert.Equal(t, 3, stats.Total)
+	assert.Equal(t, 1, stats.Passed)
+	assert.Equal(t, 1, stats.Failed)
+	assert.Equal(t, 1, stats.Errored)
 }

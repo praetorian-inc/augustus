@@ -924,6 +924,26 @@ func runCleanupHook(cfg *scanConfig) error {
 	return nil
 }
 
+// errProbesErrored signals that at least one probe errored before producing any
+// verdict about the target (auth failure, 404, timeout, transport drop). Such a
+// run carries no signal about the target's safety, so the evaluators return this
+// sentinel and main() maps it to a distinct exit code — a fully-errored scan must
+// be visibly distinct from a clean one, not reported as passed/SAFE (LAB-4316).
+var errProbesErrored = errors.New("scan completed with errored probes; results do not reflect target safety")
+
+// countErrored returns the number of attempts that errored before producing a
+// verdict. These carry no signal about the target and are reported separately
+// from passed/failed.
+func countErrored(attempts []*attempt.Attempt) int {
+	n := 0
+	for _, a := range attempts {
+		if a.Status == attempt.StatusError || a.Status == attempt.StatusPending {
+			n++
+		}
+	}
+	return n
+}
+
 type tableEvaluator struct {
 	verbose bool
 }
@@ -952,6 +972,26 @@ func (t *tableEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 	totalErrored := 0
 
 	for _, a := range attempts {
+		detector := a.Detector
+		if detector == "" {
+			detector = "-"
+		}
+
+		// An errored attempt never reached the model, so it carries no signal
+		// about the target. Report it as ERROR with no verdict rather than
+		// scoring the absent response as 0.00/SAFE/passed (LAB-4316).
+		if a.Status == attempt.StatusError || a.Status == attempt.StatusPending {
+			totalErrored++
+			rows = append(rows, row{
+				probe:    a.Probe,
+				detector: detector,
+				passed:   "-",
+				score:    "-",
+				status:   "ERROR",
+			})
+			continue
+		}
+
 		scores := a.GetEffectiveScores()
 		maxScore := 0.0
 		for _, score := range scores {
@@ -971,20 +1011,15 @@ func (t *tableEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 		if !passed {
 			passedStr = "false"
 		}
+		// Errored attempts are handled by the early-continue above, so the verdict
+		// here is only safe/review/vuln.
 		switch verdict {
 		case "vuln":
 			totalFailed++
-		case "error":
-			totalErrored++
 		case "review":
 			totalReview++
 		default:
 			totalPassed++
-		}
-
-		detector := a.Detector
-		if detector == "" {
-			detector = "-"
 		}
 
 		rows = append(rows, row{
@@ -1024,6 +1059,20 @@ func (t *tableEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 	if t.verbose {
 		fmt.Println()
 		for i, a := range attempts {
+			// Errored attempts have no verdict — surface the error instead of a
+			// misleading PASS/FAIL derived from an absent response (LAB-4316).
+			if a.Status == attempt.StatusError || a.Status == attempt.StatusPending {
+				errMsg := a.Error
+				if errMsg == "" {
+					errMsg = "probe did not complete"
+				}
+				fmt.Printf("  ┌─ Attempt %d: ⚠ ERROR\n", i+1)
+				fmt.Printf("  │  Probe: %s\n", a.Probe)
+				fmt.Printf("  │  Error: %s\n", errMsg)
+				fmt.Printf("  └%s\n", strings.Repeat("─", 50))
+				continue
+			}
+
 			scores := a.GetEffectiveScores()
 			maxScore := 0.0
 			for _, score := range scores {
@@ -1155,6 +1204,12 @@ func (t *tableEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 
 	fmt.Printf("\nOverall: %d passed, %d review, %d failed, %d errored (total: %d)\n",
 		totalPassed, totalReview, totalFailed, totalErrored, len(attempts))
+	// A scan whose probes errored carries no signal about the target; return the
+	// sentinel so main() maps it to a distinct exit code rather than a clean pass
+	// (LAB-4316).
+	if totalErrored > 0 {
+		return errProbesErrored
+	}
 	return nil
 }
 
@@ -1172,10 +1227,16 @@ type jsonEvaluator struct{}
 func (j *jsonEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attempt) error {
 	encoder := json.NewEncoder(os.Stdout)
 	encoder.SetIndent("", "  ")
-	return encoder.Encode(map[string]any{
+	if err := encoder.Encode(map[string]any{
 		"attempts": attempts,
 		"count":    len(attempts),
-	})
+	}); err != nil {
+		return err
+	}
+	if countErrored(attempts) > 0 {
+		return errProbesErrored
+	}
+	return nil
 }
 
 // jsonlEvaluator prints results in JSONL format (one JSON object per line).
@@ -1189,6 +1250,9 @@ func (j *jsonlEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 		if err := encoder.Encode(result); err != nil {
 			return fmt.Errorf("failed to encode result: %w", err)
 		}
+	}
+	if countErrored(attempts) > 0 {
+		return errProbesErrored
 	}
 	return nil
 }
@@ -1205,9 +1269,14 @@ func (c *collectingEvaluator) Evaluate(ctx context.Context, attempts []*attempt.
 	// Store attempts for file output
 	c.attempts = attempts
 
-	// Call inner evaluator for stdout display
-	if err := c.inner.Evaluate(ctx, attempts); err != nil {
-		return err
+	// Call inner evaluator for stdout display. An errProbesErrored result is a
+	// verdict signal, not a display failure — capture it and still write the
+	// output files (the errored-run JSONL is exactly what an operator needs to
+	// diagnose the broken scan), propagating it only if no file write fails
+	// with a genuine operational error (LAB-4316).
+	innerErr := c.inner.Evaluate(ctx, attempts)
+	if innerErr != nil && !errors.Is(innerErr, errProbesErrored) {
+		return innerErr
 	}
 
 	// Write JSONL file if path specified
@@ -1226,7 +1295,8 @@ func (c *collectingEvaluator) Evaluate(ctx context.Context, attempts []*attempt.
 		fmt.Fprintf(os.Stderr, "\nHTML report written to: %s\n", c.htmlPath)
 	}
 
-	return nil
+	// Surface the errored-probes signal after files are written.
+	return innerErr
 }
 
 // wordWrap wraps text to the given width, prefixing each line with the given prefix.
