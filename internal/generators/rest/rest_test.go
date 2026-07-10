@@ -2650,6 +2650,61 @@ func TestRestGenerator_Upload_CaptureFromHeader(t *testing.T) {
 	assert.Equal(t, "https://cdn.example/obj/99", analyzeHeader)
 }
 
+// TestRestGenerator_Upload_PresignedURLInHeaderAndURI guards against jsonEscape
+// HTML-escaping "&" (and "<", ">") when a captured value is substituted into a
+// request HEADER or URI rather than a JSON body. Unlike a JSON body — which is
+// decoded server-side, so an HTML-escaped "&" round-trips fine — headers and
+// URIs have no such decode step: a literal "&" must survive on the wire byte
+// for byte, or a presigned-URL's query-string parameters (a very common
+// capture-and-replay use case) get corrupted.
+func TestRestGenerator_Upload_PresignedURLInHeaderAndURI(t *testing.T) {
+	const presignedURL = "https://bucket.s3.amazonaws.com/key?X-Amz-Algorithm=AWS4&X-Amz-Signature=abc123&X-Amz-Date=x"
+
+	var analyzeHeader string
+	var analyzePath string
+
+	uploadSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", presignedURL)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"file&42"}`))
+	}))
+	defer uploadSrv.Close()
+
+	analyzeSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		analyzeHeader = r.Header.Get("X-Upload-Url")
+		analyzePath = r.URL.Path
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer analyzeSrv.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":          analyzeSrv.URL + "/analyze/$FILE_ID",
+		"req_template": `{"prompt":"$INPUT"}`,
+		"headers":      map[string]any{"X-Upload-Url": "$UPLOAD_URL"},
+		"upload": map[string]any{
+			"uri":       uploadSrv.URL,
+			"body_mode": "raw_binary",
+			"capture": map[string]any{
+				"UPLOAD_URL": "header:Location",
+				"FILE_ID":    "$.id",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	conv := convWithImage("hi", "image/png", smallPNG)
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	// The header must carry the presigned URL byte-for-byte: real "&", never "&".
+	assert.Equal(t, presignedURL, analyzeHeader)
+	assert.NotContains(t, analyzeHeader, "&amp;")
+
+	// An "&"-bearing captured value substituted into the URI must also survive
+	// unescaped rather than being corrupted into "&".
+	assert.Equal(t, "/analyze/file&42", analyzePath)
+}
+
 func TestRestGenerator_Upload_MultipartStep(t *testing.T) {
 	var gotField string
 	var gotBytes []byte

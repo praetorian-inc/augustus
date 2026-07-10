@@ -733,15 +733,25 @@ func conversationToJSON(conv *attempt.Conversation) string {
 	return string(data)
 }
 
-// jsonEscape escapes a string for use in JSON.
+// jsonEscape escapes a string for use in JSON (quotes, backslashes, control
+// characters). HTML escaping is deliberately disabled — json.Marshal's default
+// SetEscapeHTML(true) rewrites the raw bytes '&', '<', '>' to the Unicode
+// escape sequences \u0026, \u003c, \u003e, which is harmless in a JSON body
+// (the server JSON-decodes it back to the original byte) but corrupts values
+// substituted into a request HEADER or URI, where there is no decode step.
+// Raw '&<>' are valid inside a JSON string, valid in header values, and
+// correct in URL query strings, so disabling HTML escaping fixes header/URI
+// substitution without breaking JSON bodies.
 func jsonEscape(s string) string {
-	// Use json.Marshal and trim the surrounding quotes
-	data, err := json.Marshal(s)
-	if err != nil {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(s); err != nil {
 		return s
 	}
-	// Remove surrounding quotes
-	return string(data[1 : len(data)-1])
+	out := buf.String()
+	// enc.Encode wraps in quotes and appends a trailing newline; strip both.
+	return out[1 : len(out)-2]
 }
 
 // parseResponse extracts the response content based on configuration.
