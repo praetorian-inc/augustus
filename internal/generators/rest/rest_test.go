@@ -2696,12 +2696,13 @@ func TestRestGenerator_Upload_PresignedURLInHeaderAndURI(t *testing.T) {
 	_, err = g.Generate(context.Background(), conv, 1)
 	require.NoError(t, err)
 
-	// The header must carry the presigned URL byte-for-byte: real "&", never "&".
+	// The header must carry the presigned URL byte-for-byte: real ampersands,
+	// never the Unicode-escaped form that default JSON HTML-escaping would emit.
 	assert.Equal(t, presignedURL, analyzeHeader)
-	assert.NotContains(t, analyzeHeader, "&amp;")
+	assert.NotContains(t, analyzeHeader, "\\u0026")
 
-	// An "&"-bearing captured value substituted into the URI must also survive
-	// unescaped rather than being corrupted into "&".
+	// An ampersand-bearing captured value substituted into the URI must also
+	// survive unescaped rather than being Unicode-escaped.
 	assert.Equal(t, "/analyze/file&42", analyzePath)
 }
 
