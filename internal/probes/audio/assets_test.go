@@ -27,3 +27,10 @@ func TestFixturesAreValidWAV(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadAudioMissingFile(t *testing.T) {
+	_, err := loadAudio("data/does_not_exist.wav", "audio/wav")
+	if err == nil {
+		t.Fatal("loadAudio on a missing file should return an error, got nil")
+	}
+}
