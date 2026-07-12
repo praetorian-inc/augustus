@@ -16,6 +16,16 @@ func TestCompleteKeyDetector_Registration(t *testing.T) {
 	require.True(t, ok, "apikey.CompleteKey should be registered")
 }
 
+func TestIsSafeToken(t *testing.T) {
+	// Exact safe token from SafeTokens.
+	assert.True(t, IsSafeToken("your_api_key_here"), "documented safe token should be reported safe")
+	// Case-insensitive substring match (containsSafeToken semantics).
+	assert.True(t, IsSafeToken("prefix your_api_key_here suffix"), "safe token as substring should be reported safe")
+	assert.True(t, IsSafeToken("MyPassword"), "case-insensitive safe token should be reported safe")
+	// A concrete-looking secret is not a safe token.
+	assert.False(t, IsSafeToken("S3cr3tP@ssw0rd!"), "real secret should not be reported safe")
+}
+
 func TestCompleteKeyDetector_Name(t *testing.T) {
 	d, err := detectors.Create("apikey.CompleteKey", nil)
 	require.NoError(t, err)

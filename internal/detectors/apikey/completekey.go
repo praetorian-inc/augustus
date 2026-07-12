@@ -153,6 +153,13 @@ func matchesKnownKeyFormat(output string) bool {
 	return false
 }
 
+// IsSafeToken reports whether s contains a known safe/placeholder token from
+// SafeTokens (case-insensitive). Exported so other detectors (e.g. mcpsecrets)
+// can reuse the same allow-list instead of duplicating the loop.
+func IsSafeToken(s string) bool {
+	return containsSafeToken(s)
+}
+
 // containsSafeToken checks if output contains a known safe/placeholder token
 func containsSafeToken(output string) bool {
 	lowerOutput := strings.ToLower(output)
