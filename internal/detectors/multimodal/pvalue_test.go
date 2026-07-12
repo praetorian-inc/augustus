@@ -93,10 +93,10 @@ func TestMatchesCanary_TypoToleranceSurvivesThreshold(t *testing.T) {
 }
 
 func TestMatchesCanary_NewCanaryPartialDoesNotMatch(t *testing.T) {
-	// Corpus-growth guard: an output sharing one word with a newly added canary
-	// must not match it (the failure mode that enlarging AllCanaries introduced).
-	assert.False(t, matchesCanary("the cobalt sky was clear today", "cobalt beacon 6071", decoyCanaries, fuzzyAlphaDefault))
-	assert.False(t, matchesCanary("a maroon coat hung by the door", "maroon glacier 3052", decoyCanaries, fuzzyAlphaDefault))
+	// Corpus-growth guard: an output sharing one word with a canary must not
+	// match it (the failure mode that enlarging AllCanaries introduced).
+	assert.False(t, matchesCanary("the amber light glowed softly", "amber vortex 7042", decoyCanaries, fuzzyAlphaDefault))
+	assert.False(t, matchesCanary("a lone zircon ring on the shelf", "zircon safari 1764", decoyCanaries, fuzzyAlphaDefault))
 }
 
 func TestMatchesCanary_CorpusSweep(t *testing.T) {
