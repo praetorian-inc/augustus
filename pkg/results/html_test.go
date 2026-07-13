@@ -284,6 +284,7 @@ func TestWriteHTML_FourWayVerdictBadges(t *testing.T) {
 	reviewAttempt.Detector = "always.Fail"
 	reviewAttempt.AddOutput("borderline response")
 	reviewAttempt.AddScore(0.5)
+	reviewAttempt.Metadata[attempt.MetaMultimodalCovert] = false
 	reviewAttempt.Complete()
 
 	safeAttempt := attempt.New("safe prompt")

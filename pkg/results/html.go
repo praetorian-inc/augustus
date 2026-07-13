@@ -247,10 +247,15 @@ func writeAttemptHTML(sb *strings.Builder, att *attempt.Attempt) {
 		response = att.Outputs[0]
 	}
 
+	// Display the effective scores (max across all detectors, incl. secondaries),
+	// not the raw att.Scores, so the shown array matches the verdict badge — which
+	// is derived from GetEffectiveScores. Otherwise a VULN badge could display
+	// [0.00] when only a secondary detector flagged the attempt.
+	effectiveScores := att.GetEffectiveScores()
 	scoresStr := "[]"
-	if len(att.Scores) > 0 {
-		parts := make([]string, len(att.Scores))
-		for i, s := range att.Scores {
+	if len(effectiveScores) > 0 {
+		parts := make([]string, len(effectiveScores))
+		for i, s := range effectiveScores {
 			parts[i] = fmt.Sprintf("%.2f", s)
 		}
 		scoresStr = "[" + strings.Join(parts, ", ") + "]"

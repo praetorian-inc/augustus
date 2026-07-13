@@ -805,12 +805,13 @@ func (t *tableEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 			}
 		}
 
-		// Verdict is the single source of truth for the four-way status.
-		// STATUS is the upper-cased verdict; PASSED is false only for the two
-		// verdicts that fail the vulnerability bar (error, vuln).
+		// Verdict is the single source of truth for the four-way status. STATUS
+		// is the upper-cased verdict; PASSED is true only for "safe" (REVIEW,
+		// VULN, and ERROR all show PASSED=false), matching the disjoint summary
+		// counters below and ComputeSummary.
 		verdict := results.Verdict(a)
 		status := strings.ToUpper(verdict)
-		passed := verdict != "error" && verdict != "vuln"
+		passed := verdict == "safe"
 		passedStr := "true"
 		if !passed {
 			passedStr = "false"

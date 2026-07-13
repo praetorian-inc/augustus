@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -2170,6 +2171,7 @@ func TestTableEvaluator_FourWayVerdict(t *testing.T) {
 	reviewAttempt.Probe = "test.Test"
 	reviewAttempt.AddOutput("borderline response")
 	reviewAttempt.AddScore(0.5)
+	reviewAttempt.Metadata[attempt.MetaMultimodalCovert] = false
 	reviewAttempt.Complete()
 
 	vulnAttempt := attempt.New("vuln prompt")
@@ -2204,4 +2206,19 @@ func TestTableEvaluator_FourWayVerdict(t *testing.T) {
 	assert.Contains(t, output, "VULN")
 	assert.Contains(t, output, "ERROR")
 	assert.Contains(t, output, "Overall: 1 passed, 1 review, 1 failed, 1 errored (total: 4)")
+
+	// PASSED column must be true only for the SAFE row; REVIEW, VULN, and ERROR
+	// rows must all show PASSED=false, matching the disjoint summary counters.
+	for _, line := range strings.Split(output, "\n") {
+		switch {
+		case strings.Contains(line, "SAFE"):
+			assert.Contains(t, line, "true", "SAFE row should show PASSED=true: %q", line)
+		case strings.Contains(line, "REVIEW"):
+			assert.Contains(t, line, "false", "REVIEW row should show PASSED=false: %q", line)
+		case strings.Contains(line, "VULN"):
+			assert.Contains(t, line, "false", "VULN row should show PASSED=false: %q", line)
+		case strings.Contains(line, "ERROR"):
+			assert.Contains(t, line, "false", "ERROR row should show PASSED=false: %q", line)
+		}
+	}
 }

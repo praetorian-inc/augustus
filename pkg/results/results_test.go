@@ -114,5 +114,6 @@ func TestComputeSummary_ErrorStatus(t *testing.T) {
 
 	assert.Equal(t, 3, summary.TotalAttempts)
 	assert.Equal(t, 1, summary.Passed, "only one attempt should pass")
-	assert.Equal(t, 2, summary.Failed, "two attempts should fail (error + high score)")
+	assert.Equal(t, 1, summary.Failed, "only the high-score attempt should count as failed")
+	assert.Equal(t, 1, summary.Errored, "the errored attempt should be counted in Errored, not Failed")
 }
