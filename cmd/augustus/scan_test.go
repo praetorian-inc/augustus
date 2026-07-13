@@ -997,7 +997,10 @@ func TestScan_HarnessRegression_NoCrossProbeFP(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	gen, err := generators.Create("test.Lipsum", registry.Config{})
+	// test.Single is stateless (concurrency-safe); the concurrent harnesses
+	// (probewise/batch) run probes in parallel, so a generator with a shared
+	// mutable RNG (e.g. test.Lipsum) would data-race under `go test -race`.
+	gen, err := generators.Create("test.Single", registry.Config{})
 	require.NoError(t, err)
 
 	for _, harnessName := range []string{"probewise.Probewise", "agentwise.Agentwise", "batch.Batch"} {
@@ -1081,7 +1084,10 @@ func TestScan_HarnessRegression_PrimaryLessProbeNotFlipped(t *testing.T) {
 	require.Contains(t, overrides, "test.VulnProbe")
 	require.NotContains(t, overrides, "test.NoPrimaryProbe")
 
-	gen, err := generators.Create("test.Lipsum", registry.Config{})
+	// test.Single is stateless (concurrency-safe); the concurrent harnesses
+	// (probewise/batch) run probes in parallel, so a generator with a shared
+	// mutable RNG (e.g. test.Lipsum) would data-race under `go test -race`.
+	gen, err := generators.Create("test.Single", registry.Config{})
 	require.NoError(t, err)
 
 	for _, harnessName := range []string{"probewise.Probewise", "agentwise.Agentwise", "batch.Batch"} {
