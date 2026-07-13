@@ -137,7 +137,8 @@ func readPath(path string) ([]source, error) {
 		if info.Size() > maxFileSize {
 			return []source{{label: path, err: oversizeErr(path, info.Size())}}, nil
 		}
-		content, err := os.ReadFile(path)
+		// #nosec G304 -- operator-supplied path; scanning the operator-designated MCP config file is this probe's purpose.
+		content, err := os.ReadFile(filepath.Clean(path))
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", path, err)
 		}
@@ -161,7 +162,8 @@ func readPath(path string) ([]source, error) {
 			sources = append(sources, source{label: p, err: oversizeErr(p, info.Size())})
 			return nil
 		}
-		content, readErr := os.ReadFile(p)
+		// #nosec G304 -- entry under the operator-designated config directory being walked for scanning.
+		content, readErr := os.ReadFile(filepath.Clean(p))
 		if readErr != nil {
 			sources = append(sources, source{label: p, err: readErr})
 			return nil
