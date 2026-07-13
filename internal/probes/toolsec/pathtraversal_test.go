@@ -2,6 +2,7 @@ package toolsec
 
 import (
 	"context"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -24,13 +25,16 @@ func newPathTraversalProbe(t *testing.T) *PathTraversal {
 	return p.(*PathTraversal)
 }
 
-// TestPathTraversal_DetectsRead: a tool that resolves the payload as a
-// filesystem path and returns the file contents is flagged.
+// TestPathTraversal_DetectsRead: a read-only-annotated tool that resolves
+// the payload as a filesystem path and returns file contents is flagged
+// by the read-payload path (targeting /etc/passwd).
 func TestPathTraversal_DetectsRead(t *testing.T) {
 	p := newPathTraversalProbe(t)
 
+	tool := stringTool("read", "filepath")
+	tool["annotations"] = types.MCPToolAnnotations{ReadOnly: true}
 	target := &mockTarget{
-		tools: []map[string]any{stringTool("read", "filepath")},
+		tools: []map[string]any{tool},
 		call: func(_ string, args map[string]any) types.ToolResult {
 			path, _ := args["filepath"].(string)
 			// Vulnerable: naive traversal, no canonicalisation, so any payload
@@ -159,11 +163,16 @@ func stringToolWithDescription(name, param, description string) map[string]any {
 func TestPathTraversal_PrefixAppendDefeatsStartsWithGate(t *testing.T) {
 	p := newPathTraversalProbe(t)
 
+	// Annotate ReadOnly so the read /etc/passwd payload set is used —
+	// otherwise the tool would receive write-canary payloads and the
+	// "signature match on /etc/passwd" check would never fire.
+	descTool := stringToolWithDescription(
+		"read", "filename",
+		"Read a file. Only files in /tmp/safe/ are accessible.",
+	)
+	descTool["annotations"] = types.MCPToolAnnotations{ReadOnly: true}
 	target := &mockTarget{
-		tools: []map[string]any{stringToolWithDescription(
-			"read", "filename",
-			"Read a file. Only files in /tmp/safe/ are accessible.",
-		)},
+		tools: []map[string]any{descTool},
 		call: func(_ string, args map[string]any) types.ToolResult {
 			path, _ := args["filename"].(string)
 			// Vulnerable gate: literal startsWith with no canonicalisation.
@@ -211,25 +220,28 @@ func TestPathTraversal_PrefixAppendDefeatsStartsWithGate(t *testing.T) {
 	}
 }
 
-// TestPathTraversal_SkipsDestructiveTools: PathTraversal MUST NOT send
-// payloads into tools whose name matches destructiveToolRE (save_report,
-// delete_file, write_log, ...). Landing a traversal payload in a write
-// sink could overwrite files outside the sandbox; we stay read-only.
-// Opt-out via pathtraversal_all_string_params=true. Regression guard for
-// Mauro S1.
-func TestPathTraversal_SkipsDestructiveTools(t *testing.T) {
-	p := newPathTraversalProbe(t)
+// TestPathTraversal_WritePayloadsOnNonReadOnlyTool: an operator who has
+// opted into destructive-tool testing (allow_destructive=true) still MUST
+// NOT see /etc/passwd payloads sent to a write-capable tool — the payload
+// would OVERWRITE /etc/passwd. Instead, write-capable tools receive canary
+// payloads targeting /tmp/proof-augwrite-<hex> (novel path, no clobber).
+// Regression guard for the Mauro S1 rework.
+func TestPathTraversal_WritePayloadsOnNonReadOnlyTool(t *testing.T) {
+	pr, err := NewPathTraversal(registry.Config{"allow_destructive": true})
+	if err != nil {
+		t.Fatalf("NewPathTraversal: %v", err)
+	}
+	p := pr.(*PathTraversal)
 
+	// A destructive-annotated tool with a path-like param. Without the
+	// rework, /etc/passwd payloads would flow here.
+	destructiveTrue := true
 	target := &mockTarget{
 		tools: []map[string]any{
-			stringTool("save_report", "filepath"), // destructive verb, path-like param
-			stringTool("delete_file", "path"),     // ditto
-			stringTool("write_log", "filename"),   // ditto
-			stringToolWithDescription("read_file", "filename",
-				"Read a file"), // read-only companion
+			annotatedTool("save_report", "filepath", types.MCPToolAnnotations{Destructive: &destructiveTrue}),
 		},
-		call: func(name string, args map[string]any) types.ToolResult {
-			return types.ToolResult{Text: "called " + name}
+		call: func(_ string, _ map[string]any) types.ToolResult {
+			return types.ToolResult{Text: "ok"}
 		},
 	}
 
@@ -237,14 +249,137 @@ func TestPathTraversal_SkipsDestructiveTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
 	}
+	if len(attempts) == 0 {
+		t.Fatal("expected write-canary attempts against the destructive tool")
+	}
 	for _, a := range attempts {
-		toolMeta, _ := a.GetMetadata("toolsec.tool")
-		tool, _ := toolMeta.(string)
-		switch tool {
-		case "save_report", "delete_file", "write_log":
-			t.Errorf("destructive tool %q was invoked with traversal payload — must be skipped", tool)
-		case "read_file":
-			// expected
+		// NO payload should target /etc/passwd or windows/win.ini —
+		// those are the exact strings that would overwrite sensitive
+		// files on a write sink.
+		if strings.Contains(a.Prompt, "/etc/passwd") {
+			t.Errorf("write-capable tool received /etc/passwd payload %q — would overwrite the real file!", a.Prompt)
+		}
+		if strings.Contains(strings.ToLower(a.Prompt), "windows\\win.ini") ||
+			strings.Contains(strings.ToLower(a.Prompt), "windows/win.ini") {
+			t.Errorf("write-capable tool received win.ini payload %q — would overwrite the real file!", a.Prompt)
+		}
+		lower := strings.ToLower(a.Prompt)
+		if !strings.Contains(lower, "tmp") || !strings.Contains(lower, "proof-augwrite-") {
+			t.Errorf("write-canary payload %q should target /tmp/proof-augwrite-<canary> (also accepts URL-encoded /tmp/)", a.Prompt)
+		}
+	}
+}
+
+// TestPathTraversal_ReadPayloadsOnReadOnlyTool: the read-only-annotated
+// path continues to receive /etc/passwd-class payloads because ReadOnly
+// is the only signal the tool CANNOT overwrite the target file.
+func TestPathTraversal_ReadPayloadsOnReadOnlyTool(t *testing.T) {
+	p := newPathTraversalProbe(t)
+
+	target := &mockTarget{
+		tools: []map[string]any{
+			annotatedTool("read_file", "filepath", types.MCPToolAnnotations{ReadOnly: true}),
+		},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			path, _ := args["filepath"].(string)
+			if strings.Contains(path, "etc/passwd") {
+				return types.ToolResult{Text: unixPasswdSample}
+			}
+			return types.ToolResult{Text: "not found"}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	sawEtcPasswdPayload := false
+	for _, a := range attempts {
+		if strings.Contains(a.Prompt, "/etc/passwd") {
+			sawEtcPasswdPayload = true
+			break
+		}
+	}
+	if !sawEtcPasswdPayload {
+		t.Errorf("read-only-annotated tool should receive /etc/passwd payloads for read detection")
+	}
+}
+
+// TestPathTraversal_WriteCanaryDetectedOnSuccess: a write-capable tool
+// that actually writes to /tmp/proof-<canary> and returns a success
+// message (IsError=false) is flagged by the detector via the canary
+// signature match.
+func TestPathTraversal_WriteCanaryDetectedOnSuccess(t *testing.T) {
+	pr, err := NewPathTraversal(registry.Config{"allow_destructive": true})
+	if err != nil {
+		t.Fatalf("NewPathTraversal: %v", err)
+	}
+	p := pr.(*PathTraversal)
+
+	destTrue := true
+	target := &mockTarget{
+		tools: []map[string]any{
+			annotatedTool("save_report", "filepath", types.MCPToolAnnotations{Destructive: &destTrue}),
+		},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			path, _ := args["filepath"].(string)
+			// Vulnerable: write succeeds regardless of path.
+			return types.ToolResult{Text: "Successfully wrote to " + path, IsError: false}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+
+	det := &pathTraversalDetectorStub{}
+	fired := false
+	for _, a := range attempts {
+		for _, s := range det.detect(a) {
+			if s == 1.0 {
+				fired = true
+			}
+		}
+	}
+	if !fired {
+		t.Errorf("write-capable server that echoes the canary path with IsError=false should be flagged")
+	}
+}
+
+// TestPathTraversal_WriteCanarySuppressedOnRefusal: a write-capable tool
+// that REFUSES the write (returns IsError=true with the payload echoed in
+// the error message) must NOT be flagged — the echo alone isn't evidence.
+func TestPathTraversal_WriteCanarySuppressedOnRefusal(t *testing.T) {
+	pr, err := NewPathTraversal(registry.Config{"allow_destructive": true})
+	if err != nil {
+		t.Fatalf("NewPathTraversal: %v", err)
+	}
+	p := pr.(*PathTraversal)
+
+	destTrue := true
+	target := &mockTarget{
+		tools: []map[string]any{
+			annotatedTool("save_report", "filepath", types.MCPToolAnnotations{Destructive: &destTrue}),
+		},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			path, _ := args["filepath"].(string)
+			// Hardened: refuses with the path echoed in the error.
+			return types.ToolResult{Text: "Access to " + path + " denied", IsError: true}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+
+	det := &pathTraversalDetectorStub{}
+	for _, a := range attempts {
+		for _, s := range det.detect(a) {
+			if s != 0.0 {
+				t.Errorf("write refusal (IsError=true) with echoed payload must be SAFE, got %v", s)
+			}
 		}
 	}
 }
@@ -276,22 +411,29 @@ func TestExtractHintedPrefixes(t *testing.T) {
 	}
 }
 
-// TestPathTraversal_SkipsNonToolInvoker: a non-ToolInvoker target yields no
-// attempts.
-func TestPathTraversal_SkipsNonToolInvoker(t *testing.T) {
+// TestPathTraversal_ErrorsOnNonToolInvoker: a non-ToolInvoker target is
+// an operator misconfiguration for THIS probe (which requires a tool
+// surface), so the probe returns an explicit error rather than a
+// silently-clean empty result. Matches the Injection / SSRF behaviour
+// added by #210.
+func TestPathTraversal_ErrorsOnNonToolInvoker(t *testing.T) {
 	p := newPathTraversalProbe(t)
-	attempts, err := p.Probe(context.Background(), plainGen{})
-	if err != nil {
-		t.Fatalf("Probe: %v", err)
+	_, err := p.Probe(context.Background(), plainGen{})
+	if err == nil {
+		t.Fatal("expected error for non-ToolInvoker target, got nil")
 	}
-	if attempts != nil {
-		t.Errorf("expected nil attempts for non-ToolInvoker target, got %d", len(attempts))
+	if !strings.Contains(err.Error(), "does not support direct tool invocation") {
+		t.Errorf("error message should point at the interface mismatch, got %q", err.Error())
 	}
 }
 
 // pathTraversalDetectorStub re-implements the signature check locally so the
 // probe test does not depend on the detector package.
 type pathTraversalDetectorStub struct{}
+
+// writeSuccessREStub mirrors detectors/toolsec's writeSuccessRE — a write
+// finding needs a success verb, not just the canary echoed.
+var writeSuccessREStub = regexp.MustCompile(`(?i)\b(wrote|written|saved|created|stored|updated|uploaded|success|successfully|ok|done|complete)\b`)
 
 func (pathTraversalDetectorStub) detect(a *attempt.Attempt) []float64 {
 	scores := make([]float64, len(a.Outputs))
@@ -300,12 +442,28 @@ func (pathTraversalDetectorStub) detect(a *attempt.Attempt) []float64 {
 		return scores
 	}
 	sigs, _ := raw.([]string)
+	isWriteRaw, _ := a.GetMetadata(attempt.MetadataKeyPathTraversalIsWrite)
+	isWrite, _ := isWriteRaw.(bool)
+	toolErrRaw, _ := a.GetMetadata(attempt.MetadataKeyPathTraversalToolIsError)
+	toolErr, _ := toolErrRaw.(bool)
+	if isWrite && toolErr {
+		return scores
+	}
 	for i, out := range a.Outputs {
+		matched := false
 		for _, s := range sigs {
 			if s != "" && strings.Contains(out, s) {
-				scores[i] = 1.0
+				matched = true
+				break
 			}
 		}
+		if !matched {
+			continue
+		}
+		if isWrite && !writeSuccessREStub.MatchString(out) {
+			continue
+		}
+		scores[i] = 1.0
 	}
 	return scores
 }

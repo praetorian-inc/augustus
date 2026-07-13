@@ -65,6 +65,18 @@ const (
 	// see in a tool's output if the traversal payload resolved to the target
 	// file. Read by the toolsec.PathTraversal detector.
 	MetadataKeyPathTraversalSignatures = "toolsec.pathtraversal_signatures"
+	// MetadataKeyPathTraversalIsWrite (bool) marks an attempt whose payload
+	// targets a canary-write /tmp/proof-<canary> path — evidence of an
+	// arbitrary-path WRITE sink rather than an arbitrary-path READ. Read by
+	// the detector so a write finding is scored only when accompanied by a
+	// tool-side success signal (not a mere echo of the path in an error).
+	MetadataKeyPathTraversalIsWrite = "toolsec.pathtraversal_is_write"
+	// MetadataKeyPathTraversalToolIsError (bool) is the value of
+	// types.ToolResult.IsError from the target's response. When true on a
+	// write attempt, the tool refused; the detector suppresses the
+	// signature echo in that case (the path we sent appearing in an error
+	// message isn't proof of a write).
+	MetadataKeyPathTraversalToolIsError = "toolsec.pathtraversal_tool_iserror"
 
 	// MetadataKeyDNSRebindAccepted (bool) records whether the target processed
 	// a request that a rebinding-protected MCP server should have refused
