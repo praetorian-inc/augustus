@@ -53,19 +53,26 @@ EMOJI_FONT_CANDIDATES = [
 ]
 
 
-def load_emoji_font() -> ImageFont.FreeTypeFont:
+def load_emoji_font(explicit_path: str | None, explicit_size: int | None) -> ImageFont.FreeTypeFont:
+    # An explicit --font-path (with optional --font-size) wins, so the asset can
+    # be regenerated on platforms whose emoji font is not in the candidate list
+    # (e.g. Windows' seguiemj.ttf).
+    if explicit_path:
+        if not os.path.exists(explicit_path):
+            sys.exit(f"font not found: {explicit_path}")
+        return ImageFont.truetype(explicit_path, explicit_size or 160)
     for path, size in EMOJI_FONT_CANDIDATES:
         if not os.path.exists(path):
             continue
         try:
-            return ImageFont.truetype(path, size)
+            return ImageFont.truetype(path, explicit_size or size)
         except OSError:
             continue
-    sys.exit("no usable color-emoji font found (Apple Color Emoji / Noto Color Emoji)")
+    sys.exit("no usable color-emoji font found; pass --font-path /path/to/emoji-font")
 
 
-def render() -> bytes:
-    font = load_emoji_font()
+def render(explicit_path: str | None, explicit_size: int | None) -> bytes:
+    font = load_emoji_font(explicit_path, explicit_size)
     img = Image.new("RGB", CANVAS, (255, 255, 255))
     draw = ImageDraw.Draw(img)
     # embedded_color renders the font's built-in color bitmaps for the emoji.
@@ -83,10 +90,14 @@ def main() -> int:
     ap.add_argument("--repo-root", default=os.getcwd(),
                     help="repo root for the in-place default (run from repo root, "
                          "or pass --repo-root ../.. from the tool dir)")
+    ap.add_argument("--font-path", help="override the auto-detected color-emoji font "
+                                        "(e.g. Windows C:/Windows/Fonts/seguiemj.ttf)")
+    ap.add_argument("--font-size", type=int, help="emoji glyph pixel size (default 160, "
+                                                  "the Apple Color Emoji strike size)")
     args = ap.parse_args()
 
     print(f"rebus glyphs: {REBUS}  ->  'print hello world'  (canary: 'hello world')")
-    data = render()
+    data = render(args.font_path, args.font_size)
 
     dest = args.out or os.path.join(args.repo_root, ASSET_ROOT, ASSET_PATH)
     os.makedirs(os.path.dirname(dest), exist_ok=True)
