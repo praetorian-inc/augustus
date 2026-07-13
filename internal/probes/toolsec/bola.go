@@ -7,6 +7,7 @@ import (
 	"regexp"
 
 	mcpx "github.com/praetorian-inc/augustus/internal/recon/mcp"
+	"github.com/praetorian-inc/augustus/internal/toolpolicy"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/recon"
@@ -46,12 +47,14 @@ var (
 type BOLA struct {
 	reconContext
 	attackerLabel string
+	policy        toolpolicy.Policy
 }
 
 // NewBOLA constructs the probe.
 func NewBOLA(cfg registry.Config) (probes.Prober, error) {
 	return &BOLA{
 		attackerLabel: registry.GetString(cfg, "attacker_identity_label", "primary"),
+		policy:        toolpolicy.New(cfg),
 	}, nil
 }
 
@@ -125,6 +128,14 @@ func (p *BOLA) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 			continue
 		}
 		for _, obj := range id.Objects {
+			// Honor the operator's allow/deny lists before replaying a getter. The
+			// mcp.identifiers observation carries no tool annotations, so this enforces
+			// the by-NAME allow/deny lists only; destructive-annotation gating is
+			// applied upstream at recon (recon.MCPIdentifiers filters the catalog through
+			// the same toolpolicy before a getter is ever confirmed).
+			if skip, _ := p.policy.Skip(obj.Tool, nil); skip {
+				continue
+			}
 			if owned[ownKey(obj.Tool, obj.ID)] {
 				continue // attacker owns this exact object; not a cross-identity target
 			}

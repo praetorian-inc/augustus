@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/praetorian-inc/augustus/internal/recon/llm"
+	"github.com/praetorian-inc/augustus/internal/toolpolicy"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/output"
 	"github.com/praetorian-inc/augustus/pkg/recon"
@@ -48,12 +49,6 @@ var (
 	defaultEnumWords    = []string{"list", "search", "find", "query", "all", "enumerate", "browse"}
 )
 
-// destructiveNameRE matches tool names that imply a state-changing / side-effecting
-// operation. The heuristic classifier must never auto-select such a tool (recon is
-// read-only). This is an interim guard: full read-only-annotation / tool-policy
-// enforcement is deferred to the #210 toolPolicy rebase.
-var destructiveNameRE = regexp.MustCompile(`(?i)(^|[_\- ])(delete|remove|drop|reset|create|update|write|set|put|post|purge|destroy|revoke|disable|enable|send|execute|run|exec)($|[_\- ])`)
-
 // MCPIdentifiers is the recon module that discovers, per identity, the object
 // identifiers a target's getter tools will return objects for. It embeds
 // llm.Base for the navigator LLM (the PRIMARY classifier) and access to prior
@@ -70,6 +65,12 @@ type MCPIdentifiers struct {
 	idParams         map[string]string
 	useNavigator     bool
 	maxIDsPerTool    int
+
+	// policy is the shared destructive-tool safety gate. recon is read-only, so a
+	// tool the server annotates destructive (or one an operator denies) must never
+	// be classified as a getter or enumerator — it would otherwise be invoked with
+	// benign/id args. Replaces the old destructive-NAME regex heuristic.
+	policy toolpolicy.Policy
 
 	// Compiled from the (operator-extendable) keyword vocabularies.
 	idParamRE *regexp.Regexp
@@ -100,6 +101,7 @@ func NewIdentifiers(cfg registry.Config) (recon.Recon, error) {
 		idParams:         parseIDParams(cfg),
 		useNavigator:     registry.GetBool(cfg, "use_navigator", true),
 		maxIDsPerTool:    registry.GetInt(cfg, "max_ids_per_tool", 5),
+		policy:           toolpolicy.New(cfg),
 		idParamRE:        wordBoundaryRE(resolvePatterns(cfg, "id_param_patterns", "id_param_extra_patterns", defaultIDParamWords)),
 		getterRE:         wordBoundaryRE(resolvePatterns(cfg, "getter_name_patterns", "getter_name_extra_patterns", defaultGetterWords)),
 		enumRE:           wordBoundaryRE(resolvePatterns(cfg, "enum_name_patterns", "enum_name_extra_patterns", defaultEnumWords)),
@@ -242,6 +244,11 @@ func (m *MCPIdentifiers) toolCatalog(ctx context.Context, gen types.Generator) [
 // is set it first asks the navigator; any failure falls back to the
 // deterministic heuristics. Config hints always take precedence.
 func (m *MCPIdentifiers) classify(ctx context.Context, tools []map[string]any) (getters []toolSpec, enumerators []toolSpec) {
+	// Filter FIRST, so a destructive/denied tool becomes neither a getter nor an
+	// enumerator on EITHER path — recon is read-only, and a destructive tool misread
+	// as a getter (e.g. delete_order(id)) would then be invoked with an id. The gate
+	// keys on server annotations + operator allow/deny, not tool names.
+	tools = m.policy.Filter(m.Name(), tools)
 	if m.useNavigator {
 		if g, e, ok := m.classifyWithNavigator(ctx, tools); ok {
 			return g, e
@@ -274,16 +281,9 @@ func (m *MCPIdentifiers) classifyHeuristic(tools []map[string]any) (getters []to
 			continue
 		}
 
-		// S1 (interim): never AUTO-classify a destructively-named tool — recon must
-		// not invoke it (an enumerator is called with benign args; a getter with an
-		// id). Explicit get_tools/enumeration_tools config above still wins. Full
-		// tool-policy / read-only-annotation enforcement is deferred to the #210
-		// toolPolicy rebase; MCPTool has no annotations field yet.
-		if destructiveNameRE.MatchString(name) {
-			slog.Debug("recon.MCPIdentifiers: skipping destructively-named tool from auto-classification", "tool", name)
-			continue
-		}
-
+		// Destructive/denied tools are already removed upstream in classify() via the
+		// shared toolpolicy gate (server annotations + operator allow/deny), so the
+		// heuristic no longer name-matches for destructiveness.
 		isGetter := idParam != "" && (m.getterRE.MatchString(name) || hasRequiredID)
 		isEnum := m.enumRE.MatchString(name) || !hasRequiredID
 

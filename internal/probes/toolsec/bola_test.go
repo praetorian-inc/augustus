@@ -283,6 +283,37 @@ func TestBOLA_OmitsPositiveControlWhenNoOwnObject(t *testing.T) {
 	}
 }
 
+// TestBOLA_SkipsDeniedGetter: a getter on the operator's tool_denylist must not be
+// replayed — the probe issues no calls and produces no attempt for it. The
+// destructive-annotation gate is applied upstream at recon; the replay path
+// enforces the by-name allow/deny lists.
+func TestBOLA_SkipsDeniedGetter(t *testing.T) {
+	store := recon.NewStore()
+	seedTwoTenants(t, store)
+
+	p := newBOLAProbe(t, registry.Config{
+		"attacker_identity_label": "tenant-a",
+		"tool_denylist":           []string{"get_order"},
+	})
+	p.SetContext(recon.ProbeContext{Recon: store})
+
+	target := &recordingTarget{reply: func(_ string, args map[string]any) types.ToolResult {
+		id, _ := args["id"].(string)
+		return types.ToolResult{Text: `{"id":"` + id + `"}`}
+	}}
+
+	attempts, err := p.Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if len(attempts) != 0 {
+		t.Errorf("denied getter must produce no attempts, got %d", len(attempts))
+	}
+	if len(target.calls) != 0 {
+		t.Errorf("denied getter must never be invoked, got %d calls: %+v", len(target.calls), target.calls)
+	}
+}
+
 // TestBOLA_EndToEndLeak: full probe -> REAL detector (mock judge). The leaky
 // getter serves the victim object; the negative control differs, so stage-1 does
 // not cull and the judge (mock: leak) scores 1.0.

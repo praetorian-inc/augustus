@@ -373,27 +373,40 @@ func TestClassifyHeuristic_EditablePatterns(t *testing.T) {
 	}
 }
 
-// TestClassifyHeuristic_SkipsDestructiveTools (S1): a destructively-named tool
-// (e.g. reset_orders) must never be auto-classified as an enumerator — recon must
-// not invoke it. A read-only enumerator (list_orders) is still classified.
+// TestClassifyHeuristic_SkipsDestructiveTools (S1): the safety gate now runs on
+// server ANNOTATIONS, not tool names. classify() filters the catalog through the
+// shared toolpolicy before either the navigator or the heuristic sees it, so a
+// tool the server annotates destructive becomes neither getter NOR enumerator.
+// The old destructive-NAME regex is gone: a destructive-SOUNDING tool with no
+// annotations is KEPT and classified normally.
 func TestClassifyHeuristic_SkipsDestructiveTools(t *testing.T) {
 	tools := []map[string]any{
+		// read-only enumerator, no annotations — kept, classified as an enumerator.
 		{"name": "list_orders", "parameters": map[string]any{"type": "object", "properties": map[string]any{}}},
-		{"name": "reset_orders", "parameters": map[string]any{"type": "object", "properties": map[string]any{}}},
+		// annotated destructive (non-read-only, Destructive defaults true) — dropped
+		// by the policy before classification.
+		{
+			"name":        "wipe_orders",
+			"parameters":  map[string]any{"type": "object", "properties": map[string]any{}},
+			"annotations": types.MCPToolAnnotations{},
+		},
+		// destructive-SOUNDING name but NO annotations — the name heuristic is gone,
+		// so it is KEPT and classified as a getter on its required id.
 		{"name": "delete_order", "parameters": map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string"}}, "required": []any{"id"}}},
 	}
 
 	m := newIdentifiersModule(t, registry.Config{"use_navigator": false})
-	getters, enums := m.classifyHeuristic(tools)
+	getters, enums := m.classify(context.Background(), tools)
 
-	if hasEnum(enums, "reset_orders") {
-		t.Error("reset_orders is destructive; it must NOT be an enumerator")
-	}
-	if hasGetter(getters, "delete_order") {
-		t.Error("delete_order is destructive; it must NOT be auto-classified as a getter")
+	if hasEnum(enums, "wipe_orders") || hasGetter(getters, "wipe_orders") {
+		t.Error("wipe_orders is annotated destructive; the policy must drop it before classification")
 	}
 	if !hasEnum(enums, "list_orders") {
 		t.Errorf("list_orders should still be an enumerator; got %v", enums)
+	}
+	// The destructive NAME heuristic is gone: without annotations delete_order is kept.
+	if !hasGetter(getters, "delete_order") {
+		t.Errorf("delete_order has no annotations; with the name heuristic removed it must be KEPT and classified as a getter; got %v", getters)
 	}
 }
 
