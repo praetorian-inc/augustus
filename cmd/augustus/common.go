@@ -8,6 +8,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/harnesses"
 	"github.com/praetorian-inc/augustus/pkg/probes"
+	"github.com/praetorian-inc/augustus/pkg/recon"
 )
 
 var version = "0.0.9"
@@ -19,6 +20,12 @@ func listCapabilities() {
 
 	fmt.Printf("Probes (%d):\n", probes.Registry.Count())
 	for _, name := range probes.List() {
+		fmt.Printf("  - %s\n", name)
+	}
+	fmt.Println()
+
+	fmt.Printf("Recon (%d):\n", recon.Registry.Count())
+	for _, name := range recon.List() {
 		fmt.Printf("  - %s\n", name)
 	}
 	fmt.Println()

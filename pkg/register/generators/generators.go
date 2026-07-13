@@ -23,6 +23,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/generators/langchain"
 	_ "github.com/praetorian-inc/augustus/internal/generators/langchainserve"
 	_ "github.com/praetorian-inc/augustus/internal/generators/litellm"
+	_ "github.com/praetorian-inc/augustus/internal/generators/mcp"
 	_ "github.com/praetorian-inc/augustus/internal/generators/mistral"
 	_ "github.com/praetorian-inc/augustus/internal/generators/nemo"
 	_ "github.com/praetorian-inc/augustus/internal/generators/nim"

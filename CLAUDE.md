@@ -47,6 +47,16 @@ Generators may also implement these **optional** interfaces (in `pkg/types/gener
 - **UsageReporter**: `AccumulatedTokens() int64` — reports the cumulative tokens consumed across all `Generate` calls. The scanner type-asserts each generator for this interface and records the per-run delta into `Metrics.TokensConsumed` (surfaced as `augustus_tokens_consumed`). Implement it for free by embedding `types.UsageCounter` (a concurrency-safe `atomic.Int64`) and calling `g.AddTokens(...)` wherever the provider returns usage. Generators whose provider doesn't report usage still embed `UsageCounter` and simply never `AddTokens`, contributing 0 (honest partial coverage, never an estimate).
 - **VisionCapable**: `SupportsVision() bool` — declares that the generator's wire layer can transmit image attachments (`Message.Images`). Multimodal image probes gate on this to skip generators that can't carry images rather than silently sending a text-only request and mis-reporting the target as safe. Report **structural** capability (the generator emits image content blocks), not per-model support — e.g. an OpenAI-compatible generator returns `true` on its chat path even though a given model may ignore images; for generators with both image-capable and text-only paths (OpenAI/Azure completion models, Bedrock Titan/Llama), return the path-accurate value (e.g. `g.isChat`, or the model family).
 - **DocumentCapable**: `SupportsDocuments() bool` — the document-modality parallel of `VisionCapable`: declares that the generator's wire layer can transmit document attachments (`Message.Documents`, e.g. PDFs). Document probes (`internal/probes/pdf/*`) gate on this so a generator that can't carry documents fails the probe rather than silently sending a text-only request and mis-reporting the target as safe. Report **structural** capability — Anthropic returns `true` unconditionally; Bedrock returns `true` only for the Claude builder (Nova/Titan/Llama return `false`, as only the Claude path emits document blocks).
+- **ToolInvoker** (`pkg/types/tool_invoker.go`): `ListTools()` / `CallTool()` — declares that the target exposes a directly-invokable tool surface (e.g. an MCP server) rather than only chat completion. This is distinct from the model-facing tool wire layer (`Conversation.Tools`/`Message.ToolCalls`), which presents probe-defined tools *to* an LLM and executes nothing: `ToolInvoker` invokes REAL tools on the backend. It is the basis for the `internal/probes/toolsec/*` probes (authorization, injection-into-a-sink, SSRF against tool backends).
+- **MCPReconnaissance** (`pkg/types/mcp_recon.go`): `MCPInventory()` — declares that the target's full MCP attack surface (declared capabilities, negotiated protocol version, server instructions, and the tool/resource/prompt catalog) can be enumerated from the connected session. Implemented by the `mcp.MCP` generator and consumed by the `recon.MCP` reconnaissance module. Assembles raw descriptive data only — it renders no verdict.
+
+### Reconnaissance (pkg/recon/)
+
+Reconnaissance is a **first-class activity distinct from probing**: it *measures* (gathers descriptive facts) and renders no verdict, whereas probes produce scored attempts. The distinction is enforced by the type system — a reconnaissance module returns `[]output.Observation`, never a score.
+
+- **Recon** (`pkg/recon/recon.go`): `Recon(ctx, gen) ([]output.Observation, error)` + `Name()` — a reconnaissance module (e.g. `recon.MCP` in `internal/recon/mcp/`). It gates on the target's capability (type-asserting an optional interface such as `MCPReconnaissance`) and returns no observations for inapplicable targets. Results flow into a shared, concurrency-safe `recon.Store`.
+- **Observation** (`pkg/output/output.go`): the one descriptive output type (`Type`/`Target`/`Data`/`Source`). The verdict stays the probe score; it is never re-represented as an observation.
+- **ContextAwareProbe** (opt-in, `pkg/recon/context.go`): `SetContext(ProbeContext)` — a probe that consumes prior reconnaissance (the "scan once, reuse everywhere" model). The runner delivers the shared `Store` before probing; probes that don't implement it structurally cannot see recon. `toolsec.Injection`/`SSRF` use it to reuse a prior MCP inventory instead of re-enumerating the tool surface.
 
 ### Plugin Registration Pattern
 
@@ -62,7 +72,7 @@ func init() {
 ```
 
 Global registries in `pkg/` packages:
-- `probes.Registry`, `detectors.Registry`, `generators.Registry`, `buffs.Registry`
+- `probes.Registry`, `detectors.Registry`, `generators.Registry`, `buffs.Registry`, `recon.Registry`
 
 ### Directory Structure
 
@@ -75,17 +85,22 @@ pkg/                Public interfaces and shared utilities
   buffs/            Buff interface and chaining
   attempt/          Attempt/Conversation/Message types
   templates/        YAML probe template loader (Nuclei-style)
+  recon/            Recon interface, registry, and the shared observation Store
+  output/           Observation type (descriptive, non-verdict output)
 internal/           Implementation details (not importable externally)
   probes/           230+ probe implementations organized by category
   generators/       30 provider integrations (45 variants)
   detectors/        95+ detector implementations
   buffs/            7 buff transformations
   attackengine/     Iterative attack engine (PAIR/TAP)
+  recon/            Reconnaissance modules (e.g. recon/mcp — MCP attack-surface enumeration)
 ```
 
 ### Scan Pipeline
 
-1. **Probe Selection** → 2. **Buff Transform** → 3. **Generator Call** → 4. **Detector Analysis** → 5. **Result Recording**
+0. **Reconnaissance** (optional, `--recon`) → 1. **Probe Selection** → 2. **Buff Transform** → 3. **Generator Call** → 4. **Detector Analysis** → 5. **Result Recording**
+
+When `--recon` modules are given, a reconnaissance phase runs **before** probe selection, independent of the detector harness: it populates a shared `recon.Store` (observations emitted as JSONL) and feeds context-aware probes. A **recon-only scan** (recon modules but no probes) is valid and skips the probe/detector harness entirely.
 
 Scanner uses `errgroup` for bounded concurrency (default 10 goroutines).
 
@@ -114,6 +129,13 @@ For YAML-based probes, create `.yaml` files in `data/` subdirectory and use `tem
 2. Implement `types.Detector` interface (return scores 0.0-1.0)
 3. Register: `detectors.Register("category.Name", factory)`
 
+### New Reconnaissance Module
+
+1. Create `internal/recon/<name>/`
+2. Implement `recon.Recon` — return `[]output.Observation` (descriptive facts), never a score
+3. Register: `recon.Register("recon.Name", factory)`
+4. Gate on the target's capability (e.g. type-assert `types.MCPReconnaissance`) and return no observations for inapplicable targets — a module that can't operate is a skip, not an error
+
 ## Key Patterns
 
 - **Typed Configuration**: Use `registry.FromMap()` to adapt typed configs to `registry.Config` maps
@@ -136,6 +158,12 @@ augustus scan openai.OpenAI --all --buff encoding.Base64
 
 # Custom REST endpoint
 augustus scan rest.Rest --probe dan.Dan_11_0 --config '{"uri":"https://api.example.com/v1/chat"}'
+
+# Reconnaissance (first-class; --recon is repeatable and may run with or without probes)
+augustus scan mcp.MCP --recon recon.MCP --config '{"endpoint":"http://localhost:8000/mcp"}'
+
+# Recon feeding tool-surface probes in one scan (scan once, reuse everywhere)
+augustus scan mcp.MCP --recon recon.MCP --probe toolsec.Injection --probe toolsec.SSRF --config '{"endpoint":"http://localhost:8000/mcp"}'
 ```
 
 ## Commit Convention

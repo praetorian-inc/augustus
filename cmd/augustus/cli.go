@@ -59,6 +59,9 @@ type ScanCmd struct {
 	ProbesGlob string   `help:"Comma-separated probe glob patterns (e.g., 'dan.*,encoding.*')." name:"probes-glob" group:"probes" xor:"probe-selection"`
 	All        bool     `help:"Run all registered probes." group:"probes" xor:"probe-selection"`
 
+	// Reconnaissance selection (orthogonal to probes: recon gathers, probes test)
+	Recon []string `help:"Reconnaissance module names (repeatable). Gather target facts (observations); may run with or without probes." name:"recon" group:"recon"`
+
 	// Detector selection
 	Detectors     []string `help:"Detector names (repeatable)." name:"detector"`
 	DetectorsGlob string   `help:"Comma-separated detector glob patterns." name:"detectors-glob"`
@@ -104,9 +107,10 @@ func (s *ScanCmd) Validate() error {
 		return fmt.Errorf("generator argument is required")
 	}
 
-	// At least one probe selection method required
-	if len(s.Probe) == 0 && s.ProbesGlob == "" && !s.All {
-		return fmt.Errorf("at least one --probe, --probes-glob, or --all is required")
+	// At least one activity required: a probe selection OR a recon module.
+	// Recon is a first-class activity, so a recon-only scan is valid.
+	if len(s.Probe) == 0 && s.ProbesGlob == "" && !s.All && len(s.Recon) == 0 {
+		return fmt.Errorf("at least one --probe, --probes-glob, --all, or --recon is required")
 	}
 
 	// Can't mix individual probes with glob/all

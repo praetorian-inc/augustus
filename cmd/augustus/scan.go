@@ -21,7 +21,9 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/harnesses"
 	"github.com/praetorian-inc/augustus/pkg/hooks"
+	"github.com/praetorian-inc/augustus/pkg/output"
 	"github.com/praetorian-inc/augustus/pkg/probes"
+	"github.com/praetorian-inc/augustus/pkg/recon"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/praetorian-inc/augustus/pkg/results"
 	"github.com/praetorian-inc/augustus/pkg/types"
@@ -31,6 +33,7 @@ import (
 type scanConfig struct {
 	generatorName   string
 	probeNames      []string
+	reconNames      []string
 	detectorNames   []string
 	buffNames       []string
 	harnessName     string
@@ -109,6 +112,7 @@ func (s *ScanCmd) loadScanConfig() *scanConfig {
 	return &scanConfig{
 		generatorName:   s.Generator,
 		probeNames:      s.Probe,
+		reconNames:      s.Recon,
 		detectorNames:   s.Detectors,
 		buffNames:       s.Buff,
 		harnessName:     s.Harness,
@@ -318,6 +322,50 @@ func createProbes(probeNames []string, yamlCfg *config.Config, targetGeneratorNa
 		probeList = append(probeList, probe)
 	}
 	return probeList, nil
+}
+
+// createRecons instantiates reconnaissance modules by name.
+func createRecons(names []string) ([]recon.Recon, error) {
+	mods := make([]recon.Recon, 0, len(names))
+	for _, name := range names {
+		m, err := recon.Create(name, make(registry.Config))
+		if err != nil {
+			return nil, fmt.Errorf("failed to create recon module %s: %w", name, err)
+		}
+		mods = append(mods, m)
+	}
+	return mods, nil
+}
+
+// injectProbeContext delivers the shared reconnaissance store to every probe
+// that opts in via recon.ContextAwareProbe. Probes that do not implement the
+// interface are left untouched — they structurally cannot see recon.
+func injectProbeContext(probeList []probes.Prober, store *recon.Store) {
+	pc := recon.ProbeContext{Recon: store}
+	for _, p := range probeList {
+		if aware, ok := p.(recon.ContextAwareProbe); ok {
+			aware.SetContext(pc)
+		}
+	}
+}
+
+// emitObservations prints reconnaissance observations. Each observation is
+// emitted as a JSON line on stdout; the human-readable banner goes to stderr so
+// stdout stays a pure JSONL stream for machine consumers (e.g. `--format jsonl`).
+func emitObservations(obs []output.Observation) error {
+	if len(obs) == 0 {
+		return nil
+	}
+	fmt.Fprintln(os.Stderr, "\nReconnaissance Observations")
+	fmt.Fprintln(os.Stderr, "===========================")
+	for _, o := range obs {
+		line, err := json.Marshal(o)
+		if err != nil {
+			return fmt.Errorf("marshal observation: %w", err)
+		}
+		fmt.Println(string(line))
+	}
+	return nil
 }
 
 // foldRefusalPatternFlag folds the CLI --refusal-pattern values into the single
@@ -658,6 +706,32 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 		gen = hooks.NewHookedGenerator(gen, prepareHook, setupVars)
 	}
 
+	// --- Reconnaissance phase ---
+	// Recon is a first-class activity, run independently of the test harness:
+	// modules gather descriptive observations and never produce a verdict. The
+	// store outlives this phase so its observations can feed downstream probes
+	// (the Metasploit model: recon populates a shared workspace once, probes read
+	// it). It is always non-nil, so context-aware probes get a valid — possibly
+	// empty — store.
+	store := recon.NewStore()
+	var reconErr error
+	if len(cfg.reconNames) > 0 {
+		reconModules, rerr := createRecons(cfg.reconNames)
+		if rerr != nil {
+			return rerr
+		}
+		if rerr := recon.Run(ctx, gen, reconModules, store); rerr != nil {
+			// Best-effort for a full scan: recon feeds the probes, which are the
+			// real activity, so a recon error must not abort them. It is retained
+			// so a recon-ONLY scan (no probes) can report it rather than exiting 0.
+			slog.Warn("reconnaissance completed with errors", "error", rerr)
+			reconErr = rerr
+		}
+		if oerr := emitObservations(store.Observations()); oerr != nil {
+			return oerr
+		}
+	}
+
 	// Get probe names
 	probeNames := cfg.probeNames
 	if cfg.allProbes {
@@ -696,6 +770,27 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 		}
 	}
 
+	// Recon-only scan: no probes to test, so skip the detector/test harness
+	// entirely (it requires detectors). Observations were already emitted above.
+	// The cleanup hook must still run so a --setup that provisioned resources is
+	// torn down even when no probes ran.
+	if len(probeNames) == 0 {
+		cleanupErr := runCleanupHook(cfg)
+		// Recon was the only activity, so its outcome IS the scan's outcome: do
+		// not report a false green. Fail if any module errored, or if the run
+		// produced no observations at all (e.g. an unreachable server), so
+		// `augustus scan --recon ...` cannot exit 0 having discovered nothing.
+		if len(cfg.reconNames) > 0 {
+			switch {
+			case reconErr != nil:
+				return errors.Join(fmt.Errorf("reconnaissance failed: %w", reconErr), cleanupErr)
+			case len(store.Observations()) == 0:
+				return errors.Join(errors.New("reconnaissance produced no observations"), cleanupErr)
+			}
+		}
+		return cleanupErr
+	}
+
 	// Create probes
 	probeList, err := createProbes(probeNames, yamlCfg, cfg.generatorName, resolved.GeneratorConfig)
 	if err != nil {
@@ -706,6 +801,11 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	// list; ResolveDetectorConfig broadcasts it to every detector and only the
 	// mitigation/refusal detectors read it (LAB-4664).
 	yamlCfg = foldRefusalPatternFlag(yamlCfg, cfg.refusalPatterns)
+
+	// Feed reconnaissance to probes that opt in (recon.ContextAwareProbe).
+	// Done before buff wrapping so the raw probes' interface is reachable —
+	// BuffedProber wrappers do not forward it (same reason as the detector map).
+	injectProbeContext(probeList, store)
 
 	// Create detectors
 	detectorList, err := createDetectors(cfg.detectorNames, probeList, yamlCfg)
@@ -751,22 +851,33 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	// Run the scan
 	scanErr := harness.Run(ctx, gen, probeList, detectorList, eval)
 
-	// Runtime hooks: run cleanup hook after scan
-	if cfg.cleanup != "" {
-		slog.Info("running cleanup hook")
-		cleanupHook := &hooks.Hook{Command: cfg.cleanup}
-		cleanupEnv := map[string]string{
-			"AUGUSTUS_GENERATOR": cfg.generatorName,
-		}
-		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cleanupCancel()
-		if _, cleanupErr := cleanupHook.Run(cleanupCtx, cleanupEnv); cleanupErr != nil {
-			slog.Error("cleanup hook failed", "error", cleanupErr)
-			scanErr = errors.Join(scanErr, fmt.Errorf("cleanup hook failed: %w", cleanupErr))
-		}
+	// Runtime hooks: run cleanup hook after scan.
+	if cleanupErr := runCleanupHook(cfg); cleanupErr != nil {
+		scanErr = errors.Join(scanErr, cleanupErr)
 	}
 
 	return scanErr
+}
+
+// runCleanupHook runs the configured cleanup hook (a no-op when none is set). It
+// is invoked on every scan-completion path — including recon-only scans — so a
+// --setup that provisioned resources is always torn down.
+func runCleanupHook(cfg *scanConfig) error {
+	if cfg.cleanup == "" {
+		return nil
+	}
+	slog.Info("running cleanup hook")
+	cleanupHook := &hooks.Hook{Command: cfg.cleanup}
+	cleanupEnv := map[string]string{
+		"AUGUSTUS_GENERATOR": cfg.generatorName,
+	}
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cleanupCancel()
+	if _, err := cleanupHook.Run(cleanupCtx, cleanupEnv); err != nil {
+		slog.Error("cleanup hook failed", "error", err)
+		return fmt.Errorf("cleanup hook failed: %w", err)
+	}
+	return nil
 }
 
 type tableEvaluator struct {

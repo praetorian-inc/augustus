@@ -20,4 +20,5 @@ import (
 	_ "github.com/praetorian-inc/augustus/pkg/register/generators"
 	_ "github.com/praetorian-inc/augustus/pkg/register/harnesses"
 	_ "github.com/praetorian-inc/augustus/pkg/register/probes"
+	_ "github.com/praetorian-inc/augustus/pkg/register/recons"
 )
