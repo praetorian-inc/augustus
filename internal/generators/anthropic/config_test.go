@@ -56,6 +56,55 @@ func TestAnthropicConfigFromMapMissingModel(t *testing.T) {
 	assert.Contains(t, err.Error(), "model")
 }
 
+func TestAnthropicConfigFromMap_TemperatureTypeSafety(t *testing.T) {
+	base := registry.Config{
+		"model":   "claude-3-opus-20240229",
+		"api_key": "sk-ant-test",
+	}
+
+	t.Run("string value leaves temperature unset", func(t *testing.T) {
+		m := registry.Config{"model": base["model"], "api_key": base["api_key"], "temperature": "0.5"}
+
+		cfg, err := ConfigFromMap(m)
+		require.NoError(t, err)
+		assert.Nil(t, cfg.Temperature)
+	})
+
+	t.Run("bool value leaves temperature unset", func(t *testing.T) {
+		m := registry.Config{"model": base["model"], "api_key": base["api_key"], "temperature": true}
+
+		cfg, err := ConfigFromMap(m)
+		require.NoError(t, err)
+		assert.Nil(t, cfg.Temperature)
+	})
+
+	t.Run("missing key leaves temperature unset", func(t *testing.T) {
+		m := registry.Config{"model": base["model"], "api_key": base["api_key"]}
+
+		cfg, err := ConfigFromMap(m)
+		require.NoError(t, err)
+		assert.Nil(t, cfg.Temperature)
+	})
+
+	t.Run("int value sets temperature", func(t *testing.T) {
+		m := registry.Config{"model": base["model"], "api_key": base["api_key"], "temperature": 1}
+
+		cfg, err := ConfigFromMap(m)
+		require.NoError(t, err)
+		require.NotNil(t, cfg.Temperature)
+		assert.Equal(t, 1.0, *cfg.Temperature)
+	})
+
+	t.Run("explicit zero float64 sets temperature", func(t *testing.T) {
+		m := registry.Config{"model": base["model"], "api_key": base["api_key"], "temperature": float64(0.0)}
+
+		cfg, err := ConfigFromMap(m)
+		require.NoError(t, err)
+		require.NotNil(t, cfg.Temperature)
+		assert.Equal(t, 0.0, *cfg.Temperature)
+	})
+}
+
 func TestAnthropicConfigFromMapEnvAPIKey(t *testing.T) {
 	// Set env var for test
 	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-env-test")

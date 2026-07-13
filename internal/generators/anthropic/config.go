@@ -62,12 +62,17 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	// Optional parameters
 	cfg.BaseURL = registry.GetString(m, "base_url", cfg.BaseURL)
 	cfg.APIVersion = registry.GetString(m, "api_version", cfg.APIVersion)
-	// Temperature is opt-in: only set when the key is present, so an absent key
-	// leaves it nil (unsent) rather than defaulting. JSON/YAML numbers decode to
-	// float64; an int is accepted for hand-built maps.
-	if _, ok := m["temperature"]; ok {
-		temp := registry.GetFloat64(m, "temperature", 0)
-		cfg.Temperature = &temp
+	// Temperature is opt-in and type-safe: set the pointer only when the key
+	// holds an actual number (float64 from JSON/YAML, int from a hand-built map).
+	// A missing key OR a malformed value (e.g. a string like "0.5") leaves it nil
+	// (unset -> omitted from the request) rather than silently coercing to 0,
+	// which would force unexpectedly deterministic generation. Mirrors ollama.
+	switch v := m["temperature"].(type) {
+	case float64:
+		cfg.Temperature = &v
+	case int:
+		f := float64(v)
+		cfg.Temperature = &f
 	}
 	cfg.MaxTokens = registry.GetInt(m, "max_tokens", cfg.MaxTokens)
 	cfg.TopP = registry.GetFloat64(m, "top_p", cfg.TopP)
