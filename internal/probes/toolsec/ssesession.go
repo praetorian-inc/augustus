@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -25,27 +24,37 @@ func init() {
 
 var _ types.ProbeMetadata = (*SSESessionHijack)(nil)
 
-// SSESessionHijack tests the legacy MCP SSE transport for two independent
-// classes of session-management weakness:
+// SSESessionHijack tests the legacy MCP SSE transport for session-management
+// weakness that would let an attacker who obtains a session ID (via any
+// out-of-band leak — logs, referer, browser history, network interception,
+// DNS rebinding) drive the session.
 //
-//  1. Session-ID quality — sample N session IDs and inspect them for length,
-//     entropy, shared prefixes, and collision. Any of these weaknesses makes
-//     a session guessable by an off-path attacker without having to intercept
-//     the SSE stream.
+// Attack family: session hijacking / broken session binding (CWE-287, CWE-
+// 613, MCP07). The transport is SSE only because that's where MCP puts
+// session IDs today; the underlying weakness is transport-agnostic.
 //
-//  2. Session lifetime — a well-behaved SSE server invalidates a session
-//     when its stream disconnects and rejects POSTs from any TCP connection
-//     other than the one holding the stream. FastMCP-style servers commonly
-//     do neither; the session is a naked bearer token that any HTTP client
-//     with the ID can drive until server-side GC. This is a real hijack
-//     primitive when the ID leaks (referer, logs, browser history, DNS
-//     rebinding, exposed proxies).
+// The probe does two things with ONE valid session ID it obtains via a
+// normal SSE handshake:
 //
-// The probe targets only SSE transports; streamable HTTP has a different
-// session model (Mcp-Session-Id header) covered by a future probe.
+//  1. Shape-sniffs the ID — length + character-set diversity. A single
+//     sample can't statistically audit an RNG (that would need ~2^64
+//     samples to detect a 128-bit collision), but it CAN catch the
+//     obviously-guessable cases: short IDs, all-digit / all-lowercase-alpha
+//     IDs, timestamp-shaped IDs. That's the actual failure mode for weak
+//     session generation — not statistically-imperfect randomness.
+//
+//  2. Session-replay tests — take the ID, close the SSE stream, POST to
+//     the session's endpoint from a fresh TCP connection. If the server
+//     accepts, the ID is a naked bearer token with no client binding
+//     (CWE-287). Also tested after a post-close delay (CWE-613:
+//     session outlives its stream).
+//
+// What the probe does NOT do: multi-sample entropy analysis, prefix
+// clustering, birthday-collision detection. Those were retired as
+// statistically impossible to run at any N a scanner can afford; the
+// real signals for weak session IDs are shape, not entropy.
 type SSESessionHijack struct {
 	endpointOverride string
-	sampleCount      int
 	timeout          time.Duration
 }
 
@@ -55,7 +64,6 @@ type SSESessionHijack struct {
 func NewSSESessionHijack(cfg registry.Config) (probes.Prober, error) {
 	return &SSESessionHijack{
 		endpointOverride: registry.GetString(cfg, "endpoint", ""),
-		sampleCount:      registry.GetInt(cfg, "sample_count", 6),
 		timeout:          time.Duration(registry.GetInt(cfg, "request_timeout", 10)) * time.Second,
 	}, nil
 }
@@ -63,11 +71,11 @@ func NewSSESessionHijack(cfg registry.Config) (probes.Prober, error) {
 func (p *SSESessionHijack) Name() string { return "toolsec.SSESessionHijack" }
 
 func (p *SSESessionHijack) Description() string {
-	return "Samples MCP SSE session IDs, inspects them for short length / low entropy / shared prefixes / collision, and tests whether the server accepts POSTs to a session's endpoint from a fresh TCP connection or after the stream closed"
+	return "Tests MCP SSE session-management for hijack primitives: obtains one valid session ID, shape-sniffs it for short/low-diversity/timestamp-shape (the guessable failure modes), then replays it off the original TCP connection and after stream close. Statistical RNG audit is deliberately not attempted — no realistic sample count could detect predictability of a 128-bit space."
 }
 
 func (p *SSESessionHijack) Goal() string {
-	return "Determine whether the MCP SSE transport's session tokens are predictable, or whether a stolen session ID can be replayed off the original TCP connection"
+	return "Determine whether a session ID obtained via any means (leak, log, referer, DNS rebind) is a naked bearer token — reusable off the TCP connection that created it, or surviving past its stream. Also flag obviously-guessable ID shapes."
 }
 
 func (p *SSESessionHijack) GetPrimaryDetector() string { return "toolsec.SSESessionHijack" }
@@ -81,9 +89,8 @@ type sseSessionClass string
 const (
 	sseClassBaseline         sseSessionClass = "baseline"
 	sseClassShort            sseSessionClass = "session-id-short"
-	sseClassLowEntropy       sseSessionClass = "session-id-low-entropy"
-	sseClassCommonPrefix     sseSessionClass = "session-id-common-prefix"
-	sseClassCollision        sseSessionClass = "session-id-collision"
+	sseClassLowDiversity     sseSessionClass = "session-id-low-diversity"
+	sseClassGuessableShape   sseSessionClass = "session-id-guessable-shape"
 	sseClassNotTCPBound      sseSessionClass = "session-not-tcp-bound"
 	sseClassPostCloseAlive   sseSessionClass = "session-post-close-alive"
 	sseClassUnknownIDRejects sseSessionClass = "unknown-id-rejects" // control
@@ -126,60 +133,38 @@ func (p *SSESessionHijack) Probe(ctx context.Context, gen types.Generator) ([]*a
 		return nil, err
 	}
 
-	// Step 1: sample N sessions.
-	samples := make([]sseSample, 0, p.sampleCount)
-	var sampleAttempts []*attempt.Attempt
-	for i := 0; i < p.sampleCount; i++ {
-		s, sampleAttempt := p.sampleOne(ctx, client, endpoint, i)
-		sampleAttempts = append(sampleAttempts, sampleAttempt)
-		if s != nil {
-			samples = append(samples, *s)
-		}
-	}
-	if len(samples) < 2 {
-		slog.Warn("toolsec.SSESessionHijack: too few session samples for analysis", "got", len(samples))
-		// Emit an explicit inconclusive attempt so the report shows we
-		// tried but couldn't classify; without this the scan would ship
-		// a green SAFE verdict for a target that might well be
-		// vulnerable but simply refused to sample cleanly (transient
-		// network error, rate-limit, etc.). Mauro S4.
-		a := attempt.New(fmt.Sprintf("[inconclusive] only %d/%d session samples collected", len(samples), p.sampleCount))
-		a.Probe = p.Name()
-		a.Detector = p.GetPrimaryDetector()
-		a.Metadata[attempt.MetadataKeySSESessionClass] = string(sseClassBaseline)
-		a.Metadata[attempt.MetadataKeyInconclusive] = true
-		a.Metadata[attempt.MetadataKeyInconclusiveReason] = fmt.Sprintf("insufficient samples for analysis: got %d, need >= 2", len(samples))
-		a.AddOutput(fmt.Sprintf("sampled=%d target_sample_count=%d — session-id classification requires >= 2 samples", len(samples), p.sampleCount))
-		a.Complete()
-		return append(sampleAttempts, a), nil
+	// Step 1: obtain ONE valid session ID via a normal SSE handshake.
+	// One sample is sufficient for both branches of this probe: the
+	// shape-sniff runs on a single ID, and the replay tests only need
+	// one valid ID to reuse. Additional samples would be latency for
+	// no additional information — see the type doc.
+	sample, sampleAttempt := p.sampleOne(ctx, client, endpoint)
+	attempts := []*attempt.Attempt{sampleAttempt}
+	if sample == nil {
+		// Sampling failed → nothing to classify or replay against.
+		// The sampleAttempt already carries the error, but mark it
+		// inconclusive so the detector doesn't ship a green SAFE
+		// verdict for a target we couldn't actually reach.
+		sampleAttempt.Metadata[attempt.MetadataKeyInconclusive] = true
+		sampleAttempt.Metadata[attempt.MetadataKeyInconclusiveReason] = "SSE handshake failed — could not obtain a session ID"
+		return attempts, nil
 	}
 
-	attempts := sampleAttempts
+	// Step 2: shape-sniff the ID.
+	attempts = append(attempts, p.classifyID(sample.id)...)
 
-	// Step 2: session-ID weakness classes.
-	attempts = append(attempts, p.classifySamples(samples)...)
-
-	// Step 3: replay tests using the FIRST sample. We use the first because
-	// it's the earliest-captured; if any session is guaranteed to have been
-	// "cleanly closed" by our client it's this one.
-	//
-	// Two independent suppressions apply:
-	//   (a) if the target accepts a FABRICATED session id, the server has
-	//       no session handling at all and the replay tests would be false
-	//       positives (they'd re-confirm the same broken behaviour).
+	// Step 3: replay tests. Two independent suppressions apply:
+	//   (a) if the target accepts a FABRICATED session id, the server
+	//       has no session handling at all and the replay tests would
+	//       be false positives (they'd re-confirm the same broken
+	//       behaviour). Marked accepted=false; the control attempt
+	//       itself carries the finding.
 	//   (b) if an explicit outbound proxy is configured on the target
-	//       generator, the "distinct client" property the replay tests
-	//       claim to measure is compromised at the proxy layer, not the
-	//       server. A keep-alive proxy holds the SSE conn open on our
-	//       behalf, so the server sees the session as still active when
-	//       the "fresh" client's POST arrives — 202 responses in that
-	//       setting are proxy artifacts, not target vulnerabilities.
-	//       When (b) is true we still RUN the replay tests (they may
-	//       still fire e.g. if the server accepts unknown ids), but we
-	//       record their findings as inconclusive so the report doesn't
-	//       mis-attribute a proxy behaviour to the target.
-	target := samples[0]
-	control := p.controlUnknownID(ctx, client, target)
+	//       generator, the "distinct client" property the replay
+	//       tests claim to measure is compromised at the proxy layer,
+	//       not the server. Marked inconclusive; the reviewer must
+	//       confirm out-of-band.
+	control := p.controlUnknownID(ctx, client, *sample)
 	attempts = append(attempts, control)
 	serverAcceptsAnyID := metaBool(control, attempt.MetadataKeySSESessionAccepted)
 	proxied := p.proxyInPath(gen)
@@ -187,14 +172,10 @@ func (p *SSESessionHijack) Probe(ctx context.Context, gen types.Generator) ([]*a
 		slog.Info("toolsec.SSESessionHijack: proxy in path; connection-lifetime replay findings will be recorded as inconclusive",
 			"reason", "keep-alive proxies hold SSE upstream open, making session-lifetime tests unreliable")
 	}
-	// The replay tests need to make a request that DEFINITELY doesn't
-	// reuse the SSE stream's TCP connection. Relying on connection-pool
-	// eviction (as an earlier revision did) is incidental; clone the
-	// borrowed client's Transport and set DisableKeepAlives=true so each
-	// replay opens a fresh TCP conn by construction.
+	// Force fresh TCP conns for replays (see withoutKeepAlives).
 	replayClient := withoutKeepAlives(client)
-	attempts = append(attempts, p.replayCrossConnection(ctx, replayClient, target, serverAcceptsAnyID, proxied))
-	attempts = append(attempts, p.replayPostClose(ctx, replayClient, target, serverAcceptsAnyID, proxied))
+	attempts = append(attempts, p.replayCrossConnection(ctx, replayClient, *sample, serverAcceptsAnyID, proxied))
+	attempts = append(attempts, p.replayPostClose(ctx, replayClient, *sample, serverAcceptsAnyID, proxied))
 
 	return attempts, nil
 }
@@ -244,8 +225,8 @@ func (p *SSESessionHijack) resolveEndpoint(gen types.Generator) string {
 
 // sampleOne opens an SSE connection, reads the endpoint event to extract the
 // session ID, then closes the stream. Returns (nil, attempt) on any failure.
-func (p *SSESessionHijack) sampleOne(ctx context.Context, client *http.Client, endpoint string, idx int) (*sseSample, *attempt.Attempt) {
-	a := attempt.New(fmt.Sprintf("[baseline] sample session #%d", idx+1))
+func (p *SSESessionHijack) sampleOne(ctx context.Context, client *http.Client, endpoint string) (*sseSample, *attempt.Attempt) {
+	a := attempt.New("[baseline] SSE handshake — obtain session id")
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
 	a.Metadata[attempt.MetadataKeySSESessionClass] = string(sseClassBaseline)
@@ -296,58 +277,99 @@ func (p *SSESessionHijack) sampleOne(ctx context.Context, client *http.Client, e
 	return &sseSample{id: sessionID, postURL: postURL, baseOrigin: endpoint}, a
 }
 
-// classifySamples inspects the collected session IDs for weakness classes
-// and returns one attempt per class it fires.
-func (p *SSESessionHijack) classifySamples(samples []sseSample) []*attempt.Attempt {
+// classifyID shape-sniffs a single session ID for the three failure modes a
+// single sample can reliably surface. Statistical RNG audit is deliberately
+// not attempted (see the type doc): a scanner cannot afford the ~2^64
+// samples that would be needed to detect a 128-bit-collision-space weakness,
+// so we only flag things that ARE obvious from one ID.
+func (p *SSESessionHijack) classifyID(id string) []*attempt.Attempt {
 	var attempts []*attempt.Attempt
 
-	ids := make([]string, len(samples))
-	for i, s := range samples {
-		ids[i] = s.id
-	}
-
-	// Class: too short (< 16 chars ≈ 64 bits at 4 bits/char).
-	minLen := len(ids[0])
-	for _, id := range ids {
-		if len(id) < minLen {
-			minLen = len(id)
-		}
-	}
-	if minLen < 16 {
-		a := p.classAttempt(sseClassShort, fmt.Sprintf("shortest sampled id was %d chars (<16)", minLen), ids[0])
+	// Class: too short. 16 chars ≈ 64 bits at 4 bits/char (uniform hex).
+	// Below this a session id is guessable given enough attempts against
+	// the server, independent of the RNG's quality.
+	if len(id) < 16 {
+		a := p.classAttempt(sseClassShort, fmt.Sprintf("id is %d chars (< 16)", len(id)), id)
 		a.Metadata[attempt.MetadataKeySSESessionAccepted] = true
 		attempts = append(attempts, a)
 	}
 
-	// Class: low entropy — Shannon over the concatenated bytes.
-	bitsPerChar := shannonBitsPerChar(strings.Join(ids, ""))
-	if bitsPerChar < 3.0 {
-		a := p.classAttempt(sseClassLowEntropy, fmt.Sprintf("~%.2f bits/char across %d ids (weak)", bitsPerChar, len(ids)), ids[0])
+	// Class: low character-set diversity. Distinct-chars / length ratio:
+	// a random 32-hex UUID scores ~0.5 (16 unique hex chars in 32
+	// positions). Something like "000000000000000000000000000abc" scores
+	// close to 0.1 — obviously not fit-for-purpose. This is a shape
+	// property of the ONE id, not a statistical claim about the RNG.
+	if diversity := charDiversity(id); diversity < 0.25 && len(id) > 0 {
+		a := p.classAttempt(sseClassLowDiversity,
+			fmt.Sprintf("id uses %d distinct chars in %d positions (diversity %.2f, < 0.25)", uniqueChars(id), len(id), diversity),
+			id)
 		a.Metadata[attempt.MetadataKeySSESessionAccepted] = true
 		attempts = append(attempts, a)
 	}
 
-	// Class: shared prefix > 8 chars across all samples.
-	prefix := longestCommonPrefix(ids)
-	if len(prefix) > 8 {
-		a := p.classAttempt(sseClassCommonPrefix, fmt.Sprintf("shared prefix %q (%d chars)", prefix, len(prefix)), ids[0])
+	// Class: guessable shape. Catches obviously-non-random patterns from
+	// a single sample: all digits (counter or timestamp), plausible unix
+	// timestamp value, all lowercase alpha with no digits, etc.
+	if reason, ok := guessableShape(id); ok {
+		a := p.classAttempt(sseClassGuessableShape, reason, id)
 		a.Metadata[attempt.MetadataKeySSESessionAccepted] = true
 		attempts = append(attempts, a)
-	}
-
-	// Class: collision (two samples equal).
-	seen := map[string]bool{}
-	for _, id := range ids {
-		if seen[id] {
-			a := p.classAttempt(sseClassCollision, fmt.Sprintf("duplicate id %q across %d samples", truncID(id), len(ids)), id)
-			a.Metadata[attempt.MetadataKeySSESessionAccepted] = true
-			attempts = append(attempts, a)
-			break
-		}
-		seen[id] = true
 	}
 
 	return attempts
+}
+
+// charDiversity is (unique chars) / (length). Random hex → ~0.5; random
+// alphanumeric → ~0.9; a repetitive or narrow-alphabet id → close to 0.
+func charDiversity(s string) float64 {
+	if s == "" {
+		return 0
+	}
+	return float64(uniqueChars(s)) / float64(len(s))
+}
+
+func uniqueChars(s string) int {
+	seen := make(map[byte]struct{}, len(s))
+	for i := 0; i < len(s); i++ {
+		seen[s[i]] = struct{}{}
+	}
+	return len(seen)
+}
+
+// guessableShape returns a reason string + true when the id matches an
+// obviously-guessable pattern. Kept intentionally strict — this only fires
+// on IDs that couldn't POSSIBLY be from a CSPRNG, so false-positive rate
+// against real MCP servers should be ~0.
+func guessableShape(id string) (string, bool) {
+	if id == "" {
+		return "", false
+	}
+	// All decimal digits: counter, unix timestamp, or a numeric-only id.
+	allDigits := true
+	for i := 0; i < len(id); i++ {
+		if id[i] < '0' || id[i] > '9' {
+			allDigits = false
+			break
+		}
+	}
+	if allDigits {
+		return fmt.Sprintf("id is all decimal digits (%d chars) — counter or timestamp shape, not a CSPRNG output", len(id)), true
+	}
+	// All lowercase letters, no digits: dictionary word or narrow alphabet.
+	if len(id) >= 4 {
+		allLowerAlpha := true
+		for i := 0; i < len(id); i++ {
+			c := id[i]
+			if c < 'a' || c > 'z' {
+				allLowerAlpha = false
+				break
+			}
+		}
+		if allLowerAlpha {
+			return fmt.Sprintf("id is %d lowercase letters with no digits — narrow alphabet, likely not from a CSPRNG", len(id)), true
+		}
+	}
+	return "", false
 }
 
 // classAttempt builds an attempt carrying a classification tag.
@@ -637,50 +659,6 @@ func replaceSessionID(postURL, newID string) string {
 	q.Set("session_id", newID)
 	u.RawQuery = q.Encode()
 	return u.String()
-}
-
-// shannonBitsPerChar computes the average Shannon entropy across the byte
-// distribution of a string, in bits/char. High-entropy IDs (hex UUIDs,
-// base62 tokens) yield ~3.5–5.5. Sub-3.0 indicates either a very narrow
-// character set or heavy repetition.
-func shannonBitsPerChar(s string) float64 {
-	if s == "" {
-		return 0
-	}
-	freq := make(map[byte]int, 64)
-	for i := 0; i < len(s); i++ {
-		freq[s[i]]++
-	}
-	total := float64(len(s))
-	var h float64
-	for _, c := range freq {
-		p := float64(c) / total
-		h -= p * math.Log2(p)
-	}
-	return h
-}
-
-// longestCommonPrefix returns the longest prefix shared by every string.
-func longestCommonPrefix(ss []string) string {
-	if len(ss) == 0 {
-		return ""
-	}
-	prefix := ss[0]
-	for _, s := range ss[1:] {
-		max := len(prefix)
-		if len(s) < max {
-			max = len(s)
-		}
-		i := 0
-		for i < max && prefix[i] == s[i] {
-			i++
-		}
-		prefix = prefix[:i]
-		if prefix == "" {
-			break
-		}
-	}
-	return prefix
 }
 
 // truncID returns the first 24 chars of an id so long tokens don't drown

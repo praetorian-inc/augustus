@@ -113,7 +113,7 @@ func TestSSESession_HardenedServer(t *testing.T) {
 	srv := newSSETestServer(t, nextID, acceptPost)
 	defer srv.Close()
 
-	p := newSSESessionProbe(t, registry.Config{"endpoint": srv.URL + "/sse", "sample_count": len(pool)})
+	p := newSSESessionProbe(t, registry.Config{"endpoint": srv.URL + "/sse"})
 	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL + "/sse", transport: "sse"})
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
@@ -133,7 +133,7 @@ func TestSSESession_ShortIDs(t *testing.T) {
 	srv := newSSETestServer(t, nextID, acceptPost)
 	defer srv.Close()
 
-	p := newSSESessionProbe(t, registry.Config{"endpoint": srv.URL + "/sse", "sample_count": 6})
+	p := newSSESessionProbe(t, registry.Config{"endpoint": srv.URL + "/sse"})
 	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL + "/sse", transport: "sse"})
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
@@ -144,50 +144,64 @@ func TestSSESession_ShortIDs(t *testing.T) {
 	}
 }
 
-// TestSSESession_CommonPrefix: ids share a long prefix (partially
-// deterministic — timestamp + counter shape). Expected: session-id-common-
-// prefix fires.
-func TestSSESession_CommonPrefix(t *testing.T) {
-	prefix := "prefix-shared-12345678-"
-	nextID := func(i int) string { return prefix + fmt.Sprintf("%08x", i) }
-	acceptPost := func(id string) bool { return false }
-
-	srv := newSSETestServer(t, nextID, acceptPost)
+// TestSSESession_GuessableShape_AllDigits: a session id that is entirely
+// decimal digits (counter, unix timestamp, sequence) is shape-guessable
+// and must fire session-id-guessable-shape from a SINGLE sample.
+func TestSSESession_GuessableShape_AllDigits(t *testing.T) {
+	nextID := func(i int) string { return "1735689600" } // unix ts
+	srv := newSSETestServer(t, nextID, func(string) bool { return false })
 	defer srv.Close()
 
-	p := newSSESessionProbe(t, registry.Config{"endpoint": srv.URL + "/sse", "sample_count": 6})
+	p := newSSESessionProbe(t, registry.Config{"endpoint": srv.URL + "/sse"})
 	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL + "/sse", transport: "sse"})
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
 	}
 	fired := findingsBySSEClass(attempts)
-	if !fired[string(sseClassCommonPrefix)] {
-		t.Errorf("session-id-common-prefix should fire on shared-prefix ids; fired=%v", fired)
+	if !fired[string(sseClassGuessableShape)] {
+		t.Errorf("session-id-guessable-shape should fire on all-digits id; fired=%v", fired)
 	}
 }
 
-// TestSSESession_Collision: two samples yield the same id. Expected:
-// session-id-collision fires.
-func TestSSESession_Collision(t *testing.T) {
-	nextID := func(i int) string {
-		if i%2 == 0 {
-			return "collidingsessionid00000000000001"
-		}
-		return "collidingsessionid00000000000002"
-	}
-	acceptPost := func(id string) bool { return false }
-
-	srv := newSSETestServer(t, nextID, acceptPost)
+// TestSSESession_LowDiversity: a session id whose unique-char count is
+// tiny relative to its length (repetitive or narrow alphabet) fires
+// session-id-low-diversity — a pure shape observation, no RNG claim.
+func TestSSESession_LowDiversity(t *testing.T) {
+	// 32 chars, 3 unique letters — diversity 3/32 ≈ 0.09, well below 0.25.
+	nextID := func(i int) string { return "aaaaaaaaaabbbbbbbbbbccccccccccaa" }
+	srv := newSSETestServer(t, nextID, func(string) bool { return false })
 	defer srv.Close()
 
-	p := newSSESessionProbe(t, registry.Config{"endpoint": srv.URL + "/sse", "sample_count": 6})
+	p := newSSESessionProbe(t, registry.Config{"endpoint": srv.URL + "/sse"})
 	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL + "/sse", transport: "sse"})
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
 	}
 	fired := findingsBySSEClass(attempts)
-	if !fired[string(sseClassCollision)] {
-		t.Errorf("session-id-collision should fire on duplicated ids; fired=%v", fired)
+	if !fired[string(sseClassLowDiversity)] {
+		t.Errorf("session-id-low-diversity should fire on repetitive id; fired=%v", fired)
+	}
+}
+
+// TestSSESession_HighDiversityUUIDPasses: a real UUID4-shape id must NOT
+// trip low-diversity or guessable-shape — 32 hex chars use 16 distinct
+// symbols (diversity 0.5) and are neither all-digits nor all-alpha.
+func TestSSESession_HighDiversityUUIDPasses(t *testing.T) {
+	nextID := func(i int) string { return "9b1deb4d3b7d4bad9bdd2b0d7b3dcb6d" }
+	srv := newSSETestServer(t, nextID, func(string) bool { return false })
+	defer srv.Close()
+
+	p := newSSESessionProbe(t, registry.Config{"endpoint": srv.URL + "/sse"})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL + "/sse", transport: "sse"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	fired := findingsBySSEClass(attempts)
+	if fired[string(sseClassLowDiversity)] {
+		t.Errorf("session-id-low-diversity must NOT fire on UUID4-shape id; fired=%v", fired)
+	}
+	if fired[string(sseClassGuessableShape)] {
+		t.Errorf("session-id-guessable-shape must NOT fire on UUID4-shape id; fired=%v", fired)
 	}
 }
 
@@ -211,7 +225,7 @@ func TestSSESession_NotTCPBound(t *testing.T) {
 	srv := newSSETestServer(t, nextID, acceptPost)
 	defer srv.Close()
 
-	p := newSSESessionProbe(t, registry.Config{"endpoint": srv.URL + "/sse", "sample_count": len(pool)})
+	p := newSSESessionProbe(t, registry.Config{"endpoint": srv.URL + "/sse"})
 	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL + "/sse", transport: "sse"})
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
@@ -242,7 +256,7 @@ func TestSSESession_ControlSuppresses(t *testing.T) {
 	srv := newSSETestServer(t, nextID, acceptPost)
 	defer srv.Close()
 
-	p := newSSESessionProbe(t, registry.Config{"endpoint": srv.URL + "/sse", "sample_count": len(pool)})
+	p := newSSESessionProbe(t, registry.Config{"endpoint": srv.URL + "/sse"})
 	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL + "/sse", transport: "sse"})
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
@@ -292,7 +306,7 @@ func TestSSESession_ProxiedReplaysScoreInconclusive(t *testing.T) {
 	srv := newSSETestServer(t, nextID, acceptPost)
 	defer srv.Close()
 
-	p := newSSESessionProbe(t, registry.Config{"endpoint": srv.URL + "/sse", "sample_count": len(pool)})
+	p := newSSESessionProbe(t, registry.Config{"endpoint": srv.URL + "/sse"})
 	gen := proxiedGen{endpointGen: endpointGen{url: srv.URL + "/sse", transport: "sse"}, proxy: "http://127.0.0.1:9999"}
 	attempts, err := p.Probe(context.Background(), gen)
 	if err != nil {
@@ -411,32 +425,47 @@ func TestExtractSessionID(t *testing.T) {
 	}
 }
 
-// TestShannonBitsPerChar spot-checks the entropy helper — narrow character
-// sets score low, high-diversity strings score higher.
-func TestShannonBitsPerChar(t *testing.T) {
+// TestCharDiversity spot-checks the diversity helper.
+func TestCharDiversity(t *testing.T) {
 	tests := []struct {
-		in    string
-		minOK float64 // want ≥ this
-		maxOK float64 // want ≤ this
+		in  string
+		min float64
+		max float64
 	}{
-		{"aaaa", 0.0, 0.5}, // one char → 0 bits
-		{"abcd", 1.5, 2.5}, // uniform 4 → 2 bits
-		{"9b1deb4d3b7d4bad9bdd2b0d7b3dcb6dce5b8c7c5f9c47c988c14c5b21b8b2f5", 3.5, 4.5}, // hex → ~3.9
+		{"aaaa", 0.24, 0.26},                             // 1/4
+		{"abcd", 0.99, 1.01},                             // 4/4
+		{"9b1deb4d3b7d4bad9bdd2b0d7b3dcb6d", 0.20, 0.60}, // hex UUID ~0.5
+		{"aaaaaaaaaabbbbbbbbbbccccccccccaa", 0.08, 0.10}, // 3/32
 	}
 	for _, tt := range tests {
-		got := shannonBitsPerChar(tt.in)
-		if got < tt.minOK || got > tt.maxOK {
-			t.Errorf("shannonBitsPerChar(%q) = %.3f, want in [%.2f, %.2f]", tt.in, got, tt.minOK, tt.maxOK)
+		got := charDiversity(tt.in)
+		if got < tt.min || got > tt.max {
+			t.Errorf("charDiversity(%q) = %.3f, want in [%.2f, %.2f]", tt.in, got, tt.min, tt.max)
 		}
 	}
 }
 
-// TestLongestCommonPrefix covers the small helper.
-func TestLongestCommonPrefix(t *testing.T) {
-	if got := longestCommonPrefix([]string{"abcxyz", "abcpqr", "abclmn"}); got != "abc" {
-		t.Errorf("got %q, want abc", got)
+// TestGuessableShape covers the shape-sniff.
+func TestGuessableShape(t *testing.T) {
+	positive := []string{
+		"1735689600", // unix timestamp
+		"1234567890", // counter-like
+		"abcdefghij", // pure lowercase, ≥ 4 chars
 	}
-	if got := longestCommonPrefix([]string{"a", "b"}); got != "" {
-		t.Errorf("got %q, want empty", got)
+	for _, id := range positive {
+		if _, ok := guessableShape(id); !ok {
+			t.Errorf("guessableShape(%q) should have fired", id)
+		}
+	}
+	negative := []string{
+		"9b1deb4d3b7d4bad9bdd2b0d7b3dcb6d", // UUID4 hex
+		"abc123def456",                     // mixed alphanum
+		"",                                 // empty
+		"abc",                              // too short for lower-alpha check
+	}
+	for _, id := range negative {
+		if _, ok := guessableShape(id); ok {
+			t.Errorf("guessableShape(%q) should NOT have fired", id)
+		}
 	}
 }
