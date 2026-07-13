@@ -56,7 +56,7 @@ func TestVerdict(t *testing.T) {
 			expected: "review",
 		},
 		{
-			name: "low nonzero score is review",
+			name: "low nonzero sub-threshold score is safe",
 			build: func() *attempt.Attempt {
 				a := attempt.New("p")
 				a.AddOutput("response")
@@ -64,7 +64,7 @@ func TestVerdict(t *testing.T) {
 				a.Complete()
 				return a
 			},
-			expected: "review",
+			expected: "safe",
 		},
 		{
 			name: "zero score completed is safe",
