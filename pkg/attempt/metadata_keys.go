@@ -30,4 +30,28 @@ const (
 	MetadataKeySSRFReflected = "toolsec.ssrf_reflected"
 	// MetadataKeySSRFOOBURL (string) is the canary URL injected for this attempt.
 	MetadataKeySSRFOOBURL = "toolsec.ssrf_oob_url"
+
+	// MetadataKeyBOLAID (string) is the victim object identifier the toolsec.BOLA
+	// probe called a getter with under the attacker's identity.
+	MetadataKeyBOLAID = "toolsec.bola.id"
+	// MetadataKeyBOLAVictimIdentity (string) labels the identity that owns the
+	// object the attacker attempted to read.
+	MetadataKeyBOLAVictimIdentity = "toolsec.bola.victim_identity"
+	// MetadataKeyBOLAPositiveControl (string) is the attacker's OWN-object response
+	// for the same getter — a served baseline the toolsec.BOLA detector's judge uses
+	// to calibrate what "served" looks like on this server. Absent when the attacker
+	// owns no object for that getter.
+	MetadataKeyBOLAPositiveControl = "toolsec.bola.positive_control"
+	// MetadataKeyBOLANegativeControl (string) is the attacker's response for a
+	// well-formed but NONEXISTENT id on the same getter — a denied/not-found baseline.
+	// The detector uses it deterministically (stage-1 prune) and passes it to the
+	// judge (stage 2) to calibrate what "denied/empty" looks like on this server.
+	MetadataKeyBOLANegativeControl = "toolsec.bola.negative_control"
+	// MetadataKeyBOLANonexistentID (string) is the well-formed-nonexistent id the
+	// probe substituted for the negative control. The detector masks BOTH this id
+	// and the target id when comparing the two responses in the stage-1 prune, so a
+	// not-found echoing the (different) id still collapses to the same shape. Keeping
+	// it in metadata means the detector never re-derives it and stays id-format
+	// agnostic.
+	MetadataKeyBOLANonexistentID = "toolsec.bola.nonexistent_id"
 )
