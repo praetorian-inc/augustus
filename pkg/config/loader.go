@@ -97,6 +97,36 @@ func interpolateMapEnvVars(m map[string]any, getenv func(string) (string, bool))
 			if err := interpolateMapEnvVars(val, getenv); err != nil {
 				return err
 			}
+		case []any:
+			if err := interpolateSliceEnvVars(val, getenv); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// interpolateSliceEnvVars interpolates env vars in the elements of a []any,
+// recursing into nested maps and slices. Needed for YAML lists such as
+// recon.settings' victims[], whose generator_config maps may hold ${VAR}
+// placeholders (api keys, auth headers, tenant tokens).
+func interpolateSliceEnvVars(s []any, getenv func(string) (string, bool)) error {
+	for i, v := range s {
+		switch val := v.(type) {
+		case string:
+			interpolated, err := interpolateEnvVars(val, getenv)
+			if err != nil {
+				return err
+			}
+			s[i] = interpolated
+		case map[string]any:
+			if err := interpolateMapEnvVars(val, getenv); err != nil {
+				return err
+			}
+		case []any:
+			if err := interpolateSliceEnvVars(val, getenv); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -194,6 +224,16 @@ func interpolateConfigEnvVars(cfg *Config) error {
 	// Interpolate nested buff settings
 	if cfg.Buffs.Settings != nil {
 		for _, settings := range cfg.Buffs.Settings {
+			if err := interpolateMapEnvVars(settings, getenv); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Interpolate nested recon settings (e.g. an LLM navigator's api_key, and
+	// nested victim generator_config maps).
+	if cfg.Recon.Settings != nil {
+		for _, settings := range cfg.Recon.Settings {
 			if err := interpolateMapEnvVars(settings, getenv); err != nil {
 				return err
 			}

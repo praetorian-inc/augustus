@@ -76,6 +76,47 @@ func TestRun_StampsSourceAndAggregatesErrors(t *testing.T) {
 	}
 }
 
+// ctxAwareRecon is a recon module that opts in to shared context by recording
+// the store handed to it via SetContext.
+type ctxAwareRecon struct {
+	fakeRecon
+	got *Store
+}
+
+func (c *ctxAwareRecon) SetContext(pc ProbeContext) { c.got = pc.Recon }
+
+func TestRun_InjectsContextIntoAwareModules(t *testing.T) {
+	// Module A emits an observation; the context-aware module B must receive the
+	// shared store before it runs and, because Run stores A's output first, must
+	// be able to see A's observation through it (recon composing over recon).
+	a := &fakeRecon{name: "recon.A", obs: []output.Observation{{Type: "mcp.inventory"}}}
+	b := &ctxAwareRecon{fakeRecon: fakeRecon{name: "recon.B"}}
+
+	store := NewStore()
+	if err := Run(context.Background(), fakeGen{}, []Recon{a, b}, store); err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+
+	if b.got == nil {
+		t.Fatal("context-aware module did not receive the store via SetContext")
+	}
+	if b.got.Len() != 1 || b.got.Observations()[0].Type != "mcp.inventory" {
+		t.Errorf("context-aware module should see the prior module's observation; store = %+v", b.got.Observations())
+	}
+}
+
+func TestRun_NonAwareModuleUnaffected(t *testing.T) {
+	// A plain module that does not implement ContextAwareRecon still runs fine.
+	plain := &fakeRecon{name: "recon.Plain", obs: []output.Observation{{Type: "z"}}}
+	store := NewStore()
+	if err := Run(context.Background(), fakeGen{}, []Recon{plain}, store); err != nil {
+		t.Fatalf("Run error: %v", err)
+	}
+	if store.Len() != 1 {
+		t.Fatalf("plain module observation not recorded; len = %d", store.Len())
+	}
+}
+
 func TestRegistry(t *testing.T) {
 	Register("recon.Test", func(registry.Config) (Recon, error) {
 		return &fakeRecon{name: "recon.Test"}, nil

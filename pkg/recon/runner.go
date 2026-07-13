@@ -16,6 +16,12 @@ import (
 func Run(ctx context.Context, gen types.Generator, modules []Recon, store *Store) error {
 	var errs []error
 	for _, m := range modules {
+		// Opt-in: give modules that consume earlier observations the live store
+		// before they run. Modules run in order and their output is recorded
+		// below before the next iteration, so a later module sees earlier facts.
+		if aware, ok := m.(ContextAwareRecon); ok {
+			aware.SetContext(ProbeContext{Recon: store})
+		}
 		obs, err := m.Recon(ctx, gen)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", m.Name(), err))

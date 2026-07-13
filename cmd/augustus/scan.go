@@ -324,11 +324,15 @@ func createProbes(probeNames []string, yamlCfg *config.Config, targetGeneratorNa
 	return probeList, nil
 }
 
-// createRecons instantiates reconnaissance modules by name.
-func createRecons(names []string) ([]recon.Recon, error) {
+// createRecons instantiates reconnaissance modules by name, resolving each
+// module's config from the YAML recon.settings section (merged with global
+// judge defaults). yamlCfg may be nil; ResolveReconConfig is nil-safe and then
+// yields only the (empty) defaults.
+func createRecons(names []string, yamlCfg *config.Config) ([]recon.Recon, error) {
 	mods := make([]recon.Recon, 0, len(names))
 	for _, name := range names {
-		m, err := recon.Create(name, make(registry.Config))
+		var reconCfg registry.Config = yamlCfg.ResolveReconConfig(name)
+		m, err := recon.Create(name, reconCfg)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create recon module %s: %w", name, err)
 		}
@@ -740,7 +744,7 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	store := recon.NewStore()
 	var reconErr error
 	if len(cfg.reconNames) > 0 {
-		reconModules, rerr := createRecons(cfg.reconNames)
+		reconModules, rerr := createRecons(cfg.reconNames, yamlCfg)
 		if rerr != nil {
 			return rerr
 		}
