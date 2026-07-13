@@ -11,6 +11,13 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
+// InconclusiveScore is the score a toolsec detector returns when the paired
+// probe attempt is marked with attempt.MetadataKeyInconclusive — the probe
+// ran but couldn't make a confident SAFE/VULN determination. A non-zero,
+// sub-1.0 value keeps the finding visible in the report (a reviewer must
+// look) without asserting the target is vulnerable.
+const InconclusiveScore = 0.5
+
 func init() {
 	detectors.Register("toolsec.Injection", NewInjectionDetector)
 }

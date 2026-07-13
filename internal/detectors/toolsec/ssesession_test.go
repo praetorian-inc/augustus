@@ -27,6 +27,13 @@ func sseAttempt(class string, accepted bool, output string) *attempt.Attempt {
 	return a
 }
 
+func sseAttemptInconclusive(class, output string) *attempt.Attempt {
+	a := sseAttempt(class, true, output)
+	a.Metadata[attempt.MetadataKeyInconclusive] = true
+	a.Metadata[attempt.MetadataKeyInconclusiveReason] = "test"
+	return a
+}
+
 func TestSSESessionDetector(t *testing.T) {
 	tests := []struct {
 		name string
@@ -40,6 +47,7 @@ func TestSSESessionDetector(t *testing.T) {
 		{"baseline accepted -> not a finding", sseAttempt("baseline", true, "sampled"), []float64{0.0}},
 		{"unknown-id-rejects accepted -> not a finding (control)", sseAttempt("unknown-id-rejects", true, "server accepts any"), []float64{0.0}},
 		{"class rejected -> safe", sseAttempt("session-not-tcp-bound", false, "HTTP 401"), []float64{0.0}},
+		{"inconclusive under proxy -> 0.5", sseAttemptInconclusive("session-not-tcp-bound", "HTTP 202 (proxy-suppressed)"), []float64{InconclusiveScore}},
 	}
 	d := newSSESessionDetector(t)
 	for _, tt := range tests {

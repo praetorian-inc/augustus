@@ -268,13 +268,14 @@ func (g proxiedGen) ProxyURL() *url.URL {
 	return u
 }
 
-// TestSSESession_ProxiedSuppressesReplayFindings: a target reached through a
-// proxy that ALSO happens to be a vulnerable "session-not-tcp-bound" server
-// must NOT report the two connection-lifetime findings, because a keep-alive
-// proxy would produce the same signal regardless of the target's real
-// session model. The ID-space findings (short/etc) are still valid.
-func TestSSESession_ProxiedSuppressesReplayFindings(t *testing.T) {
-	// Same setup as TestSSESession_NotTCPBound: strong ids, POSTs accepted.
+// TestSSESession_ProxiedReplaysScoreInconclusive: through a proxy the two
+// connection-lifetime replay classes MUST NOT ship as VULN (proxy would
+// generate that signal for a hardened target too) but MUST NOT ship as
+// SAFE either (hiding a real vuln under proxy noise). Correct behaviour:
+// both attempts carry MetadataKeyInconclusive, and the detector emits
+// InconclusiveScore (0.5) — visible to the reviewer, not a green
+// verdict. Regression guard for Mauro B2.
+func TestSSESession_ProxiedReplaysScoreInconclusive(t *testing.T) {
 	pool := []string{
 		"9b1deb4d3b7d4bad9bdd2b0d7b3dcb6d",
 		"ce5b8c7c5f9c47c988c14c5b21b8b2f5",
@@ -297,12 +298,30 @@ func TestSSESession_ProxiedSuppressesReplayFindings(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
 	}
-	fired := findingsBySSEClass(attempts)
-	if fired[string(sseClassNotTCPBound)] {
-		t.Errorf("session-not-tcp-bound must be suppressed when proxy configured; fired=%v", fired)
+	// The two replay classes must be marked inconclusive; the ID-space
+	// classes are proxy-immune and stay unaffected.
+	replayClasses := map[string]bool{
+		string(sseClassNotTCPBound):    false,
+		string(sseClassPostCloseAlive): false,
 	}
-	if fired[string(sseClassPostCloseAlive)] {
-		t.Errorf("session-post-close-alive must be suppressed when proxy configured; fired=%v", fired)
+	for _, a := range attempts {
+		raw, _ := a.GetMetadata(attempt.MetadataKeySSESessionClass)
+		cls, _ := raw.(string)
+		if _, ok := replayClasses[cls]; !ok {
+			continue
+		}
+		if !metaBool(a, attempt.MetadataKeyInconclusive) {
+			t.Errorf("class %s must be marked inconclusive under proxy", cls)
+		}
+		if !metaBool(a, attempt.MetadataKeySSESessionAccepted) {
+			t.Errorf("class %s: accepted must remain the honest observation (true), not suppressed to false", cls)
+		}
+		replayClasses[cls] = true
+	}
+	for cls, seen := range replayClasses {
+		if !seen {
+			t.Errorf("class %s attempt was not emitted at all", cls)
+		}
 	}
 }
 
@@ -400,8 +419,8 @@ func TestShannonBitsPerChar(t *testing.T) {
 		minOK float64 // want ≥ this
 		maxOK float64 // want ≤ this
 	}{
-		{"aaaa", 0.0, 0.5},                                                   // one char → 0 bits
-		{"abcd", 1.5, 2.5},                                                   // uniform 4 → 2 bits
+		{"aaaa", 0.0, 0.5}, // one char → 0 bits
+		{"abcd", 1.5, 2.5}, // uniform 4 → 2 bits
 		{"9b1deb4d3b7d4bad9bdd2b0d7b3dcb6dce5b8c7c5f9c47c988c14c5b21b8b2f5", 3.5, 4.5}, // hex → ~3.9
 	}
 	for _, tt := range tests {

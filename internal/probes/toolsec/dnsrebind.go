@@ -69,11 +69,11 @@ func NewDNSRebinding(cfg registry.Config) (probes.Prober, error) {
 func (p *DNSRebinding) Name() string { return "toolsec.DNSRebinding" }
 
 func (p *DNSRebinding) Description() string {
-	return "Sends MCP initialize (and CORS preflight) with randomised Origin/Host values that a spec-compliant validator must refuse; classifies which validator weakness (any-origin, null, extension, localhost-lookalike, case-variant, credentialed CORS reflection) the target exhibits"
+	return "Tests the SERVER-SIDE PRECONDITION for DNS-rebinding attacks: does the MCP HTTP endpoint enforce Origin/Host validation? Sends randomised Origin/Host values that a spec-compliant validator must refuse; classifies which validator weakness (any-origin, null, extension, localhost-lookalike, case-variant, credentialed CORS reflection) the target exhibits. A finding here does NOT prove an end-to-end rebinding is exploitable — that additionally requires the target to be browser-reachable — but the missing validation is what the MCP spec REQUIRES for defence in depth."
 }
 
 func (p *DNSRebinding) Goal() string {
-	return "Determine whether the MCP HTTP endpoint's Origin/Host validation is strong enough to block browser DNS-rebinding — and if not, which specific class of bypass succeeds"
+	return "Determine whether the MCP HTTP endpoint validates Origin/Host as the MCP spec requires. Finding = missing spec-required validation (the precondition an attacker relies on), NOT necessarily an exploitable rebinding path."
 }
 
 func (p *DNSRebinding) GetPrimaryDetector() string { return "toolsec.DNSRebinding" }
@@ -170,7 +170,7 @@ func extensionID(seed string) string {
 			c = 'a' + (c - '0')
 		}
 		if c < 'a' || c > 'p' {
-			c = 'a' + (c%16)
+			c = 'a' + (c % 16)
 		}
 		out[i] = c
 	}
@@ -527,11 +527,16 @@ func metaBool(a *attempt.Attempt, key string) bool {
 	return b
 }
 
-// borrowHTTPClient returns the target generator's http.Client, layered with
-// this probe's per-run overrides (short timeout, no redirect-follow). The
-// underlying Transport — proxy, TLS, header injection — is entirely the
-// generator's, so `proxy: http://127.0.0.1:8080` in the generator config
-// intercepts every request this probe emits.
+// borrowHTTPClient returns the generator's anonymous http.Client (proxy +
+// TLS inherited, but NO auth/scan-tag headers), layered with this probe's
+// per-run overrides (short timeout, no redirect-follow).
+//
+// DNS-rebinding models a browser-driven attacker who does not hold the
+// operator's bearer token; sending the token would make a correctly-
+// hardened AUTHENTICATED server accept the request (because we're
+// authenticated) and score it as vulnerable — inverting the verdict.
+// AnonymousHTTPClient strips the headerTransport so we're indistinguishable
+// on the wire from an attacker page.
 //
 // If the target generator does not expose types.MCPEndpoint (probe was
 // pointed at an endpoint URL directly via config, no live generator), we
@@ -546,7 +551,7 @@ func (p *DNSRebinding) borrowHTTPClient(gen types.Generator) (*http.Client, erro
 		return http.ErrUseLastResponse
 	}
 	if end, ok := gen.(types.MCPEndpoint); ok {
-		client := end.HTTPClient()
+		client := end.AnonymousHTTPClient()
 		client.Timeout = timeout
 		client.CheckRedirect = noRedirect
 		return client, nil

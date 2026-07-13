@@ -32,23 +32,41 @@ func (d *DNSRebindingDetector) Description() string {
 	return "Flags an MCP HTTP endpoint that accepted a request bearing an Origin/Host a spec-compliant validator would refuse (or a CORS preflight that reflected the attacker Origin with credentials)"
 }
 
-// Detect returns 1.0 per output when the probe recorded acceptance for a non-
-// baseline attempt; else 0.0. Baseline (no-Origin) acceptance is expected
-// spec-compliant behaviour and is deliberately NOT flagged — surfacing it
-// here would drown real findings in known-good behaviour.
+// Detect scoring:
+//
+//	baseline                    → 0.0 (informational)
+//	inconclusive flag set       → InconclusiveScore (0.5)
+//	accepted == true            → 1.0 (confirmed weakness)
+//	accepted == false, no flag  → 0.0 (safe)
+//
+// Baseline (no-Origin) acceptance is expected spec-compliant behaviour;
+// surfacing it as a finding would drown real weaknesses. Inconclusive
+// covers transient-error paths so a network hiccup can't hide a vuln
+// under a green SAFE verdict.
 func (d *DNSRebindingDetector) Detect(_ context.Context, a *attempt.Attempt) ([]float64, error) {
 	class, _ := stringMeta(a, attempt.MetadataKeyDNSRebindClass)
 	accepted := metaBool(a, attempt.MetadataKeyDNSRebindAccepted)
+	inconclusive := metaBool(a, attempt.MetadataKeyInconclusive)
 
 	scores := make([]float64, len(a.Outputs))
-	if !accepted || class == "baseline" {
+	if class == "baseline" {
+		return scores, nil
+	}
+
+	var score float64
+	switch {
+	case inconclusive:
+		score = InconclusiveScore
+	case accepted:
+		score = 1.0
+	default:
 		return scores, nil
 	}
 	if len(scores) == 0 {
-		return []float64{1.0}, nil
+		return []float64{score}, nil
 	}
 	for i := range scores {
-		scores[i] = 1.0
+		scores[i] = score
 	}
 	return scores, nil
 }

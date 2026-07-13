@@ -34,29 +34,55 @@ func (d *SSESessionHijackDetector) Description() string {
 	return "Flags SSE session-management weaknesses recorded by the toolsec.SSESessionHijack probe (weak id, prefix, collision, cross-connection or post-close replay)"
 }
 
-// Detect returns 1.0 per output for any non-baseline attempt marked accepted;
-// else 0.0. See the type doc for the control-attempt caveat: the detector's
-// context object doesn't currently give per-attempt visibility across a
-// probe's attempts, so the probe itself performs suppression by NOT marking
-// replay attempts accepted when the control test showed the server accepts
-// every id. The detector treats the accepted flag as the ground truth.
+// Detect scoring:
+//
+//	baseline / unknown-id-rejects → 0.0 (informational)
+//	inconclusive flag set         → InconclusiveScore (0.5)
+//	accepted == true              → 1.0 (confirmed weakness)
+//	accepted == false, no flag    → 0.0 (safe)
+//
+// The inconclusive path handles two cases the probe records: (a) a proxy
+// in path defeats the connection-lifetime assumption of the replay tests,
+// and (b) any transient error during sampling / replay. Both leave us
+// unable to make a confident SAFE/VULN determination, so we surface a
+// non-zero score forcing the reviewer to look rather than a silent green.
 func (d *SSESessionHijackDetector) Detect(_ context.Context, a *attempt.Attempt) ([]float64, error) {
 	class, _ := stringMeta(a, attempt.MetadataKeySSESessionClass)
 	accepted := metaBool(a, attempt.MetadataKeySSESessionAccepted)
+	inconclusive := metaBool(a, attempt.MetadataKeyInconclusive)
 
 	scores := make([]float64, len(a.Outputs))
-	// Baseline and control attempts are informational; they never fire.
+	// Inconclusive takes precedence over the class filter — an
+	// inconclusive baseline attempt (insufficient samples, transient
+	// error) means the whole scan is inconclusive; hiding it under the
+	// baseline exclusion would ship a green SAFE for an unassessable
+	// target.
+	if inconclusive {
+		score := InconclusiveScore
+		if len(scores) == 0 {
+			return []float64{score}, nil
+		}
+		for i := range scores {
+			scores[i] = score
+		}
+		return scores, nil
+	}
 	if class == "baseline" || class == "unknown-id-rejects" {
 		return scores, nil
 	}
-	if !accepted {
+
+	var score float64
+	switch {
+	case accepted:
+		score = 1.0
+	default:
 		return scores, nil
 	}
 	if len(scores) == 0 {
-		return []float64{1.0}, nil
+		return []float64{score}, nil
 	}
 	for i := range scores {
-		scores[i] = 1.0
+		scores[i] = score
 	}
 	return scores, nil
 }

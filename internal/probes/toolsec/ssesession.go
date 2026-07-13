@@ -138,7 +138,20 @@ func (p *SSESessionHijack) Probe(ctx context.Context, gen types.Generator) ([]*a
 	}
 	if len(samples) < 2 {
 		slog.Warn("toolsec.SSESessionHijack: too few session samples for analysis", "got", len(samples))
-		return sampleAttempts, nil
+		// Emit an explicit inconclusive attempt so the report shows we
+		// tried but couldn't classify; without this the scan would ship
+		// a green SAFE verdict for a target that might well be
+		// vulnerable but simply refused to sample cleanly (transient
+		// network error, rate-limit, etc.). Mauro S4.
+		a := attempt.New(fmt.Sprintf("[inconclusive] only %d/%d session samples collected", len(samples), p.sampleCount))
+		a.Probe = p.Name()
+		a.Detector = p.GetPrimaryDetector()
+		a.Metadata[attempt.MetadataKeySSESessionClass] = string(sseClassBaseline)
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = fmt.Sprintf("insufficient samples for analysis: got %d, need >= 2", len(samples))
+		a.AddOutput(fmt.Sprintf("sampled=%d target_sample_count=%d — session-id classification requires >= 2 samples", len(samples), p.sampleCount))
+		a.Complete()
+		return append(sampleAttempts, a), nil
 	}
 
 	attempts := sampleAttempts
@@ -174,8 +187,14 @@ func (p *SSESessionHijack) Probe(ctx context.Context, gen types.Generator) ([]*a
 		slog.Info("toolsec.SSESessionHijack: proxy in path; connection-lifetime replay findings will be recorded as inconclusive",
 			"reason", "keep-alive proxies hold SSE upstream open, making session-lifetime tests unreliable")
 	}
-	attempts = append(attempts, p.replayCrossConnection(ctx, client, target, serverAcceptsAnyID, proxied))
-	attempts = append(attempts, p.replayPostClose(ctx, client, target, serverAcceptsAnyID, proxied))
+	// The replay tests need to make a request that DEFINITELY doesn't
+	// reuse the SSE stream's TCP connection. Relying on connection-pool
+	// eviction (as an earlier revision did) is incidental; clone the
+	// borrowed client's Transport and set DisableKeepAlives=true so each
+	// replay opens a fresh TCP conn by construction.
+	replayClient := withoutKeepAlives(client)
+	attempts = append(attempts, p.replayCrossConnection(ctx, replayClient, target, serverAcceptsAnyID, proxied))
+	attempts = append(attempts, p.replayPostClose(ctx, replayClient, target, serverAcceptsAnyID, proxied))
 
 	return attempts, nil
 }
@@ -189,6 +208,27 @@ func (p *SSESessionHijack) proxyInPath(gen types.Generator) bool {
 		return false
 	}
 	return end.ProxyURL() != nil
+}
+
+// withoutKeepAlives returns a shallow copy of client whose Transport is a
+// clone of the original with DisableKeepAlives=true. Used for the SSE
+// replay tests so each POST is guaranteed to open a fresh TCP conn from
+// our side rather than relying on incidental pool eviction. If the
+// Transport isn't an *http.Transport (custom impls, test recorders) we
+// return the client unchanged — the S2 test then still passes because
+// the recording RoundTripper is preserved.
+func withoutKeepAlives(client *http.Client) *http.Client {
+	tr, ok := client.Transport.(*http.Transport)
+	if !ok {
+		return client
+	}
+	cloned := tr.Clone()
+	cloned.DisableKeepAlives = true
+	return &http.Client{
+		Transport:     cloned,
+		Timeout:       client.Timeout,
+		CheckRedirect: client.CheckRedirect,
+	}
 }
 
 // resolveEndpoint returns the SSE endpoint from probe config or generator.
@@ -367,27 +407,36 @@ func (p *SSESessionHijack) replayCrossConnection(ctx context.Context, client *ht
 	a.Metadata[attempt.MetadataKeySSESessionClass] = string(sseClassNotTCPBound)
 	a.Metadata[attempt.MetadataKeySSESessionSample] = truncID(ref.id)
 
-	// The generator's client returns a fresh instance each call; we don't
-	// share connection pool state with the SSE stream (which we closed after
-	// reading the endpoint frame). The SSE conn is evicted from OUR client's
-	// pool, so this POST opens a new TCP conn from us. Whether the SERVER
-	// still sees the session as alive depends on whether an intermediary
-	// (proxy) held the upstream open on our behalf — the `proxied` guard
-	// below suppresses this finding in that case (see the ProxyURL comment
-	// in Probe).
+	// `client` was built with DisableKeepAlives=true (see
+	// withoutKeepAlives), so this POST opens a fresh TCP conn from us by
+	// construction. Whether the SERVER still sees the session as alive
+	// depends on whether an intermediary proxy held the upstream open on
+	// our behalf — the `proxied` guard below marks that case inconclusive.
 	status, body, err := p.postInitialize(ctx, client, ref.postURL)
 	if err != nil {
+		// A transient network error during the replay POST leaves us
+		// unable to decide SAFE/VULN. Mark inconclusive rather than
+		// letting the SetError → default 0.0 pathway ship a green
+		// verdict for a target we didn't actually reach. Mauro S4.
 		a.SetError(err)
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = fmt.Sprintf("replay POST failed: %v", err)
 		return a
 	}
 	accepted := status >= 200 && status < 400
-	if serverAcceptsAnyID {
+	switch {
+	case serverAcceptsAnyID:
 		accepted = false // suppressed — server accepts everything
 		a.AddOutput("[suppressed by unknown-id control: server accepts any session id]\n")
-	} else if proxied && accepted {
-		accepted = false // suppressed — proxy-artefact prone
+	case proxied && accepted:
+		// Do NOT force accepted=false — that would ship a green SAFE
+		// verdict on a target we couldn't actually assess. Instead
+		// leave accepted as-observed and set the inconclusive flag so
+		// the detector emits a non-zero "needs manual confirmation"
+		// score. See feedback on PR #234 (Mauro B2).
 		a.AddOutput("[inconclusive — outbound proxy configured; a keep-alive proxy holds the SSE conn open upstream, so the server may see the session as active regardless of the target's own session model]\n")
-		a.Metadata["toolsec.sse_session_proxied"] = true
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = "proxy-in-path: cannot distinguish target session model from keepalive proxy behaviour"
 	}
 	a.AddOutput(fmt.Sprintf("HTTP %d\n%s", status, truncBody(body)))
 	a.Metadata[attempt.MetadataKeySSESessionAccepted] = accepted
@@ -423,16 +472,19 @@ func (p *SSESessionHijack) replayPostClose(ctx context.Context, client *http.Cli
 	status, body, err := p.postInitialize(ctx, client, ref.postURL)
 	if err != nil {
 		a.SetError(err)
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = fmt.Sprintf("post-close replay POST failed: %v", err)
 		return a
 	}
 	accepted := status >= 200 && status < 400
-	if serverAcceptsAnyID {
+	switch {
+	case serverAcceptsAnyID:
 		accepted = false
 		a.AddOutput("[suppressed by unknown-id control: server accepts any session id]\n")
-	} else if proxied && accepted {
-		accepted = false
+	case proxied && accepted:
 		a.AddOutput("[inconclusive — outbound proxy configured; upstream conn survives our FIN so server may still see the session]\n")
-		a.Metadata["toolsec.sse_session_proxied"] = true
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = "proxy-in-path: keepalive upstream survives client FIN"
 	}
 	a.AddOutput(fmt.Sprintf("HTTP %d\n%s", status, truncBody(body)))
 	a.Metadata[attempt.MetadataKeySSESessionAccepted] = accepted
@@ -458,10 +510,13 @@ func (p *SSESessionHijack) postInitialize(ctx context.Context, client *http.Clie
 	return resp.StatusCode, string(body), nil
 }
 
-// borrowHTTPClient returns the target generator's http.Client, layered with
-// this probe's per-run overrides (short timeout, no redirect-follow). See
-// DNSRebinding.borrowHTTPClient for the fallback rationale when the target
-// does not expose types.MCPEndpoint.
+// borrowHTTPClient returns the generator's anonymous http.Client (proxy +
+// TLS inherited, but NO auth/scan-tag headers) with this probe's per-run
+// overrides. The hijack scenario models an off-path attacker who intercepts
+// a session id (log leak, referer, browser history) but does NOT hold the
+// operator's bearer token; sending the token would invert the verdict on
+// an authenticated server. See DNSRebinding.borrowHTTPClient for the
+// fallback rationale when the target does not expose types.MCPEndpoint.
 func (p *SSESessionHijack) borrowHTTPClient(gen types.Generator) (*http.Client, error) {
 	timeout := p.timeout
 	if timeout <= 0 {
@@ -471,7 +526,7 @@ func (p *SSESessionHijack) borrowHTTPClient(gen types.Generator) (*http.Client, 
 		return http.ErrUseLastResponse
 	}
 	if end, ok := gen.(types.MCPEndpoint); ok {
-		client := end.HTTPClient()
+		client := end.AnonymousHTTPClient()
 		client.Timeout = timeout
 		client.CheckRedirect = noRedirect
 		return client, nil

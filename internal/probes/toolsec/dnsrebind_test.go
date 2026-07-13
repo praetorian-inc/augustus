@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,6 +33,13 @@ func (g endpointGen) Transport() string   { return g.transport }
 // HTTPClient returns a plain client. Tests that need a proxy-aware client can
 // override this by using a different generator stub.
 func (g endpointGen) HTTPClient() *http.Client {
+	return &http.Client{Timeout: 3 * time.Second}
+}
+
+// AnonymousHTTPClient returns a plain client without any header injection;
+// the browser-attacker probes borrow this so the operator's auth headers
+// don't leak into the request that models an untrusted origin.
+func (g endpointGen) AnonymousHTTPClient() *http.Client {
 	return &http.Client{Timeout: 3 * time.Second}
 }
 
@@ -338,6 +346,67 @@ func TestDNSRebinding_SkipsWithoutEndpoint(t *testing.T) {
 	}
 	if attempts != nil {
 		t.Errorf("expected nil attempts with no endpoint, got %d", len(attempts))
+	}
+}
+
+// recordingTransport wraps a real RoundTripper and captures every request
+// that flows through it. Used by the S2 test to prove a probe actually
+// uses the generator's http.Client and doesn't build its own bypass.
+type recordingTransport struct {
+	inner http.RoundTripper
+	mu    sync.Mutex
+	reqs  []*http.Request
+}
+
+func (r *recordingTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	r.mu.Lock()
+	r.reqs = append(r.reqs, req.Clone(req.Context()))
+	r.mu.Unlock()
+	return r.inner.RoundTrip(req)
+}
+
+// instrumentedGen returns an AnonymousHTTPClient whose Transport is the
+// supplied recordingTransport, so tests can assert every probe request
+// went through the borrowed client.
+type instrumentedGen struct {
+	endpointGen
+	rec *recordingTransport
+}
+
+func (g instrumentedGen) AnonymousHTTPClient() *http.Client {
+	return &http.Client{Transport: g.rec, Timeout: 3 * time.Second}
+}
+
+// TestDNSRebinding_UsesBorrowedHTTPClient: proves via an instrumented
+// RoundTripper that every request the DNS-rebind probe emits flows through
+// the client returned by MCPEndpoint.AnonymousHTTPClient() — i.e. the
+// probe doesn't secretly build its own bypass client that would evade
+// proxy/TLS/header config. Regression guard for Mauro S2.
+func TestDNSRebinding_UsesBorrowedHTTPClient(t *testing.T) {
+	srv := vulnServer(t)
+	defer srv.Close()
+
+	rec := &recordingTransport{inner: http.DefaultTransport}
+	gen := instrumentedGen{
+		endpointGen: endpointGen{url: srv.URL, transport: "http"},
+		rec:         rec,
+	}
+	p := newDNSRebindProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), gen)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	rec.mu.Lock()
+	seenCount := len(rec.reqs)
+	rec.mu.Unlock()
+	if seenCount == 0 {
+		t.Fatalf("recording transport saw NO requests — probe built its own client and bypassed the generator")
+	}
+	// Every attempt except pure errors should correspond to a request.
+	// Baseline + origin sweep + host sweep + CORS preflight all emit one
+	// request. Being generous: attempts >= seenCount / 2.
+	if len(attempts) < seenCount/2 {
+		t.Errorf("attempts=%d, seen=%d — mismatch suggests probe made side-channel requests", len(attempts), seenCount)
 	}
 }
 

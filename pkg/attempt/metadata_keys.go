@@ -119,4 +119,19 @@ const (
 	// MetadataKeySSESessionEndpoint (string) is the POST endpoint the server
 	// advertised for this session (via the `event: endpoint` SSE frame).
 	MetadataKeySSESessionEndpoint = "toolsec.sse_session_endpoint"
+
+	// MetadataKeyInconclusive (bool) marks an attempt where the probe was
+	// unable to make a confident SAFE/VULN determination — a proxy in path
+	// broke a connection-lifetime assumption, a transient network error
+	// during sampling, insufficient samples for statistical classification,
+	// etc. The corresponding detector emits a non-zero score (see the
+	// InconclusiveScore constant in the toolsec detectors) so reports don't
+	// hide these under a green SAFE verdict; a reviewer must confirm the
+	// finding out-of-band.
+	MetadataKeyInconclusive = "toolsec.inconclusive"
+	// MetadataKeyInconclusiveReason (string) — human-readable explanation
+	// paired with MetadataKeyInconclusive, e.g. "proxy in path: keepalive
+	// upstream defeats session-lifetime test" or "<2 SSE samples: cannot
+	// assess ID entropy".
+	MetadataKeyInconclusiveReason = "toolsec.inconclusive_reason"
 )

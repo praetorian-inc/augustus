@@ -23,9 +23,21 @@ var (
 	_ recon.ContextAwareProbe = (*PathTraversal)(nil)
 )
 
-// pathParamRE matches parameter names likely to accept a filesystem path. Set
-// pathtraversal_all_string_params=true to widen to every string parameter.
-var pathParamRE = regexp.MustCompile(`(?i)(^|[_\- ])(file|filename|filepath|path|dir|directory|folder|template|resource|include|require|load|read|open|attachment|log|logfile|input|output|target)($|[_\- ])`)
+// pathParamRE matches parameter names likely to accept a READABLE filesystem
+// path. Set pathtraversal_all_string_params=true to widen to every string
+// parameter. Deliberately excludes write-oriented names like `output`,
+// `dest`, `target`, `log`, `logfile` — traversal payloads landing in a
+// write sink (e.g. save_report(path, content)) could overwrite files
+// outside the sandbox; the probe stays read-only by construction.
+var pathParamRE = regexp.MustCompile(`(?i)(^|[_\- ])(file|filename|filepath|path|dir|directory|folder|template|resource|include|require|load|read|open|attachment|input)($|[_\- ])`)
+
+// destructiveToolRE matches tool NAMES whose verb strongly implies a
+// side-effect on the filesystem — write, delete, remove, save, update,
+// create, upload, publish. Tools matching this pattern are skipped
+// unconditionally by PathTraversal (see Mauro S1 review) even if their
+// parameter names look read-like. A caller can override with
+// pathtraversal_all_string_params=true when they understand the risk.
+var destructiveToolRE = regexp.MustCompile(`(?i)(^|[_\- ])(write|delete|remove|rm|save|update|create|upload|publish|overwrite|mv|move|copy|rename|append|patch|put)($|[_\- ])`)
 
 // hintedPathRE extracts absolute filesystem paths ("/tmp/safe/", "/var/www/",
 // C:\Users\) from a tool's description. Many real gates ("Only files in
@@ -133,6 +145,18 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 	for _, tool := range tools {
 		name, _ := tool["name"].(string)
 		if name == "" {
+			continue
+		}
+		// Skip destructive-looking tools unless the operator has opted
+		// into --all mode: a traversal payload landing in a
+		// save/delete/write sink could overwrite files outside the
+		// target's intended scope. This is a hard skip; there's no
+		// signature-based way for the probe to prove a write sink is
+		// safe to hit with attacker input, and read-only path
+		// traversal is the class we're testing anyway.
+		if !p.allParams && destructiveToolRE.MatchString(name) {
+			slog.Info("toolsec.PathTraversal: skipping destructive-looking tool", "tool", name,
+				"reason", "traversal payloads must not reach write/delete sinks; set pathtraversal_all_string_params=true to override")
 			continue
 		}
 		desc, _ := tool["description"].(string)

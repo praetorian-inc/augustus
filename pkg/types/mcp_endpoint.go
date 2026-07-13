@@ -38,6 +38,19 @@ type MCPEndpoint interface {
 	// interception proxy, and you should never have to duplicate proxy/TLS
 	// config on the probe side.
 	HTTPClient() *http.Client
+	// AnonymousHTTPClient returns a client with the same outbound
+	// plumbing as HTTPClient (proxy, TLS, request timeout) but WITHOUT
+	// the header-injection middleware that stamps configured auth /
+	// api-key / scan-tag headers on every request. Probes that model an
+	// untrusted / off-path attacker (DNS rebinding, session hijack,
+	// pre-auth CSRF) MUST use this — sending the operator's bearer
+	// token as an attacker inverts the verdict on hardened servers
+	// (they'll accept because we're authenticated, not because they're
+	// vulnerable).
+	//
+	// Each call returns an independent client, same ownership contract
+	// as HTTPClient.
+	AnonymousHTTPClient() *http.Client
 	// ProxyURL returns the outbound proxy the generator is configured to
 	// route through, or nil when no explicit proxy is in play. Probes that
 	// make security claims sensitive to connection-lifetime semantics

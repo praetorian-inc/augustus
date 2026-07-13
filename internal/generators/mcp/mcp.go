@@ -704,6 +704,25 @@ func (m *MCP) ProxyURL() *url.URL { return m.cfg.ProxyURL }
 // headers (X-Augustus-Scan, auth tokens) stamp automatically.
 func (m *MCP) HTTPClient() *http.Client { return m.httpClient() }
 
+// AnonymousHTTPClient implements types.MCPEndpoint. Same transport plumbing
+// as HTTPClient (proxy, TLS) but without the headerTransport wrapper, so
+// configured auth / api-key / scan-tag headers do NOT reach the target.
+// Probes that model an untrusted attacker (browser-driven DNS rebinding,
+// session hijack) borrow this instead — sending the operator's bearer
+// token as an attacker would make an authenticated hardened server score
+// vulnerable.
+func (m *MCP) AnonymousHTTPClient() *http.Client {
+	base := http.DefaultTransport.(*http.Transport).Clone()
+	if m.cfg.ProxyURL != nil {
+		base.Proxy = http.ProxyURL(m.cfg.ProxyURL)
+	}
+	if m.cfg.InsecureSkipVerify {
+		// #nosec G402 -- InsecureSkipVerify opt-in via insecure_skip_verify; targets are operator-chosen test endpoints
+		base.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+	return &http.Client{Transport: base}
+}
+
 // headerTransport injects configured headers on every outgoing request,
 // substituting $KEY (the static api_key) and $VARNAME placeholders from the
 // per-request hook variables in the request context. Substituting per request —
