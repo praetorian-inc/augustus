@@ -54,6 +54,10 @@ type AttemptResult struct {
 	// Passed indicates whether the attempt passed (score <= DefaultVulnerabilityThreshold).
 	Passed bool `json:"passed"`
 
+	// Verdict is the four-way display classification for the attempt: one of
+	// "error", "vuln", "review", or "safe" (see Verdict).
+	Verdict string `json:"verdict"`
+
 	// Status indicates the current state of the attempt.
 	Status attempt.Status `json:"status"`
 
@@ -74,6 +78,15 @@ type Summary struct {
 
 	// Failed is the number of attempts that failed.
 	Failed int `json:"failed"`
+
+	// Review is the number of attempts with a non-zero, sub-threshold
+	// detection (verdict "review"). These are counted as passed (they did not
+	// cross the vulnerability bar) but warrant manual verification.
+	Review int `json:"review"`
+
+	// Errored is the number of attempts that errored or never completed
+	// (verdict "error"). These are counted as failed.
+	Errored int `json:"errored"`
 
 	// ByProbe maps probe names to pass/fail counts.
 	ByProbe map[string]ProbeStats `json:"by_probe"`
@@ -110,6 +123,37 @@ func isPassed(status attempt.Status, scores []float64) bool {
 	return true
 }
 
+// Verdict classifies an attempt for display. It is the single source of truth
+// for the four-way status surfaced across the terminal table, the JSONL output,
+// and the HTML report, so those render sites cannot drift. Returns one of:
+//
+//   - "error"  — the attempt errored or never completed (Status error/pending).
+//   - "vuln"   — the max detector score exceeded the vulnerability threshold.
+//   - "review" — a non-zero, sub-threshold detection ("something happened,
+//     verify it"), e.g. a visible-channel injection the model obeyed.
+//   - "safe"   — completed with no detection (max score == 0).
+func Verdict(a *attempt.Attempt) string {
+	if a.Status == attempt.StatusError || a.Status == attempt.StatusPending {
+		return "error"
+	}
+
+	maxScore := 0.0
+	for _, score := range a.GetEffectiveScores() {
+		if score > maxScore {
+			maxScore = score
+		}
+	}
+
+	switch {
+	case maxScore > attempt.DefaultVulnerabilityThreshold:
+		return "vuln"
+	case maxScore > 0:
+		return "review"
+	default:
+		return "safe"
+	}
+}
+
 // ToAttemptResult converts a single attempt to a simplified AttemptResult.
 func ToAttemptResult(a *attempt.Attempt) AttemptResult {
 	response := ""
@@ -126,6 +170,7 @@ func ToAttemptResult(a *attempt.Attempt) AttemptResult {
 		Detector:  a.Detector,
 		Scores:    scores,
 		Passed:    passed,
+		Verdict:   Verdict(a),
 		Status:    a.Status,
 		Error:     a.Error,
 		Timestamp: a.Timestamp,
@@ -151,11 +196,18 @@ func ComputeSummary(attempts []*attempt.Attempt) Summary {
 	}
 
 	for _, a := range attempts {
-		// Use centralized score resolution
-		scores := a.GetEffectiveScores()
+		// Use the shared Verdict helper so the four-way classification stays
+		// the single source of truth. "safe" and "review" pass the vuln bar;
+		// "vuln" and "error" fail it.
+		verdict := Verdict(a)
+		passed := verdict == "safe" || verdict == "review"
 
-		// Use isPassed() helper - respects Status field
-		passed := isPassed(a.Status, scores)
+		switch verdict {
+		case "review":
+			summary.Review++
+		case "error":
+			summary.Errored++
+		}
 
 		if passed {
 			summary.Passed++

@@ -90,9 +90,11 @@ func WriteHTML(outputPath string, attempts []*attempt.Attempt) (err error) {
         <div class="summary">
             <div class="summary-card total"><h3>Total Attempts</h3><div class="value">%d</div></div>
             <div class="summary-card passed"><h3>Passed</h3><div class="value">%d</div></div>
+            <div class="summary-card review"><h3>Review</h3><div class="value">%d</div></div>
             <div class="summary-card failed"><h3>Failed</h3><div class="value">%d</div></div>
+            <div class="summary-card errored"><h3>Errored</h3><div class="value">%d</div></div>
         </div>
-`, summary.TotalAttempts, summary.Passed, summary.Failed)
+`, summary.TotalAttempts, summary.Passed, summary.Review, summary.Failed, summary.Errored)
 
 	if len(attempts) == 0 {
 		sb.WriteString("        <div class=\"no-attempts\"><h2>No attempts recorded</h2><p>Run a scan to generate results</p></div>\n")
@@ -133,7 +135,9 @@ func writeCSS(sb *strings.Builder) {
         .summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 40px; }
         .summary-card { background: #ecf0f1; padding: 20px; border-radius: 6px; text-align: center; }
         .summary-card.passed { background: #d4edda; border-left: 4px solid #28a745; }
+        .summary-card.review { background: #fff3cd; border-left: 4px solid #ffc107; }
         .summary-card.failed { background: #f8d7da; border-left: 4px solid #dc3545; }
+        .summary-card.errored { background: #e2e3e5; border-left: 4px solid #6c757d; }
         .summary-card.total { background: #d1ecf1; border-left: 4px solid #17a2b8; }
         .summary-card h3 { font-size: 0.9em; color: #6c757d; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 1px; }
         .summary-card .value { font-size: 2.5em; font-weight: bold; color: #2c3e50; }
@@ -147,8 +151,10 @@ func writeCSS(sb *strings.Builder) {
         .attempt:last-child { border-bottom: none; }
         .attempt-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
         .status-badge { padding: 4px 12px; border-radius: 12px; font-size: 0.85em; font-weight: 600; text-transform: uppercase; }
-        .status-badge.pass { background: #d4edda; color: #155724; }
-        .status-badge.fail { background: #f8d7da; color: #721c24; }
+        .status-badge.safe { background: #d4edda; color: #155724; }
+        .status-badge.vuln { background: #f8d7da; color: #721c24; }
+        .status-badge.review { background: #fff3cd; color: #856404; }
+        .status-badge.error { background: #e2e3e5; color: #383d41; }
         .attempt-detail { margin: 10px 0; }
         .attempt-detail strong { display: inline-block; min-width: 100px; color: #495057; }
         .prompt, .response { background: #f8f9fa; padding: 10px; border-radius: 4px; margin-top: 5px; font-family: 'Courier New', monospace; font-size: 0.9em; white-space: pre-wrap; word-wrap: break-word; }
@@ -229,15 +235,12 @@ func writeCSS(sb *strings.Builder) {
 }
 
 func writeAttemptHTML(sb *strings.Builder, att *attempt.Attempt) {
-	scores := att.GetEffectiveScores()
-	passed := isPassed(att.Status, scores)
-
-	statusClass := "pass"
-	statusText := "PASS"
-	if !passed {
-		statusClass = "fail"
-		statusText = "FAIL"
-	}
+	// Verdict is the single source of truth for the four-way status. The CSS
+	// class is the verdict itself ("error"/"vuln"/"review"/"safe") and the
+	// badge label is its upper-cased form.
+	verdict := Verdict(att)
+	statusClass := verdict
+	statusText := strings.ToUpper(verdict)
 
 	response := ""
 	if len(att.Outputs) > 0 {

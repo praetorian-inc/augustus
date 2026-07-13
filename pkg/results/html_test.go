@@ -2,6 +2,7 @@ package results
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -257,6 +258,48 @@ func TestWriteHTML_CreatesParentDirectory(t *testing.T) {
 	if _, err := os.Stat(outputPath); os.IsNotExist(err) {
 		t.Fatalf("Output file not created at nested path: %s", outputPath)
 	}
+}
+
+// TestWriteHTML_FourWayVerdictBadges verifies that WriteHTML renders the
+// four-way verdict as the status badge for each attempt: an errored attempt
+// renders ERROR (not SAFE), a sub-threshold detection renders REVIEW, a
+// high score renders VULN, and a zero score renders SAFE.
+func TestWriteHTML_FourWayVerdictBadges(t *testing.T) {
+	now := time.Now()
+
+	erroredAttempt := attempt.New("errored prompt")
+	erroredAttempt.Probe = "test.Test"
+	erroredAttempt.Detector = "always.Fail"
+	erroredAttempt.SetError(errors.New("boom"))
+
+	vulnAttempt := attempt.New("vuln prompt")
+	vulnAttempt.Probe = "test.Test"
+	vulnAttempt.Detector = "always.Fail"
+	vulnAttempt.AddOutput("bad response")
+	vulnAttempt.AddScore(0.7)
+	vulnAttempt.Complete()
+
+	reviewAttempt := attempt.New("review prompt")
+	reviewAttempt.Probe = "test.Test"
+	reviewAttempt.Detector = "always.Fail"
+	reviewAttempt.AddOutput("borderline response")
+	reviewAttempt.AddScore(0.5)
+	reviewAttempt.Complete()
+
+	safeAttempt := attempt.New("safe prompt")
+	safeAttempt.Probe = "test.Test"
+	safeAttempt.Detector = "always.Pass"
+	safeAttempt.AddOutput("ok response")
+	safeAttempt.AddScore(0.0)
+	safeAttempt.Complete()
+	safeAttempt.Timestamp = now
+
+	htmlContent := writeHTMLAndRead(t, []*attempt.Attempt{erroredAttempt, vulnAttempt, reviewAttempt, safeAttempt})
+
+	assert.Contains(t, htmlContent, `status-badge error`, "errored attempt should render the ERROR badge")
+	assert.Contains(t, htmlContent, `status-badge vuln`, "high-score attempt should render the VULN badge")
+	assert.Contains(t, htmlContent, `status-badge review`, "sub-threshold attempt should render the REVIEW badge")
+	assert.Contains(t, htmlContent, `status-badge safe`, "zero-score attempt should render the SAFE badge")
 }
 
 // --- New Hydra / multi-turn tests ---

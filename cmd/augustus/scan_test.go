@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -2151,4 +2153,55 @@ func TestFoldRefusalPatternFlag(t *testing.T) {
 		assert.Same(t, in, out)
 		assert.Equal(t, []string{"yaml phrase", "cli phrase"}, out.Detectors.RefusalPatterns)
 	})
+}
+
+// TestTableEvaluator_FourWayVerdict verifies that tableEvaluator.Evaluate
+// renders the four-way verdict (SAFE/REVIEW/VULN/ERROR) in its STATUS column
+// and tallies the summary line accordingly. In particular, an errored
+// attempt must be surfaced as ERROR/errored, not silently counted as SAFE.
+func TestTableEvaluator_FourWayVerdict(t *testing.T) {
+	safeAttempt := attempt.New("safe prompt")
+	safeAttempt.Probe = "test.Test"
+	safeAttempt.AddOutput("ok response")
+	safeAttempt.AddScore(0.0)
+	safeAttempt.Complete()
+
+	reviewAttempt := attempt.New("review prompt")
+	reviewAttempt.Probe = "test.Test"
+	reviewAttempt.AddOutput("borderline response")
+	reviewAttempt.AddScore(0.5)
+	reviewAttempt.Complete()
+
+	vulnAttempt := attempt.New("vuln prompt")
+	vulnAttempt.Probe = "test.Test"
+	vulnAttempt.AddOutput("bad response")
+	vulnAttempt.AddScore(0.7)
+	vulnAttempt.Complete()
+
+	erroredAttempt := attempt.New("errored prompt")
+	erroredAttempt.Probe = "test.Test"
+	erroredAttempt.SetError(errors.New("boom"))
+
+	attempts := []*attempt.Attempt{safeAttempt, reviewAttempt, vulnAttempt, erroredAttempt}
+
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	origStdout := os.Stdout
+	os.Stdout = w
+
+	evalErr := (&tableEvaluator{}).Evaluate(context.Background(), attempts)
+
+	require.NoError(t, w.Close())
+	os.Stdout = origStdout
+
+	outputBytes, readErr := io.ReadAll(r)
+	require.NoError(t, readErr)
+	output := string(outputBytes)
+
+	require.NoError(t, evalErr)
+	assert.Contains(t, output, "SAFE")
+	assert.Contains(t, output, "REVIEW")
+	assert.Contains(t, output, "VULN")
+	assert.Contains(t, output, "ERROR")
+	assert.Contains(t, output, "Overall: 1 passed, 1 review, 1 failed, 1 errored (total: 4)")
 }
