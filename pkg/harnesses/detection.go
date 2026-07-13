@@ -10,6 +10,64 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 )
 
+// SelectProbeDetectors returns the detector set to run for an attempt, scoping
+// it to the probe so unrelated detectors cannot leak into the MAX-based verdict.
+//
+// Precedence:
+//  1. The probe's own override entry (primary + declared secondaries), when present.
+//  2. Explicit mode (user passed --detector/--detectors-glob): the shared
+//     detectorList — running those exact detectors against every probe is a
+//     deliberate request.
+//  3. Auto-collected mode with NO per-probe map at all (a direct/library caller
+//     that handed the harness a curated detectorList): run that list as given.
+//  4. Auto-collected mode WITH a per-probe map, but this attempt is missing from
+//     it (a primary-less probe, or an attempt whose Probe was never set): scope
+//     to the probe's OWN primary via a.Detector. It must NEVER fall back to the
+//     full detectorList here — in a scoped scan that list is the union of all
+//     probes' primaries, and reusing it reintroduces the cross-probe false
+//     positive this scoping exists to prevent.
+//
+// Keying the auto-mode fallback on a.Detector (which the probe sets at attempt
+// creation, independent of a.Probe) also covers attempts whose Probe value is
+// missing or mismatched. When a.Detector is empty (a probe that declares no
+// detector at all), nothing is run: an unscoreable probe yields no verdict
+// rather than a bag-driven false positive.
+func SelectProbeDetectors(
+	a *attempt.Attempt,
+	detectorList []detectors.Detector,
+	overrides map[string][]detectors.Detector,
+	detectorsExplicit bool,
+) []detectors.Detector {
+	if perProbe, ok := overrides[a.Probe]; ok {
+		return perProbe
+	}
+	if detectorsExplicit {
+		return detectorList
+	}
+	// Auto mode. Only scope when a per-probe map was actually built (a scoped
+	// scan); with no map there is no scoping information, so honor the caller's
+	// detectorList.
+	if len(overrides) == 0 {
+		return detectorList
+	}
+	if a.Detector == "" {
+		// A scoped scan is in effect but this attempt carries neither a mapped
+		// Probe nor a primary detector — it cannot be scored by anything of its
+		// own. Fail loud (do not silently fall back to the union) so the
+		// unscoreable attempt is visible rather than a quiet "safe" verdict.
+		slog.Warn("no scoped detector for attempt; scoring nothing (not falling back to the detector union)",
+			"probe", a.Probe)
+		return nil
+	}
+	scoped := make([]detectors.Detector, 0, 1)
+	for _, d := range detectorList {
+		if d.Name() == a.Detector {
+			scoped = append(scoped, d)
+		}
+	}
+	return scoped
+}
+
 // DetectorErrorBehavior defines how detector errors should be handled.
 type DetectorErrorBehavior int
 

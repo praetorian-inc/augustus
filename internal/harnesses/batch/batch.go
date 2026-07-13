@@ -31,6 +31,14 @@ var (
 type Batch struct {
 	concurrency int
 	timeout     time.Duration
+	// probeDetectorOverrides scopes detectors per probe (primary + declared
+	// secondaries) so an attempt is scored only by its own probe's detectors,
+	// keeping unrelated detectors out of the MAX-based verdict. Keyed by probe name.
+	probeDetectorOverrides map[string][]detectors.Detector
+	// detectorsExplicit controls the per-attempt fallback when a probe has no
+	// override entry: explicit → the shared detectorList; auto → the probe's own
+	// primary only (never the cross-probe union).
+	detectorsExplicit bool
 }
 
 // New creates a new batch harness from configuration.
@@ -54,6 +62,18 @@ func New(cfg registry.Config) (*Batch, error) {
 		}
 	} else if timeoutDur, ok := cfg["timeout"].(time.Duration); ok {
 		b.timeout = timeoutDur
+	}
+
+	// Optional: per-probe detector overrides
+	if overrides, ok := cfg["probe_detector_overrides"].(map[string][]detectors.Detector); ok {
+		b.probeDetectorOverrides = overrides
+	} else if _, exists := cfg["probe_detector_overrides"]; exists {
+		slog.Warn("batch: key has unexpected type, ignoring", "key", "probe_detector_overrides", "type", fmt.Sprintf("%T", cfg["probe_detector_overrides"]))
+	}
+
+	// Optional: detector-selection mode (controls the per-attempt fallback).
+	if explicit, ok := cfg["detectors_explicit"].(bool); ok {
+		b.detectorsExplicit = explicit
 	}
 
 	return b, nil
@@ -137,8 +157,14 @@ func (b *Batch) Run(
 					a.Generator = gen.Name()
 				}
 
+				// Select detector list: per-probe override takes precedence;
+				// otherwise scope to the probe's own primary (auto mode) or the
+				// shared list (explicit mode) — never the cross-probe union in
+				// auto mode.
+				activeDetectors := harnesses.SelectProbeDetectors(a, detectorList, b.probeDetectorOverrides, b.detectorsExplicit)
+
 				// Run detectors using shared logic (FailOnError routes to errs channel)
-				if err := harnesses.ApplyDetectors(ctx, a, detectorList, harnesses.FailOnError); err != nil {
+				if err := harnesses.ApplyDetectors(ctx, a, activeDetectors, harnesses.FailOnError); err != nil {
 					errs <- err
 					return
 				}

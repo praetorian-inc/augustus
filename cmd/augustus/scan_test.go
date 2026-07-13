@@ -885,7 +885,7 @@ prompts:
 	sharedDet, err := detectors.Create("agent.ArgumentExfiltration", registry.Config{})
 	require.NoError(t, err)
 
-	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, yamlCfg)
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, yamlCfg, true)
 	require.NoError(t, err)
 
 	// The probe has a non-empty detector_config, so it must appear in the map.
@@ -963,9 +963,244 @@ prompts:
 		[]probes.Prober{probeA, probeB},
 		[]detectors.Detector{sharedDet},
 		nil,
+		true, // explicit mode: probes without detector_config/secondaries stay absent
 	)
 	require.NoError(t, err)
-	assert.Len(t, overrides, 0, "probes without detector_config (or with empty map) must be absent from override map")
+	assert.Len(t, overrides, 0, "in explicit mode, probes without detector_config (or with empty map) must be absent from override map")
+}
+
+// yaml helpers for the cross-probe regression tests below.
+const regressionSafeProbeYAML = `
+id: test.SafeProbe
+info:
+  name: Safe Probe
+  author: test
+  description: primary detector always scores 0.0
+  goal: test
+  detector: always.Pass
+  severity: high
+prompts:
+  - "Hello."
+`
+
+const regressionVulnProbeYAML = `
+id: test.VulnProbe
+info:
+  name: Vuln Probe
+  author: test
+  description: primary detector always scores 1.0
+  goal: test
+  detector: always.Fail
+  severity: high
+prompts:
+  - "Hello."
+`
+
+// TestBuildProbeDetectorMap_AutoCollected_NoUnrelatedDetectorLeak is the
+// regression test for the #125 → #131 cross-probe false positive at the dispatch
+// layer. In auto-collected mode (no explicit --detector), detectorList is the
+// union of every probe's primary. Each probe's override MUST contain only its
+// own primary (+ declared secondaries); the union must NOT leak in, so an
+// unrelated high-scoring detector cannot MAX into a probe's verdict.
+//
+// It drives the real verdict path (buildProbeDetectorMap → ApplyDetectors →
+// GetEffectiveScores) and asserts a probe whose own detector scores 0.0 is NOT
+// flagged vulnerable by an unrelated union detector that scores 1.0. It fails
+// against the pre-fix union-append behavior.
+func TestBuildProbeDetectorMap_AutoCollected_NoUnrelatedDetectorLeak(t *testing.T) {
+	safeProbe := newTemplateProbeFromYAML(t, regressionSafeProbeYAML)
+	vulnProbe := newTemplateProbeFromYAML(t, regressionVulnProbeYAML)
+
+	// detectorList is the auto-collected union of both probes' primaries — exactly
+	// what createDetectors builds in a multi-probe run without --detector.
+	passDet, err := detectors.Create("always.Pass", registry.Config{})
+	require.NoError(t, err)
+	failDet, err := detectors.Create("always.Fail", registry.Config{})
+	require.NoError(t, err)
+	detectorList := []detectors.Detector{passDet, failDet}
+
+	// Auto-collected mode (detectorsExplicit == false): every probe must get a
+	// scoped override = its own primary only.
+	overrides, err := buildProbeDetectorMap(
+		[]probes.Prober{safeProbe, vulnProbe},
+		detectorList,
+		nil,
+		false,
+	)
+	require.NoError(t, err)
+
+	// Each probe's set contains ONLY its own primary — no union leak.
+	require.Contains(t, overrides, "test.SafeProbe")
+	require.Len(t, overrides["test.SafeProbe"], 1, "safe probe must run only its own primary (no union leak)")
+	assert.Equal(t, "always.Pass", overrides["test.SafeProbe"][0].Name())
+
+	require.Contains(t, overrides, "test.VulnProbe")
+	require.Len(t, overrides["test.VulnProbe"], 1, "vuln probe must run only its own primary (no union leak)")
+	assert.Equal(t, "always.Fail", overrides["test.VulnProbe"][0].Name())
+
+	// Drive the real verdict path for the safe probe: with scoping it is scored
+	// only by always.Pass → verdict 0.0 (SAFE). Before the fix the union ran and
+	// always.Fail would MAX the verdict to 1.0 (the false positive).
+	ctx := context.Background()
+	a := attempt.New("Hello.")
+	a.Probe = "test.SafeProbe"
+	a.AddOutput("some benign response")
+	require.NoError(t, harnesses.ApplyDetectors(ctx, a, overrides["test.SafeProbe"], harnesses.SkipOnError))
+
+	scores := a.GetEffectiveScores()
+	require.NotEmpty(t, scores)
+	assert.Equal(t, 0.0, scores[0],
+		"safe probe verdict must stay 0.0 — the unrelated always.Fail detector must not leak into its set")
+}
+
+// TestScan_HarnessRegression_NoCrossProbeFP proves the scoping holds end-to-end
+// through every harness that runs detectors — probewise, agentwise AND batch. A
+// probe whose own detector scores 0.0 must stay SAFE even though an unrelated
+// detector in the run scores 1.0. agentwise and batch previously ignored the
+// per-probe map entirely, so this covers the case the prior dispatch-only fix
+// (a7c8ee3) missed.
+func TestScan_HarnessRegression_NoCrossProbeFP(t *testing.T) {
+	safeProbe := newTemplateProbeFromYAML(t, regressionSafeProbeYAML)
+	vulnProbe := newTemplateProbeFromYAML(t, regressionVulnProbeYAML)
+
+	passDet, err := detectors.Create("always.Pass", registry.Config{})
+	require.NoError(t, err)
+	failDet, err := detectors.Create("always.Fail", registry.Config{})
+	require.NoError(t, err)
+	detectorList := []detectors.Detector{passDet, failDet}
+
+	overrides, err := buildProbeDetectorMap(
+		[]probes.Prober{safeProbe, vulnProbe},
+		detectorList,
+		nil,
+		false,
+	)
+	require.NoError(t, err)
+
+	// test.Single is stateless (concurrency-safe); the concurrent harnesses
+	// (probewise/batch) run probes in parallel, so a generator with a shared
+	// mutable RNG (e.g. test.Lipsum) would data-race under `go test -race`.
+	gen, err := generators.Create("test.Single", registry.Config{})
+	require.NoError(t, err)
+
+	for _, harnessName := range []string{"probewise.Probewise", "agentwise.Agentwise", "batch.Batch"} {
+		t.Run(harnessName, func(t *testing.T) {
+			capEval := &harnessCaptureEval{}
+			h, err := harnesses.Create(harnessName, registry.Config{
+				"probe_detector_overrides": overrides,
+			})
+			require.NoError(t, err)
+
+			err = h.Run(context.Background(), gen, []probes.Prober{safeProbe, vulnProbe}, detectorList, capEval)
+			require.NoError(t, err)
+			require.Len(t, capEval.attempts, 2, "both probes must produce an attempt")
+
+			byProbe := make(map[string]*attempt.Attempt, 2)
+			for _, a := range capEval.attempts {
+				byProbe[a.Probe] = a
+			}
+
+			safe := byProbe["test.SafeProbe"]
+			require.NotNil(t, safe, "safe probe attempt must be present")
+			safeScores := safe.GetEffectiveScores()
+			require.NotEmpty(t, safeScores)
+			assert.Equal(t, 0.0, safeScores[0],
+				"%s: safe probe must NOT be flipped VULN by the unrelated always.Fail detector", harnessName)
+
+			vuln := byProbe["test.VulnProbe"]
+			require.NotNil(t, vuln, "vuln probe attempt must be present")
+			vulnScores := vuln.GetEffectiveScores()
+			require.NotEmpty(t, vulnScores)
+			assert.Equal(t, 1.0, vulnScores[0],
+				"%s: vuln probe must still be flagged VULN by its own detector", harnessName)
+		})
+	}
+}
+
+// A probe that declares no detector at all — GetPrimaryDetector() == "".
+const regressionNoPrimaryProbeYAML = `
+id: test.NoPrimaryProbe
+info:
+  name: No Primary Probe
+  author: test
+  description: declares no detector; must not fall back to the cross-probe union
+  goal: test
+  severity: high
+prompts:
+  - "Hello."
+`
+
+// TestScan_HarnessRegression_PrimaryLessProbeNotFlipped covers the reviewer
+// finding (Codex/CodeRabbit/Claude/Gemini): a probe that gets no override entry
+// must NOT fall back to the shared union in auto mode, or the cross-probe false
+// positive returns for that class. A probe with no declared primary is scored by
+// nothing (its own primary is empty) rather than by an unrelated union detector.
+func TestScan_HarnessRegression_PrimaryLessProbeNotFlipped(t *testing.T) {
+	// Realistic multi-probe run: two normal probes (which populate the override
+	// map) plus one probe that declares no detector. The union detectorList
+	// therefore contains an unrelated high-scoring detector (always.Fail); the
+	// primary-less probe must NOT fall back to that union.
+	safeProbe := newTemplateProbeFromYAML(t, regressionSafeProbeYAML)
+	vulnProbe := newTemplateProbeFromYAML(t, regressionVulnProbeYAML)
+	noPrimary := newTemplateProbeFromYAML(t, regressionNoPrimaryProbeYAML)
+
+	passDet, err := detectors.Create("always.Pass", registry.Config{})
+	require.NoError(t, err)
+	failDet, err := detectors.Create("always.Fail", registry.Config{})
+	require.NoError(t, err)
+	detectorList := []detectors.Detector{passDet, failDet}
+
+	overrides, err := buildProbeDetectorMap(
+		[]probes.Prober{safeProbe, vulnProbe, noPrimary},
+		detectorList,
+		nil,
+		false,
+	)
+	require.NoError(t, err)
+	// Normal probes get scoped entries; the primary-less probe does not — so the
+	// map is non-empty (a scoped scan) and the missing probe must be scoped to
+	// its own (empty) primary, not the union.
+	require.Contains(t, overrides, "test.SafeProbe")
+	require.Contains(t, overrides, "test.VulnProbe")
+	require.NotContains(t, overrides, "test.NoPrimaryProbe")
+
+	// test.Single is stateless (concurrency-safe); the concurrent harnesses
+	// (probewise/batch) run probes in parallel, so a generator with a shared
+	// mutable RNG (e.g. test.Lipsum) would data-race under `go test -race`.
+	gen, err := generators.Create("test.Single", registry.Config{})
+	require.NoError(t, err)
+
+	for _, harnessName := range []string{"probewise.Probewise", "agentwise.Agentwise", "batch.Batch"} {
+		t.Run(harnessName, func(t *testing.T) {
+			capEval := &harnessCaptureEval{}
+			// detectors_explicit omitted → auto mode (the leak-prone path).
+			h, err := harnesses.Create(harnessName, registry.Config{
+				"probe_detector_overrides": overrides,
+			})
+			require.NoError(t, err)
+
+			err = h.Run(context.Background(), gen, []probes.Prober{safeProbe, vulnProbe, noPrimary}, detectorList, capEval)
+			require.NoError(t, err)
+			require.Len(t, capEval.attempts, 3)
+
+			var noPrimaryAttempt *attempt.Attempt
+			for _, a := range capEval.attempts {
+				if a.Probe == "test.NoPrimaryProbe" {
+					noPrimaryAttempt = a
+				}
+			}
+			require.NotNil(t, noPrimaryAttempt, "primary-less probe attempt must be present")
+
+			// Scored by nothing (its own primary is empty) — must NOT be flipped
+			// VULN by the unrelated always.Fail detector in the union.
+			for _, s := range noPrimaryAttempt.GetEffectiveScores() {
+				assert.LessOrEqual(t, s, 0.5,
+					"%s: primary-less probe must not be flagged by the unrelated union detector", harnessName)
+			}
+			assert.False(t, noPrimaryAttempt.IsVulnerable(),
+				"%s: primary-less probe must not be marked vulnerable via the union fallback", harnessName)
+		})
+	}
 }
 
 // TestBuildProbeDetectorMap_InvalidRegexFailsAtLoad verifies G6: an invalid
@@ -993,7 +1228,7 @@ prompts:
 	sharedDet, err := detectors.Create("agent.ArgumentExfiltration", registry.Config{})
 	require.NoError(t, err)
 
-	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil)
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil, true)
 	require.Error(t, err, "invalid regex in detector_config should cause error at load time")
 	assert.Nil(t, overrides, "override map should be nil on error")
 	assert.Contains(t, err.Error(), "agent.ArgumentExfiltration", "error should name the detector")
@@ -1051,7 +1286,7 @@ prompts:
 		sharedDet, err := detectors.Create("agent.ArgumentExfiltration", registry.Config{})
 		require.NoError(t, err)
 
-		overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil)
+		overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil, true)
 		require.NoError(t, err)
 		require.Len(t, overrides, 1, "probe with override must appear in map")
 
@@ -1082,7 +1317,7 @@ prompts:
 		sharedDet, err := detectors.Create("agent.ArgumentExfiltration", registry.Config{})
 		require.NoError(t, err)
 
-		overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil)
+		overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil, true)
 		require.NoError(t, err)
 
 		// Build harness with overrides wired in.
@@ -1147,7 +1382,7 @@ prompts:
 	sharedDet, err := detectors.Create("agent.ToolManipulation", registry.Config{})
 	require.NoError(t, err)
 
-	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil)
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil, true)
 	require.NoError(t, err)
 	require.Len(t, overrides, 1, "probe with secondary_detectors must appear in override map")
 
@@ -1186,7 +1421,7 @@ prompts:
 	sharedDet, err := detectors.Create("agent.ToolManipulation", registry.Config{})
 	require.NoError(t, err)
 
-	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil)
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil, true)
 	require.NoError(t, err)
 	require.Contains(t, overrides, "test.SecondaryOnlyPrimaryRuns")
 
@@ -1224,7 +1459,7 @@ prompts:
 	sharedDet, err := detectors.Create("agent.ToolManipulation", registry.Config{})
 	require.NoError(t, err)
 
-	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil)
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil, true)
 	require.NoError(t, err)
 	require.Len(t, overrides, 1)
 
@@ -1260,7 +1495,7 @@ prompts:
 	sharedDet, err := detectors.Create("agent.ToolManipulation", registry.Config{})
 	require.NoError(t, err)
 
-	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil)
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil, true)
 	require.NoError(t, err)
 	// Must be present even though no detector_config
 	require.Contains(t, overrides, "test.SecondaryOnlyProbe",
@@ -1301,7 +1536,7 @@ prompts:
 	sharedDet, err := detectors.Create("agent.ArgumentExfiltration", registry.Config{})
 	require.NoError(t, err)
 
-	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, yamlCfg)
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, yamlCfg, true)
 	require.NoError(t, err)
 	require.Contains(t, overrides, "test.SecondaryMerge")
 	// P0-B fix: primary (ToolManipulation) is now at [0]; secondary (ArgumentExfiltration) at [2].
@@ -1352,7 +1587,7 @@ prompts:
 	sharedDet, err := detectors.Create("agent.ToolManipulation", registry.Config{})
 	require.NoError(t, err)
 
-	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil)
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil, true)
 	require.NoError(t, err)
 
 	require.Contains(t, overrides, "test.H3Compound", "compound probe must enter override map")
@@ -1415,7 +1650,7 @@ prompts:
 	require.NoError(t, err)
 	detectorList := []detectors.Detector{detA, detB, detC}
 
-	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, detectorList, nil)
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, detectorList, nil, true)
 	require.NoError(t, err)
 
 	detList, ok := overrides["test.MetadataPrimaryProbe"]
@@ -1467,7 +1702,7 @@ prompts:
 	require.NoError(t, err)
 	detectorList := []detectors.Detector{detFirst, detPrimary}
 
-	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, detectorList, nil)
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, detectorList, nil, true)
 	require.NoError(t, err)
 
 	detList, ok := overrides["test.HoistPrimaryProbe"]
@@ -1509,7 +1744,7 @@ prompts:
 	sharedDet, err := detectors.Create("agent.ToolManipulation", registry.Config{})
 	require.NoError(t, err)
 
-	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil)
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil, true)
 	require.NoError(t, err)
 
 	// The override map must be empty: both interfaces present but both return empty
@@ -1557,7 +1792,7 @@ prompts:
 	chainLengthDet, err := detectors.Create("agent.ChainLength", registry.Config{})
 	require.NoError(t, err)
 
-	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{chainLengthDet}, nil)
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{chainLengthDet}, nil, true)
 	require.NoError(t, err)
 	require.Contains(t, overrides, "test.PrimaryNotInDetectorList")
 
@@ -1616,7 +1851,7 @@ prompts:
 	sharedDet, err := detectors.Create("agent.ToolManipulation", registry.Config{})
 	require.NoError(t, err)
 
-	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, yamlCfg)
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, yamlCfg, true)
 	require.NoError(t, err)
 	require.Contains(t, overrides, "test.OperatorConfigFlows")
 
@@ -1668,7 +1903,7 @@ prompts:
 	sharedDet, err := detectors.Create("agent.ToolManipulation", registry.Config{})
 	require.NoError(t, err)
 
-	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil)
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, []detectors.Detector{sharedDet}, nil, true)
 	require.NoError(t, err)
 
 	require.Contains(t, overrides, "test.H4Compound")
@@ -1772,7 +2007,7 @@ prompts:
 	sentinelDet := &cfgCaptureDet{name: sentinelName}
 	detectorList := []detectors.Detector{primaryDet, sentinelDet}
 
-	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, detectorList, nil)
+	overrides, err := buildProbeDetectorMap([]probes.Prober{probe}, detectorList, nil, true)
 	require.NoError(t, err)
 
 	detList, ok := overrides["test.ProbeCfgLeakProbe"]
@@ -1840,7 +2075,7 @@ prompts:
 		noMetaProbe := newTemplateProbeFromYAML(t, noMetaYAML)
 		noPrimaryDet := &cfgCaptureDet{name: noPrimarySentinelName}
 
-		_, err := buildProbeDetectorMap([]probes.Prober{noMetaProbe}, []detectors.Detector{noPrimaryDet}, nil)
+		_, err := buildProbeDetectorMap([]probes.Prober{noMetaProbe}, []detectors.Detector{noPrimaryDet}, nil, true)
 		require.NoError(t, err)
 
 		// noPrimaryReceivedCfg is set when buildProbeDetectorMap creates noPrimarySentinelName.
