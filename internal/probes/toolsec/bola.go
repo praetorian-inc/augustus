@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"strings"
 
 	mcpx "github.com/praetorian-inc/augustus/internal/recon/mcp"
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
@@ -184,6 +185,13 @@ func (p *BOLA) callVictimObject(ctx context.Context, attacker types.ToolInvoker,
 	negArgs[obj.Param] = nxID
 	if negRes, negErr := attacker.CallTool(ctx, obj.Tool, negArgs); negErr == nil {
 		a.Metadata[attempt.MetadataKeyBOLANegativeControl] = cap2k(negRes.Text)
+	} else {
+		// Record the failure rather than silently dropping the denial baseline: the
+		// detector loses only its cheap stage-1 prune (the judge still calibrates on
+		// the positive control), but a transient blip must never be invisible.
+		a.Metadata[attempt.MetadataKeyBOLANegativeControlError] = negErr.Error()
+		slog.Warn("toolsec.BOLA: negative-control call failed; no denial baseline for this attempt",
+			"tool", obj.Tool, "id", nxID, "error", negErr)
 	}
 
 	// POSITIVE control: the attacker's OWN object via the SAME getter, when it owns
@@ -240,7 +248,11 @@ func nonexistentID(id string) string {
 		const sentinel = "ffffffffffff"
 		last := uuidIDRE.FindStringSubmatch(id)[1]
 		repl := sentinel
-		if last == sentinel { // preserve difference if the id already ends in the sentinel
+		// EqualFold, not ==: UUIDs are case-insensitive (RFC 4122), so an id ending
+		// in the UPPERCASE sentinel would otherwise collapse to a case-only variant
+		// that a case-insensitive backend treats as the SAME object — aliasing the
+		// negative control onto the target and defeating the stage-1 prune.
+		if strings.EqualFold(last, sentinel) {
 			repl = "000000000000"
 		}
 		return id[:len(id)-len(last)] + repl

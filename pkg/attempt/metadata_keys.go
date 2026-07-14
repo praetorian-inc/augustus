@@ -47,6 +47,11 @@ const (
 	// The detector uses it deterministically (stage-1 prune) and passes it to the
 	// judge (stage 2) to calibrate what "denied/empty" looks like on this server.
 	MetadataKeyBOLANegativeControl = "toolsec.bola.negative_control"
+	// MetadataKeyBOLANegativeControlError (string) records why the negative-control
+	// call failed, when it did. The probe stamps this instead of the denial baseline
+	// so a transient failure on the nonexistent-id call is visible (never a silent
+	// missing baseline) without failing the whole attempt.
+	MetadataKeyBOLANegativeControlError = "toolsec.bola.negative_control_error"
 	// MetadataKeyBOLANonexistentID (string) is the well-formed-nonexistent id the
 	// probe substituted for the negative control. The detector masks BOTH this id
 	// and the target id when comparing the two responses in the stage-1 prune, so a

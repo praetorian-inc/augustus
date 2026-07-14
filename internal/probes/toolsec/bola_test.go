@@ -3,6 +3,7 @@ package toolsec
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -648,5 +649,71 @@ func TestNonexistentID(t *testing.T) {
 	// All-9s numeric edge: must still differ.
 	if got := nonexistentID("999"); got == "999" {
 		t.Errorf("all-9s numeric must still produce a distinct id, got %q", got)
+	}
+}
+
+// TestNonexistentID_UppercaseUUIDStaysDistinct: a UUID whose final block is the
+// uppercase form of the sentinel must not collapse to a case-only variant.
+// UUIDs are case-insensitive (RFC 4122), so a case-insensitive backend would
+// return the SAME object for the negative control, defeating the stage-1 prune.
+func TestNonexistentID_UppercaseUUIDStaysDistinct(t *testing.T) {
+	id := "12345678-1234-1234-1234-FFFFFFFFFFFF"
+	nx := nonexistentID(id)
+	if strings.EqualFold(nx, id) {
+		t.Errorf("nonexistentID(%q) = %q is case-insensitively equal to the input; the negative control would alias the target", id, nx)
+	}
+	if !uuidIDRE.MatchString(nx) {
+		t.Errorf("nonexistentID(%q) = %q must remain a valid UUID", id, nx)
+	}
+}
+
+// negControlErrTarget serves every call except the one whose id equals failID
+// (the negative control), which returns a transport error.
+type negControlErrTarget struct{ failID string }
+
+func (negControlErrTarget) Generate(context.Context, *attempt.Conversation, int) ([]attempt.Message, error) {
+	return nil, nil
+}
+func (negControlErrTarget) ClearHistory()                                       {}
+func (negControlErrTarget) Name() string                                        { return "negerr" }
+func (negControlErrTarget) Description() string                                 { return "negerr" }
+func (negControlErrTarget) ListTools(context.Context) ([]map[string]any, error) { return nil, nil }
+func (n negControlErrTarget) CallTool(_ context.Context, _ string, args map[string]any) (types.ToolResult, error) {
+	id, _ := args["id"].(string)
+	if id == n.failID {
+		return types.ToolResult{}, fmt.Errorf("transient transport error")
+	}
+	return types.ToolResult{Text: `{"id":"` + id + `","served":true}`}, nil
+}
+
+// TestBOLA_NegativeControlErrorRecorded: when only the negative-control call
+// fails (a transient blip), the probe must NOT stamp a denial baseline, must
+// record the failure in metadata (never silent), and must not fail the whole
+// attempt — the attack + positive control still stand.
+func TestBOLA_NegativeControlErrorRecorded(t *testing.T) {
+	store := recon.NewStore()
+	seedTwoTenants(t, store)
+
+	p := newBOLAProbe(t, registry.Config{"attacker_identity_label": "tenant-a"})
+	p.SetContext(recon.ProbeContext{Recon: store})
+
+	target := negControlErrTarget{failID: nonexistentID("ord_2")}
+	attempts, err := p.Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if len(attempts) != 1 {
+		t.Fatalf("expected 1 attempt, got %d", len(attempts))
+	}
+	a := attempts[0]
+
+	if _, ok := a.Metadata[attempt.MetadataKeyBOLANegativeControl]; ok {
+		t.Error("negative control errored; its denial baseline must not be stamped")
+	}
+	if _, ok := a.Metadata[attempt.MetadataKeyBOLANegativeControlError]; !ok {
+		t.Error("negative-control failure must be recorded in metadata, not silently swallowed")
+	}
+	if a.Status == attempt.StatusError {
+		t.Error("a negative-control blip must not fail the whole attempt")
 	}
 }
