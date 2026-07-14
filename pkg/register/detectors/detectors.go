@@ -47,6 +47,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/detectors/snowball"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/tap"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/toolcoercion"
+	_ "github.com/praetorian-inc/augustus/internal/detectors/mcptransport"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/toolsec"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/toxiccomment"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/unsafecontent"

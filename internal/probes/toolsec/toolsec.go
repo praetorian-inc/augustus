@@ -1,18 +1,15 @@
-// Package toolsec provides transport-agnostic security probes for MCP
-// targets. It covers two adjacent surfaces:
+// Package toolsec provides tool-backend security probes for MCP targets.
+// Its probes (Injection, SSRF, PathTraversal) invoke REAL tools through
+// types.ToolInvoker to test the backend's own behaviour — injection
+// sinks, authorization, SSRF, path traversal. This is distinct from the
+// model-facing tool probes elsewhere in the tree that only ask whether
+// an LLM can be manipulated INTO a tool call: toolsec calls the tools
+// itself and observes what actually runs.
 //
-//   - Tool-backend probes (Injection, SSRF, PathTraversal) call real tools
-//     through types.ToolInvoker to test the backend's own behaviour —
-//     injection sinks, authorization, SSRF, path traversal. Distinct from
-//     the model-facing tool probes elsewhere in the tree that only ask
-//     whether an LLM can be manipulated INTO a tool call.
-//
-//   - Transport-layer probes (OriginValidation, SSESessionHijack) bypass the
-//     MCP protocol layer and issue raw HTTP against the server, borrowing
-//     the generator's HTTPClient/AnonymousHTTPClient so proxy, TLS, and
-//     header config still flow. They test properties of the HTTP endpoint
-//     itself (Origin/Host validation, session-id quality, session
-//     lifetime) that no tool-invocation can reach.
+// Sibling package: internal/probes/mcptransport houses transport-layer
+// probes (OriginValidation, SSESessionHijack) that bypass the MCP
+// protocol entirely and issue raw HTTP. Different attack surface,
+// different interface (types.MCPEndpoint), different package.
 package toolsec
 
 import (

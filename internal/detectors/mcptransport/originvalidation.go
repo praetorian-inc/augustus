@@ -1,4 +1,4 @@
-package toolsec
+package mcptransport
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 )
 
 func init() {
-	detectors.Register("toolsec.OriginValidation", NewOriginValidationDetector)
+	detectors.Register("mcptransport.OriginValidation", NewOriginValidationDetector)
 }
 
 // OriginValidationDetector flags an attempt as vulnerable when the toolsec.DNS-
@@ -26,7 +26,7 @@ func NewOriginValidationDetector(_ registry.Config) (detectors.Detector, error) 
 	return &OriginValidationDetector{}, nil
 }
 
-func (d *OriginValidationDetector) Name() string { return "toolsec.OriginValidation" }
+func (d *OriginValidationDetector) Name() string { return "mcptransport.OriginValidation" }
 
 func (d *OriginValidationDetector) Description() string {
 	return "Flags an MCP HTTP endpoint that accepted a request bearing an Origin/Host a spec-compliant validator would refuse (or a CORS preflight that reflected the attacker Origin with credentials)"
@@ -87,12 +87,5 @@ func (d *OriginValidationDetector) Detect(_ context.Context, a *attempt.Attempt)
 	return scores, nil
 }
 
-// stringMeta reads a string attempt-metadata value tolerating JSON round-trip.
-func stringMeta(a *attempt.Attempt, key string) (string, bool) {
-	raw, ok := a.GetMetadata(key)
-	if !ok {
-		return "", false
-	}
-	s, ok := raw.(string)
-	return s, ok
-}
+// stringMeta lives in mcptransport.go (shared with the sibling
+// SSESessionHijack detector).

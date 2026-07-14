@@ -1,4 +1,4 @@
-package toolsec
+package mcptransport
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 )
 
 func init() {
-	detectors.Register("toolsec.SSESessionHijack", NewSSESessionHijackDetector)
+	detectors.Register("mcptransport.SSESessionHijack", NewSSESessionHijackDetector)
 }
 
 // SSESessionHijackDetector flags any non-baseline SSE session weakness the
@@ -28,10 +28,10 @@ func NewSSESessionHijackDetector(_ registry.Config) (detectors.Detector, error) 
 	return &SSESessionHijackDetector{}, nil
 }
 
-func (d *SSESessionHijackDetector) Name() string { return "toolsec.SSESessionHijack" }
+func (d *SSESessionHijackDetector) Name() string { return "mcptransport.SSESessionHijack" }
 
 func (d *SSESessionHijackDetector) Description() string {
-	return "Flags SSE session-management weaknesses recorded by the toolsec.SSESessionHijack probe (weak id, prefix, collision, cross-connection or post-close replay)"
+	return "Flags SSE session-management weaknesses recorded by the mcptransport.SSESessionHijack probe (weak id, prefix, collision, cross-connection or post-close replay)"
 }
 
 // Detect scoring:

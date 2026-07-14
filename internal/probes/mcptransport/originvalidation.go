@@ -1,4 +1,4 @@
-package toolsec
+package mcptransport
 
 import (
 	"bytes"
@@ -113,7 +113,7 @@ func rank(c originValidationTargetClass) int {
 }
 
 func init() {
-	probes.Register("toolsec.OriginValidation", NewOriginValidation)
+	probes.Register("mcptransport.OriginValidation", NewOriginValidation)
 }
 
 var _ types.ProbeMetadata = (*OriginValidation)(nil)
@@ -160,7 +160,7 @@ func NewOriginValidation(cfg registry.Config) (probes.Prober, error) {
 	}, nil
 }
 
-func (p *OriginValidation) Name() string { return "toolsec.OriginValidation" }
+func (p *OriginValidation) Name() string { return "mcptransport.OriginValidation" }
 
 func (p *OriginValidation) Description() string {
 	return "Tests MCP HTTP endpoints for missing Origin/Host validation — the mitigation MCP servers must implement to block browser DNS-rebinding attacks (CVE-2025-49596 class). Classifies the target host at probe time: loopback / RFC1918-LAN targets get full-VULN scoring because they are the browser-driven-rebinding attack path; public endpoints get inconclusive scoring because the same wire finding is CSRF-class rather than rebinding-class there, and exploitability depends on cookie/auth deployment context the probe cannot inspect."
@@ -170,7 +170,7 @@ func (p *OriginValidation) Goal() string {
 	return "Determine whether the MCP HTTP endpoint enforces the Origin/Host validation the MCP spec requires. Score = 1.0 on loopback/LAN targets (real DNS-rebinding precondition), InconclusiveScore on public/unresolvable targets (spec violation with different attack-class implications)."
 }
 
-func (p *OriginValidation) GetPrimaryDetector() string { return "toolsec.OriginValidation" }
+func (p *OriginValidation) GetPrimaryDetector() string { return "mcptransport.OriginValidation" }
 
 func (p *OriginValidation) GetPrompts() []string {
 	return []string{"Randomised MCP initialize + CORS preflight bearing Origin/Host values a rebinding-protected server should refuse"}
@@ -287,10 +287,10 @@ func (p *OriginValidation) Probe(ctx context.Context, gen types.Generator) ([]*a
 	}
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("toolsec.OriginValidation: parse endpoint %q: %w", endpoint, err)
+		return nil, fmt.Errorf("mcptransport.OriginValidation: parse endpoint %q: %w", endpoint, err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		slog.Warn("toolsec.OriginValidation: skipping non-HTTP transport", "endpoint", endpoint)
+		slog.Warn("mcptransport.OriginValidation: skipping non-HTTP transport", "endpoint", endpoint)
 		return nil, nil
 	}
 	// Pick the request shape from the transport. The security question is the
@@ -317,7 +317,7 @@ func (p *OriginValidation) Probe(ctx context.Context, gen types.Generator) ([]*a
 	// only findings on public endpoints (CSRF-class, not rebinding, needs
 	// deployment context to assess).
 	targetClass := classifyTargetHost(u.Host)
-	slog.Info("toolsec.OriginValidation: target host classified",
+	slog.Info("mcptransport.OriginValidation: target host classified",
 		"host", u.Host, "class", string(targetClass))
 
 	client, err := p.borrowHTTPClient(gen)
@@ -340,7 +340,7 @@ func (p *OriginValidation) Probe(ctx context.Context, gen types.Generator) ([]*a
 	base := stampClass(p.probeAccess(ctx, client, endpoint, transport, "", "", classBaseline))
 	attempts = append(attempts, base)
 	if !metaBool(base, attempt.MetadataKeyOriginValidationAccepted) {
-		slog.Info("toolsec.OriginValidation: baseline (no Origin) not accepted; downstream bypass results may be inconclusive", "endpoint", endpoint, "transport", transport)
+		slog.Info("mcptransport.OriginValidation: baseline (no Origin) not accepted; downstream bypass results may be inconclusive", "endpoint", endpoint, "transport", transport)
 	}
 
 	// 2. Origin bypass sweep.
@@ -627,15 +627,8 @@ func swapCase(s string) string {
 	return string(out)
 }
 
-// metaBool reads a boolean attempt-metadata value tolerating JSON round-trip.
-func metaBool(a *attempt.Attempt, key string) bool {
-	raw, ok := a.GetMetadata(key)
-	if !ok {
-		return false
-	}
-	b, _ := raw.(bool)
-	return b
-}
+// metaBool lives in mcptransport.go (shared with the sibling
+// SSESessionHijack probe).
 
 // borrowHTTPClient returns the generator's anonymous http.Client (proxy +
 // TLS inherited, but NO auth/scan-tag headers), layered with this probe's

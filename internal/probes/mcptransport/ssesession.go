@@ -1,4 +1,4 @@
-package toolsec
+package mcptransport
 
 import (
 	"bufio"
@@ -19,7 +19,7 @@ import (
 )
 
 func init() {
-	probes.Register("toolsec.SSESessionHijack", NewSSESessionHijack)
+	probes.Register("mcptransport.SSESessionHijack", NewSSESessionHijack)
 }
 
 var _ types.ProbeMetadata = (*SSESessionHijack)(nil)
@@ -68,7 +68,7 @@ func NewSSESessionHijack(cfg registry.Config) (probes.Prober, error) {
 	}, nil
 }
 
-func (p *SSESessionHijack) Name() string { return "toolsec.SSESessionHijack" }
+func (p *SSESessionHijack) Name() string { return "mcptransport.SSESessionHijack" }
 
 func (p *SSESessionHijack) Description() string {
 	return "Tests MCP SSE session-management for hijack primitives: obtains one valid session ID, shape-sniffs it for short/low-diversity/timestamp-shape (the guessable failure modes), then replays it off the original TCP connection and after stream close. Statistical RNG audit is deliberately not attempted — no realistic sample count could detect predictability of a 128-bit space."
@@ -78,7 +78,7 @@ func (p *SSESessionHijack) Goal() string {
 	return "Determine whether a session ID obtained via any means (leak, log, referer, DNS rebind) is a naked bearer token — reusable off the TCP connection that created it, or surviving past its stream. Also flag obviously-guessable ID shapes."
 }
 
-func (p *SSESessionHijack) GetPrimaryDetector() string { return "toolsec.SSESessionHijack" }
+func (p *SSESessionHijack) GetPrimaryDetector() string { return "mcptransport.SSESessionHijack" }
 
 func (p *SSESessionHijack) GetPrompts() []string {
 	return []string{"Sample MCP SSE session IDs and test replay off the original TCP connection"}
@@ -114,7 +114,7 @@ func (p *SSESessionHijack) Probe(ctx context.Context, gen types.Generator) ([]*a
 	}
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("toolsec.SSESessionHijack: parse endpoint %q: %w", endpoint, err)
+		return nil, fmt.Errorf("mcptransport.SSESessionHijack: parse endpoint %q: %w", endpoint, err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return nil, nil
@@ -123,7 +123,7 @@ func (p *SSESessionHijack) Probe(ctx context.Context, gen types.Generator) ([]*a
 	// covered by a future probe.
 	if mcpEnd, ok := gen.(types.MCPEndpoint); ok {
 		if mcpEnd.Transport() != "" && mcpEnd.Transport() != "sse" {
-			slog.Info("toolsec.SSESessionHijack: skipping non-SSE transport", "transport", mcpEnd.Transport())
+			slog.Info("mcptransport.SSESessionHijack: skipping non-SSE transport", "transport", mcpEnd.Transport())
 			return nil, nil
 		}
 	}
@@ -169,7 +169,7 @@ func (p *SSESessionHijack) Probe(ctx context.Context, gen types.Generator) ([]*a
 	serverAcceptsAnyID := metaBool(control, attempt.MetadataKeySSESessionAccepted)
 	proxied := p.proxyInPath(gen)
 	if proxied {
-		slog.Info("toolsec.SSESessionHijack: proxy in path; connection-lifetime replay findings will be recorded as inconclusive",
+		slog.Info("mcptransport.SSESessionHijack: proxy in path; connection-lifetime replay findings will be recorded as inconclusive",
 			"reason", "keep-alive proxies hold SSE upstream open, making session-lifetime tests unreliable")
 	}
 	// Force fresh TCP conns for replays (see withoutKeepAlives).
