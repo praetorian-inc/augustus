@@ -74,10 +74,9 @@ var jsonKV = regexp.MustCompile(`"([A-Za-z0-9_.\-]+)"\s*:\s*"([^"]*)"`)
 // envKV matches KEY=value assignments in .env / shell-style config (one per line).
 var envKV = regexp.MustCompile(`(?m)^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*$`)
 
-// connCreds matches credentials embedded in a URI userinfo section, e.g.
-// postgres://user:password@host. The password capture is greedy up to the LAST
-// '@' before the host, so passwords that themselves contain '@' are captured in
-// full (e.g. postgres://admin:S3cr3tP@ss@host captures "S3cr3tP@ss").
+// connCreds matches a credential embedded in a URI userinfo section (the
+// "user:secret@host" form). The secret capture is greedy up to the LAST '@'
+// before the host, so a secret that itself contains '@' is captured in full.
 var connCreds = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.\-]*://[^/\s:@]+:([^/\s]+)@`)
 
 // envRef matches an environment-variable reference such as $VAR or ${VAR}.

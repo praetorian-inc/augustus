@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	driftdet "github.com/praetorian-inc/augustus/internal/detectors/toolsec"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -126,7 +127,8 @@ func (p *RugPull) snapshots(ctx context.Context, gen types.Generator, inv types.
 
 // loadToolSnapshot reads a JSON tool snapshot ([]map[string]any) from disk.
 func loadToolSnapshot(path string) ([]map[string]any, error) {
-	data, err := os.ReadFile(path)
+	// #nosec G304 -- operator-supplied baseline_path; reading the operator-designated tool snapshot is this probe's purpose.
+	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return nil, err
 	}
