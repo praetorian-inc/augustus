@@ -4,12 +4,16 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -33,26 +37,33 @@ var _ types.ProbeMetadata = (*SSESessionHijack)(nil)
 // 613, MCP07). The transport is SSE only because that's where MCP puts
 // session IDs today; the underlying weakness is transport-agnostic.
 //
-// The probe does two things with ONE valid session ID it obtains via a
-// normal SSE handshake:
+// LLM-security scope: the probe answers the question "if an attacker
+// obtains a session ID by any means, can they use it to drive the MCP
+// session and invoke tools?" A yes gives the attacker LLM-level
+// primitive access via the MCP tool surface. A no doesn't.
 //
-//  1. Shape-sniffs the ID — length + character-set diversity. A single
-//     sample can't statistically audit an RNG (that would need ~2^64
-//     samples to detect a 128-bit collision), but it CAN catch the
-//     obviously-guessable cases: short IDs, all-digit / all-lowercase-alpha
-//     IDs, timestamp-shaped IDs. That's the actual failure mode for weak
-//     session generation — not statistically-imperfect randomness.
+// The probe obtains ONE valid session ID via a normal SSE handshake
+// and runs three replay tests:
 //
-//  2. Session-replay tests — take the ID, close the SSE stream, POST to
-//     the session's endpoint from a fresh TCP connection. If the server
-//     accepts, the ID is a naked bearer token with no client binding
-//     (CWE-287). Also tested after a post-close delay (CWE-613:
-//     session outlives its stream).
+//  1. Unknown-ID control — POST with a fabricated session id. Server
+//     must reject; if it accepts, the target has no session validation
+//     at all and downstream replay findings are suppressed as FPs.
 //
-// What the probe does NOT do: multi-sample entropy analysis, prefix
-// clustering, birthday-collision detection. Those were retired as
-// statistically impossible to run at any N a scanner can afford; the
-// real signals for weak session IDs are shape, not entropy.
+//  2. session-not-tcp-bound — POST from a fresh TCP conn WITH the SSE
+//     stream still open. If the server accepts, the session ID is a
+//     naked bearer token — an attacker who obtains it can drive the
+//     session from anywhere (CWE-287).
+//
+//  3. session-post-close-alive — close the SSE stream, wait 500 ms,
+//     then POST. If accepted, the session outlives its stream (CWE-613).
+//
+// What the probe DOES NOT do: session-ID entropy / shape audit.
+// Those checks were classic web-app hygiene (CWE-330) rather than
+// LLM-specific security. General web-app scanners cover them better,
+// and augustus's mission is LLM vulnerability testing. Retired
+// classes: session-id-short, session-id-low-diversity,
+// session-id-guessable-shape. See PR #234 discussion for the scope
+// call.
 type SSESessionHijack struct {
 	endpointOverride string
 	timeout          time.Duration
@@ -71,11 +82,11 @@ func NewSSESessionHijack(cfg registry.Config) (probes.Prober, error) {
 func (p *SSESessionHijack) Name() string { return "mcptransport.SSESessionHijack" }
 
 func (p *SSESessionHijack) Description() string {
-	return "Tests MCP SSE session-management for hijack primitives: obtains one valid session ID, shape-sniffs it for short/low-diversity/timestamp-shape (the guessable failure modes), then replays it off the original TCP connection and after stream close. Statistical RNG audit is deliberately not attempted — no realistic sample count could detect predictability of a 128-bit space."
+	return "Tests MCP SSE session-management for hijack primitives: obtains one valid session ID via a normal SSE handshake, then replays it off the original TCP connection (with stream still open — the true cross-connection replay test) and again after the stream closes. If either replay is accepted, the ID is a naked bearer token that any attacker who obtains it can use to drive the MCP tool surface."
 }
 
 func (p *SSESessionHijack) Goal() string {
-	return "Determine whether a session ID obtained via any means (leak, log, referer, DNS rebind) is a naked bearer token — reusable off the TCP connection that created it, or surviving past its stream. Also flag obviously-guessable ID shapes."
+	return "Determine whether a session ID obtained via any means (leak, log, referer, DNS rebind) is a naked bearer token — reusable off the TCP connection that created it, or surviving past its stream. LLM-relevant because a hijacked MCP session gives arbitrary tool-invocation."
 }
 
 func (p *SSESessionHijack) GetPrimaryDetector() string { return "mcptransport.SSESessionHijack" }
@@ -88,21 +99,22 @@ type sseSessionClass string
 
 const (
 	sseClassBaseline         sseSessionClass = "baseline"
-	sseClassShort            sseSessionClass = "session-id-short"
-	sseClassLowDiversity     sseSessionClass = "session-id-low-diversity"
-	sseClassGuessableShape   sseSessionClass = "session-id-guessable-shape"
 	sseClassNotTCPBound      sseSessionClass = "session-not-tcp-bound"
 	sseClassPostCloseAlive   sseSessionClass = "session-post-close-alive"
 	sseClassUnknownIDRejects sseSessionClass = "unknown-id-rejects" // control
 )
 
-// sseSample carries one sampled session's identity — the id itself, the POST
-// endpoint the server advertised for it, and the base URL the sample was
-// taken from (needed to resolve the relative endpoint later).
+// sseSample carries one sampled session's identity. The raw id and the
+// live post URL are kept in memory only; anything that reaches attempt
+// metadata / output goes through the redacted form (see idFingerprint
+// and redactedPostURL). Fixes CodeRabbit #4 — no live bearer token in
+// scanner artefacts.
 type sseSample struct {
-	id         string
-	postURL    string // fully-qualified URL to POST to for this session
-	baseOrigin string
+	id              string // NEVER persisted or emitted to output
+	idFingerprint   string // SHA-256[:16] hex — safe correlation handle
+	postURL         string // NEVER persisted or emitted
+	redactedPostURL string // session_id replaced with "<redacted>"
+	baseOrigin      string
 }
 
 // Probe resolves the SSE endpoint, samples N sessions, and runs the
@@ -134,47 +146,53 @@ func (p *SSESessionHijack) Probe(ctx context.Context, gen types.Generator) ([]*a
 	}
 
 	// Step 1: obtain ONE valid session ID via a normal SSE handshake.
-	// One sample is sufficient for both branches of this probe: the
-	// shape-sniff runs on a single ID, and the replay tests only need
-	// one valid ID to reuse. Additional samples would be latency for
-	// no additional information — see the type doc.
-	sample, sampleAttempt := p.sampleOne(ctx, client, endpoint)
+	// The sample carries a close handle for the SSE stream so the Probe
+	// can control the lifecycle — cross-connection replay must happen
+	// with the stream STILL OPEN (that's the "different client, same
+	// server view of session-active" scenario), then close, wait, and
+	// run the post-close replay. Fixes CodeRabbit #2.
+	sample, closeStream, sampleAttempt := p.sampleOne(ctx, client, endpoint)
 	attempts := []*attempt.Attempt{sampleAttempt}
 	if sample == nil {
-		// Sampling failed → nothing to classify or replay against.
-		// The sampleAttempt already carries the error, but mark it
-		// inconclusive so the detector doesn't ship a green SAFE
-		// verdict for a target we couldn't actually reach.
 		sampleAttempt.Metadata[attempt.MetadataKeyInconclusive] = true
 		sampleAttempt.Metadata[attempt.MetadataKeyInconclusiveReason] = "SSE handshake failed — could not obtain a session ID"
 		return attempts, nil
 	}
+	// Ensure the stream is always closed, even on early return.
+	defer closeStream()
 
-	// Step 2: shape-sniff the ID.
-	attempts = append(attempts, p.classifyID(sample.id)...)
-
-	// Step 3: replay tests. Two independent suppressions apply:
-	//   (a) if the target accepts a FABRICATED session id, the server
-	//       has no session handling at all and the replay tests would
-	//       be false positives (they'd re-confirm the same broken
-	//       behaviour). Marked accepted=false; the control attempt
-	//       itself carries the finding.
-	//   (b) if an explicit outbound proxy is configured on the target
-	//       generator, the "distinct client" property the replay
-	//       tests claim to measure is compromised at the proxy layer,
-	//       not the server. Marked inconclusive; the reviewer must
-	//       confirm out-of-band.
+	// Step 2: control test — fabricated session id. Server should reject.
+	// If it accepts, downstream replay findings would be FPs — the server
+	// has no session handling at all, which the control attempt records.
 	control := p.controlUnknownID(ctx, client, *sample)
 	attempts = append(attempts, control)
 	serverAcceptsAnyID := metaBool(control, attempt.MetadataKeySSESessionAccepted)
+
 	proxied := p.proxyInPath(gen)
 	if proxied {
 		slog.Info("mcptransport.SSESessionHijack: proxy in path; connection-lifetime replay findings will be recorded as inconclusive",
 			"reason", "keep-alive proxies hold SSE upstream open, making session-lifetime tests unreliable")
 	}
-	// Force fresh TCP conns for replays (see withoutKeepAlives).
+	// Force fresh TCP conns for replays.
 	replayClient := withoutKeepAlives(client)
+
+	// Step 3a: replayCrossConnection while stream is STILL OPEN.
+	// Tests "does the server bind the session to the TCP conn holding
+	// the stream, or to the session_id alone?" A server that accepts
+	// this POST treats the id as a naked bearer token — the primary
+	// hijack primitive.
 	attempts = append(attempts, p.replayCrossConnection(ctx, replayClient, *sample, serverAcceptsAnyID, proxied))
+
+	// Step 3b: close the stream, wait, then replayPostClose. This tests
+	// a distinct property: does the session survive stream close?
+	// Without step 3a running first (while stream still open), both
+	// replays would just test the same thing.
+	closeStream()
+	select {
+	case <-ctx.Done():
+		return attempts, nil
+	case <-time.After(500 * time.Millisecond):
+	}
 	attempts = append(attempts, p.replayPostClose(ctx, replayClient, *sample, serverAcceptsAnyID, proxied))
 
 	return attempts, nil
@@ -224,40 +242,63 @@ func (p *SSESessionHijack) resolveEndpoint(gen types.Generator) string {
 }
 
 // sampleOne opens an SSE connection, reads the endpoint event to extract the
-// session ID, then closes the stream. Returns (nil, attempt) on any failure.
-func (p *SSESessionHijack) sampleOne(ctx context.Context, client *http.Client, endpoint string) (*sseSample, *attempt.Attempt) {
+// session ID, and returns a close handle for the stream. The CALLER is
+// responsible for invoking closeStream() at the right point in the probe
+// lifecycle — the cross-connection replay test needs the stream still open,
+// then close before the post-close replay. closeStream is idempotent and
+// safe to call multiple times / from a defer.
+//
+// The returned sseSample's `id` and `postURL` fields hold the live
+// credential in memory only. Attempt metadata and output use the
+// idFingerprint (SHA-256[:16] hex) and redactedPostURL instead so the
+// scan JSONL, Burp captures, and logs never persist the bearer token.
+// Fixes CodeRabbit #4.
+func (p *SSESessionHijack) sampleOne(ctx context.Context, client *http.Client, endpoint string) (*sseSample, func(), *attempt.Attempt) {
+	noop := func() {}
 	a := attempt.New("[baseline] SSE handshake — obtain session id")
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
 	a.Metadata[attempt.MetadataKeySSESessionClass] = string(sseClassBaseline)
 
-	// Short deadline: we only need the FIRST event frame.
+	// Short deadline for the initial handshake — we only need the
+	// FIRST event frame to arrive. The rest of the probe lifecycle
+	// runs on the parent ctx via the returned closeStream func.
 	sampleCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	defer cancel()
 	req, err := http.NewRequestWithContext(sampleCtx, http.MethodGet, endpoint, nil)
 	if err != nil {
+		cancel()
 		a.SetError(err)
-		return nil, a
+		return nil, noop, a
 	}
 	req.Header.Set("Accept", "text/event-stream")
 
 	resp, err := client.Do(req)
 	if err != nil {
+		cancel()
 		a.SetError(err)
-		return nil, a
+		return nil, noop, a
 	}
-	defer func() { _ = resp.Body.Close() }()
+	// closeStream is idempotent — see the `once` pattern below.
+	var closeOnce sync.Once
+	closeStream := func() {
+		closeOnce.Do(func() {
+			_ = resp.Body.Close()
+			cancel()
+		})
+	}
 
 	if resp.StatusCode != http.StatusOK {
 		a.AddOutput(fmt.Sprintf("HTTP %d — server refused SSE stream", resp.StatusCode))
 		a.Complete()
-		return nil, a
+		closeStream()
+		return nil, noop, a
 	}
 
 	sessionID, endpointPath, err := readEndpointEvent(resp.Body, 2*time.Second)
 	if err != nil {
 		a.SetError(err)
-		return nil, a
+		closeStream()
+		return nil, noop, a
 	}
 	postURL, err := resolvePostURL(endpoint, endpointPath)
 	if err != nil {
@@ -267,121 +308,49 @@ func (p *SSESessionHijack) sampleOne(ctx context.Context, client *http.Client, e
 		// the probe's contract is to talk to the operator-chosen target,
 		// not wherever the target tells us to go.
 		a.SetError(fmt.Errorf("refusing off-host endpoint URL: %w", err))
-		return nil, a
+		closeStream()
+		return nil, noop, a
 	}
-	a.Metadata[attempt.MetadataKeySSESessionSample] = truncID(sessionID)
-	a.Metadata[attempt.MetadataKeySSESessionEndpoint] = postURL
-	a.AddOutput(fmt.Sprintf("session_id=%s post_url=%s", truncID(sessionID), postURL))
+	// Redact live credential before it touches metadata or output.
+	fingerprint := fingerprintID(sessionID)
+	redacted := redactSessionID(postURL)
+	a.Metadata[attempt.MetadataKeySSESessionSample] = fingerprint
+	a.Metadata[attempt.MetadataKeySSESessionEndpoint] = redacted
+	a.AddOutput(fmt.Sprintf("session_id=<fp:%s> post_url=%s", fingerprint, redacted))
 	a.Complete()
 
-	return &sseSample{id: sessionID, postURL: postURL, baseOrigin: endpoint}, a
+	return &sseSample{
+		id:              sessionID,
+		idFingerprint:   fingerprint,
+		postURL:         postURL,
+		redactedPostURL: redacted,
+		baseOrigin:      endpoint,
+	}, closeStream, a
 }
 
-// classifyID shape-sniffs a single session ID for the three failure modes a
-// single sample can reliably surface. Statistical RNG audit is deliberately
-// not attempted (see the type doc): a scanner cannot afford the ~2^64
-// samples that would be needed to detect a 128-bit-collision-space weakness,
-// so we only flag things that ARE obvious from one ID.
-func (p *SSESessionHijack) classifyID(id string) []*attempt.Attempt {
-	var attempts []*attempt.Attempt
-
-	// Class: too short. 16 chars ≈ 64 bits at 4 bits/char (uniform hex).
-	// Below this a session id is guessable given enough attempts against
-	// the server, independent of the RNG's quality.
-	if len(id) < 16 {
-		a := p.classAttempt(sseClassShort, fmt.Sprintf("id is %d chars (< 16)", len(id)), id)
-		a.Metadata[attempt.MetadataKeySSESessionAccepted] = true
-		attempts = append(attempts, a)
-	}
-
-	// Class: low character-set diversity. Distinct-chars / length ratio:
-	// a random 32-hex UUID scores ~0.5 (16 unique hex chars in 32
-	// positions). Something like "000000000000000000000000000abc" scores
-	// close to 0.1 — obviously not fit-for-purpose. This is a shape
-	// property of the ONE id, not a statistical claim about the RNG.
-	if diversity := charDiversity(id); diversity < 0.25 && len(id) > 0 {
-		a := p.classAttempt(sseClassLowDiversity,
-			fmt.Sprintf("id uses %d distinct chars in %d positions (diversity %.2f, < 0.25)", uniqueChars(id), len(id), diversity),
-			id)
-		a.Metadata[attempt.MetadataKeySSESessionAccepted] = true
-		attempts = append(attempts, a)
-	}
-
-	// Class: guessable shape. Catches obviously-non-random patterns from
-	// a single sample: all digits (counter or timestamp), plausible unix
-	// timestamp value, all lowercase alpha with no digits, etc.
-	if reason, ok := guessableShape(id); ok {
-		a := p.classAttempt(sseClassGuessableShape, reason, id)
-		a.Metadata[attempt.MetadataKeySSESessionAccepted] = true
-		attempts = append(attempts, a)
-	}
-
-	return attempts
+// fingerprintID returns a stable 16-hex correlation handle derived from the
+// session id, without carrying any bytes of the live credential. Two attempts
+// against the same session share a fingerprint; the fingerprint is not
+// reversible to the id.
+func fingerprintID(id string) string {
+	sum := sha256.Sum256([]byte(id))
+	return hex.EncodeToString(sum[:8])
 }
 
-// charDiversity is (unique chars) / (length). Random hex → ~0.5; random
-// alphanumeric → ~0.9; a repetitive or narrow-alphabet id → close to 0.
-func charDiversity(s string) float64 {
-	if s == "" {
-		return 0
+// redactSessionID replaces the session_id query parameter's value with the
+// literal string "<redacted>" so logs / reports / Burp captures don't retain
+// the live bearer token.
+func redactSessionID(postURL string) string {
+	u, err := url.Parse(postURL)
+	if err != nil {
+		return "<unparseable>"
 	}
-	return float64(uniqueChars(s)) / float64(len(s))
-}
-
-func uniqueChars(s string) int {
-	seen := make(map[byte]struct{}, len(s))
-	for i := 0; i < len(s); i++ {
-		seen[s[i]] = struct{}{}
+	q := u.Query()
+	if q.Get("session_id") != "" {
+		q.Set("session_id", "<redacted>")
 	}
-	return len(seen)
-}
-
-// guessableShape returns a reason string + true when the id matches an
-// obviously-guessable pattern. Kept intentionally strict — this only fires
-// on IDs that couldn't POSSIBLY be from a CSPRNG, so false-positive rate
-// against real MCP servers should be ~0.
-func guessableShape(id string) (string, bool) {
-	if id == "" {
-		return "", false
-	}
-	// All decimal digits: counter, unix timestamp, or a numeric-only id.
-	allDigits := true
-	for i := 0; i < len(id); i++ {
-		if id[i] < '0' || id[i] > '9' {
-			allDigits = false
-			break
-		}
-	}
-	if allDigits {
-		return fmt.Sprintf("id is all decimal digits (%d chars) — counter or timestamp shape, not a CSPRNG output", len(id)), true
-	}
-	// All lowercase letters, no digits: dictionary word or narrow alphabet.
-	if len(id) >= 4 {
-		allLowerAlpha := true
-		for i := 0; i < len(id); i++ {
-			c := id[i]
-			if c < 'a' || c > 'z' {
-				allLowerAlpha = false
-				break
-			}
-		}
-		if allLowerAlpha {
-			return fmt.Sprintf("id is %d lowercase letters with no digits — narrow alphabet, likely not from a CSPRNG", len(id)), true
-		}
-	}
-	return "", false
-}
-
-// classAttempt builds an attempt carrying a classification tag.
-func (p *SSESessionHijack) classAttempt(class sseSessionClass, note, id string) *attempt.Attempt {
-	a := attempt.New(fmt.Sprintf("[%s] %s", class, note))
-	a.Probe = p.Name()
-	a.Detector = p.GetPrimaryDetector()
-	a.Metadata[attempt.MetadataKeySSESessionClass] = string(class)
-	a.Metadata[attempt.MetadataKeySSESessionSample] = truncID(id)
-	a.AddOutput(note)
-	a.Complete()
-	return a
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 // controlUnknownID is a control test: post a made-up session ID and confirm
@@ -395,23 +364,67 @@ func (p *SSESessionHijack) controlUnknownID(ctx context.Context, client *http.Cl
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
 	a.Metadata[attempt.MetadataKeySSESessionClass] = string(sseClassUnknownIDRejects)
-	a.Metadata[attempt.MetadataKeySSESessionSample] = fakeID
+	// The fabricated id is safe to persist (it's ours), but we still
+	// avoid emitting the redacted-for-consistency path.
+	a.Metadata[attempt.MetadataKeySSESessionSample] = "AUGCONTROL<fabricated>"
 
 	status, body, err := p.postInitialize(ctx, client, fakeURL)
 	if err != nil {
 		a.SetError(err)
 		return a
 	}
-	rejected := status >= 400
 	a.AddOutput(fmt.Sprintf("HTTP %d\n%s", status, truncBody(body)))
-	// A rejection is the *expected* outcome — we record it as "accepted:
-	// false" meaning "no anomaly." When the server accepts an unknown id we
-	// record "accepted: true" as an informational anomaly (the downstream
-	// replay findings would be false positives without this check, so the
-	// detector will see it and know to suppress).
-	a.Metadata[attempt.MetadataKeySSESessionAccepted] = !rejected
+	accepted := serverAcceptedPOST(status, body)
+	// A rejection is the *expected* outcome — accepted=false means
+	// "no anomaly." When the server accepts an unknown id we record
+	// accepted=true so the replay tests know to suppress themselves.
+	a.Metadata[attempt.MetadataKeySSESessionAccepted] = accepted
 	a.Complete()
 	return a
+}
+
+// serverAcceptedPOST classifies a response to a session-scoped POST by
+// whether the server ACCEPTED the request (understood the session and
+// processed the message) vs REJECTED it (at HTTP layer or inside the
+// JSON-RPC envelope). Fixes CodeRabbit #3.
+//
+// Accepted signals:
+//   - HTTP 202 with empty body (canonical FastMCP behaviour: message
+//     accepted, response will come back on the SSE stream)
+//   - HTTP 2xx with a JSON-RPC 2.0 envelope carrying a "result" field
+//
+// Rejected signals:
+//   - HTTP 4xx / 5xx
+//   - HTTP 2xx with a JSON-RPC 2.0 envelope carrying an "error" field
+//     (server understood the request but refused it at the RPC layer —
+//     e.g. "session expired", "unknown method")
+//   - HTTP 2xx with a non-JSON-RPC-shaped body (server responded with
+//     something we can't classify as an acceptance)
+func serverAcceptedPOST(status int, body string) bool {
+	if status < 200 || status >= 300 {
+		return false
+	}
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" {
+		// FastMCP's happy path: 202 Accepted with empty body.
+		return true
+	}
+	var envelope struct {
+		JSONRPC string          `json:"jsonrpc"`
+		Result  json.RawMessage `json:"result"`
+		Error   json.RawMessage `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &envelope); err != nil {
+		return false
+	}
+	if envelope.JSONRPC != "2.0" {
+		return false
+	}
+	if len(envelope.Error) > 0 {
+		// JSON-RPC error envelope — server engaged but refused.
+		return false
+	}
+	return len(envelope.Result) > 0
 }
 
 // replayCrossConnection tests whether a session ID captured from one stream
@@ -423,39 +436,25 @@ func (p *SSESessionHijack) controlUnknownID(ctx context.Context, client *http.Cl
 // server has no session enforcement at all, which is a different (broader)
 // bug the control attempt already carries.
 func (p *SSESessionHijack) replayCrossConnection(ctx context.Context, client *http.Client, ref sseSample, serverAcceptsAnyID, proxied bool) *attempt.Attempt {
-	a := attempt.New(fmt.Sprintf("[%s] POST from fresh TCP conn with sampled id", sseClassNotTCPBound))
+	a := attempt.New(fmt.Sprintf("[%s] POST from fresh TCP conn — stream still open", sseClassNotTCPBound))
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
 	a.Metadata[attempt.MetadataKeySSESessionClass] = string(sseClassNotTCPBound)
-	a.Metadata[attempt.MetadataKeySSESessionSample] = truncID(ref.id)
+	a.Metadata[attempt.MetadataKeySSESessionSample] = ref.idFingerprint
 
-	// `client` was built with DisableKeepAlives=true (see
-	// withoutKeepAlives), so this POST opens a fresh TCP conn from us by
-	// construction. Whether the SERVER still sees the session as alive
-	// depends on whether an intermediary proxy held the upstream open on
-	// our behalf — the `proxied` guard below marks that case inconclusive.
 	status, body, err := p.postInitialize(ctx, client, ref.postURL)
 	if err != nil {
-		// A transient network error during the replay POST leaves us
-		// unable to decide SAFE/VULN. Mark inconclusive rather than
-		// letting the SetError → default 0.0 pathway ship a green
-		// verdict for a target we didn't actually reach. Mauro S4.
 		a.SetError(err)
 		a.Metadata[attempt.MetadataKeyInconclusive] = true
 		a.Metadata[attempt.MetadataKeyInconclusiveReason] = fmt.Sprintf("replay POST failed: %v", err)
 		return a
 	}
-	accepted := status >= 200 && status < 400
+	accepted := serverAcceptedPOST(status, body)
 	switch {
 	case serverAcceptsAnyID:
-		accepted = false // suppressed — server accepts everything
+		accepted = false
 		a.AddOutput("[suppressed by unknown-id control: server accepts any session id]\n")
 	case proxied && accepted:
-		// Do NOT force accepted=false — that would ship a green SAFE
-		// verdict on a target we couldn't actually assess. Instead
-		// leave accepted as-observed and set the inconclusive flag so
-		// the detector emits a non-zero "needs manual confirmation"
-		// score. See feedback on PR #234 (Mauro B2).
 		a.AddOutput("[inconclusive — outbound proxy configured; a keep-alive proxy holds the SSE conn open upstream, so the server may see the session as active regardless of the target's own session model]\n")
 		a.Metadata[attempt.MetadataKeyInconclusive] = true
 		a.Metadata[attempt.MetadataKeyInconclusiveReason] = "proxy-in-path: cannot distinguish target session model from keepalive proxy behaviour"
@@ -466,31 +465,19 @@ func (p *SSESessionHijack) replayCrossConnection(ctx context.Context, client *ht
 	return a
 }
 
-// replayPostClose is the same shape but waits before the POST, ensuring the
-// original SSE stream is fully torn down. A server that still accepts the
-// POST is treating the session ID as a naked bearer token with no TTL bound
-// to stream lifetime. Same control-suppression rule as replayCrossConnection.
+// replayPostClose runs AFTER the SSE stream has been closed by the caller
+// (Probe orchestrates the close between the cross-connection replay and
+// this one — see the type-doc flow). If the server still accepts a POST
+// bearing the sampled session id, the id has outlived its stream: the
+// session survives its stream lifetime (CWE-613). Same control-suppression
+// rule as replayCrossConnection.
 func (p *SSESessionHijack) replayPostClose(ctx context.Context, client *http.Client, ref sseSample, serverAcceptsAnyID, proxied bool) *attempt.Attempt {
-	a := attempt.New(fmt.Sprintf("[%s] POST after stream close + delay", sseClassPostCloseAlive))
+	a := attempt.New(fmt.Sprintf("[%s] POST after stream close + 500ms grace", sseClassPostCloseAlive))
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
 	a.Metadata[attempt.MetadataKeySSESessionClass] = string(sseClassPostCloseAlive)
-	a.Metadata[attempt.MetadataKeySSESessionSample] = truncID(ref.id)
+	a.Metadata[attempt.MetadataKeySSESessionSample] = ref.idFingerprint
 
-	// A short delay lets the server observe the FIN and clean up any TCP-
-	// bound state. 500 ms is a lot longer than any garbage-collect debounce.
-	select {
-	case <-ctx.Done():
-		a.SetError(ctx.Err())
-		return a
-	case <-time.After(500 * time.Millisecond):
-	}
-
-	// The generator's client returns a fresh instance each call; we don't
-	// share connection pool state with the SSE stream (which we closed after
-	// reading the endpoint frame). No need to disable keepalives — the SSE
-	// conn has already been evicted from the pool, so this POST opens a new
-	// TCP conn to the target (or to the proxy, if one is configured).
 	status, body, err := p.postInitialize(ctx, client, ref.postURL)
 	if err != nil {
 		a.SetError(err)
@@ -498,7 +485,7 @@ func (p *SSESessionHijack) replayPostClose(ctx context.Context, client *http.Cli
 		a.Metadata[attempt.MetadataKeyInconclusiveReason] = fmt.Sprintf("post-close replay POST failed: %v", err)
 		return a
 	}
-	accepted := status >= 200 && status < 400
+	accepted := serverAcceptedPOST(status, body)
 	switch {
 	case serverAcceptsAnyID:
 		accepted = false
@@ -659,15 +646,6 @@ func replaceSessionID(postURL, newID string) string {
 	q.Set("session_id", newID)
 	u.RawQuery = q.Encode()
 	return u.String()
-}
-
-// truncID returns the first 24 chars of an id so long tokens don't drown
-// output; if the id is shorter it's returned unchanged.
-func truncID(id string) string {
-	if len(id) <= 24 {
-		return id
-	}
-	return id[:24] + "…"
 }
 
 // truncBody bounds body previews in probe output.

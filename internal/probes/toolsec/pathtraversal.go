@@ -29,7 +29,25 @@ var (
 // gets sent for a given tool is decided in Probe from the tool's MCP
 // annotations, not from the param name — so restoring the write-oriented
 // names here does NOT put /etc/passwd at overwrite risk.
-var pathParamRE = regexp.MustCompile(`(?i)(^|[_\- ])(file|filename|filepath|path|dir|directory|folder|template|resource|include|require|load|read|open|attachment|input|output|dest|destination|target|log|logfile|save|store|dump|report)($|[_\- ])`)
+//
+// Applied via matchesPathParam() which normalises camelCase names to
+// snake_case first so `filePath`, `outputPath`, `targetFile` etc. also
+// match (fixes CodeRabbit #5). The regex itself only understands
+// underscore/hyphen/space separators.
+var pathParamRE = regexp.MustCompile(`(?i)(^|[_\- ])(file|filename|filepath|path|dir|directory|folder|template|resource|include|require|load|read|open|attachment|input|output|dest|destination|target|log|logfile|save|store|dump|report|uri)($|[_\- ])`)
+
+// camelCaseBoundaryRE splits transitions from lowercase/digit → uppercase so
+// `outputPath` normalises to `output_Path` (which the case-insensitive
+// pathParamRE then matches as `output` followed by a boundary followed by
+// `path`). Without this the default matcher would skip common schema names.
+var camelCaseBoundaryRE = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+
+// matchesPathParam tests a parameter name against pathParamRE after camelCase
+// normalisation. See the regex-level comment above.
+func matchesPathParam(name string) bool {
+	normalised := camelCaseBoundaryRE.ReplaceAllString(name, "${1}_${2}")
+	return pathParamRE.MatchString(normalised)
+}
 
 // hintedPathRE extracts absolute filesystem paths ("/tmp/safe/", "/var/www/",
 // C:\Users\) from a tool's description. Many real gates ("Only files in
@@ -200,7 +218,7 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 			if !isStringParam(param.typ) {
 				continue
 			}
-			if !p.allParams && !pathParamRE.MatchString(param.name) {
+			if !p.allParams && !matchesPathParam(param.name) {
 				continue
 			}
 			pathParamSeen = true
@@ -276,16 +294,43 @@ func extractHintedPrefixes(desc string) []string {
 	return out
 }
 
-// looksLikeFSPrefix skips prose paths that are clearly not filesystem gates
-// (URL routes, section anchors). A prefix qualifies when it contains at
-// least one segment that looks like a real directory name.
+// urlRouteHintRE matches path shapes that strongly suggest a URL route
+// rather than a filesystem prefix — API version prefixes, well-known
+// resource discovery paths, and query/fragment markers.
+var urlRouteHintRE = regexp.MustCompile(`(?i)(^|/)(api|v\d+|v\d+\.\d+|graphql|rest|rpc|swagger|openapi|\.well-known)($|/)`)
+
+// looksLikeFSPrefix accepts any absolute filesystem-shaped path and rejects
+// obvious URL routes. Broadened from a hardcoded directory allowlist
+// (fixes CodeRabbit #6) so gates like `/data/uploads/`, `/workspace/files/`,
+// `/app/storage/`, `/mnt/nfs/attachments/` — which are all legitimate MCP
+// sandbox prefixes — are recognised without requiring the probe to enumerate
+// every conceivable directory layout.
+//
+// Rejection is deliberately conservative: strings containing URL-shaped
+// segments (`/api/`, `/v1/`, `/.well-known/`, `/graphql`), query strings,
+// or URL fragments are treated as URL routes and skipped. Everything else
+// that starts with `/` (Unix) or matches `X:\...` (Windows) qualifies.
 func looksLikeFSPrefix(p string) bool {
-	fsMarkers := []string{"/tmp/", "/var/", "/etc/", "/home/", "/opt/", "/usr/", "/srv/", "/mnt/", `\Users\`, `\Windows\`, `\Program Files\`}
-	lower := strings.ToLower(p)
-	for _, m := range fsMarkers {
-		if strings.Contains(lower, strings.ToLower(m)) {
-			return true
-		}
+	if p == "" {
+		return false
+	}
+	// Reject query-string / fragment shapes — URLs, not FS paths.
+	if strings.ContainsAny(p, "?#") {
+		return false
+	}
+	// Reject clear URL-route signatures.
+	if urlRouteHintRE.MatchString(p) {
+		return false
+	}
+	// Accept Unix absolute paths (must have at least one path segment
+	// after the leading /).
+	if strings.HasPrefix(p, "/") {
+		return len(strings.Trim(p, "/")) > 0
+	}
+	// Accept Windows drive-letter paths.
+	if len(p) >= 3 && p[1] == ':' && (p[2] == '\\' || p[2] == '/') {
+		c := p[0]
+		return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
 	}
 	return false
 }

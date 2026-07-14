@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -124,13 +123,13 @@ func TestSSESession_HardenedServer(t *testing.T) {
 	}
 }
 
-// TestSSESession_ShortIDs: ids too short (< 16 chars). Expected: session-id-
-// short fires; nothing else.
-func TestSSESession_ShortIDs(t *testing.T) {
-	nextID := func(i int) string { return strconv.Itoa(1000 + i) } // 4 chars
-	acceptPost := func(id string) bool { return false }
-
-	srv := newSSETestServer(t, nextID, acceptPost)
+// TestSSESession_NoLiveSessionInMetadata: after a sample handshake, the
+// live session ID must NEVER appear in any attempt's metadata or output.
+// Only the fingerprint and redacted URL should be visible. Fixes
+// CodeRabbit finding #4.
+func TestSSESession_NoLiveSessionInMetadata(t *testing.T) {
+	sessionID := "9b1deb4d3b7d4bad9bdd2b0d7b3dcb6d"
+	srv := newSSETestServer(t, func(int) string { return sessionID }, func(string) bool { return false })
 	defer srv.Close()
 
 	p := newSSESessionProbe(t, registry.Config{"endpoint": srv.URL + "/sse"})
@@ -138,70 +137,23 @@ func TestSSESession_ShortIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
 	}
-	fired := findingsBySSEClass(attempts)
-	if !fired[string(sseClassShort)] {
-		t.Errorf("session-id-short should fire on 4-char ids; fired=%v", fired)
-	}
-}
-
-// TestSSESession_GuessableShape_AllDigits: a session id that is entirely
-// decimal digits (counter, unix timestamp, sequence) is shape-guessable
-// and must fire session-id-guessable-shape from a SINGLE sample.
-func TestSSESession_GuessableShape_AllDigits(t *testing.T) {
-	nextID := func(i int) string { return "1735689600" } // unix ts
-	srv := newSSETestServer(t, nextID, func(string) bool { return false })
-	defer srv.Close()
-
-	p := newSSESessionProbe(t, registry.Config{"endpoint": srv.URL + "/sse"})
-	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL + "/sse", transport: "sse"})
-	if err != nil {
-		t.Fatalf("Probe: %v", err)
-	}
-	fired := findingsBySSEClass(attempts)
-	if !fired[string(sseClassGuessableShape)] {
-		t.Errorf("session-id-guessable-shape should fire on all-digits id; fired=%v", fired)
-	}
-}
-
-// TestSSESession_LowDiversity: a session id whose unique-char count is
-// tiny relative to its length (repetitive or narrow alphabet) fires
-// session-id-low-diversity — a pure shape observation, no RNG claim.
-func TestSSESession_LowDiversity(t *testing.T) {
-	// 32 chars, 3 unique letters — diversity 3/32 ≈ 0.09, well below 0.25.
-	nextID := func(i int) string { return "aaaaaaaaaabbbbbbbbbbccccccccccaa" }
-	srv := newSSETestServer(t, nextID, func(string) bool { return false })
-	defer srv.Close()
-
-	p := newSSESessionProbe(t, registry.Config{"endpoint": srv.URL + "/sse"})
-	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL + "/sse", transport: "sse"})
-	if err != nil {
-		t.Fatalf("Probe: %v", err)
-	}
-	fired := findingsBySSEClass(attempts)
-	if !fired[string(sseClassLowDiversity)] {
-		t.Errorf("session-id-low-diversity should fire on repetitive id; fired=%v", fired)
-	}
-}
-
-// TestSSESession_HighDiversityUUIDPasses: a real UUID4-shape id must NOT
-// trip low-diversity or guessable-shape — 32 hex chars use 16 distinct
-// symbols (diversity 0.5) and are neither all-digits nor all-alpha.
-func TestSSESession_HighDiversityUUIDPasses(t *testing.T) {
-	nextID := func(i int) string { return "9b1deb4d3b7d4bad9bdd2b0d7b3dcb6d" }
-	srv := newSSETestServer(t, nextID, func(string) bool { return false })
-	defer srv.Close()
-
-	p := newSSESessionProbe(t, registry.Config{"endpoint": srv.URL + "/sse"})
-	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL + "/sse", transport: "sse"})
-	if err != nil {
-		t.Fatalf("Probe: %v", err)
-	}
-	fired := findingsBySSEClass(attempts)
-	if fired[string(sseClassLowDiversity)] {
-		t.Errorf("session-id-low-diversity must NOT fire on UUID4-shape id; fired=%v", fired)
-	}
-	if fired[string(sseClassGuessableShape)] {
-		t.Errorf("session-id-guessable-shape must NOT fire on UUID4-shape id; fired=%v", fired)
+	for _, a := range attempts {
+		// Attempt outputs
+		for _, out := range a.Outputs {
+			if strings.Contains(out, sessionID) {
+				t.Errorf("live session id %q leaked into attempt output %q", sessionID, out)
+			}
+		}
+		// Attempt metadata values
+		for k, v := range a.Metadata {
+			s, ok := v.(string)
+			if !ok {
+				continue
+			}
+			if strings.Contains(s, sessionID) {
+				t.Errorf("live session id %q leaked into metadata %q=%q", sessionID, k, s)
+			}
+		}
 	}
 }
 
@@ -425,47 +377,31 @@ func TestExtractSessionID(t *testing.T) {
 	}
 }
 
-// TestCharDiversity spot-checks the diversity helper.
-func TestCharDiversity(t *testing.T) {
+// TestServerAcceptedPOST covers the JSON-RPC-aware response
+// classification helper introduced for CodeRabbit finding #3.
+func TestServerAcceptedPOST(t *testing.T) {
 	tests := []struct {
-		in  string
-		min float64
-		max float64
+		name   string
+		status int
+		body   string
+		want   bool
 	}{
-		{"aaaa", 0.24, 0.26},                             // 1/4
-		{"abcd", 0.99, 1.01},                             // 4/4
-		{"9b1deb4d3b7d4bad9bdd2b0d7b3dcb6d", 0.20, 0.60}, // hex UUID ~0.5
-		{"aaaaaaaaaabbbbbbbbbbccccccccccaa", 0.08, 0.10}, // 3/32
+		{"202 empty body (FastMCP happy path)", 202, "", true},
+		{"200 empty body", 200, "", true},
+		{"200 jsonrpc result", 200, `{"jsonrpc":"2.0","id":1,"result":{}}`, true},
+		{"200 jsonrpc error", 200, `{"jsonrpc":"2.0","id":1,"error":{"code":-32001,"message":"session expired"}}`, false},
+		{"200 non-jsonrpc body", 200, `{"hello":"world"}`, false},
+		{"400 rejected", 400, "unknown session", false},
+		{"404 rejected", 404, "", false},
+		{"500 server error", 500, "", false},
+		{"200 malformed json", 200, "not json", false},
 	}
 	for _, tt := range tests {
-		got := charDiversity(tt.in)
-		if got < tt.min || got > tt.max {
-			t.Errorf("charDiversity(%q) = %.3f, want in [%.2f, %.2f]", tt.in, got, tt.min, tt.max)
-		}
-	}
-}
-
-// TestGuessableShape covers the shape-sniff.
-func TestGuessableShape(t *testing.T) {
-	positive := []string{
-		"1735689600", // unix timestamp
-		"1234567890", // counter-like
-		"abcdefghij", // pure lowercase, ≥ 4 chars
-	}
-	for _, id := range positive {
-		if _, ok := guessableShape(id); !ok {
-			t.Errorf("guessableShape(%q) should have fired", id)
-		}
-	}
-	negative := []string{
-		"9b1deb4d3b7d4bad9bdd2b0d7b3dcb6d", // UUID4 hex
-		"abc123def456",                     // mixed alphanum
-		"",                                 // empty
-		"abc",                              // too short for lower-alpha check
-	}
-	for _, id := range negative {
-		if _, ok := guessableShape(id); ok {
-			t.Errorf("guessableShape(%q) should NOT have fired", id)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			got := serverAcceptedPOST(tt.status, tt.body)
+			if got != tt.want {
+				t.Errorf("serverAcceptedPOST(%d, %q) = %v, want %v", tt.status, tt.body, got, tt.want)
+			}
+		})
 	}
 }

@@ -41,21 +41,24 @@ var writeSuccessRE = regexp.MustCompile(`(?i)\b(wrote|written|saved|created|stor
 
 // Detect scoring:
 //
-//	read payload  + signature present                            → 1.0
-//	write payload + canary + !IsError + success-verb in output  → 1.0
-//	write payload + canary + IsError                             → 0.0
-//	                          (echo in error message = not proof)
-//	write payload + canary + !IsError but no success verb       → 0.0
-//	                          (tool merely echoed the path, e.g. a reader)
-//	no signature / no match → 0.0
+//	read payload  + signature present                    → 1.0
+//	write payload + canary + !IsError + success-verb    → InconclusiveScore
+//	write payload + canary + IsError                    → 0.0
+//	write payload + canary + !IsError but no success    → 0.0
+//	no signature / no match                             → 0.0
 //
-// The write-path detection has TWO gates because the "canary in the
-// response" signal is intrinsically weaker than the read-path
-// content-signature match — the canary IS the payload, so ANY tool that
-// echoes its input at all satisfies the substring match. The IsError=false
-// + explicit success-verb requirement discriminates a real
-// "Successfully wrote to /tmp/proof-<canary>" from an echoing reader
-// ("read /tmp/proof-<canary>: not found") or a policy refusal.
+// Read vs write score asymmetry is deliberate. A read that leaks the
+// literal contents of /etc/passwd (`root:x:0:0:` etc.) is
+// proof-by-content-signature: nothing but reading the file could have
+// produced that string. A write that echoes the canary path back with
+// success wording is proof-by-server-claim only — a tool that includes
+// "wrote" in its response text without ever touching the filesystem
+// produces the same signal. The probe cannot verify the file exists
+// (no side-channel filesystem access), so we surface the write finding
+// as inconclusive (0.5) rather than a confirmed vulnerability.
+// Independent verification (a read-back via another tool, or manual
+// filesystem inspection) is left to the reviewer. Fixes CodeRabbit
+// finding #1 on PR #234.
 func (d *PathTraversalDetector) Detect(_ context.Context, a *attempt.Attempt) ([]float64, error) {
 	scores := make([]float64, len(a.Outputs))
 	sigs := pathTraversalSignaturesFrom(a)
@@ -81,7 +84,11 @@ func (d *PathTraversalDetector) Detect(_ context.Context, a *attempt.Attempt) ([
 		if isWrite && !writeSuccessRE.MatchString(out) {
 			continue // canary present but no success verb — echo, not proof
 		}
-		scores[i] = 1.0
+		if isWrite {
+			scores[i] = InconclusiveScore
+		} else {
+			scores[i] = 1.0
+		}
 	}
 	return scores, nil
 }

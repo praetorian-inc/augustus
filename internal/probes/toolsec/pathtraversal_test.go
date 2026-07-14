@@ -305,11 +305,13 @@ func TestPathTraversal_ReadPayloadsOnReadOnlyTool(t *testing.T) {
 	}
 }
 
-// TestPathTraversal_WriteCanaryDetectedOnSuccess: a write-capable tool
-// that actually writes to /tmp/proof-<canary> and returns a success
-// message (IsError=false) is flagged by the detector via the canary
-// signature match.
-func TestPathTraversal_WriteCanaryDetectedOnSuccess(t *testing.T) {
+// TestPathTraversal_WriteCanaryScoresInconclusive: a write-capable tool
+// that echoes the canary path with a success verb produces the
+// InconclusiveScore (0.5) rather than a confirmed 1.0 vulnerability.
+// Response-only evidence of a write is intrinsically weak — a reader
+// that includes "wrote" in its response text would produce the same
+// signal without ever touching the filesystem. See detector doc.
+func TestPathTraversal_WriteCanaryScoresInconclusive(t *testing.T) {
 	pr, err := NewPathTraversal(registry.Config{"allow_destructive": true})
 	if err != nil {
 		t.Fatalf("NewPathTraversal: %v", err)
@@ -323,7 +325,6 @@ func TestPathTraversal_WriteCanaryDetectedOnSuccess(t *testing.T) {
 		},
 		call: func(_ string, args map[string]any) types.ToolResult {
 			path, _ := args["filepath"].(string)
-			// Vulnerable: write succeeds regardless of path.
 			return types.ToolResult{Text: "Successfully wrote to " + path, IsError: false}
 		},
 	}
@@ -334,16 +335,61 @@ func TestPathTraversal_WriteCanaryDetectedOnSuccess(t *testing.T) {
 	}
 
 	det := &pathTraversalDetectorStub{}
-	fired := false
+	sawInconclusive := false
 	for _, a := range attempts {
 		for _, s := range det.detect(a) {
 			if s == 1.0 {
-				fired = true
+				t.Errorf("write finding must not score 1.0 (response-only evidence is too weak); got 1.0 on attempt %q", a.Prompt)
+			}
+			if s == 0.5 {
+				sawInconclusive = true
 			}
 		}
 	}
-	if !fired {
-		t.Errorf("write-capable server that echoes the canary path with IsError=false should be flagged")
+	if !sawInconclusive {
+		t.Errorf("expected at least one write-canary attempt to score InconclusiveScore (0.5)")
+	}
+}
+
+// TestPathTraversal_WriteCanary_ReaderEchoingSuccessVerb: a READER tool
+// that happens to include "wrote" in its response text (bad log line
+// or debug output) must NOT produce even an inconclusive score — the
+// InconclusiveScore is for cases where the SUCCESS-VERB signal is
+// unverified, but this test isolates a case where there's no write
+// happening at all. Since the tool is annotated ReadOnly, the probe
+// should send READ payloads instead of WRITE payloads, and none of
+// those would carry the write canary in the response. Regression
+// guard against future refactors that might over-broaden the write
+// classification.
+func TestPathTraversal_WriteCanary_ReaderEchoingSuccessVerb(t *testing.T) {
+	p := newPathTraversalProbe(t)
+
+	target := &mockTarget{
+		tools: []map[string]any{
+			annotatedTool("view_file", "filepath", types.MCPToolAnnotations{ReadOnly: true}),
+		},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			path, _ := args["filepath"].(string)
+			// Reader that phrases its response with "success" language.
+			return types.ToolResult{Text: "Successfully read " + path + ": (content redacted)"}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	det := &pathTraversalDetectorStub{}
+	for _, a := range attempts {
+		isWrite, _ := a.GetMetadata(attempt.MetadataKeyPathTraversalIsWrite)
+		if b, _ := isWrite.(bool); b {
+			t.Errorf("ReadOnly-annotated tool should not receive WRITE payloads; got isWrite on attempt %q", a.Prompt)
+		}
+		for _, s := range det.detect(a) {
+			if s == 0.5 {
+				t.Errorf("reader tool that echoes success verb should not score 0.5; got InconclusiveScore on attempt %q", a.Prompt)
+			}
+		}
 	}
 }
 
@@ -384,7 +430,36 @@ func TestPathTraversal_WriteCanarySuppressedOnRefusal(t *testing.T) {
 	}
 }
 
+// TestMatchesPathParam covers the camelCase normalisation added for
+// CodeRabbit finding #5. Real-world MCP tool schemas use both snake_case
+// and camelCase parameter names; the matcher must handle both.
+func TestMatchesPathParam(t *testing.T) {
+	positive := []string{
+		// snake_case / hyphen / space separators
+		"filename", "file_path", "output-file", "log file",
+		// camelCase (the fix)
+		"filePath", "outputPath", "targetFile", "logFile",
+		"resourceURI", "sourcePath", "destPath",
+	}
+	for _, n := range positive {
+		if !matchesPathParam(n) {
+			t.Errorf("matchesPathParam(%q) = false, want true", n)
+		}
+	}
+	negative := []string{
+		"", "message", "count", "isValid", "userId",
+	}
+	for _, n := range negative {
+		if matchesPathParam(n) {
+			t.Errorf("matchesPathParam(%q) = true, want false", n)
+		}
+	}
+}
+
 // TestExtractHintedPrefixes covers the description-parsing helper directly.
+// Broadened to cover the FS-prefix acceptance changes: any absolute FS-
+// shaped path is a candidate; URL-route shapes are rejected by
+// looksLikeFSPrefix. See CodeRabbit finding #6.
 func TestExtractHintedPrefixes(t *testing.T) {
 	tests := []struct {
 		desc string
@@ -392,9 +467,18 @@ func TestExtractHintedPrefixes(t *testing.T) {
 	}{
 		{"", nil},
 		{"no fs paths here", nil},
+		// URL-route rejection — /api/, /v1/, .well-known
 		{"URL routes like /api/v1/read should not be treated as fs prefixes", nil},
+		{"GraphQL endpoint at /graphql/query", nil},
+		{"Well-known at /.well-known/oauth-authorization-server", nil},
+		// Accept classic Unix FS paths
 		{"Only files in /tmp/safe/ are accessible", []string{"/tmp/safe/"}},
 		{"Files under /var/log/ and /tmp/uploads/ allowed", []string{"/var/log/", "/tmp/uploads/"}},
+		// Accept non-allowlisted but legitimate FS paths (fixes #6)
+		{"Reads from /data/uploads/ only", []string{"/data/uploads/"}},
+		{"Configured sandbox: /workspace/files/", []string{"/workspace/files/"}},
+		{"App root at /app/storage/", []string{"/app/storage/"}},
+		// Windows drive-letter paths
 		{"Reads files from C:\\Users\\Public\\Reports\\", []string{`C:\Users\Public\Reports\`}},
 	}
 	for _, tt := range tests {
@@ -463,7 +547,11 @@ func (pathTraversalDetectorStub) detect(a *attempt.Attempt) []float64 {
 		if isWrite && !writeSuccessREStub.MatchString(out) {
 			continue
 		}
-		scores[i] = 1.0
+		if isWrite {
+			scores[i] = 0.5 // InconclusiveScore — write proof from response alone is weak
+		} else {
+			scores[i] = 1.0
+		}
 	}
 	return scores
 }

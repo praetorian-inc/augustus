@@ -45,7 +45,7 @@ const (
 // the returned class to decide whether a missing-Origin finding scores
 // as full VULN (loopback/lan, real DNS rebinding) or inconclusive
 // (public/unresolvable, CSRF-class or unknown deployment context).
-func classifyTargetHost(host string) originValidationTargetClass {
+func classifyTargetHost(ctx context.Context, host string) originValidationTargetClass {
 	if host == "" {
 		return targetUnresolvable
 	}
@@ -68,14 +68,15 @@ func classifyTargetHost(host string) originValidationTargetClass {
 	if ip := net.ParseIP(host); ip != nil {
 		return classifyIP(ip)
 	}
-	// Hostname → DNS lookup. Worst class wins.
-	ips, err := net.LookupIP(host)
-	if err != nil || len(ips) == 0 {
+	// Hostname → context-aware DNS lookup so a slow resolver can't outlive
+	// the probe context (fixes CodeRabbit #7). Worst class wins.
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil || len(addrs) == 0 {
 		return targetUnresolvable
 	}
 	worst := targetPublic
-	for _, ip := range ips {
-		c := classifyIP(ip)
+	for _, a := range addrs {
+		c := classifyIP(a.IP)
 		if rank(c) < rank(worst) {
 			worst = c
 		}
@@ -323,7 +324,7 @@ func (p *OriginValidation) Probe(ctx context.Context, gen types.Generator) ([]*a
 	// real DNS-rebinding preconditions (loopback/LAN) from spec-violation-
 	// only findings on public endpoints (CSRF-class, not rebinding, needs
 	// deployment context to assess).
-	targetClass := classifyTargetHost(u.Host)
+	targetClass := classifyTargetHost(ctx, u.Host)
 	slog.Info("mcptransport.OriginValidation: target host classified",
 		"host", u.Host, "class", string(targetClass))
 

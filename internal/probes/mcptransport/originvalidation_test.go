@@ -402,11 +402,11 @@ func TestOriginValidation_UsesBorrowedHTTPClient(t *testing.T) {
 	if seenCount == 0 {
 		t.Fatalf("recording transport saw NO requests — probe built its own client and bypassed the generator")
 	}
-	// Every attempt except pure errors should correspond to a request.
-	// Baseline + origin sweep + host sweep + CORS preflight all emit one
-	// request. Being generous: attempts >= seenCount / 2.
-	if len(attempts) < seenCount/2 {
-		t.Errorf("attempts=%d, seen=%d — mismatch suggests probe made side-channel requests", len(attempts), seenCount)
+	// Strict one-to-one: every probe attempt corresponds to exactly one
+	// recorded request. Anything less proves the probe made a side-channel
+	// request bypassing the borrowed client. Fixes CodeRabbit #8.
+	if seenCount != len(attempts) {
+		t.Errorf("attempts=%d, seen=%d — not every request used the borrowed client (side-channel HTTP)", len(attempts), seenCount)
 	}
 }
 
@@ -434,7 +434,7 @@ func TestClassifyTargetHost(t *testing.T) {
 		{"", targetUnresolvable},
 	}
 	for _, tt := range tests {
-		got := classifyTargetHost(tt.in)
+		got := classifyTargetHost(context.Background(), tt.in)
 		if got != tt.want {
 			t.Errorf("classifyTargetHost(%q) = %s, want %s", tt.in, got, tt.want)
 		}

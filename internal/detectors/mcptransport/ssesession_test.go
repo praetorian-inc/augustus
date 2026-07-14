@@ -40,7 +40,6 @@ func TestSSESessionDetector(t *testing.T) {
 		a    *attempt.Attempt
 		want []float64
 	}{
-		{"session-id-short accepted -> vuln", sseAttempt("session-id-short", true, "9 chars"), []float64{1.0}},
 		{"session-id-collision accepted -> vuln", sseAttempt("session-id-collision", true, "dup"), []float64{1.0}},
 		{"session-not-tcp-bound accepted -> vuln", sseAttempt("session-not-tcp-bound", true, "HTTP 200"), []float64{1.0}},
 		{"session-post-close-alive accepted -> vuln", sseAttempt("session-post-close-alive", true, "HTTP 200"), []float64{1.0}},
