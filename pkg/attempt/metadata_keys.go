@@ -107,7 +107,7 @@ const (
 	MetadataKeyOriginValidationAllowOrigin = "toolsec.originvalidation_allow_origin"
 	// MetadataKeyOriginValidationAllowCreds (bool) records whether the response's
 	// Access-Control-Allow-Credentials header was true.
-	MetadataKeyOriginValidationAllowCreds = "toolsec.originvalidation_allow_credentials"
+	MetadataKeyOriginValidationAllowCreds = "toolsec.originvalidation_allow_credentials" // #nosec G101 -- metadata key name, not a credential
 	// MetadataKeyOriginValidationTargetClass (string) categorises the target host
 	// so the detector can score findings by exploitability confidence
 	// rather than treating every missing-Origin-validation server as an

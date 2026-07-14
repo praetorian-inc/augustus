@@ -188,7 +188,7 @@ const (
 	classLocalhostLookalike originValidationClass = "localhost-lookalike"
 	classCaseVariant        originValidationClass = "case-variant"
 	classUnexpectedHost     originValidationClass = "unexpected-host"
-	classCORSReflectCreds   originValidationClass = "cors-reflect-creds"
+	classCORSReflectCreds   originValidationClass = "cors-reflect-creds" // #nosec G101 -- classification tag, not a credential
 )
 
 // mcpInitializePayload is the smallest MCP initialize the server must be
@@ -256,6 +256,13 @@ type hostPayload struct {
 // does, so a shape-matching validator ("looks like an extension id → allow")
 // exposes itself.
 func extensionID(seed string) string {
+	// Guard against an empty seed — i%len(seed) would panic with a slice
+	// index out of range. In practice the caller (Probe) always passes a
+	// 16-hex-char randToken() output, but defensive belt for direct-test
+	// paths and future callers.
+	if seed == "" {
+		seed = "0123456789abcdef"
+	}
 	// Deterministic-per-seed but uses the seed's bytes to fill 32 letters.
 	out := make([]byte, 32)
 	for i := 0; i < 32; i++ {
