@@ -157,6 +157,81 @@ func TestSSESession_NoLiveSessionInMetadata(t *testing.T) {
 	}
 }
 
+// TestSSESession_ControlErrorMarksReplaysInconclusive: when the unknown-id
+// control POST fails (network drop, transient 5xx), we can't verify whether
+// the server actually distinguishes valid from invalid session ids. An
+// accepted replay in that state must be recorded as inconclusive rather than
+// scored as a real finding. Regression for CodeRabbit finding #10.
+func TestSSESession_ControlErrorMarksReplaysInconclusive(t *testing.T) {
+	sessionID := "9b1deb4d3b7d4bad9bdd2b0d7b3dcb6d"
+
+	// Custom server: SSE handshake works; POST for the real id is accepted;
+	// POST for the fabricated AUGCONTROL id hijacks the conn and closes it,
+	// forcing p.postInitialize to return an error.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/sse"):
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			f, _ := w.(http.Flusher)
+			_, _ = fmt.Fprintf(w, "event: endpoint\ndata: /messages/?session_id=%s\n\n", sessionID)
+			if f != nil {
+				f.Flush()
+			}
+			<-r.Context().Done()
+		case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/messages"):
+			id := r.URL.Query().Get("session_id")
+			if strings.HasPrefix(id, "AUGCONTROL") {
+				// Hijack and close abruptly so client.Do returns an error.
+				hj, ok := w.(http.Hijacker)
+				if !ok {
+					http.Error(w, "no hijack", http.StatusInternalServerError)
+					return
+				}
+				conn, _, err := hj.Hijack()
+				if err != nil {
+					return
+				}
+				_ = conn.Close()
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"jsonrpc":"2.0","id":1,"result":{}}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	p := newSSESessionProbe(t, registry.Config{"endpoint": srv.URL + "/sse"})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL + "/sse", transport: "sse"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+
+	// Locate the two replay attempts by class.
+	sawReplay := false
+	for _, a := range attempts {
+		raw, _ := a.GetMetadata(attempt.MetadataKeySSESessionClass)
+		class, _ := raw.(string)
+		if class != string(sseClassNotTCPBound) && class != string(sseClassPostCloseAlive) {
+			continue
+		}
+		sawReplay = true
+		if !metaBool(a, attempt.MetadataKeySSESessionAccepted) {
+			// Replay POST wasn't accepted — nothing to score, no vuln.
+			continue
+		}
+		// Accepted replay with unverified control → MUST be inconclusive.
+		if !metaBool(a, attempt.MetadataKeyInconclusive) {
+			t.Errorf("class %q: accepted replay with failed control MUST be inconclusive, was scored as real", class)
+		}
+	}
+	if !sawReplay {
+		t.Fatal("expected at least one replay attempt in Probe output")
+	}
+}
+
 // TestSSESession_NotTCPBound: strong ids but the server accepts POSTs from
 // any TCP connection (rejects fabricated ids, accepts real ones). Expected:
 // session-not-tcp-bound + session-post-close-alive fire.

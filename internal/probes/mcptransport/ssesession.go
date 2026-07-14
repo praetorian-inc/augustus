@@ -164,7 +164,10 @@ func (p *SSESessionHijack) Probe(ctx context.Context, gen types.Generator) ([]*a
 	// Step 2: control test — fabricated session id. Server should reject.
 	// If it accepts, downstream replay findings would be FPs — the server
 	// has no session handling at all, which the control attempt records.
-	control := p.controlUnknownID(ctx, client, *sample)
+	// If the control POST itself errors (network drop, transient 5xx), the
+	// control is *unverified* — replays get marked inconclusive instead of
+	// scoring as real findings. Fixes CodeRabbit #10.
+	control, controlVerified := p.controlUnknownID(ctx, client, *sample)
 	attempts = append(attempts, control)
 	serverAcceptsAnyID := metaBool(control, attempt.MetadataKeySSESessionAccepted)
 
@@ -181,7 +184,7 @@ func (p *SSESessionHijack) Probe(ctx context.Context, gen types.Generator) ([]*a
 	// the stream, or to the session_id alone?" A server that accepts
 	// this POST treats the id as a naked bearer token — the primary
 	// hijack primitive.
-	attempts = append(attempts, p.replayCrossConnection(ctx, replayClient, *sample, serverAcceptsAnyID, proxied))
+	attempts = append(attempts, p.replayCrossConnection(ctx, replayClient, *sample, serverAcceptsAnyID, controlVerified, proxied))
 
 	// Step 3b: close the stream, wait, then replayPostClose. This tests
 	// a distinct property: does the session survive stream close?
@@ -193,7 +196,7 @@ func (p *SSESessionHijack) Probe(ctx context.Context, gen types.Generator) ([]*a
 		return attempts, nil
 	case <-time.After(500 * time.Millisecond):
 	}
-	attempts = append(attempts, p.replayPostClose(ctx, replayClient, *sample, serverAcceptsAnyID, proxied))
+	attempts = append(attempts, p.replayPostClose(ctx, replayClient, *sample, serverAcceptsAnyID, controlVerified, proxied))
 
 	return attempts, nil
 }
@@ -260,11 +263,14 @@ func (p *SSESessionHijack) sampleOne(ctx context.Context, client *http.Client, e
 	a.Detector = p.GetPrimaryDetector()
 	a.Metadata[attempt.MetadataKeySSESessionClass] = string(sseClassBaseline)
 
-	// Short deadline for the initial handshake — we only need the
-	// FIRST event frame to arrive. The rest of the probe lifecycle
-	// runs on the parent ctx via the returned closeStream func.
-	sampleCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-	req, err := http.NewRequestWithContext(sampleCtx, http.MethodGet, endpoint, nil)
+	// The HTTP request lives on a child of the parent ctx so closeStream
+	// can cancel it, but has NO timeout of its own — the SSE stream must
+	// stay open across the control POST and cross-connection replay.
+	// The first-frame read gets its own short deadline inside
+	// readEndpointEvent (below) so a silent server can't block the probe.
+	// Fixes CodeRabbit #11.
+	streamCtx, cancel := context.WithCancel(ctx)
+	req, err := http.NewRequestWithContext(streamCtx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		cancel()
 		a.SetError(err)
@@ -357,7 +363,14 @@ func redactSessionID(postURL string) string {
 // the server rejects it. Without this control, the replay tests below are
 // inconclusive — a server that accepts EVERY POST regardless of session id
 // is broken but not specifically a session-replay finding.
-func (p *SSESessionHijack) controlUnknownID(ctx context.Context, client *http.Client, ref sseSample) *attempt.Attempt {
+//
+// The second return is `verified`: true when the control POST completed and
+// the server's response was actually classified (accept or reject); false
+// when the POST errored (network drop, transient 5xx) and we don't actually
+// know how the server handles unknown IDs. An unverified control means the
+// caller must not score subsequent replay findings as real — they get
+// marked inconclusive instead. Fixes CodeRabbit #10.
+func (p *SSESessionHijack) controlUnknownID(ctx context.Context, client *http.Client, ref sseSample) (*attempt.Attempt, bool) {
 	fakeID := "AUGCONTROL" + randToken()
 	fakeURL := replaceSessionID(ref.postURL, fakeID)
 	a := attempt.New(fmt.Sprintf("[%s] POST with fabricated id", sseClassUnknownIDRejects))
@@ -371,7 +384,9 @@ func (p *SSESessionHijack) controlUnknownID(ctx context.Context, client *http.Cl
 	status, body, err := p.postInitialize(ctx, client, fakeURL)
 	if err != nil {
 		a.SetError(err)
-		return a
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = fmt.Sprintf("unknown-id control POST failed — replay verdicts unverified: %v", err)
+		return a, false
 	}
 	a.AddOutput(fmt.Sprintf("HTTP %d\n%s", status, truncBody(body)))
 	accepted := serverAcceptedPOST(status, body)
@@ -380,7 +395,7 @@ func (p *SSESessionHijack) controlUnknownID(ctx context.Context, client *http.Cl
 	// accepted=true so the replay tests know to suppress themselves.
 	a.Metadata[attempt.MetadataKeySSESessionAccepted] = accepted
 	a.Complete()
-	return a
+	return a, true
 }
 
 // serverAcceptedPOST classifies a response to a session-scoped POST by
@@ -435,7 +450,7 @@ func serverAcceptedPOST(status int, body string) bool {
 // fabricated id) the finding is suppressed regardless of outcome — the
 // server has no session enforcement at all, which is a different (broader)
 // bug the control attempt already carries.
-func (p *SSESessionHijack) replayCrossConnection(ctx context.Context, client *http.Client, ref sseSample, serverAcceptsAnyID, proxied bool) *attempt.Attempt {
+func (p *SSESessionHijack) replayCrossConnection(ctx context.Context, client *http.Client, ref sseSample, serverAcceptsAnyID, controlVerified, proxied bool) *attempt.Attempt {
 	a := attempt.New(fmt.Sprintf("[%s] POST from fresh TCP conn — stream still open", sseClassNotTCPBound))
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
@@ -454,6 +469,10 @@ func (p *SSESessionHijack) replayCrossConnection(ctx context.Context, client *ht
 	case serverAcceptsAnyID:
 		accepted = false
 		a.AddOutput("[suppressed by unknown-id control: server accepts any session id]\n")
+	case accepted && !controlVerified:
+		a.AddOutput("[inconclusive — unknown-id control failed; cannot verify the server actually distinguishes valid from invalid ids]\n")
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = "control-not-verified: unknown-id control POST errored, so an accept-any-id server may look like a real replay finding"
 	case proxied && accepted:
 		a.AddOutput("[inconclusive — outbound proxy configured; a keep-alive proxy holds the SSE conn open upstream, so the server may see the session as active regardless of the target's own session model]\n")
 		a.Metadata[attempt.MetadataKeyInconclusive] = true
@@ -471,7 +490,7 @@ func (p *SSESessionHijack) replayCrossConnection(ctx context.Context, client *ht
 // bearing the sampled session id, the id has outlived its stream: the
 // session survives its stream lifetime (CWE-613). Same control-suppression
 // rule as replayCrossConnection.
-func (p *SSESessionHijack) replayPostClose(ctx context.Context, client *http.Client, ref sseSample, serverAcceptsAnyID, proxied bool) *attempt.Attempt {
+func (p *SSESessionHijack) replayPostClose(ctx context.Context, client *http.Client, ref sseSample, serverAcceptsAnyID, controlVerified, proxied bool) *attempt.Attempt {
 	a := attempt.New(fmt.Sprintf("[%s] POST after stream close + 500ms grace", sseClassPostCloseAlive))
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
@@ -490,6 +509,10 @@ func (p *SSESessionHijack) replayPostClose(ctx context.Context, client *http.Cli
 	case serverAcceptsAnyID:
 		accepted = false
 		a.AddOutput("[suppressed by unknown-id control: server accepts any session id]\n")
+	case accepted && !controlVerified:
+		a.AddOutput("[inconclusive — unknown-id control failed; cannot verify the server actually distinguishes valid from invalid ids]\n")
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = "control-not-verified: unknown-id control POST errored, so an accept-any-id server may look like a real replay finding"
 	case proxied && accepted:
 		a.AddOutput("[inconclusive — outbound proxy configured; upstream conn survives our FIN so server may still see the session]\n")
 		a.Metadata[attempt.MetadataKeyInconclusive] = true
