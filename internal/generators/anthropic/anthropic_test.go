@@ -697,7 +697,7 @@ func TestAnthropicGenerator_DefaultTemperature(t *testing.T) {
 		"model":    "claude-3-opus-20240229",
 		"api_key":  "test-key",
 		"base_url": server.URL,
-		// No temperature specified - should use default
+		// No temperature specified.
 	})
 	require.NoError(t, err)
 
@@ -707,10 +707,38 @@ func TestAnthropicGenerator_DefaultTemperature(t *testing.T) {
 	_, err = g.Generate(context.Background(), conv, 1)
 	require.NoError(t, err)
 
-	// Default temperature should match litellm pattern (0.7)
-	if temp, ok := receivedRequest["temperature"].(float64); ok {
-		assert.InDelta(t, 0.7, temp, 0.01)
-	}
+	// Temperature is opt-in: when unset it must be omitted entirely rather than
+	// defaulted, so the request works against models that reject the field (e.g.
+	// claude-sonnet-5 returns "temperature is deprecated for this model").
+	_, present := receivedRequest["temperature"]
+	assert.False(t, present, "temperature must be absent from the request when not configured")
+}
+
+func TestAnthropicGenerator_ExplicitZeroTemperature(t *testing.T) {
+	var receivedRequest map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&receivedRequest)
+		_ = json.NewEncoder(w).Encode(mockAnthropicResponse("Response"))
+	}))
+	defer server.Close()
+
+	g, err := NewAnthropic(registry.Config{
+		"model":       "claude-3-opus-20240229",
+		"api_key":     "test-key",
+		"base_url":    server.URL,
+		"temperature": 0.0, // explicit 0 must be honored, not treated as unset
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	temp, present := receivedRequest["temperature"]
+	require.True(t, present, "explicitly configured temperature=0 must be sent")
+	assert.Equal(t, float64(0), temp)
 }
 
 func TestAnthropicGenerator_AnthropicVersion(t *testing.T) {
