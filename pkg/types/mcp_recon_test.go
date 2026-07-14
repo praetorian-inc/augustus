@@ -2,6 +2,7 @@ package types
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -91,5 +92,70 @@ func TestMCPToolAnnotations_IsDestructive(t *testing.T) {
 		if got := tt.ann.IsDestructive(); got != tt.want {
 			t.Errorf("%s: IsDestructive() = %v, want %v", tt.name, got, tt.want)
 		}
+	}
+}
+
+// MCPIdentifiers/MCPObjectRef must round-trip through JSON with the documented
+// keys; Source is omitempty while the other fields are always present. The ref is
+// server-agnostic — it carries no fingerprint or field-name markers.
+func TestMCPIdentifiers_JSONRoundTrip(t *testing.T) {
+	in := MCPIdentifiers{
+		Identity: "tenant-a",
+		Objects: []MCPObjectRef{
+			{
+				Tool:   "get_order",
+				Param:  "id",
+				ID:     "ord_1",
+				Source: "list_orders",
+				Args:   map[string]any{"id": "ord_1"},
+			},
+			{
+				Tool:  "get_ticket",
+				Param: "ticket_id",
+				ID:    "T-1",
+				// Source intentionally omitted.
+			},
+		},
+	}
+
+	data, err := json.Marshal(in)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	// Documented wire keys must be present.
+	for _, key := range []string{`"identity"`, `"objects"`, `"tool"`, `"param"`, `"id"`, `"source"`} {
+		if !strings.Contains(string(data), key) {
+			t.Errorf("marshaled payload missing key %s: %s", key, data)
+		}
+	}
+	// The ref must NOT carry any response-format-specific evidence.
+	for _, key := range []string{`"fingerprint"`, `"distinguishers"`} {
+		if strings.Contains(string(data), key) {
+			t.Errorf("marshaled payload must not carry format-specific key %s: %s", key, data)
+		}
+	}
+	// Source is omitempty: the second object must not emit a "source" field.
+	var generic struct {
+		Objects []map[string]json.RawMessage `json:"objects"`
+	}
+	if err := json.Unmarshal(data, &generic); err != nil {
+		t.Fatalf("unmarshal generic: %v", err)
+	}
+	if _, has := generic.Objects[1]["source"]; has {
+		t.Errorf("empty Source should be omitted, got %v", generic.Objects[1]["source"])
+	}
+
+	var out MCPIdentifiers
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.Identity != "tenant-a" || len(out.Objects) != 2 {
+		t.Fatalf("round-trip lost data: %+v", out)
+	}
+	got := out.Objects[0]
+	if got.Tool != "get_order" || got.Param != "id" || got.ID != "ord_1" ||
+		got.Source != "list_orders" || got.Args["id"] != "ord_1" {
+		t.Errorf("first object not carried: %+v", got)
 	}
 }

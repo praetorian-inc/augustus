@@ -16,6 +16,7 @@ type Config struct {
 	Probes     ProbeConfig                `yaml:"probes" koanf:"probes"`
 	Detectors  DetectorConfig             `yaml:"detectors" koanf:"detectors"`
 	Buffs      BuffConfig                 `yaml:"buffs,omitempty" koanf:"buffs"`
+	Recon      ReconConfig                `yaml:"recon,omitempty" koanf:"recon"`
 	Hooks      HooksConfig                `yaml:"hooks,omitempty" koanf:"hooks"`
 	Output     OutputConfig               `yaml:"output" koanf:"output"`
 	Profiles   map[string]Profile         `yaml:"profiles,omitempty" koanf:"profiles"`
@@ -46,6 +47,7 @@ type Profile struct {
 	Probes     ProbeConfig                `yaml:"probes,omitempty"`
 	Detectors  DetectorConfig             `yaml:"detectors,omitempty"`
 	Buffs      BuffConfig                 `yaml:"buffs,omitempty"`
+	Recon      ReconConfig                `yaml:"recon,omitempty"`
 	Hooks      HooksConfig                `yaml:"hooks,omitempty"`
 	Output     OutputConfig               `yaml:"output,omitempty"`
 }
@@ -127,6 +129,14 @@ type BuffConfig struct {
 	//   - "rate_limit" (float64): requests per second, 0 = no limit
 	//   - "burst_size" (float64): max burst capacity
 	//   - buff-specific keys (e.g., "api_key")
+	Settings map[string]map[string]any `yaml:"settings,omitempty" koanf:"settings"`
+}
+
+// ReconConfig contains reconnaissance-module configuration.
+type ReconConfig struct {
+	// Settings maps recon-module names to their specific configuration
+	// (e.g. an LLM-driven module's navigator_generator_type / model, or
+	// per-module tool hints).
 	Settings map[string]map[string]any `yaml:"settings,omitempty" koanf:"settings"`
 }
 
@@ -245,6 +255,33 @@ func (c *Config) ResolveBuffConfig(buffName string) map[string]any {
 		}
 	}
 
+	return cfg
+}
+
+// ResolveReconConfig builds a registry config for a specific recon module by
+// merging the global judge defaults with per-module settings. LLM-driven recon
+// modules can therefore reuse the shared judge/navigator generator (via the
+// injected judge keys) unless they override it. Resolution order: global judge
+// → per-module settings.
+func (c *Config) ResolveReconConfig(reconName string) map[string]any {
+	cfg := make(map[string]any)
+	if c == nil {
+		return cfg
+	}
+
+	// Layer 0: global judge config (an LLM navigator can reuse it).
+	c.injectJudgeConfig(cfg)
+
+	// Layer 1: per-module settings override globals.
+	if c.Recon.Settings != nil {
+		if settings, ok := c.Recon.Settings[reconName]; ok {
+			for k, v := range settings {
+				cfg[k] = v
+			}
+		}
+	}
+
+	registry.WarnDeprecatedKeys(cfg)
 	return cfg
 }
 
@@ -381,6 +418,16 @@ func (c *Config) Merge(other *Config) {
 		}
 	}
 
+	// Merge recon settings
+	if len(other.Recon.Settings) > 0 {
+		if c.Recon.Settings == nil {
+			c.Recon.Settings = make(map[string]map[string]any)
+		}
+		for k, v := range other.Recon.Settings {
+			c.Recon.Settings[k] = v
+		}
+	}
+
 	// Merge hooks config
 	if other.Hooks.Setup != "" {
 		c.Hooks.Setup = other.Hooks.Setup
@@ -416,6 +463,7 @@ func (c *Config) ApplyProfile(profileName string) error {
 		Probes:     profile.Probes,
 		Detectors:  profile.Detectors,
 		Buffs:      profile.Buffs,
+		Recon:      profile.Recon,
 		Hooks:      profile.Hooks,
 		Output:     profile.Output,
 	}

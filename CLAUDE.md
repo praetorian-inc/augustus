@@ -47,7 +47,7 @@ Generators may also implement these **optional** interfaces (in `pkg/types/gener
 - **UsageReporter**: `AccumulatedTokens() int64` — reports the cumulative tokens consumed across all `Generate` calls. The scanner type-asserts each generator for this interface and records the per-run delta into `Metrics.TokensConsumed` (surfaced as `augustus_tokens_consumed`). Implement it for free by embedding `types.UsageCounter` (a concurrency-safe `atomic.Int64`) and calling `g.AddTokens(...)` wherever the provider returns usage. Generators whose provider doesn't report usage still embed `UsageCounter` and simply never `AddTokens`, contributing 0 (honest partial coverage, never an estimate).
 - **VisionCapable**: `SupportsVision() bool` — declares that the generator's wire layer can transmit image attachments (`Message.Images`). Multimodal image probes gate on this to skip generators that can't carry images rather than silently sending a text-only request and mis-reporting the target as safe. Report **structural** capability (the generator emits image content blocks), not per-model support — e.g. an OpenAI-compatible generator returns `true` on its chat path even though a given model may ignore images; for generators with both image-capable and text-only paths (OpenAI/Azure completion models, Bedrock Titan/Llama), return the path-accurate value (e.g. `g.isChat`, or the model family).
 - **DocumentCapable**: `SupportsDocuments() bool` — the document-modality parallel of `VisionCapable`: declares that the generator's wire layer can transmit document attachments (`Message.Documents`, e.g. PDFs). Document probes (`internal/probes/pdf/*`) gate on this so a generator that can't carry documents fails the probe rather than silently sending a text-only request and mis-reporting the target as safe. Report **structural** capability — Anthropic returns `true` unconditionally; Bedrock returns `true` only for the Claude builder (Nova/Titan/Llama return `false`, as only the Claude path emits document blocks).
-- **ToolInvoker** (`pkg/types/tool_invoker.go`): `ListTools()` / `CallTool()` — declares that the target exposes a directly-invokable tool surface (e.g. an MCP server) rather than only chat completion. This is distinct from the model-facing tool wire layer (`Conversation.Tools`/`Message.ToolCalls`), which presents probe-defined tools *to* an LLM and executes nothing: `ToolInvoker` invokes REAL tools on the backend. It is the basis for the `internal/probes/toolsec/*` probes (authorization, injection-into-a-sink, SSRF against tool backends).
+- **ToolInvoker** (`pkg/types/tool_invoker.go`): `ListTools()` / `CallTool()` — declares that the target exposes a directly-invokable tool surface (e.g. an MCP server) rather than only chat completion. This is distinct from the model-facing tool wire layer (`Conversation.Tools`/`Message.ToolCalls`), which presents probe-defined tools *to* an LLM and executes nothing: `ToolInvoker` invokes REAL tools on the backend. It is the basis for the `internal/probes/toolsec/*` probes (broken object-level authorization via `toolsec.BOLA`, injection-into-a-sink via `toolsec.Injection`, and `toolsec.SSRF` against tool backends).
 - **MCPReconnaissance** (`pkg/types/mcp_recon.go`): `MCPInventory()` — declares that the target's full MCP attack surface (declared capabilities, negotiated protocol version, server instructions, and the tool/resource/prompt catalog) can be enumerated from the connected session. Implemented by the `mcp.MCP` generator and consumed by the `recon.MCP` reconnaissance module. Assembles raw descriptive data only — it renders no verdict.
 
 ### Reconnaissance (pkg/recon/)
@@ -57,6 +57,9 @@ Reconnaissance is a **first-class activity distinct from probing**: it *measures
 - **Recon** (`pkg/recon/recon.go`): `Recon(ctx, gen) ([]output.Observation, error)` + `Name()` — a reconnaissance module (e.g. `recon.MCP` in `internal/recon/mcp/`). It gates on the target's capability (type-asserting an optional interface such as `MCPReconnaissance`) and returns no observations for inapplicable targets. Results flow into a shared, concurrency-safe `recon.Store`.
 - **Observation** (`pkg/output/output.go`): the one descriptive output type (`Type`/`Target`/`Data`/`Source`). The verdict stays the probe score; it is never re-represented as an observation.
 - **ContextAwareProbe** (opt-in, `pkg/recon/context.go`): `SetContext(ProbeContext)` — a probe that consumes prior reconnaissance (the "scan once, reuse everywhere" model). The runner delivers the shared `Store` before probing; probes that don't implement it structurally cannot see recon. `toolsec.Injection`/`SSRF` use it to reuse a prior MCP inventory instead of re-enumerating the tool surface.
+- **ContextAwareRecon** (opt-in, `pkg/recon/context.go`): `SetContext(ProbeContext)` — the recon-side parallel of `ContextAwareProbe`: a reconnaissance module that composes over *earlier* observations (recon-consumes-recon). `recon.Run` injects the shared `Store` before each module runs, so a later module reads what an earlier one emitted. `recon.MCPIdentifiers` uses it to read a prior `recon.MCP` inventory rather than re-enumerating the tool surface.
+- **`recon.MCPIdentifiers`** (`internal/recon/mcp/identifiers.go`): the second MCP recon module — it discovers, per identity, the object identifiers a target's *getter* tools return objects for (enumerate → round-trip validate), establishing the ownership ground truth that downstream authorization probes (`toolsec.BOLA`) need. Ownership is the enumeration set-difference across identities, not response parsing.
+- **`llm.Base`** (`internal/recon/llm/llm.go`): embeddable navigator-LLM plumbing for building LLM-driven recon modules — lazy generator creation (deterministic paths need no LLM config), system/user prompting, JSON decoding, and judge/credential reuse. `recon.MCPIdentifiers` embeds it so an LLM navigator can classify getters/enumerators, with a deterministic keyword heuristic as fallback.
 
 ### Plugin Registration Pattern
 
@@ -93,7 +96,7 @@ internal/           Implementation details (not importable externally)
   detectors/        95+ detector implementations
   buffs/            7 buff transformations
   attackengine/     Iterative attack engine (PAIR/TAP)
-  recon/            Reconnaissance modules (e.g. recon/mcp — MCP attack-surface enumeration)
+  recon/            Reconnaissance modules (recon/mcp — MCP attack-surface enumeration + per-identity identifier harvesting; recon/llm — navigator-LLM base for LLM-driven recon)
 ```
 
 ### Scan Pipeline
@@ -135,6 +138,8 @@ For YAML-based probes, create `.yaml` files in `data/` subdirectory and use `tem
 2. Implement `recon.Recon` — return `[]output.Observation` (descriptive facts), never a score
 3. Register: `recon.Register("recon.Name", factory)`
 4. Gate on the target's capability (e.g. type-assert `types.MCPReconnaissance`) and return no observations for inapplicable targets — a module that can't operate is a skip, not an error
+5. To compose over earlier observations, implement `recon.ContextAwareRecon` (or embed `llm.Base`, which supplies it) and read prior observations from the injected `Store` — recon-consumes-recon
+6. Per-module configuration comes from the `recon.settings` block of the YAML config, resolved by `config.ResolveReconConfig` (which also injects the global judge) and delivered as the module's `registry.Config`; see `recon.MCPIdentifiers` for generator-type/model/keyword-hint settings
 
 ## Key Patterns
 
@@ -164,6 +169,9 @@ augustus scan mcp.MCP --recon recon.MCP --config '{"endpoint":"http://localhost:
 
 # Recon feeding tool-surface probes in one scan (scan once, reuse everywhere)
 augustus scan mcp.MCP --recon recon.MCP --probe toolsec.Injection --probe toolsec.SSRF --config '{"endpoint":"http://localhost:8000/mcp"}'
+
+# Composed recon (recon-consumes-recon) feeding the BOLA probe; per-module settings via a recon.settings config block
+augustus scan mcp.MCP --recon recon.MCP --recon recon.MCPIdentifiers --probe toolsec.BOLA --config-file bola.yaml
 ```
 
 ## Commit Convention
