@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/praetorian-inc/augustus/internal/toolpolicy"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/recon"
@@ -143,7 +144,7 @@ func buildWritePayloads() []pathTraversalPayload {
 type PathTraversal struct {
 	reconContext
 	allParams bool
-	policy    toolPolicy
+	policy    toolpolicy.Policy
 }
 
 // NewPathTraversal reads pathtraversal_all_string_params + the shared
@@ -151,7 +152,7 @@ type PathTraversal struct {
 func NewPathTraversal(cfg registry.Config) (probes.Prober, error) {
 	return &PathTraversal{
 		allParams: registry.GetBool(cfg, "pathtraversal_all_string_params", false),
-		policy:    newToolPolicy(cfg),
+		policy:    toolpolicy.New(cfg),
 	}, nil
 }
 
@@ -191,7 +192,7 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 	if err != nil {
 		return nil, fmt.Errorf("toolsec.PathTraversal: list tools: %w", err)
 	}
-	tools = p.policy.filterTools(p.Name(), tools)
+	tools = p.policy.Filter(p.Name(), tools)
 	if len(tools) == 0 {
 		return nil, nil
 	}
@@ -256,7 +257,7 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 func (p *PathTraversal) payloadsFor(tool map[string]any) []pathTraversalPayload {
 	// Annotations are stored as a VALUE (types.MCPToolAnnotations) on the
 	// tool map by the recon layer's shared shape; see the sibling
-	// toolPolicy.skip method for the same assertion pattern.
+	// toolpolicy.Policy.Skip method for the same assertion pattern.
 	ann, ok := tool["annotations"].(types.MCPToolAnnotations)
 	if ok && ann.ReadOnly {
 		return readPayloads
