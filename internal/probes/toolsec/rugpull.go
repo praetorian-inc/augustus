@@ -29,9 +29,10 @@ const cfgBaselinePath = "baseline_path"
 // an MCP server that advertises benign tools at approval time and later mutates
 // their definitions. It diffs a baseline snapshot against the current tool set.
 //
-// The baseline is either a trusted on-disk snapshot (config baseline_path) or,
-// absent one, the target's own first enumeration — the probe then clears history
-// and re-lists, catching servers that mutate their definitions immediately.
+// The baseline is a trusted on-disk snapshot supplied via the baseline_path
+// config key. Without one there is nothing to diff against, so the probe emits a
+// single informational attempt explaining that a baseline snapshot is required
+// rather than mutating the shared session to re-enumerate.
 //
 // The target must implement types.ToolInvoker; other targets fail loud rather
 // than return a clean-looking empty result.
@@ -68,7 +69,14 @@ func (p *RugPull) Probe(ctx context.Context, gen types.Generator) ([]*attempt.At
 		return nil, fmt.Errorf("toolsec.RugPull: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
 	}
 
-	baseline, current, err := p.snapshots(ctx, gen, inv)
+	// Drift detection requires a trusted baseline to diff the live tool set
+	// against. Without one there is nothing to compare, so emit a single
+	// informational attempt rather than mutating the shared session to re-list.
+	if p.baselinePath == "" {
+		return []*attempt.Attempt{p.noBaselineAttempt()}, nil
+	}
+
+	baseline, current, err := p.snapshots(ctx, inv)
 	if err != nil {
 		return nil, err
 	}
@@ -96,31 +104,29 @@ func (p *RugPull) Probe(ctx context.Context, gen types.Generator) ([]*attempt.At
 	return attempts, nil
 }
 
-// snapshots returns the baseline and current tool sets. With a configured
-// baseline_path it reads the trusted on-disk snapshot as the baseline and the
-// live ListTools as current; otherwise it lists twice across ClearHistory to
-// catch a server that mutates its definitions between enumerations.
-func (p *RugPull) snapshots(ctx context.Context, gen types.Generator, inv types.ToolInvoker) (baseline, current []map[string]any, err error) {
-	if p.baselinePath != "" {
-		baseline, err = loadToolSnapshot(p.baselinePath)
-		if err != nil {
-			return nil, nil, fmt.Errorf("toolsec.RugPull: load baseline %q: %w", p.baselinePath, err)
-		}
-		current, err = inv.ListTools(ctx)
-		if err != nil {
-			return nil, nil, fmt.Errorf("toolsec.RugPull: list tools: %w", err)
-		}
-		return baseline, current, nil
-	}
+// noBaselineAttempt records a benign, non-vulnerable attempt explaining that
+// drift detection needs a trusted baseline snapshot. It carries no DriftMarker,
+// so toolsec.ToolDrift scores it 0.0 (SAFE).
+func (p *RugPull) noBaselineAttempt() *attempt.Attempt {
+	a := attempt.New("rug-pull drift detection requires a baseline snapshot")
+	a.Probe = p.Name()
+	a.Detector = p.GetPrimaryDetector()
+	a.AddOutput("no baseline snapshot configured; set the baseline_path config key to a trusted tool snapshot to enable post-approval drift detection")
+	a.Complete()
+	return a
+}
 
-	baseline, err = inv.ListTools(ctx)
+// snapshots returns the baseline and current tool sets. It reads the trusted
+// on-disk snapshot named by baseline_path as the baseline and one live ListTools
+// as current. It is only called when baseline_path is set.
+func (p *RugPull) snapshots(ctx context.Context, inv types.ToolInvoker) (baseline, current []map[string]any, err error) {
+	baseline, err = loadToolSnapshot(p.baselinePath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("toolsec.RugPull: list tools (baseline): %w", err)
+		return nil, nil, fmt.Errorf("toolsec.RugPull: load baseline %q: %w", p.baselinePath, err)
 	}
-	gen.ClearHistory()
 	current, err = inv.ListTools(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("toolsec.RugPull: list tools (current): %w", err)
+		return nil, nil, fmt.Errorf("toolsec.RugPull: list tools: %w", err)
 	}
 	return baseline, current, nil
 }

@@ -121,21 +121,24 @@ func TestRugPull_FailsLoudOnNonToolInvoker(t *testing.T) {
 	}
 }
 
-// TestRugPull_ImmediateMutationViaRelist: with no baseline_path, the probe lists
-// tools twice (across ClearHistory) and catches a server that mutates its
-// definitions between the two enumerations.
-func TestRugPull_ImmediateMutationViaRelist(t *testing.T) {
-	target := &mockTarget{
-		tools: []map[string]any{driftTool("calc", "v1", nil)},
+// clearCountingTarget wraps mockTarget to count ClearHistory invocations,
+// verifying the probe never drops the shared MCP session mid-scan.
+type clearCountingTarget struct {
+	*mockTarget
+	clears int
+}
+
+func (c *clearCountingTarget) ClearHistory() { c.clears++ }
+
+// TestRugPull_NoBaselineIsInformational: with no baseline_path there is nothing
+// to diff against, so the probe emits a single informational (SAFE) attempt and
+// must NOT call ClearHistory (which would drop the shared MCP session and break
+// concurrent probes).
+func TestRugPull_NoBaselineIsInformational(t *testing.T) {
+	target := &clearCountingTarget{mockTarget: &mockTarget{
+		tools: []map[string]any{driftTool("calc", "adds two numbers", nil)},
 		call:  func(string, map[string]any) types.ToolResult { return types.ToolResult{} },
-	}
-	calls := 0
-	target.listHook = func() {
-		calls++
-		if calls == 2 {
-			target.tools = []map[string]any{driftTool("calc", "v2-mutated", nil)}
-		}
-	}
+	}}
 
 	p := newRugPull(t, registry.Config{})
 	attempts, err := p.Probe(context.Background(), target)
@@ -143,9 +146,22 @@ func TestRugPull_ImmediateMutationViaRelist(t *testing.T) {
 		t.Fatalf("Probe: %v", err)
 	}
 	if len(attempts) != 1 {
-		t.Fatalf("attempts = %d, want one drift attempt", len(attempts))
+		t.Fatalf("attempts = %d, want exactly one informational attempt", len(attempts))
 	}
-	if scores := scoreToolDrift(t, attempts[0]); len(scores) != 1 || scores[0] != 1.0 {
-		t.Errorf("scores = %v, want [1]", scores)
+	a := attempts[0]
+	if a.Status != attempt.StatusComplete {
+		t.Errorf("attempt status = %q, want complete", a.Status)
+	}
+	for _, o := range a.Outputs {
+		if strings.HasPrefix(o, driftdet.DriftMarker) {
+			t.Fatalf("informational attempt carries a drift marker: %q", o)
+		}
+	}
+	scores := scoreToolDrift(t, a)
+	if len(scores) != 1 || scores[0] != 0.0 {
+		t.Errorf("scores = %v, want [0]", scores)
+	}
+	if target.clears != 0 {
+		t.Errorf("ClearHistory called %d times, want 0 (must not drop the shared session)", target.clears)
 	}
 }

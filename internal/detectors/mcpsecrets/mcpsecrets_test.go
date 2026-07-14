@@ -132,6 +132,17 @@ func TestConfigLeak_Detect(t *testing.T) {
 			output: `{"env":{"API_TOKEN":"1.2.3"}}`,
 			want:   0.0,
 		},
+		// --- Negative: credential-free DSN / connection string (FIX 3) ---
+		{
+			name:   "credential-free dsn key",
+			output: `DSN=postgres://localhost:5432/app`,
+			want:   0.0,
+		},
+		{
+			name:   "connection string without userinfo password",
+			output: `{"env":{"CONNECTION_STRING":"postgres://localhost/app"}}`,
+			want:   0.0,
+		},
 		{
 			name:   "provider-format value that is a safe token",
 			output: `{"env":{"OPENAI_API_KEY":"sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}}`,
@@ -167,6 +178,75 @@ func TestConfigLeak_Detect(t *testing.T) {
 			name:   "uuid server identifier is not a secret",
 			output: `{"mcpServers":{"svc":{"id":"550e8400-e29b-41d4-a716-446655440000","command":"srv"}}}`,
 			want:   0.0,
+		},
+		// --- Positive: YAML/INI unquoted key: value secrets (FIX A) ---
+		{
+			name:   "yaml password key value",
+			output: `DB_PASSWORD: S3cr3tP@ssw0rd!`,
+			want:   1.0,
+		},
+		{
+			name: "yaml secret inside a multi-line block",
+			output: `mcp:
+  db:
+    DB_PASSWORD: S3cr3tP@ssw0rd!
+    LOG_LEVEL: debug`,
+			want: 1.0,
+		},
+		// --- Negative: YAML non-secret / reference values (FIX A) ---
+		{
+			name:   "yaml log level is not a secret",
+			output: `LOG_LEVEL: debug`,
+			want:   0.0,
+		},
+		{
+			name:   "yaml env-var reference is not a secret",
+			output: `API_KEY: ${OPENAI_KEY}`,
+			want:   0.0,
+		},
+		// --- Regression: yamlKV must not alter JSON scoring (FIX A) ---
+		{
+			name: "pretty printed json secret still flagged",
+			output: `{
+  "mcpServers": {
+    "db": {
+      "env": {
+        "DB_PASSWORD": "S3cr3tP@ssw0rd!"
+      }
+    }
+  }
+}`,
+			want: 1.0,
+		},
+		{
+			name: "pretty printed json placeholder still safe",
+			output: `{
+  "mcpServers": {
+    "db": {
+      "env": {
+        "DB_PASSWORD": "changeme"
+      }
+    }
+  }
+}`,
+			want: 0.0,
+		},
+		// --- Negative: URL port must not be treated as a password (FIX B) ---
+		{
+			name:   "url port is not a connection-string password",
+			output: `https://example.com:443@tracker/x`,
+			want:   0.0,
+		},
+		{
+			name:   "real userinfo password still flagged",
+			output: `postgres://admin:S3cr3tP@ss@db.internal:5432/prod`,
+			want:   1.0,
+		},
+		// --- Positive: jsonKV value with an escaped quote captured in full (FIX G) ---
+		{
+			name:   "json value with escaped quote",
+			output: `{"password":"pa\"ss9word1x"}`,
+			want:   1.0,
 		},
 		{
 			name:   "empty output",

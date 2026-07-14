@@ -118,6 +118,11 @@ func (p *ResponseLeak) callOne(ctx context.Context, inv types.ToolInvoker, tool 
 		return a
 	}
 	a.AddOutput(res.Text)
+	// Score the structured/raw payload too: a credential may appear only in the
+	// raw result and never in the assembled Text.
+	if len(res.Raw) > 0 && string(res.Raw) != res.Text {
+		a.AddOutput(string(res.Raw))
+	}
 	a.Complete()
 	return a
 }

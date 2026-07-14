@@ -65,14 +65,25 @@ var providerKeyPatterns = []*regexp.Regexp{
 
 // secretKeyName matches configuration key / env-var names that conventionally
 // hold credentials. Used to gate value inspection so arbitrary config values
-// are not treated as secrets.
-var secretKeyName = regexp.MustCompile(`(?i)(pass(w(or)?d)?|passphrase|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|credential|conn(ection)?[_-]?str(ing)?|dsn)`)
+// are not treated as secrets. Connection-string / DSN keys are deliberately
+// excluded: a real URI credential is caught by the dedicated connCreds signal
+// regardless of key name, whereas a credential-free DSN (no userinfo password)
+// would otherwise false-positive via the generic high-entropy value path.
+var secretKeyName = regexp.MustCompile(`(?i)(pass(w(or)?d)?|passphrase|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|credential)`)
 
-// jsonKV matches "key": "value" pairs in JSON config.
-var jsonKV = regexp.MustCompile(`"([A-Za-z0-9_.\-]+)"\s*:\s*"([^"]*)"`)
+// jsonKV matches "key": "value" pairs in JSON config. The value capture handles
+// escaped characters (e.g. an escaped quote \") so a secret is captured in full
+// rather than truncated at the first inner quote.
+var jsonKV = regexp.MustCompile(`"([A-Za-z0-9_.\-]+)"\s*:\s*"((?:[^"\\]|\\.)*)"`)
 
-// envKV matches KEY=value assignments in .env / shell-style config (one per line).
+// envKV matches KEY=value assignments in .env / shell-style config (one per
+// line). This also covers TOML/INI "key = value" pairs.
 var envKV = regexp.MustCompile(`(?m)^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*$`)
+
+// yamlKV matches unquoted "key: value" pairs in YAML / INI config (one per
+// line). JSON keys are quoted, so the leading '"' prevents this from matching a
+// JSON line — that path is handled by jsonKV.
+var yamlKV = regexp.MustCompile(`(?m)^\s*([A-Za-z0-9_.\-]+)\s*:\s*(.+?)\s*$`)
 
 // connCreds matches a credential embedded in a URI userinfo section (the
 // "user:secret@host" form). The secret capture is greedy up to the LAST '@'
@@ -165,14 +176,20 @@ func leaks(content string) bool {
 			return true
 		}
 	}
+	for _, kv := range yamlKV.FindAllStringSubmatch(content, -1) {
+		if secretKeyName.MatchString(kv[1]) && isConcreteSecret(kv[2]) {
+			return true
+		}
+	}
 
 	// Signal 3: credentials embedded in a connection-string URI. This stays
 	// high-confidence (no entropy gate): a userinfo password in a URI is a
-	// credential by construction. Fire when it is non-empty and not a
-	// placeholder.
+	// credential by construction. Fire when it is non-empty, not a placeholder,
+	// and not all-digits — an all-digit "password" is almost always a URL port
+	// captured by connCreds (e.g. https://host:443@rest), not a real secret.
 	for _, m := range connCreds.FindAllStringSubmatch(content, -1) {
 		pw := strings.TrimSpace(m[1])
-		if pw != "" && !isPlaceholder(pw) {
+		if pw != "" && !isPlaceholder(pw) && !allDigits.MatchString(pw) {
 			return true
 		}
 	}

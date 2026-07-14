@@ -51,6 +51,9 @@ augustus scan test.Blank --probe mcpconfig.SecretScan --config-file scan.yaml
 
 A leaky config (e.g. a `GITHUB_TOKEN` set to a real `ghp_…` value) scores `1.0` (VULN); configs that only reference env vars (`${FS_API_KEY}`) or use placeholders score `0.0` (SAFE).
 
+> [!warning] Scan outputs are secret-bearing
+> Attempt outputs embed the scanned content verbatim, including any real credential found, so JSONL report artifacts from this probe should be treated as sensitive and handled accordingly.
+
 ## Pairs with
 
 - [[MCP Config Leak Detector]] (`mcpsecrets.ConfigLeak`)

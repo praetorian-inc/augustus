@@ -50,6 +50,10 @@ type source struct {
 }
 
 // SecretScan scans MCP configuration content for exposed credentials.
+//
+// Caveat: attempt outputs embed the scanned content verbatim, including any real
+// credential found, so the resulting JSONL report artifacts are secret-bearing
+// and should be treated as sensitive.
 type SecretScan struct {
 	path    string
 	content string
@@ -74,8 +78,13 @@ func NewSecretScan(cfg registry.Config) (probes.Prober, error) {
 // Probe collects config sources and emits one attempt per source. The generator
 // is intentionally unused: this is static analysis of configuration at rest.
 func (s *SecretScan) Probe(ctx context.Context, _ probes.Generator) ([]*attempt.Attempt, error) {
-	sources, err := s.collect()
+	sources, err := s.collect(ctx)
 	if err != nil {
+		// A cancelled context aborts the whole scan: propagate it rather than
+		// recording it as a per-probe error attempt.
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		a := attempt.New(probeName)
 		a.Probe = probeName
 		a.Detector = primaryDetector
@@ -107,15 +116,21 @@ func (s *SecretScan) Probe(ctx context.Context, _ probes.Generator) ([]*attempt.
 }
 
 // collect gathers all sources from inline content and/or the configured path.
-// It returns an error only when there is nothing at all to scan.
-func (s *SecretScan) collect() ([]source, error) {
+// It returns an error only when there is nothing at all to scan or the context
+// is cancelled mid-walk.
+func (s *SecretScan) collect(ctx context.Context) ([]source, error) {
 	var sources []source
 	if s.content != "" {
 		sources = append(sources, source{label: "inline", content: s.content})
 	}
 	if s.path != "" {
-		found, err := readPath(s.path)
+		found, err := readPath(ctx, s.path)
 		if err != nil {
+			// A cancelled walk aborts the whole scan; surface it so Probe can
+			// propagate ctx.Err() instead of recording a spurious error source.
+			if ctx.Err() != nil {
+				return nil, err
+			}
 			sources = append(sources, source{label: s.path, err: err})
 		} else {
 			sources = append(sources, found...)
@@ -128,7 +143,10 @@ func (s *SecretScan) collect() ([]source, error) {
 }
 
 // readPath reads a single file, or walks a directory collecting config files.
-func readPath(path string) ([]source, error) {
+// The context lets a directory walk be cancelled between entries; a per-entry
+// walk error (e.g. permission denied on a subdir) is recorded as a source and
+// the walk continues rather than aborting the whole scan.
+func readPath(ctx context.Context, path string) ([]source, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("stat %s: %w", path, err)
@@ -147,8 +165,14 @@ func readPath(path string) ([]source, error) {
 
 	var sources []source
 	walkErr := filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		if err != nil {
-			return err
+			// Record the entry error and keep walking rather than aborting the
+			// whole scan on a single unreadable path.
+			sources = append(sources, source{label: p, err: err})
+			return nil
 		}
 		if d.IsDir() || !isConfigFile(d.Name()) {
 			return nil
@@ -183,11 +207,14 @@ func oversizeErr(path string, size int64) error {
 }
 
 // isConfigFile reports whether a filename should be scanned as configuration.
+// The name and extension are lowercased first so mixed-case files (config.JSON,
+// config.Yaml, .ENV) are still recognized.
 func isConfigFile(name string) bool {
-	if strings.HasPrefix(name, ".env") {
+	lower := strings.ToLower(name)
+	if strings.HasPrefix(lower, ".env") {
 		return true
 	}
-	return configExtensions[filepath.Ext(name)]
+	return configExtensions[strings.ToLower(filepath.Ext(name))]
 }
 
 // Name returns the fully qualified probe name.

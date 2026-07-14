@@ -1,6 +1,9 @@
 package toolsec
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // driftTool builds a minimal tool snapshot map in the canonical ListTools shape.
 func driftTool(name, desc string, params map[string]any) map[string]any {
@@ -66,6 +69,31 @@ func TestDiffTools_ParametersChanged(t *testing.T) {
 	}
 	if changes[0].Name != "a" || changes[0].Kind != "parameters_changed" {
 		t.Errorf("change = %+v, want parameters_changed for a", changes[0])
+	}
+}
+
+// TestDiffTools_LongDescriptionTruncated: when a description changes, the Detail
+// truncates each printed description to keep drift output readable (FIX H).
+func TestDiffTools_LongDescriptionTruncated(t *testing.T) {
+	oldDesc := "OLD:" + strings.Repeat("a", 200)
+	newDesc := "NEW:" + strings.Repeat("b", 200)
+	base := []map[string]any{driftTool("a", oldDesc, nil)}
+	cur := []map[string]any{driftTool("a", newDesc, nil)}
+
+	changes := DiffTools(base, cur)
+	if len(changes) != 1 || changes[0].Kind != "description_changed" {
+		t.Fatalf("changes = %+v, want one description_changed", changes)
+	}
+	detail := changes[0].Detail
+	if strings.Contains(detail, oldDesc) || strings.Contains(detail, newDesc) {
+		t.Errorf("Detail embeds a full long description, want truncated: %q", detail)
+	}
+	if !strings.Contains(detail, "...") {
+		t.Errorf("Detail = %q, want a truncation ellipsis", detail)
+	}
+	// The change is still detected (both prefixes survive truncation).
+	if !strings.Contains(detail, "OLD:") || !strings.Contains(detail, "NEW:") {
+		t.Errorf("Detail = %q, want both descriptions represented", detail)
 	}
 }
 

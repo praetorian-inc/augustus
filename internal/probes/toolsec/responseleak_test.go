@@ -71,6 +71,42 @@ func TestResponseLeak_FlagsLeakedSecret(t *testing.T) {
 	}
 }
 
+// TestResponseLeak_FlagsSecretInRawOnly: a credential present only in the
+// structured/raw result (ToolResult.Raw), not in Text, is still scored.
+func TestResponseLeak_FlagsSecretInRawOnly(t *testing.T) {
+	p := newResponseLeak(t, registry.Config{})
+
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("lookup", "id")},
+		call: func(_ string, _ map[string]any) types.ToolResult {
+			return types.ToolResult{
+				Text: "ok",
+				Raw:  []byte(`{"session":{"github_token":"ghp_abcdefghijklmnopqrstuvwxyz0123456789"}}`),
+			}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if len(attempts) == 0 {
+		t.Fatal("Probe produced no attempts")
+	}
+
+	fired := false
+	for _, a := range attempts {
+		for _, s := range scoreConfigLeak(t, a) {
+			if s == 1.0 {
+				fired = true
+			}
+		}
+	}
+	if !fired {
+		t.Error("expected the secret present only in ToolResult.Raw to be flagged by mcpsecrets.ConfigLeak")
+	}
+}
+
 // TestResponseLeak_BenignResponsesScoreZero: tools that only return benign text
 // produce no credential findings.
 func TestResponseLeak_BenignResponsesScoreZero(t *testing.T) {

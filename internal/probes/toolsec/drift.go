@@ -43,7 +43,7 @@ func DiffTools(baseline, current []map[string]any) []ToolChange {
 			changes = append(changes, ToolChange{
 				Name:   name,
 				Kind:   "description_changed",
-				Detail: fmt.Sprintf("%q -> %q", bd, cd),
+				Detail: fmt.Sprintf("%q -> %q", truncateDesc(bd), truncateDesc(cd)),
 			})
 		}
 		if canonicalJSON(normalizeSchema(b["parameters"])) != canonicalJSON(normalizeSchema(c["parameters"])) {
@@ -80,6 +80,20 @@ func indexByName(tools []map[string]any) map[string]map[string]any {
 func toolDescription(t map[string]any) string {
 	d, _ := t["description"].(string)
 	return d
+}
+
+// maxDescLen bounds how much of a tool description DiffTools embeds in a change
+// Detail so drift output stays readable when descriptions are long.
+const maxDescLen = 80
+
+// truncateDesc shortens s to maxDescLen runes, appending an ellipsis when it was
+// truncated. It counts runes so a multibyte description is not split mid-character.
+func truncateDesc(s string) string {
+	r := []rune(s)
+	if len(r) <= maxDescLen {
+		return s
+	}
+	return string(r[:maxDescLen]) + "..."
 }
 
 // normalizeSchema returns v with the set-like JSON-Schema arrays under the keys

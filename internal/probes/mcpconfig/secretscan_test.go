@@ -138,6 +138,37 @@ func TestSecretScan_Directory(t *testing.T) {
 	}
 }
 
+// TestSecretScan_UppercaseExtensionIsScanned: the extension/.env checks are
+// case-insensitive, so config.JSON (uppercase extension) is scanned and its
+// secret flagged (FIX C).
+func TestSecretScan_UppercaseExtensionIsScanned(t *testing.T) {
+	dir := t.TempDir()
+	fp := filepath.Join(dir, "config.JSON")
+	if err := os.WriteFile(fp, []byte(leakyConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := newProbe(t, registry.Config{"path": dir})
+	attempts, err := p.Probe(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Probe() error = %v", err)
+	}
+	if len(attempts) != 1 {
+		t.Fatalf("got %d attempts, want 1 (config.JSON scanned)", len(attempts))
+	}
+
+	det, err := detectors.Create("mcpsecrets.ConfigLeak", registry.Config{})
+	if err != nil {
+		t.Fatalf("resolve detector: %v", err)
+	}
+	scores, err := det.Detect(context.Background(), attempts[0])
+	if err != nil {
+		t.Fatalf("Detect() error = %v", err)
+	}
+	if len(scores) != 1 || scores[0] != 1.0 {
+		t.Errorf("scores = %v, want [1.0] for uppercase-extension config", scores)
+	}
+}
+
 func TestSecretScan_NestedSubdirectoryIsWalked(t *testing.T) {
 	dir := t.TempDir()
 	nested := filepath.Join(dir, "sub", "dir")
@@ -204,6 +235,28 @@ func TestSecretScan_ContextCancellationReturnsError(t *testing.T) {
 	_, err := p.Probe(ctx, nil)
 	if err == nil {
 		t.Fatal("Probe() with cancelled context returned nil error, want ctx.Err()")
+	}
+	if err != context.Canceled {
+		t.Errorf("Probe() error = %v, want %v", err, context.Canceled)
+	}
+}
+
+// TestSecretScan_DirectoryContextCancellationReturnsError: a cancelled context
+// passed to a directory scan must propagate ctx.Err() rather than walk the tree
+// or emit an error attempt (FIX 4 — WalkDir now honors cancellation).
+func TestSecretScan_DirectoryContextCancellationReturnsError(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "mcp.json"), []byte(leakyConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := newProbe(t, registry.Config{"path": dir})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel before calling Probe
+
+	_, err := p.Probe(ctx, nil)
+	if err == nil {
+		t.Fatal("Probe() on a directory with cancelled context returned nil error, want ctx.Err()")
 	}
 	if err != context.Canceled {
 		t.Errorf("Probe() error = %v, want %v", err, context.Canceled)
