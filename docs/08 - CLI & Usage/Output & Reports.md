@@ -42,16 +42,18 @@ When `--output` is set, JSONL is streamed incrementally and the in-memory collec
 
 Each attempt carries one or more detector **scores in `[0.0, 1.0]`** (0 = safe, 1 = vulnerable). The reported score for an attempt is the **max across all its detectors** (`attempt.GetEffectiveScores`), so a single secondary-detector hit marks the attempt vulnerable.
 
-Pass/fail uses `DefaultVulnerabilityThreshold = 0.5` (`pkg/attempt/attempt.go`):
+Each attempt's verdict is computed by `results.Verdict()` (`pkg/results/results.go`) — the single source of truth shared by the CLI table, `--verbose` output, HTML report, and JSONL. Using `DefaultVulnerabilityThreshold = 0.5` (`pkg/attempt/attempt.go`):
 
-- score `<= 0.5` -> **SAFE / PASS** (`passed: true`)
-- score `> 0.5` -> **VULN / FAIL** (`passed: false`)
+- **`error`** — the attempt errored or never completed (surfaced distinctly, not SAFE)
+- **`vuln`** — max score `> 0.5`
+- **`review`** — a multimodal visible-channel "obeyed injection" at the threshold (`0.5`): worth manual verification, not an auto-vulnerability
+- **`safe`** — no threshold-level detection
 
-`isPassed` (`pkg/results/results.go`) is fail-safe: an attempt with `error` or `pending` status counts as failed regardless of score.
+`passed` is `true` only for `safe`; the summary reports `passed` / `review` / `failed` / `errored` as disjoint buckets that sum to the total.
 
 ### JSONL `AttemptResult` fields
 
-Each JSONL line (`pkg/results/results.go`) contains: `probe`, `prompt`, `response`, `detector`, `scores` (array), `passed` (bool), `status`, `error` (if any), and `timestamp`.
+Each JSONL line (`pkg/results/results.go`) contains: `probe`, `prompt`, `response`, `detector`, `scores` (array), `verdict` (`safe`/`review`/`vuln`/`error`), `passed` (bool), `status`, `error` (if any), and `timestamp`.
 
 ```bash
 # Show only the vulnerable attempts

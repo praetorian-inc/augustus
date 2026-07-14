@@ -112,13 +112,6 @@ type ProbeStats struct {
 	Failed int `json:"failed"`
 }
 
-// isPassed is a thin wrapper over Verdict: an attempt passes iff its verdict is
-// "safe". Verdict is the single source of truth for the pass/fail decision, so
-// this helper simply adapts the (status, scores) shape onto it.
-func isPassed(status attempt.Status, scores []float64) bool {
-	return Verdict(&attempt.Attempt{Status: status, Scores: scores}) == "safe"
-}
-
 // Verdict classifies an attempt for display. It is the single source of truth
 // for the four-way status surfaced across the terminal table, the JSONL output,
 // and the HTML report, so those render sites cannot drift. Returns one of:

@@ -5,6 +5,7 @@ import (
 	"context"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
@@ -265,7 +266,10 @@ func isVisibleObeyed(lowerTrimmed, lowerCanary string) bool {
 	}
 	// Fuzzy near-miss: no exact span to subtract, so treat it as described
 	// unless the response is short enough to be essentially one typo'd canary.
-	return len(lowerTrimmed) <= len(lowerCanary)+visibleObeyedSlack
+	// Rune counts (not byte len) so a multibyte operator-supplied custom canary
+	// doesn't inflate the bound and let a described reply tip to obeyed —
+	// consistent with matchesCanary's rune-based distance gate.
+	return utf8.RuneCountInString(lowerTrimmed) <= utf8.RuneCountInString(lowerCanary)+visibleObeyedSlack
 }
 
 // containsLetterOrDigit reports whether s contains any Unicode letter or digit.
