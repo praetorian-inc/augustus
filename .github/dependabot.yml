@@ -7,6 +7,14 @@ updates:
     labels:
       - "dependencies"
       - "ci"
+    ignore:
+      # The leaderboard-metrics pin is coupled to the metrics IAM trust in
+      # guard (LeaderboardMetricsRole), which allow-lists the exact pinned
+      # SHA. Bumping it must follow the ENG-4164 runbook (update the trust +
+      # prod deploy BEFORE rolling the pin) — an uncoordinated Dependabot bump
+      # breaks OIDC AssumeRole (#241). Roll this pin manually as part of that
+      # runbook.
+      - dependency-name: "praetorian-inc/public-workflows/.github/workflows/leaderboard-metrics.yml"
 
   - package-ecosystem: "gomod"
     directory: "/"
