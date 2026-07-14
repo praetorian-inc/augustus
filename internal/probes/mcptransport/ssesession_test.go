@@ -41,7 +41,7 @@ func newSSETestServer(t *testing.T, nextID func(int) string, acceptPost func(str
 			w.Header().Set("Content-Type", "text/event-stream")
 			w.WriteHeader(http.StatusOK)
 			flusher, _ := w.(http.Flusher)
-			fmt.Fprintf(w, "event: endpoint\ndata: /messages/?session_id=%s\n\n", id)
+			_, _ = fmt.Fprintf(w, "event: endpoint\ndata: /messages/?session_id=%s\n\n", id)
 			if flusher != nil {
 				flusher.Flush()
 			}

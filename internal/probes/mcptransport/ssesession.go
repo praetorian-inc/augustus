@@ -246,7 +246,7 @@ func (p *SSESessionHijack) sampleOne(ctx context.Context, client *http.Client, e
 		a.SetError(err)
 		return nil, a
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		a.AddOutput(fmt.Sprintf("HTTP %d — server refused SSE stream", resp.StatusCode))
@@ -527,7 +527,7 @@ func (p *SSESessionHijack) postInitialize(ctx context.Context, client *http.Clie
 	if err != nil {
 		return 0, "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8*1024))
 	return resp.StatusCode, string(body), nil
 }

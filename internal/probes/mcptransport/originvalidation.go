@@ -467,7 +467,7 @@ func (p *OriginValidation) probeAccess(ctx context.Context, client *http.Client,
 	}
 	defer func() {
 		if resp != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 	}()
 
@@ -539,7 +539,7 @@ func (p *OriginValidation) probePreflight(ctx context.Context, client *http.Clie
 		a.SetError(err)
 		return a
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 8*1024))
 
 	allowOrigin := resp.Header.Get("Access-Control-Allow-Origin")
