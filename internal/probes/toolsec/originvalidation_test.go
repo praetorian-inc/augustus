@@ -47,13 +47,13 @@ func (g endpointGen) AnonymousHTTPClient() *http.Client {
 // separate stub (see proxiedGen below).
 func (g endpointGen) ProxyURL() *url.URL { return nil }
 
-func newDNSRebindProbe(t *testing.T, cfg registry.Config) *DNSRebinding {
+func newOriginValidationProbe(t *testing.T, cfg registry.Config) *OriginValidation {
 	t.Helper()
-	p, err := NewDNSRebinding(cfg)
+	p, err := NewOriginValidation(cfg)
 	if err != nil {
-		t.Fatalf("NewDNSRebinding: %v", err)
+		t.Fatalf("NewOriginValidation: %v", err)
 	}
-	return p.(*DNSRebinding)
+	return p.(*OriginValidation)
 }
 
 // initializeOK is a well-formed MCP initialize response body.
@@ -139,10 +139,10 @@ func corsReflectServer(t *testing.T) *httptest.Server {
 // findingsByClass runs the detector-side check and returns which bypass
 // classes fired at least one 1.0 score.
 func findingsByClass(attempts []*attempt.Attempt) map[string]bool {
-	det := &dnsRebindDetectorStub{}
+	det := &originValidationDetectorStub{}
 	fired := map[string]bool{}
 	for _, a := range attempts {
-		class, _ := a.GetMetadata(attempt.MetadataKeyDNSRebindClass)
+		class, _ := a.GetMetadata(attempt.MetadataKeyOriginValidationClass)
 		classStr, _ := class.(string)
 		for _, s := range det.detect(a) {
 			if s == 1.0 {
@@ -153,13 +153,13 @@ func findingsByClass(attempts []*attempt.Attempt) map[string]bool {
 	return fired
 }
 
-// TestDNSRebinding_VulnerableServer: a server with no validation is caught on
+// TestOriginValidation_VulnerableServer: a server with no validation is caught on
 // every non-baseline class.
-func TestDNSRebinding_VulnerableServer(t *testing.T) {
+func TestOriginValidation_VulnerableServer(t *testing.T) {
 	srv := vulnServer(t)
 	defer srv.Close()
 
-	p := newDNSRebindProbe(t, registry.Config{"endpoint": srv.URL})
+	p := newOriginValidationProbe(t, registry.Config{"endpoint": srv.URL})
 	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
@@ -168,7 +168,7 @@ func TestDNSRebinding_VulnerableServer(t *testing.T) {
 
 	// httptest binds 127.0.0.1:PORT, so swapCase is a no-op on the host and
 	// the case-variant class is (correctly) skipped — see the
-	// TestDNSRebinding_CaseVariantSkippedOnNumericHost test below.
+	// TestOriginValidation_CaseVariantSkippedOnNumericHost test below.
 	wantClasses := []string{
 		string(classExternalOrigin),
 		string(classNullOrigin),
@@ -189,23 +189,23 @@ func TestDNSRebinding_VulnerableServer(t *testing.T) {
 	}
 }
 
-// TestDNSRebinding_CaseVariantSkippedOnNumericHost: on hosts with no ASCII
+// TestOriginValidation_CaseVariantSkippedOnNumericHost: on hosts with no ASCII
 // letters (127.0.0.1:X, [::1]:X, cloud IP literals) swapCase is a no-op, so
 // the probe would otherwise send the target's OWN canonical Origin and a
 // hardened allowlist server would legitimately accept it — false positive.
 // This locks in the skip. Regression guard for Claude review LAB-4462.
-func TestDNSRebinding_CaseVariantSkippedOnNumericHost(t *testing.T) {
+func TestOriginValidation_CaseVariantSkippedOnNumericHost(t *testing.T) {
 	srv := vulnServer(t)
 	defer srv.Close()
 
-	p := newDNSRebindProbe(t, registry.Config{"endpoint": srv.URL})
+	p := newOriginValidationProbe(t, registry.Config{"endpoint": srv.URL})
 	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
 	}
 	// Look for any attempt whose class is case-variant.
 	for _, a := range attempts {
-		raw, ok := a.GetMetadata(attempt.MetadataKeyDNSRebindClass)
+		raw, ok := a.GetMetadata(attempt.MetadataKeyOriginValidationClass)
 		if !ok {
 			continue
 		}
@@ -215,13 +215,13 @@ func TestDNSRebinding_CaseVariantSkippedOnNumericHost(t *testing.T) {
 	}
 }
 
-// TestDNSRebinding_StrictAllowlistNotFlagged: a strict-allowlist server passes
+// TestOriginValidation_StrictAllowlistNotFlagged: a strict-allowlist server passes
 // only the baseline (no-Origin, informational) and nothing fires.
-func TestDNSRebinding_StrictAllowlistNotFlagged(t *testing.T) {
+func TestOriginValidation_StrictAllowlistNotFlagged(t *testing.T) {
 	srv := strictAllowlistServer(t)
 	defer srv.Close()
 
-	p := newDNSRebindProbe(t, registry.Config{"endpoint": srv.URL})
+	p := newOriginValidationProbe(t, registry.Config{"endpoint": srv.URL})
 	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
@@ -237,19 +237,19 @@ func TestDNSRebinding_StrictAllowlistNotFlagged(t *testing.T) {
 	if base == nil {
 		t.Fatal("expected a baseline attempt")
 	}
-	if !metaBool(base, attempt.MetadataKeyDNSRebindAccepted) {
+	if !metaBool(base, attempt.MetadataKeyOriginValidationAccepted) {
 		t.Errorf("baseline (no Origin) should be accepted by a spec-compliant server")
 	}
 }
 
-// TestDNSRebinding_DefeatsSubstringWAF: a substring-blocklist "WAF" that would
+// TestOriginValidation_DefeatsSubstringWAF: a substring-blocklist "WAF" that would
 // have caught the old hardcoded payloads is defeated by the randomised RFC
 // 2606 payloads, and the probe still fires external-origin.
-func TestDNSRebinding_DefeatsSubstringWAF(t *testing.T) {
+func TestOriginValidation_DefeatsSubstringWAF(t *testing.T) {
 	srv := substringOriginServer(t)
 	defer srv.Close()
 
-	p := newDNSRebindProbe(t, registry.Config{"endpoint": srv.URL})
+	p := newOriginValidationProbe(t, registry.Config{"endpoint": srv.URL})
 	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
@@ -261,7 +261,7 @@ func TestDNSRebinding_DefeatsSubstringWAF(t *testing.T) {
 
 	// Confirm that none of the payloads we sent contained a blocklist token.
 	for _, a := range attempts {
-		raw, ok := a.GetMetadata(attempt.MetadataKeyDNSRebindOrigin)
+		raw, ok := a.GetMetadata(attempt.MetadataKeyOriginValidationOrigin)
 		if !ok {
 			continue
 		}
@@ -274,13 +274,13 @@ func TestDNSRebinding_DefeatsSubstringWAF(t *testing.T) {
 	}
 }
 
-// TestDNSRebinding_CORSReflectionWithCredsFired: a server that reflects the
+// TestOriginValidation_CORSReflectionWithCredsFired: a server that reflects the
 // Origin and sets Allow-Credentials must fire the cors-reflect-creds class.
-func TestDNSRebinding_CORSReflectionWithCredsFired(t *testing.T) {
+func TestOriginValidation_CORSReflectionWithCredsFired(t *testing.T) {
 	srv := corsReflectServer(t)
 	defer srv.Close()
 
-	p := newDNSRebindProbe(t, registry.Config{"endpoint": srv.URL})
+	p := newOriginValidationProbe(t, registry.Config{"endpoint": srv.URL})
 	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
@@ -291,13 +291,13 @@ func TestDNSRebinding_CORSReflectionWithCredsFired(t *testing.T) {
 	}
 }
 
-// TestDNSRebinding_ResolvesEndpointFromGenerator: with no config endpoint the
+// TestOriginValidation_ResolvesEndpointFromGenerator: with no config endpoint the
 // probe reads the URL off the generator via types.MCPEndpoint.
-func TestDNSRebinding_ResolvesEndpointFromGenerator(t *testing.T) {
+func TestOriginValidation_ResolvesEndpointFromGenerator(t *testing.T) {
 	srv := vulnServer(t)
 	defer srv.Close()
 
-	p := newDNSRebindProbe(t, registry.Config{})
+	p := newOriginValidationProbe(t, registry.Config{})
 	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
@@ -307,11 +307,11 @@ func TestDNSRebinding_ResolvesEndpointFromGenerator(t *testing.T) {
 	}
 }
 
-// TestDNSRebinding_SSEStreamServed: an SSE endpoint that starts serving
+// TestOriginValidation_SSEStreamServed: an SSE endpoint that starts serving
 // text/event-stream to an attacker Origin is flagged. Origin/Host validation
 // on the streaming half of legacy MCP is the same security boundary as on the
 // streamable-HTTP POST half — both live before the transport handler.
-func TestDNSRebinding_SSEStreamServed(t *testing.T) {
+func TestOriginValidation_SSEStreamServed(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Serve an event-stream for any GET, no Origin check — the FastMCP
 		// SSE server default until DNS-rebind protections landed.
@@ -325,7 +325,7 @@ func TestDNSRebinding_SSEStreamServed(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	p := newDNSRebindProbe(t, registry.Config{"endpoint": srv.URL})
+	p := newOriginValidationProbe(t, registry.Config{"endpoint": srv.URL})
 	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "sse"})
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
@@ -336,10 +336,10 @@ func TestDNSRebinding_SSEStreamServed(t *testing.T) {
 	}
 }
 
-// TestDNSRebinding_SkipsWithoutEndpoint: no override and no MCPEndpoint yields
+// TestOriginValidation_SkipsWithoutEndpoint: no override and no MCPEndpoint yields
 // nothing.
-func TestDNSRebinding_SkipsWithoutEndpoint(t *testing.T) {
-	p := newDNSRebindProbe(t, registry.Config{})
+func TestOriginValidation_SkipsWithoutEndpoint(t *testing.T) {
+	p := newOriginValidationProbe(t, registry.Config{})
 	attempts, err := p.Probe(context.Background(), plainGen{})
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
@@ -377,12 +377,12 @@ func (g instrumentedGen) AnonymousHTTPClient() *http.Client {
 	return &http.Client{Transport: g.rec, Timeout: 3 * time.Second}
 }
 
-// TestDNSRebinding_UsesBorrowedHTTPClient: proves via an instrumented
+// TestOriginValidation_UsesBorrowedHTTPClient: proves via an instrumented
 // RoundTripper that every request the DNS-rebind probe emits flows through
 // the client returned by MCPEndpoint.AnonymousHTTPClient() — i.e. the
 // probe doesn't secretly build its own bypass client that would evade
 // proxy/TLS/header config. Regression guard for Mauro S2.
-func TestDNSRebinding_UsesBorrowedHTTPClient(t *testing.T) {
+func TestOriginValidation_UsesBorrowedHTTPClient(t *testing.T) {
 	srv := vulnServer(t)
 	defer srv.Close()
 
@@ -391,7 +391,7 @@ func TestDNSRebinding_UsesBorrowedHTTPClient(t *testing.T) {
 		endpointGen: endpointGen{url: srv.URL, transport: "http"},
 		rec:         rec,
 	}
-	p := newDNSRebindProbe(t, registry.Config{"endpoint": srv.URL})
+	p := newOriginValidationProbe(t, registry.Config{"endpoint": srv.URL})
 	attempts, err := p.Probe(context.Background(), gen)
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
@@ -407,6 +407,66 @@ func TestDNSRebinding_UsesBorrowedHTTPClient(t *testing.T) {
 	// request. Being generous: attempts >= seenCount / 2.
 	if len(attempts) < seenCount/2 {
 		t.Errorf("attempts=%d, seen=%d — mismatch suggests probe made side-channel requests", len(attempts), seenCount)
+	}
+}
+
+// TestClassifyTargetHost covers the host-class classifier directly. The
+// probe uses this to distinguish real DNS-rebinding targets (loopback/LAN)
+// from public endpoints where missing Origin validation is a CSRF concern
+// rather than a rebinding one.
+func TestClassifyTargetHost(t *testing.T) {
+	tests := []struct {
+		in   string
+		want originValidationTargetClass
+	}{
+		{"127.0.0.1:9003", targetLoopback},
+		{"localhost:9003", targetLoopback},
+		{"0.0.0.0:9003", targetLoopback},
+		{"[::1]:9003", targetLoopback},
+		{"foo.localhost:9003", targetLoopback},
+		{"10.0.0.5", targetLAN},
+		{"192.168.1.100:8080", targetLAN},
+		{"172.16.30.42", targetLAN},
+		{"169.254.169.254", targetLAN},
+		{"printer.local:631", targetLAN},
+		{"93.184.216.34", targetPublic}, // example.com IPv4 at time of writing
+		{"[2001:db8::1]:443", targetPublic},
+		{"", targetUnresolvable},
+	}
+	for _, tt := range tests {
+		got := classifyTargetHost(tt.in)
+		if got != tt.want {
+			t.Errorf("classifyTargetHost(%q) = %s, want %s", tt.in, got, tt.want)
+		}
+	}
+}
+
+// TestOriginValidation_StampsTargetClass verifies the probe stamps the
+// classified target class on every attempt so the detector can score
+// by exploitability.
+func TestOriginValidation_StampsTargetClass(t *testing.T) {
+	srv := vulnServer(t)
+	defer srv.Close()
+
+	// vulnServer binds to 127.0.0.1 via httptest.
+	p := newOriginValidationProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if len(attempts) == 0 {
+		t.Fatal("no attempts")
+	}
+	for _, a := range attempts {
+		raw, ok := a.GetMetadata(attempt.MetadataKeyOriginValidationTargetClass)
+		if !ok {
+			t.Errorf("attempt %q missing target class metadata", a.Prompt)
+			continue
+		}
+		s, _ := raw.(string)
+		if s != string(targetLoopback) {
+			t.Errorf("attempt %q target class = %q, want loopback", a.Prompt, s)
+		}
 	}
 }
 
@@ -440,9 +500,9 @@ func TestServerProcessedInitialize(t *testing.T) {
 
 // findAttemptByClass returns the first attempt with the given class label, or
 // nil.
-func findAttemptByClass(attempts []*attempt.Attempt, class dnsRebindClass) *attempt.Attempt {
+func findAttemptByClass(attempts []*attempt.Attempt, class originValidationClass) *attempt.Attempt {
 	for _, a := range attempts {
-		raw, ok := a.GetMetadata(attempt.MetadataKeyDNSRebindClass)
+		raw, ok := a.GetMetadata(attempt.MetadataKeyOriginValidationClass)
 		if !ok {
 			continue
 		}
@@ -454,15 +514,15 @@ func findAttemptByClass(attempts []*attempt.Attempt, class dnsRebindClass) *atte
 	return nil
 }
 
-// dnsRebindDetectorStub reimplements the acceptance check locally so the
+// originValidationDetectorStub reimplements the acceptance check locally so the
 // probe test does not depend on the detector package.
-type dnsRebindDetectorStub struct{}
+type originValidationDetectorStub struct{}
 
-func (dnsRebindDetectorStub) detect(a *attempt.Attempt) []float64 {
+func (originValidationDetectorStub) detect(a *attempt.Attempt) []float64 {
 	scores := make([]float64, len(a.Outputs))
-	raw, _ := a.GetMetadata(attempt.MetadataKeyDNSRebindClass)
+	raw, _ := a.GetMetadata(attempt.MetadataKeyOriginValidationClass)
 	class, _ := raw.(string)
-	if !metaBoolStub(a, attempt.MetadataKeyDNSRebindAccepted) || class == string(classBaseline) {
+	if !metaBoolStub(a, attempt.MetadataKeyOriginValidationAccepted) || class == string(classBaseline) {
 		return scores
 	}
 	if len(scores) == 0 {

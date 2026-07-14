@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -18,13 +19,106 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
-func init() {
-	probes.Register("toolsec.DNSRebinding", NewDNSRebinding)
+// originValidationTargetClass tags an endpoint host by DNS-rebinding relevance.
+// See MetadataKeyOriginValidationTargetClass for what each value means.
+type originValidationTargetClass string
+
+const (
+	targetLoopback     originValidationTargetClass = "loopback"
+	targetLAN          originValidationTargetClass = "lan"
+	targetPublic       originValidationTargetClass = "public"
+	targetUnresolvable originValidationTargetClass = "unresolvable"
+)
+
+// classifyTargetHost inspects the endpoint host and buckets it by DNS-
+// rebinding relevance. Order of decision:
+//
+//  1. Literal "localhost" or "0.0.0.0" → loopback (even before resolution).
+//  2. Parse as IP. If success, classify by IP class (loopback / RFC1918 /
+//     link-local / else public).
+//  3. Otherwise DNS-resolve. If ANY resolved IP is loopback, treat as
+//     loopback (worst case wins for exploitability). Else if any is LAN,
+//     LAN. Else public.
+//  4. Resolution failure → unresolvable.
+//
+// This is the single-shot exploitability heuristic; the detector uses
+// the returned class to decide whether a missing-Origin finding scores
+// as full VULN (loopback/lan, real DNS rebinding) or inconclusive
+// (public/unresolvable, CSRF-class or unknown deployment context).
+func classifyTargetHost(host string) originValidationTargetClass {
+	if host == "" {
+		return targetUnresolvable
+	}
+	// Strip port if present.
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	// Strip brackets from IPv6 literals.
+	host = strings.TrimPrefix(strings.TrimSuffix(host, "]"), "[")
+	lower := strings.ToLower(host)
+	if lower == "localhost" || lower == "0.0.0.0" || strings.HasSuffix(lower, ".localhost") {
+		return targetLoopback
+	}
+	// mDNS .local — assume LAN (usually rebindable when browsers share the
+	// same LAN).
+	if strings.HasSuffix(lower, ".local") {
+		return targetLAN
+	}
+	// If host parses as an IP directly, classify from it.
+	if ip := net.ParseIP(host); ip != nil {
+		return classifyIP(ip)
+	}
+	// Hostname → DNS lookup. Worst class wins.
+	ips, err := net.LookupIP(host)
+	if err != nil || len(ips) == 0 {
+		return targetUnresolvable
+	}
+	worst := targetPublic
+	for _, ip := range ips {
+		c := classifyIP(ip)
+		if rank(c) < rank(worst) {
+			worst = c
+		}
+	}
+	return worst
 }
 
-var _ types.ProbeMetadata = (*DNSRebinding)(nil)
+// classifyIP buckets a single IP.
+func classifyIP(ip net.IP) originValidationTargetClass {
+	if ip.IsLoopback() || ip.Equal(net.IPv4zero) || ip.Equal(net.IPv6unspecified) {
+		return targetLoopback
+	}
+	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return targetLAN
+	}
+	if ip.IsPrivate() {
+		return targetLAN
+	}
+	return targetPublic
+}
 
-// DNSRebinding probes an MCP HTTP endpoint for the server-side precondition of
+// rank orders classes worst-first for the "worst-of-many" resolution rule.
+// Lower rank = higher exploitability concern.
+func rank(c originValidationTargetClass) int {
+	switch c {
+	case targetLoopback:
+		return 0
+	case targetLAN:
+		return 1
+	case targetPublic:
+		return 2
+	default:
+		return 3
+	}
+}
+
+func init() {
+	probes.Register("toolsec.OriginValidation", NewOriginValidation)
+}
+
+var _ types.ProbeMetadata = (*OriginValidation)(nil)
+
+// OriginValidation probes an MCP HTTP endpoint for the server-side precondition of
 // browser DNS-rebinding attacks: a target that accepts a request bearing an
 // Origin (or Host) that a spec-compliant, allowlist-based validator would
 // refuse.
@@ -44,7 +138,7 @@ var _ types.ProbeMetadata = (*DNSRebinding)(nil)
 // Payloads are randomised per run using RFC 2606-reserved test domains, so no
 // value the probe sends is a static regex match for a signature-based WAF —
 // yet every value is a domain a real attacker could plausibly control.
-type DNSRebinding struct {
+type OriginValidation struct {
 	endpointOverride string
 	timeout          time.Duration
 	// nonce is used to build randomised Origin/Host values so the probe never
@@ -53,48 +147,48 @@ type DNSRebinding struct {
 	nonce string
 }
 
-// NewDNSRebinding constructs the probe. The endpoint is resolved from the
+// NewOriginValidation constructs the probe. The endpoint is resolved from the
 // target generator when it implements types.MCPEndpoint; the "endpoint" config
 // key overrides that when set. Proxy, TLS, and per-request headers are
 // inherited from the target generator's HTTPClient — configure them there,
 // not on this probe.
-func NewDNSRebinding(cfg registry.Config) (probes.Prober, error) {
-	return &DNSRebinding{
+func NewOriginValidation(cfg registry.Config) (probes.Prober, error) {
+	return &OriginValidation{
 		endpointOverride: registry.GetString(cfg, "endpoint", ""),
 		timeout:          time.Duration(registry.GetInt(cfg, "request_timeout", 10)) * time.Second,
 		nonce:            randToken(),
 	}, nil
 }
 
-func (p *DNSRebinding) Name() string { return "toolsec.DNSRebinding" }
+func (p *OriginValidation) Name() string { return "toolsec.OriginValidation" }
 
-func (p *DNSRebinding) Description() string {
-	return "Tests the SERVER-SIDE PRECONDITION for DNS-rebinding attacks: does the MCP HTTP endpoint enforce Origin/Host validation? Sends randomised Origin/Host values that a spec-compliant validator must refuse; classifies which validator weakness (any-origin, null, extension, localhost-lookalike, case-variant, credentialed CORS reflection) the target exhibits. A finding here does NOT prove an end-to-end rebinding is exploitable — that additionally requires the target to be browser-reachable — but the missing validation is what the MCP spec REQUIRES for defence in depth."
+func (p *OriginValidation) Description() string {
+	return "Tests MCP HTTP endpoints for missing Origin/Host validation — the mitigation MCP servers must implement to block browser DNS-rebinding attacks (CVE-2025-49596 class). Classifies the target host at probe time: loopback / RFC1918-LAN targets get full-VULN scoring because they are the browser-driven-rebinding attack path; public endpoints get inconclusive scoring because the same wire finding is CSRF-class rather than rebinding-class there, and exploitability depends on cookie/auth deployment context the probe cannot inspect."
 }
 
-func (p *DNSRebinding) Goal() string {
-	return "Determine whether the MCP HTTP endpoint validates Origin/Host as the MCP spec requires. Finding = missing spec-required validation (the precondition an attacker relies on), NOT necessarily an exploitable rebinding path."
+func (p *OriginValidation) Goal() string {
+	return "Determine whether the MCP HTTP endpoint enforces the Origin/Host validation the MCP spec requires. Score = 1.0 on loopback/LAN targets (real DNS-rebinding precondition), InconclusiveScore on public/unresolvable targets (spec violation with different attack-class implications)."
 }
 
-func (p *DNSRebinding) GetPrimaryDetector() string { return "toolsec.DNSRebinding" }
+func (p *OriginValidation) GetPrimaryDetector() string { return "toolsec.OriginValidation" }
 
-func (p *DNSRebinding) GetPrompts() []string {
+func (p *OriginValidation) GetPrompts() []string {
 	return []string{"Randomised MCP initialize + CORS preflight bearing Origin/Host values a rebinding-protected server should refuse"}
 }
 
-// dnsRebindClass is a stable classifier for a bypass, so a report can group
+// originValidationClass is a stable classifier for a bypass, so a report can group
 // findings by concrete validator weakness rather than one lumped verdict.
-type dnsRebindClass string
+type originValidationClass string
 
 const (
-	classBaseline           dnsRebindClass = "baseline"
-	classExternalOrigin     dnsRebindClass = "external-origin"
-	classNullOrigin         dnsRebindClass = "null-origin"
-	classExtensionOrigin    dnsRebindClass = "extension-origin"
-	classLocalhostLookalike dnsRebindClass = "localhost-lookalike"
-	classCaseVariant        dnsRebindClass = "case-variant"
-	classUnexpectedHost     dnsRebindClass = "unexpected-host"
-	classCORSReflectCreds   dnsRebindClass = "cors-reflect-creds"
+	classBaseline           originValidationClass = "baseline"
+	classExternalOrigin     originValidationClass = "external-origin"
+	classNullOrigin         originValidationClass = "null-origin"
+	classExtensionOrigin    originValidationClass = "extension-origin"
+	classLocalhostLookalike originValidationClass = "localhost-lookalike"
+	classCaseVariant        originValidationClass = "case-variant"
+	classUnexpectedHost     originValidationClass = "unexpected-host"
+	classCORSReflectCreds   originValidationClass = "cors-reflect-creds"
 )
 
 // mcpInitializePayload is the smallest MCP initialize the server must be
@@ -108,7 +202,7 @@ const mcpInitializePayload = `{"jsonrpc":"2.0","id":1,"method":"initialize","par
 // value against a fresh per-run nonce. RFC 2606 reserved test domains
 // (example.com/.net/.org) ensure the values are non-routable *and* look like
 // benign analytics / CDN traffic to any string-blocklist WAF.
-func (p *DNSRebinding) buildOriginPayloads() []originPayload {
+func (p *OriginValidation) buildOriginPayloads() []originPayload {
 	tag := p.nonce[:8]
 	return []originPayload{
 		// External origin — the primary finding. A random subdomain of an
@@ -137,7 +231,7 @@ func (p *DNSRebinding) buildOriginPayloads() []originPayload {
 // buildHostPayloads renders unexpected Host header values. These test whether
 // the server enforces a Host allowlist independent of Origin (some SDKs do
 // both, some only one). Values are RFC 2606-reserved and randomised.
-func (p *DNSRebinding) buildHostPayloads() []hostPayload {
+func (p *OriginValidation) buildHostPayloads() []hostPayload {
 	tag := p.nonce[:8]
 	return []hostPayload{
 		{class: classUnexpectedHost, value: tag + ".example.com"},
@@ -148,12 +242,12 @@ func (p *DNSRebinding) buildHostPayloads() []hostPayload {
 }
 
 type originPayload struct {
-	class dnsRebindClass
+	class originValidationClass
 	value string
 }
 
 type hostPayload struct {
-	class dnsRebindClass
+	class originValidationClass
 	value string
 }
 
@@ -186,17 +280,17 @@ func extensionUUID(seed string) string {
 
 // Probe resolves the endpoint and runs the full sweep. Returns no attempts (no
 // error) for non-HTTP transports or absent endpoints.
-func (p *DNSRebinding) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
+func (p *OriginValidation) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
 	endpoint := p.resolveEndpoint(gen)
 	if endpoint == "" {
 		return nil, nil
 	}
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("toolsec.DNSRebinding: parse endpoint %q: %w", endpoint, err)
+		return nil, fmt.Errorf("toolsec.OriginValidation: parse endpoint %q: %w", endpoint, err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		slog.Warn("toolsec.DNSRebinding: skipping non-HTTP transport", "endpoint", endpoint)
+		slog.Warn("toolsec.OriginValidation: skipping non-HTTP transport", "endpoint", endpoint)
 		return nil, nil
 	}
 	// Pick the request shape from the transport. The security question is the
@@ -217,25 +311,41 @@ func (p *DNSRebinding) Probe(ctx context.Context, gen types.Generator) ([]*attem
 		transport = "sse"
 	}
 
+	// Classify the target's host BEFORE sending anything. The class flows
+	// into every attempt's metadata; the detector uses it to distinguish
+	// real DNS-rebinding preconditions (loopback/LAN) from spec-violation-
+	// only findings on public endpoints (CSRF-class, not rebinding, needs
+	// deployment context to assess).
+	targetClass := classifyTargetHost(u.Host)
+	slog.Info("toolsec.OriginValidation: target host classified",
+		"host", u.Host, "class", string(targetClass))
+
 	client, err := p.borrowHTTPClient(gen)
 	if err != nil {
 		return nil, err
 	}
 	var attempts []*attempt.Attempt
 
+	// Helper: every attempt inherits the target class so the detector can
+	// score by exploitability.
+	stampClass := func(a *attempt.Attempt) *attempt.Attempt {
+		a.Metadata[attempt.MetadataKeyOriginValidationTargetClass] = string(targetClass)
+		return a
+	}
+
 	// 1. Baseline: no Origin. Spec-compliant servers pass this; if it fails,
 	// we can't distinguish "server rejected our headers" from "server can't
 	// accept us at all," so the whole sweep is inconclusive. We record the
 	// attempt either way.
-	base := p.probeAccess(ctx, client, endpoint, transport, "", "", classBaseline)
+	base := stampClass(p.probeAccess(ctx, client, endpoint, transport, "", "", classBaseline))
 	attempts = append(attempts, base)
-	if !metaBool(base, attempt.MetadataKeyDNSRebindAccepted) {
-		slog.Info("toolsec.DNSRebinding: baseline (no Origin) not accepted; downstream bypass results may be inconclusive", "endpoint", endpoint, "transport", transport)
+	if !metaBool(base, attempt.MetadataKeyOriginValidationAccepted) {
+		slog.Info("toolsec.OriginValidation: baseline (no Origin) not accepted; downstream bypass results may be inconclusive", "endpoint", endpoint, "transport", transport)
 	}
 
 	// 2. Origin bypass sweep.
 	for _, o := range p.buildOriginPayloads() {
-		attempts = append(attempts, p.probeAccess(ctx, client, endpoint, transport, o.value, "", o.class))
+		attempts = append(attempts, stampClass(p.probeAccess(ctx, client, endpoint, transport, o.value, "", o.class)))
 	}
 
 	// 3. Case-variant of the expected host — tests case-sensitive vs
@@ -250,13 +360,13 @@ func (p *DNSRebinding) Probe(ctx context.Context, gen types.Generator) ([]*attem
 	if u.Host != "" {
 		caseHost := swapCase(u.Host)
 		if caseHost != u.Host {
-			attempts = append(attempts, p.probeAccess(ctx, client, endpoint, transport, "http://"+caseHost, "", classCaseVariant))
+			attempts = append(attempts, stampClass(p.probeAccess(ctx, client, endpoint, transport, "http://"+caseHost, "", classCaseVariant)))
 		}
 	}
 
 	// 4. Host header sweep.
 	for _, h := range p.buildHostPayloads() {
-		attempts = append(attempts, p.probeAccess(ctx, client, endpoint, transport, "", h.value, h.class))
+		attempts = append(attempts, stampClass(p.probeAccess(ctx, client, endpoint, transport, "", h.value, h.class)))
 	}
 
 	// 5. CORS preflight — OPTIONS with an external Origin, inspect
@@ -264,14 +374,14 @@ func (p *DNSRebinding) Probe(ctx context.Context, gen types.Generator) ([]*attem
 	// reflects the attacker Origin with credentials is exploitable regardless
 	// of whether the POST body succeeds, because a browser DNS-rebinding
 	// attacker can read the response.
-	attempts = append(attempts, p.probePreflight(ctx, client, endpoint, "https://"+p.nonce[:8]+".example.org", u.Host))
+	attempts = append(attempts, stampClass(p.probePreflight(ctx, client, endpoint, "https://"+p.nonce[:8]+".example.org", u.Host)))
 
 	return attempts, nil
 }
 
 // resolveEndpoint returns the endpoint URL from probe config (explicit
 // override wins) or from the generator via types.MCPEndpoint.
-func (p *DNSRebinding) resolveEndpoint(gen types.Generator) string {
+func (p *OriginValidation) resolveEndpoint(gen types.Generator) string {
 	if p.endpointOverride != "" {
 		return p.endpointOverride
 	}
@@ -288,17 +398,17 @@ func (p *DNSRebinding) resolveEndpoint(gen types.Generator) string {
 // server serve this request from an untrusted caller — is answered by the
 // SAME defensive middleware regardless of what payload follows: Origin/Host
 // validation runs before either handler.
-func (p *DNSRebinding) probeAccess(ctx context.Context, client *http.Client, endpoint, transport, origin, host string, class dnsRebindClass) *attempt.Attempt {
+func (p *OriginValidation) probeAccess(ctx context.Context, client *http.Client, endpoint, transport, origin, host string, class originValidationClass) *attempt.Attempt {
 	label := describeAttempt(origin, host, class)
 	a := attempt.New(label)
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
-	a.Metadata[attempt.MetadataKeyDNSRebindClass] = string(class)
+	a.Metadata[attempt.MetadataKeyOriginValidationClass] = string(class)
 	if origin != "" {
-		a.Metadata[attempt.MetadataKeyDNSRebindOrigin] = origin
+		a.Metadata[attempt.MetadataKeyOriginValidationOrigin] = origin
 	}
 	if host != "" {
-		a.Metadata[attempt.MetadataKeyDNSRebindHost] = host
+		a.Metadata[attempt.MetadataKeyOriginValidationHost] = host
 	}
 
 	var (
@@ -387,7 +497,7 @@ func (p *DNSRebinding) probeAccess(ctx context.Context, client *http.Client, end
 	} else {
 		accepted = serverProcessedInitialize(status, contentType, body)
 	}
-	a.Metadata[attempt.MetadataKeyDNSRebindAccepted] = accepted
+	a.Metadata[attempt.MetadataKeyOriginValidationAccepted] = accepted
 	return a
 }
 
@@ -408,12 +518,12 @@ func serverStartedSSEStream(status int, contentType string) bool {
 // Allow-Credentials: true, a browser DNS-rebinding attacker can read the
 // response — a more severe finding than a simple accepted-Origin because
 // unauthenticated reads become possible.
-func (p *DNSRebinding) probePreflight(ctx context.Context, client *http.Client, endpoint, origin, expectedHost string) *attempt.Attempt {
+func (p *OriginValidation) probePreflight(ctx context.Context, client *http.Client, endpoint, origin, expectedHost string) *attempt.Attempt {
 	a := attempt.New("CORS preflight from " + origin)
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
-	a.Metadata[attempt.MetadataKeyDNSRebindClass] = string(classCORSReflectCreds)
-	a.Metadata[attempt.MetadataKeyDNSRebindOrigin] = origin
+	a.Metadata[attempt.MetadataKeyOriginValidationClass] = string(classCORSReflectCreds)
+	a.Metadata[attempt.MetadataKeyOriginValidationOrigin] = origin
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodOptions, endpoint, nil)
 	if err != nil {
@@ -434,8 +544,8 @@ func (p *DNSRebinding) probePreflight(ctx context.Context, client *http.Client, 
 
 	allowOrigin := resp.Header.Get("Access-Control-Allow-Origin")
 	allowCreds := strings.EqualFold(resp.Header.Get("Access-Control-Allow-Credentials"), "true")
-	a.Metadata[attempt.MetadataKeyDNSRebindAllowOrigin] = allowOrigin
-	a.Metadata[attempt.MetadataKeyDNSRebindAllowCreds] = allowCreds
+	a.Metadata[attempt.MetadataKeyOriginValidationAllowOrigin] = allowOrigin
+	a.Metadata[attempt.MetadataKeyOriginValidationAllowCreds] = allowCreds
 	a.AddOutput(fmt.Sprintf("HTTP %d\nAccess-Control-Allow-Origin: %s\nAccess-Control-Allow-Credentials: %v", resp.StatusCode, allowOrigin, allowCreds))
 	a.Complete()
 
@@ -443,7 +553,7 @@ func (p *DNSRebinding) probePreflight(ctx context.Context, client *http.Client, 
 	// real credentialed-read primitive — we only flag reflection of the
 	// exact Origin we sent, combined with credentials.
 	reflected := allowOrigin == origin && allowCreds
-	a.Metadata[attempt.MetadataKeyDNSRebindAccepted] = reflected
+	a.Metadata[attempt.MetadataKeyOriginValidationAccepted] = reflected
 	return a
 }
 
@@ -485,7 +595,7 @@ func serverProcessedInitialize(status int, contentType string, body []byte) bool
 }
 
 // describeAttempt renders a short label for the attempt list.
-func describeAttempt(origin, host string, class dnsRebindClass) string {
+func describeAttempt(origin, host string, class originValidationClass) string {
 	switch {
 	case origin != "" && host != "":
 		return fmt.Sprintf("[%s] Origin=%s Host=%s", class, origin, host)
@@ -542,7 +652,7 @@ func metaBool(a *attempt.Attempt, key string) bool {
 // pointed at an endpoint URL directly via config, no live generator), we
 // fall back to a plain client — the operator has explicitly opted out of
 // the generator layer and no proxy inheritance is possible.
-func (p *DNSRebinding) borrowHTTPClient(gen types.Generator) (*http.Client, error) {
+func (p *OriginValidation) borrowHTTPClient(gen types.Generator) (*http.Client, error) {
 	timeout := p.timeout
 	if timeout <= 0 {
 		timeout = 10 * time.Second

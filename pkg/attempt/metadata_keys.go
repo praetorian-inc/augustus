@@ -78,12 +78,12 @@ const (
 	// message isn't proof of a write).
 	MetadataKeyPathTraversalToolIsError = "toolsec.pathtraversal_tool_iserror"
 
-	// MetadataKeyDNSRebindAccepted (bool) records whether the target processed
+	// MetadataKeyOriginValidationAccepted (bool) records whether the target processed
 	// a request that a rebinding-protected MCP server should have refused
 	// (external Origin, credentialed CORS reflection, etc). Read by the
-	// toolsec.DNSRebinding detector.
-	MetadataKeyDNSRebindAccepted = "toolsec.dnsrebind_accepted"
-	// MetadataKeyDNSRebindClass (string) categorises how the attempt bypassed
+	// toolsec.OriginValidation detector.
+	MetadataKeyOriginValidationAccepted = "toolsec.originvalidation_accepted"
+	// MetadataKeyOriginValidationClass (string) categorises how the attempt bypassed
 	// the expected Origin/Host validation. Values are stable strings suitable
 	// for grouping in a finding report:
 	//
@@ -95,19 +95,38 @@ const (
 	//	unexpected-host        server processed a request bearing a non-canonical Host header
 	//	cors-reflect-creds     server reflected the attacker Origin AND allow-credentials in an OPTIONS preflight
 	//	baseline               spec-compliant baseline (missing Origin) — informational, not a finding
-	MetadataKeyDNSRebindClass = "toolsec.dnsrebind_class"
-	// MetadataKeyDNSRebindOrigin (string) is the Origin header value sent.
-	MetadataKeyDNSRebindOrigin = "toolsec.dnsrebind_origin"
-	// MetadataKeyDNSRebindHost (string) is the Host header value sent.
-	MetadataKeyDNSRebindHost = "toolsec.dnsrebind_host"
-	// MetadataKeyDNSRebindAllowOrigin (string) is the Access-Control-Allow-Origin
+	MetadataKeyOriginValidationClass = "toolsec.originvalidation_class"
+	// MetadataKeyOriginValidationOrigin (string) is the Origin header value sent.
+	MetadataKeyOriginValidationOrigin = "toolsec.originvalidation_origin"
+	// MetadataKeyOriginValidationHost (string) is the Host header value sent.
+	MetadataKeyOriginValidationHost = "toolsec.originvalidation_host"
+	// MetadataKeyOriginValidationAllowOrigin (string) is the Access-Control-Allow-Origin
 	// value the server returned to a preflight request, when present. Recorded
 	// even for non-finding attempts because it lets a reviewer confirm a
 	// cors-reflect-creds classification.
-	MetadataKeyDNSRebindAllowOrigin = "toolsec.dnsrebind_allow_origin"
-	// MetadataKeyDNSRebindAllowCreds (bool) records whether the response's
+	MetadataKeyOriginValidationAllowOrigin = "toolsec.originvalidation_allow_origin"
+	// MetadataKeyOriginValidationAllowCreds (bool) records whether the response's
 	// Access-Control-Allow-Credentials header was true.
-	MetadataKeyDNSRebindAllowCreds = "toolsec.dnsrebind_allow_credentials"
+	MetadataKeyOriginValidationAllowCreds = "toolsec.originvalidation_allow_credentials"
+	// MetadataKeyOriginValidationTargetClass (string) categorises the target host
+	// so the detector can score findings by exploitability confidence
+	// rather than treating every missing-Origin-validation server as an
+	// equally-vulnerable DNS-rebinding target. Values:
+	//
+	//	loopback       127.0.0.0/8, ::1, 0.0.0.0, or literal "localhost".
+	//	               Classic DNS-rebinding target — the CVE class.
+	//	lan            RFC1918, link-local, or mDNS .local resolving to
+	//	               same. Rebinding-exploitable if browsers on same net.
+	//	public         Publicly-routable IP or FQDN. DNS rebinding doesn't
+	//	               add anything (attacker's page can fetch directly);
+	//	               finding is CSRF-class, not rebinding.
+	//	unresolvable   DNS lookup failed. Can't classify; treat as
+	//	               inconclusive.
+	//
+	// The detector uses this to emit 1.0 (real rebinding) on
+	// loopback/lan and InconclusiveScore (spec violation but
+	// exploitability depends on deployment) on public/unresolvable.
+	MetadataKeyOriginValidationTargetClass = "toolsec.originvalidation_target_class"
 
 	// MetadataKeySSESessionAccepted (bool) records whether an SSE session-
 	// hijack probe attempt succeeded (weakness confirmed). Read by the

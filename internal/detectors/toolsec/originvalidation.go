@@ -9,26 +9,26 @@ import (
 )
 
 func init() {
-	detectors.Register("toolsec.DNSRebinding", NewDNSRebindingDetector)
+	detectors.Register("toolsec.OriginValidation", NewOriginValidationDetector)
 }
 
-// DNSRebindingDetector flags an attempt as vulnerable when the toolsec.DNS-
+// OriginValidationDetector flags an attempt as vulnerable when the toolsec.DNS-
 // Rebinding probe recorded that a request a spec-compliant, allowlist-based
 // MCP server would refuse was in fact accepted (or a CORS preflight reflected
 // the attacker Origin with credentials). The probe carries a class label so
 // the reviewer can group findings by concrete validator weakness — an
 // any-origin server (root cause) is a different finding than a case-variant
 // or localhost-lookalike bypass, even though both trip the detector.
-type DNSRebindingDetector struct{}
+type OriginValidationDetector struct{}
 
-// NewDNSRebindingDetector constructs the detector.
-func NewDNSRebindingDetector(_ registry.Config) (detectors.Detector, error) {
-	return &DNSRebindingDetector{}, nil
+// NewOriginValidationDetector constructs the detector.
+func NewOriginValidationDetector(_ registry.Config) (detectors.Detector, error) {
+	return &OriginValidationDetector{}, nil
 }
 
-func (d *DNSRebindingDetector) Name() string { return "toolsec.DNSRebinding" }
+func (d *OriginValidationDetector) Name() string { return "toolsec.OriginValidation" }
 
-func (d *DNSRebindingDetector) Description() string {
+func (d *OriginValidationDetector) Description() string {
 	return "Flags an MCP HTTP endpoint that accepted a request bearing an Origin/Host a spec-compliant validator would refuse (or a CORS preflight that reflected the attacker Origin with credentials)"
 }
 
@@ -43,9 +43,10 @@ func (d *DNSRebindingDetector) Description() string {
 // surfacing it as a finding would drown real weaknesses. Inconclusive
 // covers transient-error paths so a network hiccup can't hide a vuln
 // under a green SAFE verdict.
-func (d *DNSRebindingDetector) Detect(_ context.Context, a *attempt.Attempt) ([]float64, error) {
-	class, _ := stringMeta(a, attempt.MetadataKeyDNSRebindClass)
-	accepted := metaBool(a, attempt.MetadataKeyDNSRebindAccepted)
+func (d *OriginValidationDetector) Detect(_ context.Context, a *attempt.Attempt) ([]float64, error) {
+	class, _ := stringMeta(a, attempt.MetadataKeyOriginValidationClass)
+	targetClass, _ := stringMeta(a, attempt.MetadataKeyOriginValidationTargetClass)
+	accepted := metaBool(a, attempt.MetadataKeyOriginValidationAccepted)
 	inconclusive := metaBool(a, attempt.MetadataKeyInconclusive)
 
 	scores := make([]float64, len(a.Outputs))
@@ -53,12 +54,27 @@ func (d *DNSRebindingDetector) Detect(_ context.Context, a *attempt.Attempt) ([]
 		return scores, nil
 	}
 
+	// Score by target-class exploitability. See MetadataKeyOriginValidationTargetClass
+	// for what each value means:
+	//   loopback / lan → 1.0        (real DNS-rebinding precondition)
+	//   public / unresolvable → 0.5 (spec violation, but attack class is
+	//                                CSRF not rebinding; exploitability
+	//                                depends on deployment context we
+	//                                can't inspect from here)
+	//   "" (older attempt, unit-test path) → 1.0 (historical behaviour)
 	var score float64
 	switch {
 	case inconclusive:
 		score = InconclusiveScore
 	case accepted:
-		score = 1.0
+		switch targetClass {
+		case "loopback", "lan":
+			score = 1.0
+		case "public", "unresolvable":
+			score = InconclusiveScore
+		default:
+			score = 1.0
+		}
 	default:
 		return scores, nil
 	}

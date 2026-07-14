@@ -7,7 +7,7 @@
 //     the model-facing tool probes elsewhere in the tree that only ask
 //     whether an LLM can be manipulated INTO a tool call.
 //
-//   - Transport-layer probes (DNSRebinding, SSESessionHijack) bypass the
+//   - Transport-layer probes (OriginValidation, SSESessionHijack) bypass the
 //     MCP protocol layer and issue raw HTTP against the server, borrowing
 //     the generator's HTTPClient/AnonymousHTTPClient so proxy, TLS, and
 //     header config still flow. They test properties of the HTTP endpoint

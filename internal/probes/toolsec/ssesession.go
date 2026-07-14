@@ -537,7 +537,7 @@ func (p *SSESessionHijack) postInitialize(ctx context.Context, client *http.Clie
 // overrides. The hijack scenario models an off-path attacker who intercepts
 // a session id (log leak, referer, browser history) but does NOT hold the
 // operator's bearer token; sending the token would invert the verdict on
-// an authenticated server. See DNSRebinding.borrowHTTPClient for the
+// an authenticated server. See OriginValidation.borrowHTTPClient for the
 // fallback rationale when the target does not expose types.MCPEndpoint.
 func (p *SSESessionHijack) borrowHTTPClient(gen types.Generator) (*http.Client, error) {
 	timeout := p.timeout
