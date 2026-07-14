@@ -78,12 +78,22 @@ var jsonKV = regexp.MustCompile(`"([A-Za-z0-9_.\-]+)"\s*:\s*"((?:[^"\\]|\\.)*)"`
 
 // envKV matches KEY=value assignments in .env / shell-style config (one per
 // line). This also covers TOML/INI "key = value" pairs.
-var envKV = regexp.MustCompile(`(?m)^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s*$`)
+//
+// The whitespace immediately after '=' (and before the line-ending '$') is
+// horizontal-only ([^\S\r\n]* rather than \s*): Go's \s matches '\n', so a plain
+// \s* there would consume the newline plus the next line's indentation and spill
+// the value capture onto the following line, flagging a benign secret-named key
+// with an empty value and a sibling on the next line.
+var envKV = regexp.MustCompile(`(?m)^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=[^\S\r\n]*(.+?)[^\S\r\n]*$`)
 
 // yamlKV matches unquoted "key: value" pairs in YAML / INI config (one per
 // line). JSON keys are quoted, so the leading '"' prevents this from matching a
 // JSON line — that path is handled by jsonKV.
-var yamlKV = regexp.MustCompile(`(?m)^\s*([A-Za-z0-9_.\-]+)\s*:\s*(.+?)\s*$`)
+//
+// As with envKV, the whitespace after ':' (and before '$') is horizontal-only so
+// a value cannot cross a newline — otherwise a secret-named PARENT key (e.g.
+// "credentials:") would capture its nested child line as its value.
+var yamlKV = regexp.MustCompile(`(?m)^\s*([A-Za-z0-9_.\-]+)\s*:[^\S\r\n]*(.+?)[^\S\r\n]*$`)
 
 // connCreds matches a credential embedded in a URI userinfo section (the
 // "user:secret@host" form). The secret capture is greedy up to the LAST '@'

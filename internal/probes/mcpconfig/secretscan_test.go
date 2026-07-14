@@ -286,6 +286,61 @@ func TestSecretScan_LargeFileSkippedWithError(t *testing.T) {
 	}
 }
 
+// TestSecretScan_DirectoryOversizeFileSkippedWalkContinues: an oversized file
+// encountered during a directory walk is recorded as a StatusError source and
+// the walk continues, so sibling config files are still scanned (FIX 2).
+func TestSecretScan_DirectoryOversizeFileSkippedWalkContinues(t *testing.T) {
+	dir := t.TempDir()
+	// Oversized JSON: recorded as a StatusError source, walk must continue.
+	big := filepath.Join(dir, "big.json")
+	if err := os.WriteFile(big, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(big, maxFileSize+1); err != nil {
+		t.Fatal(err)
+	}
+	// A normal config file that must still be scanned and flagged.
+	good := filepath.Join(dir, "good.json")
+	if err := os.WriteFile(good, []byte(leakyConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	p := newProbe(t, registry.Config{"path": dir})
+	attempts, err := p.Probe(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Probe() error = %v", err)
+	}
+	if len(attempts) != 2 {
+		t.Fatalf("got %d attempts, want 2 (oversize error + scanned good.json)", len(attempts))
+	}
+
+	det, err := detectors.Create("mcpsecrets.ConfigLeak", registry.Config{})
+	if err != nil {
+		t.Fatalf("resolve detector: %v", err)
+	}
+
+	var sawError, sawFlagged bool
+	for _, a := range attempts {
+		if a.Status == attempt.StatusError {
+			sawError = true
+			continue
+		}
+		scores, derr := det.Detect(context.Background(), a)
+		if derr != nil {
+			t.Fatalf("Detect() error = %v", derr)
+		}
+		if len(scores) == 1 && scores[0] == 1.0 {
+			sawFlagged = true
+		}
+	}
+	if !sawError {
+		t.Error("no StatusError attempt recorded for the oversized file")
+	}
+	if !sawFlagged {
+		t.Error("the sibling config file was not scanned/flagged (walk did not continue)")
+	}
+}
+
 func TestSecretScan_NoSourceProducesError(t *testing.T) {
 	p := newProbe(t, registry.Config{})
 	attempts, err := p.Probe(context.Background(), nil)

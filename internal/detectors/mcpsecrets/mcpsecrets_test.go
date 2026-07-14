@@ -132,6 +132,44 @@ func TestConfigLeak_Detect(t *testing.T) {
 			output: `{"env":{"API_TOKEN":"1.2.3"}}`,
 			want:   0.0,
 		},
+		// --- Negative: delimiter-trailing whitespace must not cross a newline
+		// (FIX 1). A benign secret-named PARENT key whose child is on the NEXT
+		// line must NOT spill the child onto the parent's value capture. ---
+		{
+			name: "yaml secret-named parent with child on next line",
+			output: `credentials:
+  note: none configured for this environment`,
+			want: 0.0,
+		},
+		{
+			name: "yaml token-substring parent with child on next line",
+			output: `tokenizer:
+  model: gpt-4`,
+			want: 0.0,
+		},
+		{
+			name: "env empty secret value does not spill onto next line",
+			output: `DB_PASSWORD=
+SERVICE_NAME=my-billing-service-prod`,
+			want: 0.0,
+		},
+		// --- Negative: entropy / version / all-digit gates on secret-named
+		// keys (FIX 2 — pins looksHighEntropy / versionString / allDigits). ---
+		{
+			name:   "low-entropy value on password key",
+			output: `{"env":{"DB_PASSWORD":"aaaaaaaaaa"}}`,
+			want:   0.0,
+		},
+		{
+			name:   "dotted version string on token key",
+			output: `{"env":{"API_TOKEN":"1.2.3.4.5.6"}}`,
+			want:   0.0,
+		},
+		{
+			name:   "all-digit value on token key",
+			output: `{"env":{"API_TOKEN":"12345678"}}`,
+			want:   0.0,
+		},
 		// --- Negative: credential-free DSN / connection string (FIX 3) ---
 		{
 			name:   "credential-free dsn key",

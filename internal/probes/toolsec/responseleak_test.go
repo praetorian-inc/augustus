@@ -400,6 +400,94 @@ func TestResponseLeak_TransportError(t *testing.T) {
 	}
 }
 
+// TestResponseLeak_ListToolsError: a transport-level ListTools failure must
+// surface as a Probe error, not a clean empty result.
+func TestResponseLeak_ListToolsError(t *testing.T) {
+	attempts, err := newResponseLeak(t, registry.Config{}).Probe(context.Background(), listErrInvoker{})
+	if err == nil {
+		t.Fatalf("expected an error when ListTools fails, got nil (attempts=%d)", len(attempts))
+	}
+	if !errors.Is(err, errListTools) {
+		t.Errorf("error = %v, want it to wrap errListTools", err)
+	}
+}
+
+// TestResponseLeak_ContextCancellationReturnsPartial: cancelling the context
+// mid-scan (after the first tool call) makes Probe stop early, returning the
+// attempts gathered so far plus ctx.Err().
+func TestResponseLeak_ContextCancellationReturnsPartial(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	var calls int
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("alpha", "x"), stringTool("beta", "y")},
+		call: func(string, map[string]any) types.ToolResult {
+			calls++
+			cancel() // cancel after the first invocation
+			return types.ToolResult{Text: "ok"}
+		},
+	}
+
+	attempts, err := newResponseLeak(t, registry.Config{}).Probe(ctx, target)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err = %v, want context.Canceled", err)
+	}
+	if len(attempts) == 0 {
+		t.Error("expected partial attempts gathered before cancellation, got none")
+	}
+	if calls >= 4 {
+		t.Errorf("all cases ran (%d calls); cancellation did not stop the scan early", calls)
+	}
+}
+
+// TestResponseLeak_TruncatesOversizeResponse: a tool returning a response larger
+// than maxResponseBytes has its stored output capped (FIX 3) so a hostile or
+// buggy target cannot force unbounded memory into the report.
+func TestResponseLeak_TruncatesOversizeResponse(t *testing.T) {
+	big := strings.Repeat("a", maxResponseBytes+5000)
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("lookup", "id")},
+		call: func(string, map[string]any) types.ToolResult {
+			return types.ToolResult{Text: big}
+		},
+	}
+	attempts, err := newResponseLeak(t, registry.Config{}).Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if len(attempts) == 0 {
+		t.Fatal("Probe produced no attempts")
+	}
+	const marker = 64 // generous allowance for the "...[truncated]" suffix
+	for _, a := range attempts {
+		for _, o := range a.Outputs {
+			if len(o) > maxResponseBytes+marker {
+				t.Errorf("stored output length %d exceeds cap %d (+marker)", len(o), maxResponseBytes)
+			}
+		}
+	}
+}
+
+// listErrInvoker is a tool-surface target whose ListTools always fails with a
+// transport error, exercising the list-tools error path.
+type listErrInvoker struct{}
+
+func (listErrInvoker) Generate(context.Context, *attempt.Conversation, int) ([]attempt.Message, error) {
+	return nil, nil
+}
+func (listErrInvoker) ClearHistory()       {}
+func (listErrInvoker) Name() string        { return "listerr" }
+func (listErrInvoker) Description() string { return "listerr" }
+
+func (listErrInvoker) ListTools(context.Context) ([]map[string]any, error) {
+	return nil, errListTools
+}
+
+func (listErrInvoker) CallTool(context.Context, string, map[string]any) (types.ToolResult, error) {
+	return types.ToolResult{}, nil
+}
+
+var errListTools = errors.New("list tools transport failure")
+
 // erroringInvoker is a tool-surface target whose CallTool always fails with a
 // transport error, exercising the SetError path in responseleak.go.
 type erroringInvoker struct {

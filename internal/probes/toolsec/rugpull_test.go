@@ -3,6 +3,7 @@ package toolsec
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -118,6 +119,59 @@ func TestRugPull_FailsLoudOnNonToolInvoker(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "direct tool invocation") {
 		t.Errorf("error = %q, want it to explain the target is not tool-invokable", err)
+	}
+}
+
+// TestRugPull_MissingBaselineFileErrors: a baseline_path pointing at a file that
+// does not exist must surface a Probe error, not a clean result.
+func TestRugPull_MissingBaselineFileErrors(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "does-not-exist.json")
+	current := &mockTarget{
+		tools: []map[string]any{driftTool("calc", "adds two numbers", nil)},
+		call:  func(string, map[string]any) types.ToolResult { return types.ToolResult{} },
+	}
+	p := newRugPull(t, registry.Config{"baseline_path": missing})
+	attempts, err := p.Probe(context.Background(), current)
+	if err == nil {
+		t.Fatalf("expected an error for a missing baseline file, got nil (attempts=%d)", len(attempts))
+	}
+	if !strings.Contains(err.Error(), "baseline") {
+		t.Errorf("error = %q, want it to mention the baseline", err)
+	}
+}
+
+// TestRugPull_MalformedBaselineErrors: a baseline file containing invalid JSON
+// must surface a Probe error.
+func TestRugPull_MalformedBaselineErrors(t *testing.T) {
+	bad := filepath.Join(t.TempDir(), "baseline.json")
+	if err := os.WriteFile(bad, []byte("{not valid json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	current := &mockTarget{
+		tools: []map[string]any{driftTool("calc", "adds two numbers", nil)},
+		call:  func(string, map[string]any) types.ToolResult { return types.ToolResult{} },
+	}
+	p := newRugPull(t, registry.Config{"baseline_path": bad})
+	attempts, err := p.Probe(context.Background(), current)
+	if err == nil {
+		t.Fatalf("expected an error for a malformed baseline file, got nil (attempts=%d)", len(attempts))
+	}
+	if !strings.Contains(err.Error(), "baseline") {
+		t.Errorf("error = %q, want it to mention the baseline", err)
+	}
+}
+
+// TestRugPull_ListToolsError: with a valid baseline, a transport-level ListTools
+// failure must surface as a Probe error rather than a clean result.
+func TestRugPull_ListToolsError(t *testing.T) {
+	baseline := writeSnapshot(t, []map[string]any{driftTool("calc", "adds two numbers", nil)})
+	p := newRugPull(t, registry.Config{"baseline_path": baseline})
+	attempts, err := p.Probe(context.Background(), listErrInvoker{})
+	if err == nil {
+		t.Fatalf("expected an error when ListTools fails, got nil (attempts=%d)", len(attempts))
+	}
+	if !errors.Is(err, errListTools) {
+		t.Errorf("error = %v, want it to wrap errListTools", err)
 	}
 }
 

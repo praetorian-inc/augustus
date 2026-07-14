@@ -15,6 +15,22 @@ func init() {
 	probes.Register("toolsec.ResponseLeak", NewResponseLeak)
 }
 
+// maxResponseBytes caps how much of a single tool response (Text and raw
+// payload, each) is stored on an attempt. A hostile or buggy MCP target could
+// return an enormous response; truncating before AddOutput bounds report memory.
+// The cap is far larger than any real credential, so detection on normal-size
+// responses is unchanged.
+const maxResponseBytes = 1 << 20 // 1 MiB
+
+// capResponse truncates s to maxResponseBytes, appending a short marker so a
+// truncated response is distinguishable from one that happens to end there.
+func capResponse(s string) string {
+	if len(s) > maxResponseBytes {
+		return s[:maxResponseBytes] + "...[truncated]"
+	}
+	return s
+}
+
 // Compile-time assertion: ResponseLeak exposes probe metadata.
 var _ types.ProbeMetadata = (*ResponseLeak)(nil)
 
@@ -36,6 +52,14 @@ var _ types.ProbeMetadata = (*ResponseLeak)(nil)
 // probe exists to surface. Operators who accept a specific secret-vending tool
 // exclude it with the existing tool_denylist config key, which stops the probe
 // invoking it at all (no attempt, no finding).
+//
+// SIDE EFFECTS: this probe INVOKES real tools with benign arguments (empty args,
+// benign required-parameter values, and a debug/verbose toggle when present).
+// The destructive-tool safety gate only skips tools the SERVER self-annotates as
+// destructive (MCPToolAnnotations.Destructive); a tool that is destructive but
+// unannotated IS invoked. When scanning production targets, set tool_allowlist
+// (or tool_denylist) to restrict which tools the probe may call and avoid
+// unintended side effects.
 type ResponseLeak struct {
 	policy toolPolicy
 }
@@ -117,11 +141,11 @@ func (p *ResponseLeak) callOne(ctx context.Context, inv types.ToolInvoker, tool 
 		a.SetError(err)
 		return a
 	}
-	a.AddOutput(res.Text)
+	a.AddOutput(capResponse(res.Text))
 	// Score the structured/raw payload too: a credential may appear only in the
 	// raw result and never in the assembled Text.
 	if len(res.Raw) > 0 && string(res.Raw) != res.Text {
-		a.AddOutput(string(res.Raw))
+		a.AddOutput(capResponse(string(res.Raw)))
 	}
 	a.Complete()
 	return a
