@@ -10,10 +10,18 @@
 // detector can flag exposed credentials. This is the "scan once, reuse
 // everywhere" model: recon populates the workspace, the probe scores it.
 //
-// Run it after recon:
+// Run it after recon. recon.MCPConfig is configured from the recon.settings block
+// of a YAML config file (recon modules are not configured by --config, which
+// carries generator config only):
+//
+//	# mcpconfig.yaml
+//	recon:
+//	  settings:
+//	    recon.MCPConfig:
+//	      path: "/path/to/mcp/config"
 //
 //	augustus scan <target> --recon recon.MCPConfig --probe mcpconfig.CredentialExposure \
-//	  --config '{"path":"/path/to/mcp/config"}'
+//	  --config-file mcpconfig.yaml
 //
 // When the recon store holds no config (recon.MCPConfig was not run, or found
 // nothing), the probe emits a single informational, non-vulnerable attempt
@@ -119,7 +127,7 @@ func (p *CredentialExposure) Description() string {
 
 // Goal returns the probe's goal.
 func (p *CredentialExposure) Goal() string {
-	return "detect credentials exposed in MCP configuration and referenced .env files"
+	return "detect credentials exposed in MCP configuration content collected by recon.MCPConfig (inline text, a file, or config files found by walking a directory)"
 }
 
 // GetPrimaryDetector returns the recommended detector for this probe.

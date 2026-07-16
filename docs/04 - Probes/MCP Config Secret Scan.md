@@ -37,6 +37,19 @@ When the recon store holds no config (`recon.MCPConfig` was not run, or found no
 
 ## Usage
 
+`recon.MCPConfig` is configured from the `recon.settings` block of a YAML config
+file (recon modules are not configured by `--config`, which carries generator
+config only). Point `path` at a file or a directory of config files (or set
+`content` for inline text):
+
+```yaml
+# mcpconfig.yaml
+recon:
+  settings:
+    recon.MCPConfig:
+      path: "/path/to/mcp-configs"
+```
+
 ```bash
 # Collect config with recon.MCPConfig, then score it with the probe in one scan.
 # The generator is unused by both, so any no-network generator such as test.Blank
@@ -44,7 +57,7 @@ When the recon store holds no config (`recon.MCPConfig` was not run, or found no
 augustus scan test.Blank \
   --recon recon.MCPConfig \
   --probe mcpconfig.CredentialExposure \
-  --config '{"path":"/path/to/mcp-configs"}'
+  --config-file mcpconfig.yaml
 ```
 
 A leaky config (e.g. a `GITHUB_TOKEN` set to a real `ghp_…` value) scores `1.0` (VULN); configs that only reference env vars (`${FS_API_KEY}`) or use placeholders score `0.0` (SAFE).

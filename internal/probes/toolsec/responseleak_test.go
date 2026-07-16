@@ -2,13 +2,17 @@ package toolsec
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 
 	_ "github.com/praetorian-inc/augustus/internal/detectors/mcpsecrets"
+	mcpx "github.com/praetorian-inc/augustus/internal/recon/mcp"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
+	"github.com/praetorian-inc/augustus/pkg/output"
+	"github.com/praetorian-inc/augustus/pkg/recon"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
@@ -439,11 +443,13 @@ func TestResponseLeak_ContextCancellationReturnsPartial(t *testing.T) {
 	}
 }
 
-// TestResponseLeak_TruncatesOversizeResponse: a tool returning a response larger
-// than maxResponseBytes has its stored output capped (FIX 3) so a hostile or
-// buggy target cannot force unbounded memory into the report.
-func TestResponseLeak_TruncatesOversizeResponse(t *testing.T) {
-	big := strings.Repeat("a", maxResponseBytes+5000)
+// TestResponseLeak_ScoresSecretPastFormerCap: review finding E — the response is
+// scored in FULL (no pre-scoring truncation). A credential following a large
+// benign prefix (past the old 1 MiB cap boundary) must still be flagged; the cap
+// was removed precisely to avoid this false clean.
+func TestResponseLeak_ScoresSecretPastFormerCap(t *testing.T) {
+	secret := "ghp_016c7f8a9b2d3e4f5061728394a5b6c7d8e9"
+	big := strings.Repeat("a", 1_500_000) + " GITHUB_TOKEN=" + secret
 	target := &mockTarget{
 		tools: []map[string]any{stringTool("lookup", "id")},
 		call: func(string, map[string]any) types.ToolResult {
@@ -457,13 +463,64 @@ func TestResponseLeak_TruncatesOversizeResponse(t *testing.T) {
 	if len(attempts) == 0 {
 		t.Fatal("Probe produced no attempts")
 	}
-	const marker = 64 // generous allowance for the "...[truncated]" suffix
+	fired := false
 	for _, a := range attempts {
-		for _, o := range a.Outputs {
-			if len(o) > maxResponseBytes+marker {
-				t.Errorf("stored output length %d exceeds cap %d (+marker)", len(o), maxResponseBytes)
+		for _, s := range scoreConfigLeak(t, a) {
+			if s == 1.0 {
+				fired = true
 			}
 		}
+	}
+	if !fired {
+		t.Errorf("expected the secret past the former 1 MiB cap to be flagged; truncation must not precede scoring")
+	}
+}
+
+// TestResponseLeak_PrefersReconStore: review finding C — when a shared recon
+// inventory is supplied via SetContext, the probe uses that catalog and must NOT
+// re-enumerate the live target with ListTools (scan once, reuse everywhere).
+func TestResponseLeak_PrefersReconStore(t *testing.T) {
+	p := newResponseLeak(t, registry.Config{})
+
+	inv := types.MCPInventory{Tools: []types.MCPTool{{
+		Name:        "lookup",
+		InputSchema: json.RawMessage(`{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}`),
+	}}}
+	data, err := json.Marshal(inv)
+	if err != nil {
+		t.Fatalf("marshal inventory: %v", err)
+	}
+	store := recon.NewStore()
+	store.Observe(output.Observation{Type: mcpx.ObservationTypeInventory, Data: data})
+	p.SetContext(recon.ProbeContext{Recon: store})
+
+	listCalled := false
+	target := &mockTarget{
+		tools:    []map[string]any{stringTool("decoy", "q")}, // live list would reveal only a decoy
+		listHook: func() { listCalled = true },
+		call: func(string, map[string]any) types.ToolResult {
+			return types.ToolResult{Text: "ok"}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if listCalled {
+		t.Error("ResponseLeak called ListTools despite a shared recon inventory being available")
+	}
+	sawLookup := false
+	for _, a := range attempts {
+		if a.Metadata["toolsec.tool"] == "lookup" {
+			sawLookup = true
+		}
+		if a.Metadata["toolsec.tool"] == "decoy" {
+			t.Error("probe tested the decoy tool from ListTools instead of the recon inventory")
+		}
+	}
+	if !sawLookup {
+		t.Error("probe did not test the 'lookup' tool from the shared recon inventory")
 	}
 }
 

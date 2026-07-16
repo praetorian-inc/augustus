@@ -117,6 +117,37 @@ func TestModule_OversizeFileSkipped(t *testing.T) {
 	}
 }
 
+// TestModule_SkipsSymlinks: review finding D — a symlinked config entry inside
+// the scanned directory is skipped (a symlink could point outside the tree,
+// reading files not under it and bypassing the size cap). Regular files under
+// the same directory are still collected.
+func TestModule_SkipsSymlinks(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "real.json", `{"env":{"OK":"value"}}`)
+
+	// A secret-bearing file OUTSIDE the scanned directory.
+	outside := filepath.Join(t.TempDir(), "outside.json")
+	if err := os.WriteFile(outside, []byte(`{"env":{"GITHUB_TOKEN":"ghp_abcdefghijklmnopqrstuvwxyz0123456789"}}`), 0o600); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
+	link := filepath.Join(dir, "evil.json")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Skipf("symlinks unsupported on this platform: %v", err)
+	}
+
+	m := newModule(t, registry.Config{"path": dir})
+	obs, err := m.Recon(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Recon() error = %v", err)
+	}
+	if len(obs) != 1 {
+		t.Fatalf("got %d observations, want 1 (symlink skipped)", len(obs))
+	}
+	if filepath.Base(obs[0].Target) != "real.json" {
+		t.Errorf("Target = %q, want real.json (symlink evil.json must not be read)", obs[0].Target)
+	}
+}
+
 func TestModule_CancelledContextReturnsErr(t *testing.T) {
 	m := newModule(t, registry.Config{"content": `{"env":{"API_KEY":"secret"}}`})
 	ctx, cancel := context.WithCancel(context.Background())

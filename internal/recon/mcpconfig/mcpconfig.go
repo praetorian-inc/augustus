@@ -166,6 +166,13 @@ func readPath(ctx context.Context, path string) ([]source, error) {
 			// Skip an unreadable entry (e.g. permission denied) and keep walking.
 			return nil
 		}
+		// Skip symlinks: a symlinked .json/.env could resolve to a file OUTSIDE the
+		// scanned tree (reading data not under it) and bypass the size cap. Only
+		// regular files are collected. (WalkDir does not follow symlinks, so this
+		// also prevents traversing a symlinked directory.)
+		if d.Type()&fs.ModeSymlink != 0 {
+			return nil
+		}
 		if d.IsDir() || !isConfigFile(d.Name()) {
 			return nil
 		}

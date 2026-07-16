@@ -8,6 +8,7 @@ import (
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
+	"github.com/praetorian-inc/augustus/pkg/recon"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
@@ -16,24 +17,18 @@ func init() {
 	probes.Register("toolsec.ResponseLeak", NewResponseLeak)
 }
 
-// maxResponseBytes caps how much of a single tool response (Text and raw
-// payload, each) is stored on an attempt. A hostile or buggy MCP target could
-// return an enormous response; truncating before AddOutput bounds report memory.
-// The cap is far larger than any real credential, so detection on normal-size
-// responses is unchanged.
-const maxResponseBytes = 1 << 20 // 1 MiB
+// NOTE: an earlier revision truncated each stored tool response to a byte cap to
+// bound report memory. That cap was intentionally REMOVED: a credential can sit
+// past any boundary, so truncating before scoring hid secrets and produced false
+// cleans. For a credential-detection probe on an operator-run scan, correctness
+// beats memory-bounding, so the full response is stored and scored.
 
-// capResponse truncates s to maxResponseBytes, appending a short marker so a
-// truncated response is distinguishable from one that happens to end there.
-func capResponse(s string) string {
-	if len(s) > maxResponseBytes {
-		return s[:maxResponseBytes] + "...[truncated]"
-	}
-	return s
-}
-
-// Compile-time assertion: ResponseLeak exposes probe metadata.
-var _ types.ProbeMetadata = (*ResponseLeak)(nil)
+// Compile-time assertions: ResponseLeak exposes probe metadata and consumes prior
+// reconnaissance (via the embedded reconContext).
+var (
+	_ types.ProbeMetadata     = (*ResponseLeak)(nil)
+	_ recon.ContextAwareProbe = (*ResponseLeak)(nil)
+)
 
 // ResponseLeak tests a directly-invokable tool surface for secret exposure in
 // tool RESPONSES (OWASP MCP01). It calls each discovered tool with inputs that
@@ -62,6 +57,7 @@ var _ types.ProbeMetadata = (*ResponseLeak)(nil)
 // (or tool_denylist) to restrict which tools the probe may call and avoid
 // unintended side effects.
 type ResponseLeak struct {
+	reconContext
 	policy toolpolicy.Policy
 }
 
@@ -94,7 +90,10 @@ func (p *ResponseLeak) Probe(ctx context.Context, gen types.Generator) ([]*attem
 		return nil, fmt.Errorf("toolsec.ResponseLeak: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
 	}
 
-	tools, err := inv.ListTools(ctx)
+	// Prefer a prior MCP inventory gathered by the recon phase; only fall back to
+	// a live ListTools when none is available. Invocation still needs the live
+	// ToolInvoker asserted above (recon supplies the catalog, not the transport).
+	tools, err := p.resolveTools(ctx, gen)
 	if err != nil {
 		return nil, fmt.Errorf("toolsec.ResponseLeak: list tools: %w", err)
 	}
@@ -142,11 +141,13 @@ func (p *ResponseLeak) callOne(ctx context.Context, inv types.ToolInvoker, tool 
 		a.SetError(err)
 		return a
 	}
-	a.AddOutput(capResponse(res.Text))
+	// Store the FULL response (no pre-scoring truncation — see the cap-removal note
+	// above): a credential past a byte boundary must still be scored.
+	a.AddOutput(res.Text)
 	// Score the structured/raw payload too: a credential may appear only in the
 	// raw result and never in the assembled Text.
 	if len(res.Raw) > 0 && string(res.Raw) != res.Text {
-		a.AddOutput(capResponse(string(res.Raw)))
+		a.AddOutput(string(res.Raw))
 	}
 	a.Complete()
 	return a

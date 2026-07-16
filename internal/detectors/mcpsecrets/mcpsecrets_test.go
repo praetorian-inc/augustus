@@ -60,6 +60,27 @@ func TestCredential_Detect(t *testing.T) {
 			output: `{"mcpServers":{"db":{"env":{"DB_PASSWORD":"S3cr3tP@ssw0rd!"}}}}`,
 			want:   1.0,
 		},
+		// --- Review finding A: SafeTokens must match config VALUES by EXACT
+		// equality, not substring. A real secret that merely CONTAINS a safe-token
+		// word ("mypassword" is a SafeToken) is a true secret, not a placeholder. ---
+		{
+			name:   "password containing safe-token substring is still a secret",
+			output: `{"env":{"DB_PASSWORD":"mypassword123!"}}`,
+			want:   1.0,
+		},
+		// --- Review finding B: a non-secret key that merely CONTAINS a secret word
+		// ("tokenizer"/"tokenized" contain "token") must NOT gate value inspection;
+		// only whole key segments (or a compound key regex) count. ---
+		{
+			name:   "tokenizer key is not a secret key (json)",
+			output: `{"env":{"tokenizer":"cl100k_base"}}`,
+			want:   0.0,
+		},
+		{
+			name:   "tokenized key is not a secret key (yaml)",
+			output: `tokenized: gpt2`,
+			want:   0.0,
+		},
 		{
 			name:   "credentials embedded in connection string",
 			output: `{"env":{"DATABASE_URL":"postgres://admin:S3cr3tP@ss@db.internal:5432/app"}}`,

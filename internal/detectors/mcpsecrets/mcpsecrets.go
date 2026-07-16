@@ -63,13 +63,38 @@ var providerKeyPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`[0-9a-f]{32}-us[0-9]{1,2}`),                                    // Mailchimp
 }
 
-// secretKeyName matches configuration key / env-var names that conventionally
-// hold credentials. Used to gate value inspection so arbitrary config values
-// are not treated as secrets. Connection-string / DSN keys are deliberately
-// excluded: a real URI credential is caught by the dedicated connCreds signal
-// regardless of key name, whereas a credential-free DSN (no userinfo password)
-// would otherwise false-positive via the generic high-entropy value path.
-var secretKeyName = regexp.MustCompile(`(?i)(pass(w(or)?d)?|passphrase|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|credential)`)
+// secretKeySegments are whole key/env-var name SEGMENTS that conventionally hold
+// credentials. A name is split on [_.\-] and each segment matched exactly, so a
+// non-secret key that merely CONTAINS a secret word (e.g. "tokenizer" contains
+// "token") is not treated as a secret key. Connection-string / DSN keys are
+// deliberately absent: a real URI credential is caught by the dedicated connCreds
+// signal regardless of key name, whereas a credential-free DSN (no userinfo
+// password) would otherwise false-positive via the high-entropy value path.
+var secretKeySegments = map[string]bool{
+	"password": true, "passwd": true, "pwd": true, "passphrase": true,
+	"secret": true, "token": true, "tokens": true,
+	"credential": true, "credentials": true, "apikey": true,
+}
+
+// secretKeyCompound matches whole key names that read as credentials but do not
+// decompose into a single secret-word segment (e.g. "api_key", "access_token").
+var secretKeyCompound = regexp.MustCompile(`(?i)(api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|access[_-]?token)`)
+
+// secretKeySeparators splits a config key / env-var name into segments.
+func secretKeySeparators(r rune) bool { return r == '_' || r == '.' || r == '-' }
+
+// isSecretKey reports whether a config key / env-var name conventionally holds a
+// credential. It matches WHOLE segments (so "tokenizer" does not match "token")
+// or the whole name against secretKeyCompound.
+func isSecretKey(name string) bool {
+	lower := strings.ToLower(name)
+	for _, seg := range strings.FieldsFunc(lower, secretKeySeparators) {
+		if secretKeySegments[seg] {
+			return true
+		}
+	}
+	return secretKeyCompound.MatchString(name)
+}
 
 // jsonKV matches "key": "value" pairs in JSON config. The value capture handles
 // escaped characters (e.g. an escaped quote \") so a secret is captured in full
@@ -177,17 +202,17 @@ func leaks(content string) bool {
 
 	// Signal 2: secret-named config key / env var with a concrete value.
 	for _, kv := range jsonKV.FindAllStringSubmatch(content, -1) {
-		if secretKeyName.MatchString(kv[1]) && isConcreteSecret(kv[2]) {
+		if isSecretKey(kv[1]) && isConcreteSecret(kv[2]) {
 			return true
 		}
 	}
 	for _, kv := range envKV.FindAllStringSubmatch(content, -1) {
-		if secretKeyName.MatchString(kv[1]) && isConcreteSecret(kv[2]) {
+		if isSecretKey(kv[1]) && isConcreteSecret(kv[2]) {
 			return true
 		}
 	}
 	for _, kv := range yamlKV.FindAllStringSubmatch(content, -1) {
-		if secretKeyName.MatchString(kv[1]) && isConcreteSecret(kv[2]) {
+		if isSecretKey(kv[1]) && isConcreteSecret(kv[2]) {
 			return true
 		}
 	}
@@ -260,10 +285,16 @@ func isPlaceholder(value string) bool {
 	if v == "" || envRef.MatchString(v) {
 		return true
 	}
-	if apikey.IsSafeToken(v) {
-		return true
-	}
 	lower := strings.ToLower(v)
+	// A config VALUE is already the extracted field, so match apikey.SafeTokens by
+	// EXACT (case-insensitive) equality — NOT apikey.IsSafeToken's substring test.
+	// Substring matching would treat a real secret ("mypassword123!") as a
+	// placeholder merely because it contains a safe-token word ("mypassword").
+	for _, safe := range apikey.SafeTokens {
+		if lower == strings.ToLower(safe) {
+			return true
+		}
+	}
 	if placeholderExact[lower] {
 		return true
 	}
