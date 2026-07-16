@@ -182,6 +182,44 @@ func TestModule_SymlinkedDirRoot(t *testing.T) {
 	}
 }
 
+// TestModule_SkipsNodeModulesAndHiddenDirs: review finding 5 — the walk must not
+// descend into massive/irrelevant subtrees (node_modules, .git, hidden dirs). A
+// secret .json inside node_modules is not collected; the top-level config is.
+func TestModule_SkipsNodeModulesAndHiddenDirs(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "config.json", `{"env":{"OK":"value"}}`)
+
+	nm := filepath.Join(dir, "node_modules", "pkg")
+	if err := os.MkdirAll(nm, 0o750); err != nil {
+		t.Fatalf("mkdir node_modules: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(nm, "secret.json"),
+		[]byte(`{"env":{"GITHUB_TOKEN":"ghp_abcdefghijklmnopqrstuvwxyz0123456789"}}`), 0o600); err != nil {
+		t.Fatalf("write node_modules secret: %v", err)
+	}
+
+	hidden := filepath.Join(dir, ".cache")
+	if err := os.MkdirAll(hidden, 0o750); err != nil {
+		t.Fatalf("mkdir hidden: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(hidden, "creds.json"),
+		[]byte(`{"env":{"API_KEY":"sk-abcdefghijklmnopqrstuvwxyz0123456789"}}`), 0o600); err != nil {
+		t.Fatalf("write hidden secret: %v", err)
+	}
+
+	m := newModule(t, registry.Config{"path": dir})
+	obs, err := m.Recon(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Recon() error = %v", err)
+	}
+	if len(obs) != 1 {
+		t.Fatalf("got %d observations, want 1 (node_modules and hidden dirs skipped)", len(obs))
+	}
+	if filepath.Base(obs[0].Target) != "config.json" {
+		t.Errorf("Target = %q, want config.json", obs[0].Target)
+	}
+}
+
 func TestModule_CancelledContextReturnsErr(t *testing.T) {
 	m := newModule(t, registry.Config{"content": `{"env":{"API_KEY":"secret"}}`})
 	ctx, cancel := context.WithCancel(context.Background())

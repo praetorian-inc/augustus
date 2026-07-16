@@ -400,6 +400,55 @@ SERVICE_NAME=my-billing-service-prod`,
 			output: `DB_PASSWORD=hunter`,
 			want:   0.0,
 		},
+		// --- Review finding 1: inline comments after an env/YAML value must be
+		// stripped before gating, so the deny-list / entropy screens see the value
+		// alone (not the comment punctuation). A '#' with no preceding whitespace
+		// (part of the value, not a comment) is preserved. ---
+		{
+			name:   "env inline comment after boolean value stripped",
+			output: `PASSWORD_REQUIRED=false # local dev only`,
+			want:   0.0,
+		},
+		{
+			name:   "yaml value that is only a comment is empty",
+			output: `api_key: # see documentation`,
+			want:   0.0,
+		},
+		{
+			name:   "hash inside env value with no preceding space is preserved",
+			output: `DB_PASSWORD=Str0ng#Pass9x`,
+			want:   1.0,
+		},
+		// --- Review finding 2: a key whose LAST segment is a pointer word (file,
+		// path, ref, location, dir, uri, url, endpoint) references WHERE a secret
+		// lives, not the secret itself, and must not be flagged. ---
+		{
+			name:   "api key file pointer is not the secret",
+			output: `{"env":{"API_KEY_FILE":"/var/run/secrets/x.json"}}`,
+			want:   0.0,
+		},
+		{
+			name:   "client secret path pointer is not the secret",
+			output: `{"env":{"client_secret_path":"/tmp/client.json"}}`,
+			want:   0.0,
+		},
+		{
+			name:   "github api key positive still fires (not a pointer)",
+			output: `{"env":{"GITHUB_API_KEY":"abcD1234EFgh5678"}}`,
+			want:   1.0,
+		},
+		{
+			name:   "access token positive still fires (not a pointer)",
+			output: `{"env":{"access_token":"abcD1234EFgh5678"}}`,
+			want:   1.0,
+		},
+		// --- Review finding 4: a "--flag=value" passed as ONE quoted JSON argv
+		// element may contain spaces; the whole value must be captured. ---
+		{
+			name:   "arg flag equals value with spaces",
+			output: `{"args":["--passphrase=correct horse battery staple"]}`,
+			want:   1.0,
+		},
 		{
 			name:   "empty output",
 			output: ``,

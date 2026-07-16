@@ -47,6 +47,12 @@ const maxFileSize = 5 << 20 // 5 MiB
 // adversarial directory tree cannot make the module buffer unbounded content.
 const maxFiles = 10000
 
+// maxTotalBytes caps the cumulative content a single directory walk buffers.
+// The per-file (maxFileSize) and file-count (maxFiles) caps alone still permit
+// ~tens of GiB (10000 files x 5 MiB), so this bounds the aggregate. Reaching it
+// stops the walk (logged, not silently truncated).
+const maxTotalBytes = 50 << 20 // 50 MiB
+
 func init() {
 	recon.Register("recon.MCPConfig", New)
 }
@@ -178,6 +184,7 @@ func readPath(ctx context.Context, path string) ([]source, error) {
 	}
 
 	var sources []source
+	var totalBytes int64
 	walkErr := filepath.WalkDir(path, func(p string, d fs.DirEntry, err error) error {
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -193,7 +200,16 @@ func readPath(ctx context.Context, path string) ([]source, error) {
 		if d.Type()&fs.ModeSymlink != 0 {
 			return nil
 		}
-		if d.IsDir() || !isConfigFile(d.Name()) {
+		if d.IsDir() {
+			// Skip massive/irrelevant subtrees (node_modules, .git, any hidden dir)
+			// so the walk does not scan huge trees that never hold MCP config. The
+			// walk ROOT is never skipped, even if it is itself hidden.
+			if p != path && skipDirName(d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !isConfigFile(d.Name()) {
 			return nil
 		}
 		info, infoErr := d.Info()
@@ -221,12 +237,28 @@ func readPath(ctx context.Context, path string) ([]source, error) {
 			return nil
 		}
 		sources = append(sources, source{label: p, content: string(content)})
+		// Stop once the cumulative-byte cap is reached so a large tree cannot make
+		// the module buffer tens of GiB. Log it so the truncation is observable.
+		totalBytes += int64(len(content))
+		if totalBytes >= maxTotalBytes {
+			slog.Warn("recon.MCPConfig: cumulative byte cap reached; truncating directory walk",
+				"max_total_bytes", maxTotalBytes, "path", path)
+			return filepath.SkipAll
+		}
 		return nil
 	})
 	if walkErr != nil {
 		return nil, walkErr
 	}
 	return sources, nil
+}
+
+// skipDirName reports whether a subdirectory should not be descended into: large
+// dependency trees (node_modules) and VCS / hidden directories (.git and any
+// dotfile-prefixed dir) never hold MCP config and only slow the walk. Applies to
+// DIRECTORIES only — ".env*" FILES are still collected (see isConfigFile).
+func skipDirName(name string) bool {
+	return name == "node_modules" || strings.HasPrefix(name, ".")
 }
 
 // isConfigFile reports whether a filename should be scanned as configuration.
