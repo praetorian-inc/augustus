@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/praetorian-inc/augustus/internal/toolpolicy"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/recon"
@@ -36,12 +37,12 @@ var urlParamRE = regexp.MustCompile(`(?i)(^|[_\- ])(url|uri|endpoint|host|hostna
 // SSRF (the tool returns the fetched body, matched by reflection).
 type SSRF struct {
 	reconContext
-	listen       string        // OOB collector bind address
-	baseOverride string        // URL the target should use to reach the collector (optional)
-	wait         time.Duration // grace period for callbacks after sending
-	allParams    bool          // inject into every string param, not just URL-like ones
-	marker       string        // collector body marker (reflection signal)
-	policy       toolPolicy    // destructive-tool safety gate
+	listen       string            // OOB collector bind address
+	baseOverride string            // URL the target should use to reach the collector (optional)
+	wait         time.Duration     // grace period for callbacks after sending
+	allParams    bool              // inject into every string param, not just URL-like ones
+	marker       string            // collector body marker (reflection signal)
+	policy       toolpolicy.Policy // destructive-tool safety gate
 }
 
 // NewSSRF constructs the probe. All OOB settings default so a localhost target
@@ -53,7 +54,7 @@ func NewSSRF(cfg registry.Config) (probes.Prober, error) {
 		wait:         time.Duration(registry.GetInt(cfg, "oob_wait_seconds", 3)) * time.Second,
 		allParams:    registry.GetBool(cfg, "ssrf_all_string_params", false),
 		marker:       "AUGOOB" + randToken(),
-		policy:       newToolPolicy(cfg),
+		policy:       toolpolicy.New(cfg),
 	}, nil
 }
 
@@ -93,7 +94,7 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 	}
 	// Apply the safety gate before invoking anything (skips destructive tools
 	// unless opted in).
-	tools = p.policy.filterTools(p.Name(), tools)
+	tools = p.policy.Filter(p.Name(), tools)
 	if len(tools) == 0 {
 		return nil, nil
 	}

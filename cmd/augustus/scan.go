@@ -324,11 +324,15 @@ func createProbes(probeNames []string, yamlCfg *config.Config, targetGeneratorNa
 	return probeList, nil
 }
 
-// createRecons instantiates reconnaissance modules by name.
-func createRecons(names []string) ([]recon.Recon, error) {
+// createRecons instantiates reconnaissance modules by name, resolving each
+// module's config from the YAML recon.settings section (merged with global
+// judge defaults). yamlCfg may be nil; ResolveReconConfig is nil-safe and then
+// yields only the (empty) defaults.
+func createRecons(names []string, yamlCfg *config.Config) ([]recon.Recon, error) {
 	mods := make([]recon.Recon, 0, len(names))
 	for _, name := range names {
-		m, err := recon.Create(name, make(registry.Config))
+		var reconCfg registry.Config = yamlCfg.ResolveReconConfig(name)
+		m, err := recon.Create(name, reconCfg)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create recon module %s: %w", name, err)
 		}
@@ -740,7 +744,7 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	store := recon.NewStore()
 	var reconErr error
 	if len(cfg.reconNames) > 0 {
-		reconModules, rerr := createRecons(cfg.reconNames)
+		reconModules, rerr := createRecons(cfg.reconNames, yamlCfg)
 		if rerr != nil {
 			return rerr
 		}
@@ -943,7 +947,9 @@ func (t *tableEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 
 	rows := make([]row, 0, len(attempts))
 	totalPassed := 0
+	totalReview := 0
 	totalFailed := 0
+	totalErrored := 0
 
 	for _, a := range attempts {
 		scores := a.GetEffectiveScores()
@@ -954,14 +960,25 @@ func (t *tableEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 			}
 		}
 
-		passed := maxScore <= attempt.DefaultVulnerabilityThreshold
-		status := "SAFE"
+		// Verdict is the single source of truth for the four-way status. STATUS
+		// is the upper-cased verdict; PASSED is true only for "safe" (REVIEW,
+		// VULN, and ERROR all show PASSED=false), matching the disjoint summary
+		// counters below and ComputeSummary.
+		verdict := results.Verdict(a)
+		status := strings.ToUpper(verdict)
+		passed := verdict == "safe"
 		passedStr := "true"
 		if !passed {
-			status = "VULN"
 			passedStr = "false"
+		}
+		switch verdict {
+		case "vuln":
 			totalFailed++
-		} else {
+		case "error":
+			totalErrored++
+		case "review":
+			totalReview++
+		default:
 			totalPassed++
 		}
 
@@ -1014,10 +1031,10 @@ func (t *tableEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 					maxScore = score
 				}
 			}
-			status := "PASS"
-			if maxScore > attempt.DefaultVulnerabilityThreshold {
-				status = "FAIL"
-			}
+			// Use the shared four-way verdict so the verbose detail matches the
+			// table's STATUS column; an errored attempt must not print as passing.
+			verdict := results.Verdict(a)
+			status := strings.ToUpper(verdict)
 
 			// Check for multi-turn attack metadata
 			if attackType, ok := a.Metadata["attack_type"].(string); ok {
@@ -1118,7 +1135,7 @@ func (t *tableEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 			} else if t.verbose {
 				w := terminalWidth()
 				statusIcon := "✓"
-				if status == "FAIL" {
+				if verdict == "error" || verdict == "vuln" {
 					statusIcon = "✗"
 				}
 				fmt.Printf("  ┌─ Attempt %d: %s %s (score: %.2f)\n", i+1, statusIcon, status, maxScore)
@@ -1136,7 +1153,8 @@ func (t *tableEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 		}
 	}
 
-	fmt.Printf("\nOverall: %d passed, %d failed (total: %d)\n", totalPassed, totalFailed, len(attempts))
+	fmt.Printf("\nOverall: %d passed, %d review, %d failed, %d errored (total: %d)\n",
+		totalPassed, totalReview, totalFailed, totalErrored, len(attempts))
 	return nil
 }
 

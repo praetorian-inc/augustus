@@ -18,6 +18,9 @@ func TestProbeConstruction(t *testing.T) {
 		promptCount  int
 	}{
 		{"InstructionImage", newInstructionImageProbe, "multimodal.InstructionImage", 1},
+		{"FigStepNumberedList", newFigStepNumberedListProbe, "multimodal.FigStepNumberedList", 1},
+		{"VSHNarrativeScene", newVSHNarrativeSceneProbe, "multimodal.VSHNarrativeScene", 1},
+		{"VisualSemanticExploits", newVisualSemanticExploitsProbe, "multimodal.VisualSemanticExploits", 1},
 		{"SceneTAPTypographic", newSceneTAPTypographicProbe, "multimodal.SceneTAPTypographic", 2},
 		{"InvisibleText", newInvisibleTextProbe, "multimodal.InvisibleText", 1},
 		{"ScalingNearestNeighbor", newScalingNearestNeighborProbe, "multimodal.ScalingNearestNeighbor", 1},
@@ -74,6 +77,9 @@ func TestProbeConstruction(t *testing.T) {
 func TestProbeRegistration(t *testing.T) {
 	names := []string{
 		"multimodal.InstructionImage",
+		"multimodal.FigStepNumberedList",
+		"multimodal.VSHNarrativeScene",
+		"multimodal.VisualSemanticExploits",
 		"multimodal.SceneTAPTypographic",
 		"multimodal.InvisibleText",
 		"multimodal.ScalingNearestNeighbor",

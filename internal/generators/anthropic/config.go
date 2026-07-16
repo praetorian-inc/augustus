@@ -12,8 +12,16 @@ type Config struct {
 	Model  string
 	APIKey string
 
-	// Optional with defaults
-	Temperature   float64
+	// Optional with defaults.
+	//
+	// Temperature is a pointer so "unset" (nil) is distinct from an explicit 0:
+	// when nil the field is omitted from the request entirely, rather than
+	// injecting a default the operator never asked for. This matters because the
+	// newest Anthropic models (e.g. claude-sonnet-5, claude-opus-4-x) reject the
+	// `temperature` field outright ("temperature is deprecated for this model"),
+	// so a hardcoded default would make them unusable out of the box. Mirrors the
+	// ollama generator's pointer handling.
+	Temperature   *float64
 	MaxTokens     int
 	TopP          float64
 	TopK          int
@@ -25,10 +33,11 @@ type Config struct {
 // DefaultConfig returns a Config with sensible defaults.
 func DefaultConfig() Config {
 	return Config{
-		Temperature: defaultTemperature,
-		MaxTokens:   defaultMaxTokens,
-		APIVersion:  defaultAPIVersion,
-		BaseURL:     defaultBaseURL,
+		// Temperature intentionally left nil (unset): only sent when the operator
+		// explicitly configures it. See the Config.Temperature doc comment.
+		MaxTokens:  defaultMaxTokens,
+		APIVersion: defaultAPIVersion,
+		BaseURL:    defaultBaseURL,
 	}
 }
 
@@ -53,7 +62,18 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	// Optional parameters
 	cfg.BaseURL = registry.GetString(m, "base_url", cfg.BaseURL)
 	cfg.APIVersion = registry.GetString(m, "api_version", cfg.APIVersion)
-	cfg.Temperature = registry.GetFloat64(m, "temperature", cfg.Temperature)
+	// Temperature is opt-in and type-safe: set the pointer only when the key
+	// holds an actual number (float64 from JSON/YAML, int from a hand-built map).
+	// A missing key OR a malformed value (e.g. a string like "0.5") leaves it nil
+	// (unset -> omitted from the request) rather than silently coercing to 0,
+	// which would force unexpectedly deterministic generation. Mirrors ollama.
+	switch v := m["temperature"].(type) {
+	case float64:
+		cfg.Temperature = &v
+	case int:
+		f := float64(v)
+		cfg.Temperature = &f
+	}
 	cfg.MaxTokens = registry.GetInt(m, "max_tokens", cfg.MaxTokens)
 	cfg.TopP = registry.GetFloat64(m, "top_p", cfg.TopP)
 	cfg.TopK = registry.GetInt(m, "top_k", cfg.TopK)
@@ -84,10 +104,12 @@ func WithAPIKey(key string) Option {
 	}
 }
 
-// WithTemperature sets the sampling temperature.
+// WithTemperature sets the sampling temperature. Calling it marks temperature
+// as explicitly set (including 0); leaving it uncalled keeps temperature unset,
+// so the field is omitted from the request.
 func WithTemperature(temp float64) Option {
 	return func(c *Config) {
-		c.Temperature = temp
+		c.Temperature = &temp
 	}
 }
 
@@ -137,6 +159,10 @@ func WithAPIVersion(version string) Option {
 // This prevents accidental credential leakage in logs or error messages.
 func (c Config) String() string {
 	maskedKey := registry.MaskAPIKey(c.APIKey)
-	return fmt.Sprintf("Config{Model=%s, APIKey=%s, Temperature=%.2f, MaxTokens=%d}",
-		c.Model, maskedKey, c.Temperature, c.MaxTokens)
+	temp := "unset"
+	if c.Temperature != nil {
+		temp = fmt.Sprintf("%.2f", *c.Temperature)
+	}
+	return fmt.Sprintf("Config{Model=%s, APIKey=%s, Temperature=%s, MaxTokens=%d}",
+		c.Model, maskedKey, temp, c.MaxTokens)
 }

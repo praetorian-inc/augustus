@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/praetorian-inc/augustus/internal/toolpolicy"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/recon"
@@ -32,13 +33,13 @@ var (
 type Injection struct {
 	reconContext
 	canary canary
-	policy toolPolicy
+	policy toolpolicy.Policy
 }
 
 // NewInjection constructs the probe with a fresh canary and the tool-safety
 // policy parsed from config (allow_destructive, tool_allowlist, tool_denylist).
 func NewInjection(cfg registry.Config) (probes.Prober, error) {
-	return &Injection{canary: newCanary(), policy: newToolPolicy(cfg)}, nil
+	return &Injection{canary: newCanary(), policy: toolpolicy.New(cfg)}, nil
 }
 
 func (p *Injection) Name() string { return "toolsec.Injection" }
@@ -76,7 +77,7 @@ func (p *Injection) Probe(ctx context.Context, gen types.Generator) ([]*attempt.
 	// Apply the safety gate before invoking anything (skips destructive tools
 	// unless opted in). A target that genuinely advertises no testable tools is a
 	// legitimate empty result, not an error.
-	tools = p.policy.filterTools(p.Name(), tools)
+	tools = p.policy.Filter(p.Name(), tools)
 	if len(tools) == 0 {
 		return nil, nil
 	}

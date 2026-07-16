@@ -1,20 +1,23 @@
-// Package toolsec provides transport-agnostic security probes for targets that
-// expose a directly-invokable tool surface via types.ToolInvoker (e.g. the MCP
-// generator). Unlike the model-facing tool probes (which test whether an LLM can
-// be manipulated into calling a tool), these probes call real tools directly and
-// test the tool backend's own behavior — injection sinks, authorization, SSRF.
+// Package toolsec provides tool-backend security probes for MCP targets.
+// Its probes (Injection, SSRF, PathTraversal) invoke REAL tools through
+// types.ToolInvoker to test the backend's own behaviour — injection
+// sinks, authorization, SSRF, path traversal. This is distinct from the
+// model-facing tool probes elsewhere in the tree that only ask whether
+// an LLM can be manipulated INTO a tool call: toolsec calls the tools
+// itself and observes what actually runs.
+//
+// Sibling package: internal/probes/mcptransport houses transport-layer
+// probes (OriginValidation, SSESessionHijack) that bypass the MCP
+// protocol entirely and issue raw HTTP. Different attack surface,
+// different interface (types.MCPEndpoint), different package.
 package toolsec
 
 import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"log/slog"
 	"math/big"
 	"strconv"
-
-	"github.com/praetorian-inc/augustus/pkg/registry"
-	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 // randToken returns a random 16-hex-char token for canaries/OOB paths.
@@ -146,86 +149,4 @@ func benignValue(typ string) any {
 	default:
 		return "test"
 	}
-}
-
-// toolPolicy decides which discovered tools a tool-surface probe is allowed to
-// invoke with adversarial arguments. The tool-surface probes call REAL tools, so
-// against production infrastructure a payload sent to a destructive tool (delete,
-// transfer, send) can cause real damage. The policy defaults to a safe posture —
-// tools the server annotates as destructive are skipped — and requires an
-// explicit opt-in to test them.
-//
-// Precedence, highest first:
-//  1. allow-list: if set, ONLY listed tools are ever tested.
-//  2. deny-list: listed tools are never tested.
-//  3. destructive gate: unless allow_destructive is set, tools annotated
-//     destructive (per MCP tool hints) are skipped. Tools with no annotations are
-//     treated as unknown and ARE tested — a scanner's worst outcome is a silent
-//     false negative, and most servers ship no hints at all.
-type toolPolicy struct {
-	allowDestructive bool
-	allow            map[string]bool
-	deny             map[string]bool
-}
-
-// Config keys shared by the tool-surface probes.
-const (
-	cfgAllowDestructive = "allow_destructive"
-	cfgToolAllowlist    = "tool_allowlist"
-	cfgToolDenylist     = "tool_denylist"
-)
-
-// newToolPolicy reads the shared safety-gate config keys.
-func newToolPolicy(cfg registry.Config) toolPolicy {
-	return toolPolicy{
-		allowDestructive: registry.GetBool(cfg, cfgAllowDestructive, false),
-		allow:            toSet(registry.GetStringSlice(cfg, cfgToolAllowlist, nil)),
-		deny:             toSet(registry.GetStringSlice(cfg, cfgToolDenylist, nil)),
-	}
-}
-
-func toSet(names []string) map[string]bool {
-	if len(names) == 0 {
-		return nil
-	}
-	s := make(map[string]bool, len(names))
-	for _, n := range names {
-		s[n] = true
-	}
-	return s
-}
-
-// skip reports whether a tool must not be invoked, with a human-readable reason
-// for logging. tm is the tool's ListTools-shaped map (its "annotations" key, when
-// present, is a types.MCPToolAnnotations value).
-func (p toolPolicy) skip(name string, tm map[string]any) (bool, string) {
-	if len(p.allow) > 0 && !p.allow[name] {
-		return true, "not in tool_allowlist"
-	}
-	if p.deny[name] {
-		return true, "in tool_denylist"
-	}
-	if p.allowDestructive {
-		return false, ""
-	}
-	ann, ok := tm["annotations"].(types.MCPToolAnnotations)
-	if ok && ann.IsDestructive() {
-		return true, "server annotates this tool as destructive; set allow_destructive=true to test it"
-	}
-	return false, ""
-}
-
-// filterTools returns the subset of tools the policy permits, logging each skip
-// so a narrowed scan is never silently mistaken for a clean one.
-func (p toolPolicy) filterTools(probe string, tools []map[string]any) []map[string]any {
-	kept := make([]map[string]any, 0, len(tools))
-	for _, tm := range tools {
-		name, _ := tm["name"].(string)
-		if skip, reason := p.skip(name, tm); skip {
-			slog.Warn("toolsec: skipping tool", "probe", probe, "tool", name, "reason", reason)
-			continue
-		}
-		kept = append(kept, tm)
-	}
-	return kept
 }

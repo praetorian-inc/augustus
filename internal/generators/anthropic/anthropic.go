@@ -32,11 +32,10 @@ func init() {
 
 // Default configuration values matching litellm patterns.
 const (
-	defaultMaxTokens   = 150
-	defaultTemperature = 0.7
-	defaultAPIVersion  = "2023-06-01"
-	defaultBaseURL     = "https://api.anthropic.com/v1"
-	defaultTimeout     = 90 * time.Second
+	defaultMaxTokens  = 150
+	defaultAPIVersion = "2023-06-01"
+	defaultBaseURL    = "https://api.anthropic.com/v1"
+	defaultTimeout    = 90 * time.Second
 )
 
 // Anthropic is a generator that wraps the Anthropic Messages API.
@@ -48,8 +47,9 @@ type Anthropic struct {
 	apiVersion string
 	model      string
 
-	// Configuration parameters
-	temperature   float64
+	// Configuration parameters. temperature is nil when unset so it is omitted
+	// from the request (see Config.Temperature).
+	temperature   *float64
 	maxTokens     int
 	topP          float64
 	topK          int
@@ -117,7 +117,7 @@ type messageRequest struct {
 	MaxTokens     int                  `json:"max_tokens"`
 	Messages      []Message            `json:"messages"`
 	System        string               `json:"system,omitempty"`
-	Temperature   float64              `json:"temperature,omitempty"`
+	Temperature   *float64             `json:"temperature,omitempty"`
 	TopP          float64              `json:"top_p,omitempty"`
 	TopK          int                  `json:"top_k,omitempty"`
 	StopSequences []string             `json:"stop_sequences,omitempty"`

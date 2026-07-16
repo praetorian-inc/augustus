@@ -80,6 +80,31 @@ func (inv *MCPInventory) ToolMaps() []map[string]any {
 	return out
 }
 
+// MCPIdentifiers is the mcp.identifiers observation payload: object identifiers
+// discovered for ONE identity, each already validated against the getter tool
+// that accepts it.
+type MCPIdentifiers struct {
+	Identity string         `json:"identity"`
+	Objects  []MCPObjectRef `json:"objects"`
+}
+
+// MCPObjectRef is one confirmed object identifier: a value that a getter tool
+// returned a non-empty, non-error object for when called under the owning
+// identity. It records only server-agnostic facts — which getter accepts the id,
+// the id param, the id value, and the full validated arg map — so a downstream
+// authorization probe can replay the getter without assuming any response format,
+// id format, or field names.
+type MCPObjectRef struct {
+	Tool   string `json:"tool"`             // getter confirmed to return this object
+	Param  string `json:"param"`            // getter arg that took the id
+	ID     string `json:"id"`               // the identifier value
+	Source string `json:"source,omitempty"` // enumerator the id came from
+	// Args is the full argument map the getter was validated with (the id plus
+	// benign placeholders for any other required params). A BOLA replay must reuse
+	// it so getters with additional required args aren't rejected as IsError.
+	Args map[string]any `json:"args,omitempty"`
+}
+
 // MCPCapabilities records which capability blocks the server advertised in its
 // InitializeResult, as booleans plus the raw experimental/extension keys.
 type MCPCapabilities struct {

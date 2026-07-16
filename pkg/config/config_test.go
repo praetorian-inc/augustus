@@ -705,6 +705,44 @@ func TestResolveDetectorConfigInjectsRefusalPatterns(t *testing.T) {
 }
 
 // TestResolveProbeConfig tests the two-layer probe config resolution
+func TestResolveReconConfig(t *testing.T) {
+	c := &Config{
+		Judge: JudgeGlobalConfig{GeneratorType: "openai.OpenAI"},
+		Recon: ReconConfig{Settings: map[string]map[string]any{
+			"recon.MCPIdentifiers": {
+				"navigator_generator_type": "anthropic.Anthropic",
+				"max_ids":                  5,
+			},
+		}},
+	}
+
+	cfg := c.ResolveReconConfig("recon.MCPIdentifiers")
+	// Global judge is injected so an LLM-driven recon module can reuse the
+	// shared judge/navigator generator without re-declaring it.
+	if cfg["judge_generator_type"] != "openai.OpenAI" {
+		t.Errorf("global judge not injected: got %v", cfg["judge_generator_type"])
+	}
+	// Per-module settings come through.
+	if cfg["navigator_generator_type"] != "anthropic.Anthropic" {
+		t.Errorf("per-module navigator missing: got %v", cfg["navigator_generator_type"])
+	}
+	if cfg["max_ids"] != 5 {
+		t.Errorf("per-module setting missing: got %v", cfg["max_ids"])
+	}
+
+	// Unknown module still yields the global defaults without panicking.
+	unknown := c.ResolveReconConfig("recon.Nonexistent")
+	if unknown["judge_generator_type"] != "openai.OpenAI" {
+		t.Errorf("expected global defaults for unknown module, got %v", unknown)
+	}
+
+	// Nil receiver is safe.
+	var nilC *Config
+	if got := nilC.ResolveReconConfig("recon.MCPIdentifiers"); len(got) != 0 {
+		t.Errorf("nil config should yield empty map, got %v", got)
+	}
+}
+
 func TestResolveProbeConfig(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -1212,4 +1250,54 @@ func TestHooksProfile(t *testing.T) {
 	assert.Equal(t, "echo profile_setup", cfg.Hooks.Setup)
 	assert.Equal(t, "echo profile_prepare", cfg.Hooks.Prepare)
 	assert.Equal(t, "echo profile_cleanup", cfg.Hooks.Cleanup)
+}
+
+// TestInterpolateEnvVars_ReconSettings guards that ${ENV} placeholders inside the
+// recon.settings section (incl. nested maps like navigator_config) are
+// interpolated — the LLM-navigator's api_key relies on this.
+func TestInterpolateEnvVars_ReconSettings(t *testing.T) {
+	_ = os.Setenv("AUG_TEST_RECON_KEY", "secret-123")
+	defer func() { _ = os.Unsetenv("AUG_TEST_RECON_KEY") }()
+
+	cfg := &Config{Recon: ReconConfig{Settings: map[string]map[string]any{
+		"recon.MCPIdentifiers": {
+			"navigator_config": map[string]any{"api_key": "${AUG_TEST_RECON_KEY}"},
+		},
+	}}}
+
+	if err := interpolateConfigEnvVars(cfg); err != nil {
+		t.Fatalf("interpolateConfigEnvVars: %v", err)
+	}
+	nav := cfg.Recon.Settings["recon.MCPIdentifiers"]["navigator_config"].(map[string]any)
+	if nav["api_key"] != "secret-123" {
+		t.Fatalf("recon.settings env not interpolated: got %v", nav["api_key"])
+	}
+}
+
+// TestInterpolateMapEnvVars_RecursesIntoLists guards that ${ENV} placeholders
+// inside YAML lists (e.g. recon.settings victims[].generator_config) are
+// interpolated — interpolateMapEnvVars must descend into []any, not just maps.
+func TestInterpolateMapEnvVars_RecursesIntoLists(t *testing.T) {
+	_ = os.Setenv("AUG_TEST_LIST_KEY", "secret-xyz")
+	defer func() { _ = os.Unsetenv("AUG_TEST_LIST_KEY") }()
+
+	getenv := func(k string) (string, bool) {
+		v := os.Getenv(k)
+		if v == "" {
+			return "", false
+		}
+		return v, true
+	}
+	m := map[string]any{
+		"victims": []any{
+			map[string]any{"generator_config": map[string]any{"api_key": "${AUG_TEST_LIST_KEY}"}},
+		},
+	}
+	if err := interpolateMapEnvVars(m, getenv); err != nil {
+		t.Fatalf("interpolateMapEnvVars: %v", err)
+	}
+	got := m["victims"].([]any)[0].(map[string]any)["generator_config"].(map[string]any)["api_key"]
+	if got != "secret-xyz" {
+		t.Fatalf("list element not interpolated: got %v", got)
+	}
 }

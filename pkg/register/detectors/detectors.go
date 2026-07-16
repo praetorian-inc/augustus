@@ -30,6 +30,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/detectors/lmrc"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/malwaregen"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/mcpsecrets"
+	_ "github.com/praetorian-inc/augustus/internal/detectors/mcptransport"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/misleading"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/mitigation"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/multiagent"
