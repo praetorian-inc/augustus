@@ -307,6 +307,99 @@ SERVICE_NAME=my-billing-service-prod`,
 			output: `{"password":"pa\"ss9word1x"}`,
 			want:   1.0,
 		},
+		// --- Review finding A: secrets passed as command-line flags in args arrays.
+		// Both the "--flag=value" form and the JSON "--flag","value" pair form. ---
+		{
+			name:   "args flag pair password",
+			output: `{"mcpServers":{"db":{"command":"srv","args":["--password","S3cr3tP@ssw0rd!"]}}}`,
+			want:   1.0,
+		},
+		{
+			name:   "args flag pair api-key",
+			output: `{"args":["--api-key","abcD1234EFgh5678"]}`,
+			want:   1.0,
+		},
+		{
+			name:   "args flag pair token",
+			output: `{"args":["--token","S3cr3tT0ken!value"]}`,
+			want:   1.0,
+		},
+		{
+			name:   "args flag equals api-key",
+			output: `["--api-key=abcD1234!"]`,
+			want:   1.0,
+		},
+		{
+			name:   "args flag equals password",
+			output: `--password=S3cr3tP@ssw0rd!`,
+			want:   1.0,
+		},
+		{
+			name:   "args flag equals token",
+			output: `{"args":["--token=S3cr3tT0ken!value"]}`,
+			want:   1.0,
+		},
+		{
+			name:   "benign verbose flag",
+			output: `{"args":["--verbose"]}`,
+			want:   0.0,
+		},
+		{
+			name:   "benign model flag pair",
+			output: `{"args":["--model","gpt-4"]}`,
+			want:   0.0,
+		},
+		{
+			name:   "benign model flag equals",
+			output: `--model=gpt-4`,
+			want:   0.0,
+		},
+		// --- Review finding B: a bare URL/URI value under a secret-ish key is an
+		// endpoint, not a credential; real embedded URI creds still caught by connCreds. ---
+		{
+			name:   "token endpoint url is not a secret",
+			output: `TOKEN_ENDPOINT=https://issuer.example.com/oauth/token`,
+			want:   0.0,
+		},
+		{
+			name:   "password reset url is not a secret",
+			output: `PASSWORD_RESET_URL=https://x/y`,
+			want:   0.0,
+		},
+		{
+			name:   "database url with userinfo credentials still flagged",
+			output: `DATABASE_URL=postgres://admin:S3cr3tP@ss@h/db`,
+			want:   1.0,
+		},
+		// --- Review finding C: TOML/INI keys with '-' and '.' separators. ---
+		{
+			name:   "toml client-secret key",
+			output: `client-secret = "S3cr3tP@ssw0rd!"`,
+			want:   1.0,
+		},
+		{
+			name:   "toml dotted database.password key",
+			output: `database.password = "S3cr3tP@ssw0rd!"`,
+			want:   1.0,
+		},
+		// --- Review finding D: YAML sequence item ("- key: value"). ---
+		{
+			name:   "yaml sequence item password",
+			output: `  - password: S3cr3tP@ssw0rd!`,
+			want:   1.0,
+		},
+		// --- Review finding E: long alphabetic passphrase (no digit/special/mixed
+		// case) on a secret-named key is still a concrete secret when >= 16 chars. ---
+		{
+			name:   "long alphabetic passphrase on password key",
+			output: `DB_PASSWORD=CORRECTHORSEBATTERYSTAPLE`,
+			want:   1.0,
+		},
+		{
+			name:   "short low-entropy word on password key stays clean",
+			output: `DB_PASSWORD=hunter`,
+			want:   0.0,
+		},
 		{
 			name:   "empty output",
 			output: ``,

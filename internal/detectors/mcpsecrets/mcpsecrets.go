@@ -109,7 +109,12 @@ var jsonKV = regexp.MustCompile(`"([A-Za-z0-9_.\-]+)"\s*:\s*"((?:[^"\\]|\\.)*)"`
 // \s* there would consume the newline plus the next line's indentation and spill
 // the value capture onto the following line, flagging a benign secret-named key
 // with an empty value and a sibling on the next line.
-var envKV = regexp.MustCompile(`(?m)^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=[^\S\r\n]*(.+?)[^\S\r\n]*$`)
+//
+// The key charclass allows '.' and '-' (in addition to env-identifier
+// characters) so TOML/INI keys such as "client-secret" and "database.password"
+// match; isSecretKey splits on those same separators, so the segments are then
+// recognized as secret-named.
+var envKV = regexp.MustCompile(`(?m)^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_.\-]*)\s*=[^\S\r\n]*(.+?)[^\S\r\n]*$`)
 
 // yamlKV matches unquoted "key: value" pairs in YAML / INI config (one per
 // line). JSON keys are quoted, so the leading '"' prevents this from matching a
@@ -118,15 +123,33 @@ var envKV = regexp.MustCompile(`(?m)^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s
 // As with envKV, the whitespace after ':' (and before '$') is horizontal-only so
 // a value cannot cross a newline — otherwise a secret-named PARENT key (e.g.
 // "credentials:") would capture its nested child line as its value.
-var yamlKV = regexp.MustCompile(`(?m)^\s*([A-Za-z0-9_.\-]+)\s*:[^\S\r\n]*(.+?)[^\S\r\n]*$`)
+//
+// The optional "- " prefix matches a YAML sequence item ("- key: value") so a
+// secret nested under a list element is not missed. JSON keys are quoted, so the
+// key charclass (which excludes '"') still keeps this off JSON lines.
+var yamlKV = regexp.MustCompile(`(?m)^\s*(?:-\s+)?([A-Za-z0-9_.\-]+)\s*:[^\S\r\n]*(.+?)[^\S\r\n]*$`)
 
 // connCreds matches a credential embedded in a URI userinfo section (the
 // "user:secret@host" form). The secret capture is greedy up to the LAST '@'
 // before the host, so a secret that itself contains '@' is captured in full.
 var connCreds = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.\-]*://[^/\s:@]+:([^/\s]+)@`)
 
+// argFlagEq matches a secret passed inline as a "--flag=value" command-line
+// argument (e.g. "--api-key=abcD1234!"). The value is captured up to the next
+// whitespace or quote so a value embedded in a JSON args array is captured whole.
+var argFlagEq = regexp.MustCompile(`--([A-Za-z][A-Za-z0-9_.\-]*)=([^\s"']+)`)
+
+// argFlagPair matches a secret passed as two adjacent JSON args elements —
+// a "--flag" element immediately followed by its "value" element
+// (e.g. ["--password","S3cr3tP@ssw0rd!"]).
+var argFlagPair = regexp.MustCompile(`"--([A-Za-z][A-Za-z0-9_.\-]*)"\s*,\s*"([^"]+)"`)
+
 // envRef matches an environment-variable reference such as $VAR or ${VAR}.
 var envRef = regexp.MustCompile(`^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$`)
+
+// uriScheme matches the leading "scheme://" of a URI. Used to recognize a bare
+// URL/endpoint value (not itself a credential) assigned to a secret-named key.
+var uriScheme = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9+.\-]*://`)
 
 // placeholderExact are lowercased values that, matched exactly, indicate a
 // non-secret placeholder rather than a real credential.
@@ -217,6 +240,21 @@ func leaks(content string) bool {
 		}
 	}
 
+	// Signal 2b: secret passed inline as a command-line flag in an args array —
+	// either "--flag=value" or the JSON "--flag","value" element pair. The flag
+	// name (leading "--" stripped by the capture) is gated by isSecretKey and the
+	// value by isConcreteSecret, mirroring the KV signal.
+	for _, m := range argFlagEq.FindAllStringSubmatch(content, -1) {
+		if isSecretKey(m[1]) && isConcreteSecret(m[2]) {
+			return true
+		}
+	}
+	for _, m := range argFlagPair.FindAllStringSubmatch(content, -1) {
+		if isSecretKey(m[1]) && isConcreteSecret(m[2]) {
+			return true
+		}
+	}
+
 	// Signal 3: credentials embedded in a connection-string URI. This stays
 	// high-confidence (no entropy gate): a userinfo password in a URI is a
 	// credential by construction. Fire when it is non-empty, not a placeholder,
@@ -251,7 +289,34 @@ func isConcreteSecret(value string) bool {
 	if allDigits.MatchString(v) || versionString.MatchString(v) {
 		return false
 	}
-	return looksHighEntropy(v)
+	// A bare URL/endpoint (scheme://... without user:pass@ userinfo) is a
+	// configuration value, not a credential, even under a secret-named key such
+	// as TOKEN_ENDPOINT or PASSWORD_RESET_URL. A URI that DOES embed userinfo
+	// credentials is still caught by the dedicated connCreds signal.
+	if isBareURL(v) {
+		return false
+	}
+	// isSecretKey is high-confidence (whole-segment matching), so the value gate
+	// can be relaxed: accept a value with entropy markers, OR a long value
+	// (>= 16 chars) that survived the placeholder / deny-list / URL screens above
+	// — this catches long alphabetic passphrases (e.g. CORRECTHORSEBATTERYSTAPLE)
+	// that lack a digit, special char, or mixed case. Shorter values (8-15 chars)
+	// still require entropy, avoiding false positives on ordinary words.
+	if looksHighEntropy(v) {
+		return true
+	}
+	return len(v) >= 16
+}
+
+// isBareURL reports whether v is a URL/URI (has a "scheme://" prefix) that does
+// NOT carry user:pass@ userinfo credentials. Such a value is an endpoint, not a
+// secret; a URI with embedded credentials returns false (and is caught by the
+// connCreds signal instead).
+func isBareURL(v string) bool {
+	if !uriScheme.MatchString(v) {
+		return false
+	}
+	return !connCreds.MatchString(v)
 }
 
 // looksHighEntropy reports whether v has more than 3 unique characters and
@@ -287,9 +352,9 @@ func isPlaceholder(value string) bool {
 	}
 	lower := strings.ToLower(v)
 	// A config VALUE is already the extracted field, so match apikey.SafeTokens by
-	// EXACT (case-insensitive) equality — NOT apikey.IsSafeToken's substring test.
-	// Substring matching would treat a real secret ("mypassword123!") as a
-	// placeholder merely because it contains a safe-token word ("mypassword").
+	// EXACT (case-insensitive) equality — NOT a substring test. Substring matching
+	// would treat a real secret ("mypassword123!") as a placeholder merely because
+	// it contains a safe-token word ("mypassword").
 	for _, safe := range apikey.SafeTokens {
 		if lower == strings.ToLower(safe) {
 			return true

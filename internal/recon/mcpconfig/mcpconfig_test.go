@@ -148,6 +148,40 @@ func TestModule_SkipsSymlinks(t *testing.T) {
 	}
 }
 
+// TestModule_SymlinkedDirRoot: review finding G — when the configured `path` is
+// a symlink to a config directory, os.Stat follows it (so it is treated as a
+// directory) but WalkDir receives the symlink as its root; the entry-level
+// symlink skip would then drop the root and collect zero files (a false clean).
+// EvalSymlinks-resolving the root before walking keeps the files collected.
+func TestModule_SymlinkedDirRoot(t *testing.T) {
+	realDir := t.TempDir()
+	writeFile(t, realDir, "config.json", `{"env":{"OK":"value"}}`)
+	writeFile(t, realDir, "secrets.env", `API_KEY=abc`)
+
+	link := filepath.Join(t.TempDir(), "cfglink")
+	if err := os.Symlink(realDir, link); err != nil {
+		t.Skipf("symlinks unsupported on this platform: %v", err)
+	}
+
+	m := newModule(t, registry.Config{"path": link})
+	obs, err := m.Recon(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Recon() error = %v", err)
+	}
+	if len(obs) != 2 {
+		t.Fatalf("got %d observations, want 2 (files under symlinked dir root)", len(obs))
+	}
+	gotBases := map[string]bool{}
+	for _, o := range obs {
+		gotBases[filepath.Base(o.Target)] = true
+	}
+	for _, want := range []string{"config.json", "secrets.env"} {
+		if !gotBases[want] {
+			t.Errorf("missing observation for %q; got %v", want, gotBases)
+		}
+	}
+}
+
 func TestModule_CancelledContextReturnsErr(t *testing.T) {
 	m := newModule(t, registry.Config{"content": `{"env":{"API_KEY":"secret"}}`})
 	ctx, cancel := context.WithCancel(context.Background())

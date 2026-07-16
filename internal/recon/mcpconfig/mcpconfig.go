@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,6 +41,11 @@ const ObservationTypeConfig = "mcp.config"
 // maxFileSize caps how large a config file may be before it is skipped. A file
 // exceeding it is skipped (recon measures; it does not buffer an unbounded blob).
 const maxFileSize = 5 << 20 // 5 MiB
+
+// maxFiles caps how many config files a single directory walk collects. Reaching
+// it stops the walk (and is logged, not silently truncated) so an enormous or
+// adversarial directory tree cannot make the module buffer unbounded content.
+const maxFiles = 10000
 
 func init() {
 	recon.Register("recon.MCPConfig", New)
@@ -146,6 +152,11 @@ func readPath(ctx context.Context, path string) ([]source, error) {
 		return nil, nil
 	}
 	if !info.IsDir() {
+		// Only regular files are collected: a FIFO/device would block the read
+		// indefinitely, and non-regular files are not config sources.
+		if !info.Mode().IsRegular() {
+			return nil, nil
+		}
 		if info.Size() > maxFileSize {
 			return nil, nil
 		}
@@ -155,6 +166,15 @@ func readPath(ctx context.Context, path string) ([]source, error) {
 			return nil, nil
 		}
 		return []source{{label: path, content: string(content)}}, nil
+	}
+
+	// Resolve a symlinked directory ROOT before walking. os.Stat follows the
+	// symlink (so it is seen as a directory here), but WalkDir would receive the
+	// symlink itself as its root entry and the entry-level symlink skip below
+	// would then drop it, collecting zero files. Walking the resolved path avoids
+	// that false clean while still skipping symlinked entries INSIDE the tree.
+	if resolved, resolveErr := filepath.EvalSymlinks(path); resolveErr == nil {
+		path = resolved
 	}
 
 	var sources []source
@@ -180,8 +200,20 @@ func readPath(ctx context.Context, path string) ([]source, error) {
 		if infoErr != nil {
 			return nil
 		}
+		// Only regular files are collected: a FIFO/device would block the read
+		// indefinitely, and non-regular files are not config sources.
+		if !info.Mode().IsRegular() {
+			return nil
+		}
 		if info.Size() > maxFileSize {
 			return nil
+		}
+		// Stop once the file-count cap is reached. Log it so the truncation is
+		// observable rather than a silent partial collection.
+		if len(sources) >= maxFiles {
+			slog.Warn("recon.MCPConfig: file count cap reached; truncating directory walk",
+				"max_files", maxFiles, "path", path)
+			return filepath.SkipAll
 		}
 		// #nosec G304 -- entry under the operator-designated config directory being walked for collection.
 		content, readErr := os.ReadFile(filepath.Clean(p))
