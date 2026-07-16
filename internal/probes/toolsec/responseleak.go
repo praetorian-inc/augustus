@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/praetorian-inc/augustus/internal/toolpolicy"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -61,13 +62,13 @@ var _ types.ProbeMetadata = (*ResponseLeak)(nil)
 // (or tool_denylist) to restrict which tools the probe may call and avoid
 // unintended side effects.
 type ResponseLeak struct {
-	policy toolPolicy
+	policy toolpolicy.Policy
 }
 
 // NewResponseLeak constructs the probe with the shared tool-safety policy parsed
 // from config (allow_destructive, tool_allowlist, tool_denylist).
 func NewResponseLeak(cfg registry.Config) (probes.Prober, error) {
-	return &ResponseLeak{policy: newToolPolicy(cfg)}, nil
+	return &ResponseLeak{policy: toolpolicy.New(cfg)}, nil
 }
 
 func (p *ResponseLeak) Name() string { return "toolsec.ResponseLeak" }
@@ -100,7 +101,7 @@ func (p *ResponseLeak) Probe(ctx context.Context, gen types.Generator) ([]*attem
 	// Apply the safety gate before invoking anything (skips destructive tools
 	// unless opted in).
 	advertised := len(tools)
-	tools = p.policy.filterTools(p.Name(), tools)
+	tools = p.policy.Filter(p.Name(), tools)
 	if len(tools) == 0 {
 		// A target that advertised no tools at all is a legitimate empty result.
 		// But a target whose tools were ALL excluded by policy is NOT clean: emit

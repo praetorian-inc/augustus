@@ -188,7 +188,7 @@ func TestResponseLeak_SkipsDestructiveTool(t *testing.T) {
 	}
 
 	// Opt-in: destructive tool is tested.
-	opt := newResponseLeak(t, registry.Config{cfgAllowDestructive: true})
+	opt := newResponseLeak(t, registry.Config{"allow_destructive": true})
 	attempts, err = opt.Probe(context.Background(), target)
 	if err != nil {
 		t.Fatalf("Probe (allow_destructive): %v", err)
@@ -288,7 +288,7 @@ func TestResponseLeak_CredentialVendingToolFlagged(t *testing.T) {
 
 	// Denylisted: the tool is never invoked (no attempt for it, no VULN).
 	var called bool
-	denied := newResponseLeak(t, registry.Config{cfgToolDenylist: []string{"get_token"}})
+	denied := newResponseLeak(t, registry.Config{"tool_denylist": []string{"get_token"}})
 	attempts, err = denied.Probe(context.Background(), newTarget(&called))
 	if err != nil {
 		t.Fatalf("Probe (denylist): %v", err)
@@ -357,7 +357,7 @@ func TestResponseLeak_AllToolsGated(t *testing.T) {
 		},
 	}
 	// Deny the only advertised tool -> all filtered out.
-	p := newResponseLeak(t, registry.Config{cfgToolDenylist: []string{"secret_read"}})
+	p := newResponseLeak(t, registry.Config{"tool_denylist": []string{"secret_read"}})
 	attempts, err := p.Probe(context.Background(), target)
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
