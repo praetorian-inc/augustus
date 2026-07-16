@@ -17,6 +17,7 @@ import (
 	"context"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/praetorian-inc/augustus/internal/detectors/apikey"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -92,14 +93,48 @@ var pointerSuffix = map[string]bool{
 // secretKeySeparators splits a config key / env-var name into segments.
 func secretKeySeparators(r rune) bool { return r == '_' || r == '.' || r == '-' }
 
+// splitKeySegments splits a config key / env-var name into lowercased segments,
+// breaking on the separator chars ([_.\-]) AND at camelCase transitions: a
+// lower→Upper boundary ("dbPassword" → db, Password) and the end of an
+// uppercase run before a lowercase ("APIToken" → API, Token). This lets
+// camelCase JSON keys decompose the same way their snake/kebab-case equivalents
+// do, so "apiToken" → {api,token} and "apiKeyFile" → {api,key,file} rather than
+// collapsing to a single segment.
+func splitKeySegments(name string) []string {
+	var segs []string
+	for _, part := range strings.FieldsFunc(name, secretKeySeparators) {
+		segs = append(segs, splitCamelCase(part)...)
+	}
+	return segs
+}
+
+// splitCamelCase splits one separator-free token at camelCase boundaries and
+// lowercases each resulting segment (see splitKeySegments).
+func splitCamelCase(s string) []string {
+	runes := []rune(s)
+	var out []string
+	start := 0
+	for i := 1; i < len(runes); i++ {
+		prev, cur := runes[i-1], runes[i]
+		lowerToUpper := unicode.IsLower(prev) && unicode.IsUpper(cur)
+		upperRunEnd := unicode.IsUpper(prev) && unicode.IsUpper(cur) &&
+			i+1 < len(runes) && unicode.IsLower(runes[i+1])
+		if lowerToUpper || upperRunEnd {
+			out = append(out, strings.ToLower(string(runes[start:i])))
+			start = i
+		}
+	}
+	return append(out, strings.ToLower(string(runes[start:])))
+}
+
 // isSecretKey reports whether a config key / env-var name conventionally holds a
 // credential. It matches WHOLE segments (so "tokenizer" does not match "token")
 // or the whole name against secretKeyCompound.
 func isSecretKey(name string) bool {
-	lower := strings.ToLower(name)
-	segs := strings.FieldsFunc(lower, secretKeySeparators)
+	segs := splitKeySegments(name)
 	// A key whose LAST segment is a pointer word (API_KEY_FILE, client_secret_path,
-	// TOKEN_ENDPOINT) references where the secret lives, not the secret itself.
+	// TOKEN_ENDPOINT, apiKeyFile) references where the secret lives, not the secret
+	// itself.
 	if len(segs) > 0 && pointerSuffix[segs[len(segs)-1]] {
 		return false
 	}
@@ -157,13 +192,16 @@ var argFlagEq = regexp.MustCompile(`--([A-Za-z][A-Za-z0-9_.\-]*)=([^\s"']+)`)
 // argFlagEqQuoted matches a "--flag=value" passed as ONE quoted JSON argv element
 // (e.g. "--passphrase=correct horse battery staple"). Unlike argFlagEq the value
 // may contain spaces, so it is captured up to the closing quote rather than the
-// first whitespace — otherwise a multi-word passphrase would be truncated.
-var argFlagEqQuoted = regexp.MustCompile(`"--([A-Za-z][A-Za-z0-9_.\-]*)=([^"]+)"`)
+// first whitespace — otherwise a multi-word passphrase would be truncated. The
+// value capture is escape-aware (see jsonKV) so an escaped quote (\") inside the
+// value does not truncate the secret.
+var argFlagEqQuoted = regexp.MustCompile(`"--([A-Za-z][A-Za-z0-9_.\-]*)=((?:[^"\\]|\\.)*)"`)
 
 // argFlagPair matches a secret passed as two adjacent JSON args elements —
 // a "--flag" element immediately followed by its "value" element
-// (e.g. ["--password","S3cr3tP@ssw0rd!"]).
-var argFlagPair = regexp.MustCompile(`"--([A-Za-z][A-Za-z0-9_.\-]*)"\s*,\s*"([^"]+)"`)
+// (e.g. ["--password","S3cr3tP@ssw0rd!"]). The value capture is escape-aware
+// (see jsonKV) so an escaped quote (\") inside the value is captured in full.
+var argFlagPair = regexp.MustCompile(`"--([A-Za-z][A-Za-z0-9_.\-]*)"\s*,\s*"((?:[^"\\]|\\.)*)"`)
 
 // envRef matches an environment-variable reference such as $VAR or ${VAR}.
 var envRef = regexp.MustCompile(`^\$\{?[A-Za-z_][A-Za-z0-9_]*\}?$`)
@@ -178,11 +216,33 @@ var inlineComment = regexp.MustCompile(`\s+#.*$`)
 
 // stripInlineComment removes a trailing inline comment (see inlineComment) from
 // an env/YAML value and trims the result. JSON values are quoted, so a '#' there
-// is never a comment — this is applied only on the envKV/yamlKV paths, after
-// unquote. The leading space models the KV separator that preceded the value in
-// the source line, so a leading '#' is recognized as a whole-value comment.
+// is never a comment — this is applied only on the envKV/yamlKV paths. The
+// leading space models the KV separator that preceded the value in the source
+// line, so a leading '#' is recognized as a whole-value comment.
 func stripInlineComment(v string) string {
 	return strings.TrimSpace(inlineComment.ReplaceAllString(" "+v, ""))
+}
+
+// cleanKVValue normalizes a raw env/YAML value capture before gating. A value
+// wrapped in matching quotes is unquoted and NOT comment-stripped — a ' #' inside
+// quotes is part of the secret (e.g. DB_PASSWORD="my #secret") and stripping it
+// would truncate the credential (false clean). Only UNQUOTED values may carry a
+// trailing "# ..." inline comment, so those are stripped.
+func cleanKVValue(raw string) string {
+	v := strings.TrimSpace(raw)
+	if isQuoted(v) {
+		return unquote(v)
+	}
+	return stripInlineComment(v)
+}
+
+// isQuoted reports whether s is wrapped in a matching pair of single or double
+// quotes.
+func isQuoted(s string) bool {
+	if len(s) < 2 {
+		return false
+	}
+	return (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'')
 }
 
 // uriScheme matches the leading "scheme://" of a URI. Used to recognize a bare
@@ -267,18 +327,19 @@ func leaks(content string) bool {
 			return true
 		}
 	}
-	// envKV/yamlKV values may carry a trailing "# ..." inline comment; strip it
-	// (after unquote) before gating so the deny-list / entropy screens see the
-	// value alone rather than the comment punctuation. JSON values are quoted, so
+	// envKV/yamlKV values are normalized by cleanKVValue before gating: a quoted
+	// value is unquoted (a '#' inside quotes is part of the secret), while an
+	// UNQUOTED value has any trailing "# ..." inline comment stripped so the
+	// deny-list / entropy screens see the value alone. JSON values are quoted, so
 	// the json path above does not strip.
 	for _, kv := range envKV.FindAllStringSubmatch(content, -1) {
-		v := stripInlineComment(unquote(strings.TrimSpace(kv[2])))
+		v := cleanKVValue(kv[2])
 		if isSecretKey(kv[1]) && isConcreteSecret(v) {
 			return true
 		}
 	}
 	for _, kv := range yamlKV.FindAllStringSubmatch(content, -1) {
-		v := stripInlineComment(unquote(strings.TrimSpace(kv[2])))
+		v := cleanKVValue(kv[2])
 		if isSecretKey(kv[1]) && isConcreteSecret(v) {
 			return true
 		}
@@ -425,10 +486,8 @@ func isPlaceholder(value string) bool {
 // unquote strips a single surrounding pair of single or double quotes.
 func unquote(s string) string {
 	s = strings.TrimSpace(s)
-	if len(s) >= 2 {
-		if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') {
-			return s[1 : len(s)-1]
-		}
+	if isQuoted(s) {
+		return s[1 : len(s)-1]
 	}
 	return s
 }

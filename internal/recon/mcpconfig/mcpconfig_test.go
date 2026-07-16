@@ -182,10 +182,12 @@ func TestModule_SymlinkedDirRoot(t *testing.T) {
 	}
 }
 
-// TestModule_SkipsNodeModulesAndHiddenDirs: review finding 5 — the walk must not
-// descend into massive/irrelevant subtrees (node_modules, .git, hidden dirs). A
-// secret .json inside node_modules is not collected; the top-level config is.
-func TestModule_SkipsNodeModulesAndHiddenDirs(t *testing.T) {
+// TestModule_SkipsNodeModulesAndGitButScansConfigDirs: review finding 3 — the
+// walk must skip ONLY node_modules and .git (which never hold MCP config and only
+// slow the walk), NOT every hidden dir: real MCP configs live in .config, .cursor,
+// .vscode. A secret .json inside node_modules and .git is not collected; a config
+// in a hidden .cursor dir IS collected alongside the top-level config.
+func TestModule_SkipsNodeModulesAndGitButScansConfigDirs(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "config.json", `{"env":{"OK":"value"}}`)
 
@@ -198,13 +200,23 @@ func TestModule_SkipsNodeModulesAndHiddenDirs(t *testing.T) {
 		t.Fatalf("write node_modules secret: %v", err)
 	}
 
-	hidden := filepath.Join(dir, ".cache")
-	if err := os.MkdirAll(hidden, 0o750); err != nil {
-		t.Fatalf("mkdir hidden: %v", err)
+	gitDir := filepath.Join(dir, ".git")
+	if err := os.MkdirAll(gitDir, 0o750); err != nil {
+		t.Fatalf("mkdir .git: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(hidden, "creds.json"),
+	if err := os.WriteFile(filepath.Join(gitDir, "creds.json"),
 		[]byte(`{"env":{"API_KEY":"sk-abcdefghijklmnopqrstuvwxyz0123456789"}}`), 0o600); err != nil {
-		t.Fatalf("write hidden secret: %v", err)
+		t.Fatalf("write .git secret: %v", err)
+	}
+
+	// A real MCP config lives in a hidden .cursor dir and MUST be collected.
+	cursor := filepath.Join(dir, ".cursor")
+	if err := os.MkdirAll(cursor, 0o750); err != nil {
+		t.Fatalf("mkdir .cursor: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(cursor, "mcp.json"),
+		[]byte(`{"env":{"OK":"value"}}`), 0o600); err != nil {
+		t.Fatalf("write .cursor config: %v", err)
 	}
 
 	m := newModule(t, registry.Config{"path": dir})
@@ -212,11 +224,20 @@ func TestModule_SkipsNodeModulesAndHiddenDirs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Recon() error = %v", err)
 	}
-	if len(obs) != 1 {
-		t.Fatalf("got %d observations, want 1 (node_modules and hidden dirs skipped)", len(obs))
+	if len(obs) != 2 {
+		t.Fatalf("got %d observations, want 2 (node_modules and .git skipped, .cursor scanned)", len(obs))
 	}
-	if filepath.Base(obs[0].Target) != "config.json" {
-		t.Errorf("Target = %q, want config.json", obs[0].Target)
+	gotBases := map[string]bool{}
+	for _, o := range obs {
+		gotBases[filepath.Base(o.Target)] = true
+	}
+	for _, want := range []string{"config.json", "mcp.json"} {
+		if !gotBases[want] {
+			t.Errorf("missing observation for %q; got %v", want, gotBases)
+		}
+	}
+	if gotBases["secret.json"] || gotBases["creds.json"] {
+		t.Errorf("node_modules/.git secret was collected; got %v", gotBases)
 	}
 }
 

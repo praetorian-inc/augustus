@@ -201,9 +201,10 @@ func readPath(ctx context.Context, path string) ([]source, error) {
 			return nil
 		}
 		if d.IsDir() {
-			// Skip massive/irrelevant subtrees (node_modules, .git, any hidden dir)
-			// so the walk does not scan huge trees that never hold MCP config. The
-			// walk ROOT is never skipped, even if it is itself hidden.
+			// Skip massive/irrelevant subtrees (node_modules, .git) so the walk does
+			// not scan huge trees that never hold MCP config. Other hidden dirs are
+			// still descended into (real configs live in .config/.cursor/.vscode).
+			// The walk ROOT is never skipped, even if it is itself hidden.
 			if p != path && skipDirName(d.Name()) {
 				return filepath.SkipDir
 			}
@@ -253,12 +254,14 @@ func readPath(ctx context.Context, path string) ([]source, error) {
 	return sources, nil
 }
 
-// skipDirName reports whether a subdirectory should not be descended into: large
-// dependency trees (node_modules) and VCS / hidden directories (.git and any
-// dotfile-prefixed dir) never hold MCP config and only slow the walk. Applies to
-// DIRECTORIES only — ".env*" FILES are still collected (see isConfigFile).
+// skipDirName reports whether a subdirectory should not be descended into: only
+// the large dependency tree (node_modules) and the VCS directory (.git) never
+// hold MCP config and merely slow the walk. Hidden dirs in general are NOT
+// skipped: real MCP configs live in dotfile-prefixed dirs (.config, .cursor,
+// .vscode). Applies to DIRECTORIES only — ".env*" FILES are still collected (see
+// isConfigFile).
 func skipDirName(name string) bool {
-	return name == "node_modules" || strings.HasPrefix(name, ".")
+	return name == "node_modules" || name == ".git"
 }
 
 // isConfigFile reports whether a filename should be scanned as configuration.

@@ -449,6 +449,44 @@ SERVICE_NAME=my-billing-service-prod`,
 			output: `{"args":["--passphrase=correct horse battery staple"]}`,
 			want:   1.0,
 		},
+		// --- Review finding 1: camelCase key segmentation. Keys must split at
+		// camelCase transitions as well as [_.\-], so "dbPassword" decomposes to
+		// {db,password} (FN fixed), "apiToken" to {api,token}, and "apiKeyFile" to
+		// {api,key,file} whose pointer last-segment stops the FP. ---
+		{
+			name:   "camelcase db password key",
+			output: `{"env":{"dbPassword":"S3cr3tP@ssw0rd!"}}`,
+			want:   1.0,
+		},
+		{
+			name:   "camelcase api token key",
+			output: `{"env":{"apiToken":"ghp_abcdefghijklmnopqrstuvwxyz0123456789"}}`,
+			want:   1.0,
+		},
+		{
+			name:   "camelcase api key file pointer is not the secret",
+			output: `{"env":{"apiKeyFile":"/var/run/secrets/x"}}`,
+			want:   0.0,
+		},
+		{
+			name:   "camelcase client secret path pointer is not the secret",
+			output: `{"env":{"clientSecretPath":"/tmp/client.json"}}`,
+			want:   0.0,
+		},
+		// --- Review finding 2: escaped quote inside a quoted arg value must be
+		// captured in full (escape-aware capture), not truncated at the backslash. ---
+		{
+			name:   "args flag pair value with escaped quote",
+			output: `["--password","S3c\"r3tValue!"]`,
+			want:   1.0,
+		},
+		// --- Review finding 4: a quoted env/YAML value carrying a legit ' #' must
+		// NOT be treated as an inline comment (only UNQUOTED values are stripped). ---
+		{
+			name:   "quoted env value with hash is not comment-stripped",
+			output: `DB_PASSWORD="my #secret9times"`,
+			want:   1.0,
+		},
 		{
 			name:   "empty output",
 			output: ``,

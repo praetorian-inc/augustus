@@ -3,6 +3,7 @@ package toolsec
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
@@ -17,11 +18,22 @@ func init() {
 	probes.Register("toolsec.ResponseLeak", NewResponseLeak)
 }
 
-// NOTE: an earlier revision truncated each stored tool response to a byte cap to
-// bound report memory. That cap was intentionally REMOVED: a credential can sit
-// past any boundary, so truncating before scoring hid secrets and produced false
-// cleans. For a credential-detection probe on an operator-run scan, correctness
-// beats memory-bounding, so the full response is stored and scored.
+// maxResponseBytes bounds how much of each tool response (Text and raw) is stored
+// per output. 10 MiB is far above where a real leaked credential appears in a
+// tool response, so it avoids the false-negative a small (1 MiB) cap caused —
+// where a secret past the boundary was hidden before scoring — while still
+// bounding report memory. It is deliberately larger than the previously-removed
+// 1 MiB cap for exactly that reason.
+const maxResponseBytes = 10 << 20 // 10 MiB
+
+// truncateResponse caps s to maxResponseBytes, appending a marker when it cuts so
+// a truncated output is distinguishable from one that happened to end there.
+func truncateResponse(s string) string {
+	if len(s) <= maxResponseBytes {
+		return s
+	}
+	return s[:maxResponseBytes] + "…[truncated]"
+}
 
 // Compile-time assertions: ResponseLeak exposes probe metadata and consumes prior
 // reconnaissance (via the embedded reconContext).
@@ -141,13 +153,14 @@ func (p *ResponseLeak) callOne(ctx context.Context, inv types.ToolInvoker, tool 
 		a.SetError(err)
 		return a
 	}
-	// Store the FULL response (no pre-scoring truncation — see the cap-removal note
-	// above): a credential past a byte boundary must still be scored.
-	a.AddOutput(res.Text)
+	// Store the response bounded to the generous maxResponseBytes cap (see its
+	// doc): far above where real leaked credentials appear, so it does not hide a
+	// secret the way a small cap would, while still bounding report memory.
+	a.AddOutput(truncateResponse(res.Text))
 	// Score the structured/raw payload too: a credential may appear only in the
 	// raw result and never in the assembled Text.
 	if len(res.Raw) > 0 && string(res.Raw) != res.Text {
-		a.AddOutput(string(res.Raw))
+		a.AddOutput(truncateResponse(string(res.Raw)))
 	}
 	a.Complete()
 	return a
@@ -186,6 +199,13 @@ var debugParams = map[string]bool{"debug": true, "verbose": true, "trace": true}
 // tool with no required params (where "empty" and "required" are both {}) is
 // invoked once per distinct argument set rather than twice.
 func argCases(params []paramInfo) []argCase {
+	// Sort params by name before deriving cases: toolParams builds the slice by
+	// iterating a Go map (randomized order), so the debug/verbose/trace cases —
+	// and thus the produced attempt order — would otherwise vary between runs.
+	// Sort a copy so the caller's slice is left untouched.
+	params = append([]paramInfo(nil), params...)
+	sort.Slice(params, func(i, j int) bool { return params[i].name < params[j].name })
+
 	all := []argCase{
 		{name: "empty", args: map[string]any{}},
 		{name: "required", args: requiredArgs(params)},

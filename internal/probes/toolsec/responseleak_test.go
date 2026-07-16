@@ -443,10 +443,10 @@ func TestResponseLeak_ContextCancellationReturnsPartial(t *testing.T) {
 	}
 }
 
-// TestResponseLeak_ScoresSecretPastFormerCap: review finding E — the response is
-// scored in FULL (no pre-scoring truncation). A credential following a large
-// benign prefix (past the old 1 MiB cap boundary) must still be flagged; the cap
-// was removed precisely to avoid this false clean.
+// TestResponseLeak_ScoresSecretPastFormerCap: review finding E — a credential
+// following a large benign prefix (past the OLD 1 MiB cap boundary, but within
+// the generous 10 MiB cap) must still be flagged; the small cap was replaced with
+// a generous one precisely to avoid this false clean.
 func TestResponseLeak_ScoresSecretPastFormerCap(t *testing.T) {
 	secret := "ghp_016c7f8a9b2d3e4f5061728394a5b6c7d8e9"
 	big := strings.Repeat("a", 1_500_000) + " GITHUB_TOKEN=" + secret
@@ -521,6 +521,97 @@ func TestResponseLeak_PrefersReconStore(t *testing.T) {
 	}
 	if !sawLookup {
 		t.Error("probe did not test the 'lookup' tool from the shared recon inventory")
+	}
+}
+
+// TestResponseLeak_ArgCasesDeterministicOrder: review finding 5 — argCases derives
+// its debug/verbose/trace cases by iterating the params slice, which toolParams
+// builds from a Go map (randomized order). Sorting the params by name first makes
+// the generated case order stable regardless of the input order.
+func TestResponseLeak_ArgCasesDeterministicOrder(t *testing.T) {
+	// Same params, two different input orderings; the multiple debug-toggle params
+	// are what would otherwise reorder non-deterministically.
+	forward := []paramInfo{
+		{name: "verbose", typ: "boolean"},
+		{name: "debug", typ: "boolean"},
+		{name: "trace", typ: "boolean"},
+		{name: "q", typ: "string", required: true},
+	}
+	reversed := []paramInfo{
+		{name: "q", typ: "string", required: true},
+		{name: "trace", typ: "boolean"},
+		{name: "debug", typ: "boolean"},
+		{name: "verbose", typ: "boolean"},
+	}
+
+	names := func(cases []argCase) []string {
+		out := make([]string, len(cases))
+		for i, c := range cases {
+			out[i] = c.name
+		}
+		return out
+	}
+
+	got1 := names(argCases(forward))
+	got2 := names(argCases(reversed))
+	if strings.Join(got1, ",") != strings.Join(got2, ",") {
+		t.Errorf("argCases order not stable across input orderings:\n forward  = %v\n reversed = %v", got1, got2)
+	}
+}
+
+// TestResponseLeak_TruncatesGenerousCap: review finding 6 — each stored response is
+// bounded to a generous 10 MiB cap. A 12 MiB benign response is truncated (with a
+// marker), while a secret sitting within the first 10 MiB is still scored 1.0.
+func TestResponseLeak_TruncatesGenerousCap(t *testing.T) {
+	// A 12 MiB benign response is truncated to ~10 MiB.
+	huge := strings.Repeat("a", 12<<20)
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("lookup", "id")},
+		call: func(string, map[string]any) types.ToolResult {
+			return types.ToolResult{Text: huge}
+		},
+	}
+	attempts, err := newResponseLeak(t, registry.Config{}).Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if len(attempts) == 0 {
+		t.Fatal("Probe produced no attempts")
+	}
+	for _, a := range attempts {
+		for _, out := range a.Outputs {
+			if len(out) >= 12<<20 {
+				t.Errorf("stored output not truncated: len=%d, want <= ~%d", len(out), 10<<20)
+			}
+			if !strings.HasSuffix(out, "…[truncated]") {
+				t.Errorf("truncated output missing marker suffix")
+			}
+		}
+	}
+
+	// A secret within the first 10 MiB is still flagged.
+	secret := "ghp_016c7f8a9b2d3e4f5061728394a5b6c7d8e9"
+	withSecret := strings.Repeat("a", 8<<20) + " GITHUB_TOKEN=" + secret
+	target2 := &mockTarget{
+		tools: []map[string]any{stringTool("lookup", "id")},
+		call: func(string, map[string]any) types.ToolResult {
+			return types.ToolResult{Text: withSecret}
+		},
+	}
+	attempts2, err := newResponseLeak(t, registry.Config{}).Probe(context.Background(), target2)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	fired := false
+	for _, a := range attempts2 {
+		for _, s := range scoreConfigLeak(t, a) {
+			if s == 1.0 {
+				fired = true
+			}
+		}
+	}
+	if !fired {
+		t.Error("expected a secret within the first 10 MiB to be flagged")
 	}
 }
 
