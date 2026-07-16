@@ -266,7 +266,7 @@ func readCapped(path string) (content string, oversize bool, err error) {
 	if err != nil {
 		return "", false, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }() // read-only file; close error is not actionable
 	buf, err := io.ReadAll(io.LimitReader(f, maxFileSize+1))
 	if err != nil {
 		return "", false, err
