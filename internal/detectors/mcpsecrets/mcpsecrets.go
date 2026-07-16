@@ -182,7 +182,11 @@ var yamlKV = regexp.MustCompile(`(?m)^\s*(?:-\s+)?([A-Za-z0-9_.\-]+)\s*:[^\S\r\n
 // connCreds matches a credential embedded in a URI userinfo section (the
 // "user:secret@host" form). The secret capture is greedy up to the LAST '@'
 // before the host, so a secret that itself contains '@' is captured in full.
-var connCreds = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.\-]*://[^/\s:@]+:([^/\s]+)@`)
+// The username quantifier is '*' (not '+') so a userinfo credential that OMITS
+// the username (e.g. "redis://:secret@host") is still caught; the all-digit
+// password guard on the connCreds signal keeps a URL port ("host:443@rest")
+// from being mistaken for a password.
+var connCreds = regexp.MustCompile(`[a-zA-Z][a-zA-Z0-9+.\-]*://[^/\s:@]*:([^/\s]+)@`)
 
 // argFlagEq matches a secret passed inline as a "--flag=value" command-line
 // argument (e.g. "--api-key=abcD1234!"). The value is captured up to the next

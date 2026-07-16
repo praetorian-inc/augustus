@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -166,12 +167,13 @@ func readPath(ctx context.Context, path string) ([]source, error) {
 		if info.Size() > maxFileSize {
 			return nil, nil
 		}
-		// #nosec G304 -- operator-supplied path; collecting the operator-designated MCP config file is this module's purpose.
-		content, err := os.ReadFile(filepath.Clean(path))
-		if err != nil {
+		// readCapped closes the TOCTOU race: a file that grew past the cap after the
+		// Size() check above is skipped (oversize) rather than buffered whole.
+		content, oversize, err := readCapped(path)
+		if err != nil || oversize {
 			return nil, nil
 		}
-		return []source{{label: path, content: string(content)}}, nil
+		return []source{{label: path, content: content}}, nil
 	}
 
 	// Resolve a symlinked directory ROOT before walking. os.Stat follows the
@@ -232,12 +234,13 @@ func readPath(ctx context.Context, path string) ([]source, error) {
 				"max_files", maxFiles, "path", path)
 			return filepath.SkipAll
 		}
-		// #nosec G304 -- entry under the operator-designated config directory being walked for collection.
-		content, readErr := os.ReadFile(filepath.Clean(p))
-		if readErr != nil {
+		// readCapped closes the TOCTOU race: an entry that grew past the cap after
+		// the Size() check above is skipped (oversize), mirroring that pre-check.
+		content, oversize, readErr := readCapped(p)
+		if readErr != nil || oversize {
 			return nil
 		}
-		sources = append(sources, source{label: p, content: string(content)})
+		sources = append(sources, source{label: p, content: content})
 		// Stop once the cumulative-byte cap is reached so a large tree cannot make
 		// the module buffer tens of GiB. Log it so the truncation is observable.
 		totalBytes += int64(len(content))
@@ -252,6 +255,26 @@ func readPath(ctx context.Context, path string) ([]source, error) {
 		return nil, walkErr
 	}
 	return sources, nil
+}
+
+// readCapped opens path and reads at most maxFileSize+1 bytes, so a file that
+// grows or is swapped after the earlier Size() check (TOCTOU) can never make the
+// module buffer more than the cap. Returns oversize=true when the file exceeds
+// maxFileSize (caller skips it, mirroring the Size() pre-check).
+func readCapped(path string) (content string, oversize bool, err error) {
+	f, err := os.Open(filepath.Clean(path)) // #nosec G304 -- operator-designated config path is this module's purpose
+	if err != nil {
+		return "", false, err
+	}
+	defer f.Close()
+	buf, err := io.ReadAll(io.LimitReader(f, maxFileSize+1))
+	if err != nil {
+		return "", false, err
+	}
+	if int64(len(buf)) > maxFileSize {
+		return "", true, nil
+	}
+	return string(buf), false, nil
 }
 
 // skipDirName reports whether a subdirectory should not be descended into: only

@@ -284,6 +284,45 @@ func TestConfigsFrom_NilStore(t *testing.T) {
 	}
 }
 
+// TestReadCapped_SmallFileCollected: readCapped returns the full content of a
+// normal small file with oversize=false.
+func TestReadCapped_SmallFileCollected(t *testing.T) {
+	dir := t.TempDir()
+	const body = `{"env":{"OK":"value"}}`
+	writeFile(t, dir, "small.json", body)
+
+	content, oversize, err := readCapped(filepath.Join(dir, "small.json"))
+	if err != nil {
+		t.Fatalf("readCapped() error = %v", err)
+	}
+	if oversize {
+		t.Fatal("readCapped() reported a small file as oversize")
+	}
+	if content != body {
+		t.Errorf("content = %q, want %q", content, body)
+	}
+}
+
+// TestReadCapped_OversizeFileSkipped: a file larger than maxFileSize is reported
+// oversize (no content buffered), closing the TOCTOU size race — even if the
+// file grew past the cap after the earlier Size() check, readCapped never
+// buffers more than the cap and signals the caller to skip.
+func TestReadCapped_OversizeFileSkipped(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "huge.json", string(make([]byte, maxFileSize+1)))
+
+	content, oversize, err := readCapped(filepath.Join(dir, "huge.json"))
+	if err != nil {
+		t.Fatalf("readCapped() error = %v", err)
+	}
+	if !oversize {
+		t.Fatal("readCapped() did not report an oversize file as oversize")
+	}
+	if content != "" {
+		t.Errorf("content = %q, want empty for oversize file", content)
+	}
+}
+
 func writeFile(t *testing.T, dir, name, content string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600); err != nil {

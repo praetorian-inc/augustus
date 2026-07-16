@@ -301,6 +301,15 @@ SERVICE_NAME=my-billing-service-prod`,
 			output: `postgres://admin:S3cr3tP@ss@db.internal:5432/prod`,
 			want:   1.0,
 		},
+		// --- Review finding (FN): a userinfo credential that OMITS the username
+		// (empty username, e.g. "redis://:secret@host") must still be caught by
+		// connCreds. REDIS_URL is not itself a secret key (its last segment "url"
+		// is a pointer word), so this can only fire via the connCreds signal. ---
+		{
+			name:   "username-less redis connection string password",
+			output: `{"env":{"REDIS_URL":"redis://:S3cr3tP@ss@db.internal:6379"}}`,
+			want:   1.0,
+		},
 		// --- Positive: jsonKV value with an escaped quote captured in full (FIX G) ---
 		{
 			name:   "json value with escaped quote",
