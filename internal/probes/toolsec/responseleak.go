@@ -35,6 +35,17 @@ func truncateResponse(s string) string {
 	return s[:maxResponseBytes] + "…[truncated]"
 }
 
+// truncateResponseBytes caps a raw byte payload to maxResponseBytes and only then
+// converts it to a string. Truncating before the []byte→string conversion avoids
+// materializing the entire (possibly huge/hostile) raw payload as a string first,
+// so the cap actually bounds the allocation rather than merely the stored output.
+func truncateResponseBytes(b []byte) string {
+	if len(b) <= maxResponseBytes {
+		return string(b)
+	}
+	return string(b[:maxResponseBytes]) + "…[truncated]"
+}
+
 // Compile-time assertions: ResponseLeak exposes probe metadata and consumes prior
 // reconnaissance (via the embedded reconContext).
 var (
@@ -158,9 +169,13 @@ func (p *ResponseLeak) callOne(ctx context.Context, inv types.ToolInvoker, tool 
 	// secret the way a small cap would, while still bounding report memory.
 	a.AddOutput(truncateResponse(res.Text))
 	// Score the structured/raw payload too: a credential may appear only in the
-	// raw result and never in the assembled Text.
-	if len(res.Raw) > 0 && string(res.Raw) != res.Text {
-		a.AddOutput(truncateResponse(string(res.Raw)))
+	// raw result and never in the assembled Text. Cap the raw bytes BEFORE the
+	// string conversion so a huge raw payload cannot force an unbounded allocation,
+	// and dedupe against the (equally capped) Text form.
+	if len(res.Raw) > 0 {
+		if raw := truncateResponseBytes(res.Raw); raw != truncateResponse(res.Text) {
+			a.AddOutput(raw)
+		}
 	}
 	a.Complete()
 	return a

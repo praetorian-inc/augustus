@@ -658,3 +658,41 @@ func (e *erroringInvoker) CallTool(context.Context, string, map[string]any) (typ
 }
 
 var errTransport = errors.New("connection reset by peer")
+
+// TestResponseLeak_RawByteCap verifies a raw payload is capped as bytes before
+// the string conversion: a secret within the cap is still scored, and the stored
+// output never exceeds the cap + marker (so a huge raw payload can't blow memory).
+func TestResponseLeak_RawByteCap(t *testing.T) {
+	secret := "GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+	raw := append([]byte(secret+"\n"), make([]byte, 12<<20)...) // secret up front, then 12 MiB
+	inv := &mockTarget{
+		tools: []map[string]any{stringTool("dump", "q")},
+		call:  func(string, map[string]any) types.ToolResult { return types.ToolResult{Text: "ok", Raw: raw} },
+	}
+	p, err := NewResponseLeak(registry.Config{})
+	if err != nil {
+		t.Fatalf("NewResponseLeak: %v", err)
+	}
+	attempts, err := p.Probe(context.Background(), inv)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	det, _ := detectors.Create("mcpsecrets.Credential", registry.Config{})
+	var vuln bool
+	for _, a := range attempts {
+		for _, o := range a.Outputs {
+			if len(o) > maxResponseBytes+len("…[truncated]") {
+				t.Fatalf("stored output exceeds cap: %d bytes", len(o))
+			}
+		}
+		scores, _ := det.Detect(context.Background(), a)
+		for _, s := range scores {
+			if s >= 0.5 {
+				vuln = true
+			}
+		}
+	}
+	if !vuln {
+		t.Error("secret within cap in raw payload should be detected")
+	}
+}
