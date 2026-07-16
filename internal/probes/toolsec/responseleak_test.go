@@ -22,11 +22,11 @@ func newResponseLeak(t *testing.T, cfg registry.Config) *ResponseLeak {
 	return p.(*ResponseLeak)
 }
 
-// scoreConfigLeak scores an attempt's outputs with the real mcpsecrets.ConfigLeak
+// scoreConfigLeak scores an attempt's outputs with the real mcpsecrets.Credential
 // detector, resolved via the registry (blank-imported above).
 func scoreConfigLeak(t *testing.T, a *attempt.Attempt) []float64 {
 	t.Helper()
-	det, err := detectors.Create("mcpsecrets.ConfigLeak", registry.Config{})
+	det, err := detectors.Create("mcpsecrets.Credential", registry.Config{})
 	if err != nil {
 		t.Fatalf("detectors.Create: %v", err)
 	}
@@ -67,7 +67,7 @@ func TestResponseLeak_FlagsLeakedSecret(t *testing.T) {
 		}
 	}
 	if !fired {
-		t.Errorf("expected the leaked secret %q to be flagged by mcpsecrets.ConfigLeak", secret)
+		t.Errorf("expected the leaked secret %q to be flagged by mcpsecrets.Credential", secret)
 	}
 }
 
@@ -103,7 +103,7 @@ func TestResponseLeak_FlagsSecretInRawOnly(t *testing.T) {
 		}
 	}
 	if !fired {
-		t.Error("expected the secret present only in ToolResult.Raw to be flagged by mcpsecrets.ConfigLeak")
+		t.Error("expected the secret present only in ToolResult.Raw to be flagged by mcpsecrets.Credential")
 	}
 }
 

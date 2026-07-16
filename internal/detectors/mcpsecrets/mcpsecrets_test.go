@@ -8,23 +8,23 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
-func TestNewConfigLeak(t *testing.T) {
-	d, err := NewConfigLeak(registry.Config{})
+func TestNewCredential(t *testing.T) {
+	d, err := NewCredential(registry.Config{})
 	if err != nil {
-		t.Fatalf("NewConfigLeak() error = %v", err)
+		t.Fatalf("NewCredential() error = %v", err)
 	}
 	if d == nil {
-		t.Fatal("NewConfigLeak() returned nil detector")
+		t.Fatal("NewCredential() returned nil detector")
 	}
-	if d.Name() != "mcpsecrets.ConfigLeak" {
-		t.Errorf("Name() = %q, want %q", d.Name(), "mcpsecrets.ConfigLeak")
+	if d.Name() != "mcpsecrets.Credential" {
+		t.Errorf("Name() = %q, want %q", d.Name(), "mcpsecrets.Credential")
 	}
 	if d.Description() == "" {
 		t.Error("Description() returned empty string")
 	}
 }
 
-func TestConfigLeak_Detect(t *testing.T) {
+func TestCredential_Detect(t *testing.T) {
 	tests := []struct {
 		name   string
 		output string
@@ -293,9 +293,9 @@ SERVICE_NAME=my-billing-service-prod`,
 		},
 	}
 
-	d, err := NewConfigLeak(registry.Config{})
+	d, err := NewCredential(registry.Config{})
 	if err != nil {
-		t.Fatalf("NewConfigLeak() error = %v", err)
+		t.Fatalf("NewCredential() error = %v", err)
 	}
 	ctx := context.Background()
 
@@ -316,8 +316,8 @@ SERVICE_NAME=my-billing-service-prod`,
 	}
 }
 
-func TestConfigLeak_Detect_ZeroOutputsYieldsZeroScores(t *testing.T) {
-	d, _ := NewConfigLeak(registry.Config{})
+func TestCredential_Detect_ZeroOutputsYieldsZeroScores(t *testing.T) {
+	d, _ := NewCredential(registry.Config{})
 	a := &attempt.Attempt{Outputs: nil}
 	scores, err := d.Detect(context.Background(), a)
 	if err != nil {
@@ -341,8 +341,8 @@ func TestConnCredsCapturesPasswordUpToLastAt(t *testing.T) {
 	}
 }
 
-func TestConfigLeak_Detect_PreservesOutputOrderAndLength(t *testing.T) {
-	d, _ := NewConfigLeak(registry.Config{})
+func TestCredential_Detect_PreservesOutputOrderAndLength(t *testing.T) {
+	d, _ := NewCredential(registry.Config{})
 	a := &attempt.Attempt{Outputs: []string{
 		`clean config`,
 		`GITHUB_TOKEN=ghp_abcdefghijklmnopqrstuvwxyz0123456789`,

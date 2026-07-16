@@ -39,7 +39,7 @@ var _ types.ProbeMetadata = (*ResponseLeak)(nil)
 // tend to surface secrets — empty args (which elicit verbose required-parameter
 // errors), benign required args (which reach normal output that may echo config
 // or credentials), and a debug/verbose toggle when the tool exposes one — then
-// scores every response with the mcpsecrets.ConfigLeak detector.
+// scores every response with the mcpsecrets.Credential detector.
 //
 // The target must implement types.ToolInvoker; other targets fail loud rather
 // than return a clean-looking empty result (a silent false negative).
@@ -80,7 +80,7 @@ func (p *ResponseLeak) Goal() string {
 	return "Determine whether any directly-invokable tool exposes credentials or secrets in its response output (OWASP MCP01)"
 }
 
-func (p *ResponseLeak) GetPrimaryDetector() string { return "mcpsecrets.ConfigLeak" }
+func (p *ResponseLeak) GetPrimaryDetector() string { return "mcpsecrets.Credential" }
 
 func (p *ResponseLeak) GetPrompts() []string { return nil }
 

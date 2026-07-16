@@ -3,64 +3,62 @@ title: MCP Config Secret Scan
 tags: [augustus, probe, data-leak, mcp]
 type: reference
 component: probe
-registry-name: ["mcpconfig.SecretScan"]
-source: internal/probes/mcpconfig/secretscan.go
+registry-name: ["mcpconfig.CredentialExposure"]
+source: internal/probes/mcpconfig/credentialexposure.go
 status: complete
 ---
 
 # MCP Config Secret Scan
 
-> Statically scans MCP (Model Context Protocol) server configuration for exposed credentials. Covers the static half of credential-exposure testing (OWASP **MCP01** / **MCP04**) without needing a live MCP server.
+> Scores MCP (Model Context Protocol) server configuration for exposed credentials. Covers the static half of credential-exposure testing (OWASP **MCP01** / **MCP04**) without needing a live MCP server.
 
 ## Purpose
 
-Unlike prompt-based probes, `mcpconfig.SecretScan` is a **static-analysis probe**: it does not call the generator. It sources MCP configuration content and emits it as attempt outputs so the [[MCP Config Leak Detector]] can flag hard-coded secrets. This answers the question "are my MCP credentials sitting in the clear in a config or `.env` file?" — a standalone recon capability that runs before any adversarial testing and requires no target model.
+`mcpconfig.CredentialExposure` is a **context-aware scorer**, not a collector: it does no file I/O itself. Config collection lives in the `recon.MCPConfig` reconnaissance module, which reads inline content, a file, or a directory and emits one `mcp.config` observation per source into the shared recon store. The probe opts into that store (via `recon.ContextAwareProbe`) and emits one attempt per collected config source so the [[MCP Config Leak Detector]] can flag hard-coded secrets. This is the "scan once, reuse everywhere" model — recon populates the workspace, the probe scores it — and answers "are my MCP credentials sitting in the clear in a config or `.env` file?" with no target model required.
 
 ## Registry name(s)
 
-- `mcpconfig.SecretScan` — static credential scan over config content.
+- `mcpconfig.CredentialExposure` — context-aware credential scorer over config observations.
 
-## How it works
+## The `recon.MCPConfig` module
 
-The probe collects one or more sources, then emits one attempt per source (output = the file/inline content, `source` metadata = its label):
+Config collection is a first-class reconnaissance module (`recon.MCPConfig`, `internal/recon/mcpconfig`). It measures local configuration at rest — independent of the scan target (the recon contract sanctions target-less modules) — and emits observations; it renders no verdict. Recognized config keys:
 
-- **`content`** (config key) — inline configuration text to scan.
-- **`path`** (config key) — a file, or a directory that is walked for config files (`.json`, `.env*`, `.yaml`/`.yml`, `.toml`, `.ini`, `.cfg`, `.conf`).
+- **`content`** — inline configuration text.
+- **`path`** — a file, or a directory that is walked for config files (`.json`, `.env*`, `.yaml`/`.yml`, `.toml`, `.ini`, `.cfg`, `.conf`; extension/`.env` checks are case-insensitive).
 
-With no source configured, or an unreadable path, it emits a single attempt in `error` status. The primary detector is `mcpsecrets.ConfigLeak`.
+It emits one `mcp.config` observation per source (`Target` = the path or `inline`, `Data` = the JSON-encoded file content). Unreadable and oversize (> 5 MiB) files are skipped rather than failing the run; a cancelled context aborts.
 
-## Configuration
+## How the probe works
 
-Provide probe settings via a config file:
+The probe reads the config observations back from the recon store and emits one attempt per source (output = the file/inline content, `source` metadata = its label). The primary detector is `mcpsecrets.Credential`.
 
-```yaml
-probes:
-  settings:
-    mcpconfig.SecretScan:
-      path: "/path/to/mcp-configs"   # file or directory
-      # or: content: '{"mcpServers":{...}}'
-```
+When the recon store holds no config (`recon.MCPConfig` was not run, or found nothing), the probe emits a single **informational, non-vulnerable** attempt explaining that `recon.MCPConfig` must be run to supply config content — so an operator can tell "recon not run" apart from a genuinely clean pass.
 
 ## Usage
 
 ```bash
-# Scan a directory of MCP configs. The generator is unused (static probe),
-# so any no-network generator such as test.Blank works as the placeholder target.
-augustus scan test.Blank --probe mcpconfig.SecretScan --config-file scan.yaml
+# Collect config with recon.MCPConfig, then score it with the probe in one scan.
+# The generator is unused by both, so any no-network generator such as test.Blank
+# works as the placeholder target.
+augustus scan test.Blank \
+  --recon recon.MCPConfig \
+  --probe mcpconfig.CredentialExposure \
+  --config '{"path":"/path/to/mcp-configs"}'
 ```
 
 A leaky config (e.g. a `GITHUB_TOKEN` set to a real `ghp_…` value) scores `1.0` (VULN); configs that only reference env vars (`${FS_API_KEY}`) or use placeholders score `0.0` (SAFE).
 
 > [!warning] Scan outputs are secret-bearing
-> Attempt outputs embed the scanned content verbatim, including any real credential found, so JSONL report artifacts from this probe should be treated as sensitive and handled accordingly.
+> Attempt outputs (and the `mcp.config` observations) embed the scanned content verbatim, including any real credential found, so JSONL report artifacts should be treated as sensitive and handled accordingly.
 
 ## Pairs with
 
-- [[MCP Config Leak Detector]] (`mcpsecrets.ConfigLeak`)
+- [[MCP Config Leak Detector]] (`mcpsecrets.Credential`)
 
 ## Source
 
-`internal/probes/mcpconfig/secretscan.go`
+`internal/probes/mcpconfig/credentialexposure.go` (probe) · `internal/recon/mcpconfig/mcpconfig.go` (recon module)
 
 ## Related
 

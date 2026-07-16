@@ -3,7 +3,7 @@ title: MCP Config Leak Detector
 tags: [augustus, detector, data-leak, mcp]
 type: reference
 component: detector
-registry-name: ["mcpsecrets.ConfigLeak"]
+registry-name: ["mcpsecrets.Credential"]
 source: internal/detectors/mcpsecrets/mcpsecrets.go
 status: complete
 ---
@@ -14,11 +14,11 @@ status: complete
 
 ## Purpose
 
-MCP servers are configured with a `mcpServers` map whose entries carry a `command`, `args`, and an `env` block — a common place for API keys, tokens, and database credentials to be hard-coded in the clear. Ecosystem audits found 24,008 exposed secrets across public MCP configs (2,117 confirmed live). This detector inspects configuration content (and, later, tool-response payloads) and scores whether a real secret is present. It pairs with the [[MCP Config Secret Scan]] probe.
+MCP servers are configured with a `mcpServers` map whose entries carry a `command`, `args`, and an `env` block — a common place for API keys, tokens, and database credentials to be hard-coded in the clear. Ecosystem audits found 24,008 exposed secrets across public MCP configs (2,117 confirmed live). This detector inspects configuration content and tool-response payloads and scores whether a real secret is present. It pairs with the [[MCP Config Secret Scan]] probe.
 
 ## Registry name(s)
 
-- `mcpsecrets.ConfigLeak` — binary secret-exposure detection over config/response text.
+- `mcpsecrets.Credential` — binary secret-exposure detection over config/response text.
 
 ## How it works
 
@@ -38,7 +38,7 @@ Binary: `1.0` when a concrete credential is found, `0.0` otherwise. Output order
 
 ## Pairs with
 
-- [[MCP Config Secret Scan]] (the `mcpconfig.SecretScan` probe)
+- [[MCP Config Secret Scan]] (the `mcpconfig.CredentialExposure` probe)
 
 ## Source
 

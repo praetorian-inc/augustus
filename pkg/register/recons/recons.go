@@ -7,4 +7,5 @@ package recons
 
 import (
 	_ "github.com/praetorian-inc/augustus/internal/recon/mcp"
+	_ "github.com/praetorian-inc/augustus/internal/recon/mcpconfig"
 )
