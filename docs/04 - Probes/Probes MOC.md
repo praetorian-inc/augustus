@@ -62,6 +62,7 @@ A **probe** generates adversarial attack prompts and returns attempts to be scor
 | [[Divergence]] | `divergence.Repeat` | The "poem poem poem" attack — asks the model to repeat a word forever, which can cause it to diverge from the task and replay memorized training data. |
 | [[Goodside]] | `—` | A collection of prompt-injection and model-quirk attacks popularized by Riley Goodside — token smuggling, ChatML role confusion, system-prompt override, markdown data exfiltration, output coercion, and a hallucination probe. |
 | [[Leak Replay]] | `—` | Detects training-data memorization using cloze (fill-in-the-blank) tests drawn from copyrighted books and news articles — if the model reliably fills the masked word, it likely memorized the source text. |
+| [[MCP Config Secret Scan]] | `mcpconfig.CredentialExposure` | Scores MCP server configuration (collected by the `recon.MCPConfig` module) for hard-coded credentials — a context-aware probe, no live MCP server or target model required (OWASP MCP01/MCP04). |
 | [[Snowball]] | `snowball.GraphConnectivity` | Probes that pose questions with impossible or false premises to see whether a model "snowballs" into confidently asserting a wrong answer instead of admitting uncertainty. |
 
 ### Toxicity & Harmful Content
