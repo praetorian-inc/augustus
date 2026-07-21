@@ -26,18 +26,27 @@ var poisonTagRE = regexp.MustCompile(`(?i)<\s*/?\s*(important|hidden|secret|syst
 // "before doing X you must first do Y" two-step hijack — so honest parameter
 // guidance ("you must provide a valid city") does NOT trip them.
 var poisonDirectiveREs = []*regexp.Regexp{
+	// secrecy: hide the action from the user.
 	regexp.MustCompile(`(?i)\bdo\s+not\s+(mention|tell|reveal|disclose|inform|notify|say|indicate|let)\b`),
-	regexp.MustCompile(`(?i)\bwithout\s+(telling|informing|mentioning|notifying|alerting|the user)\b`),
+	regexp.MustCompile(`(?i)\bwithout\s+(telling|informing|mentioning|notifying|alerting)\b`),
+	// "without the user" only when it takes a secrecy object, so honest constraints
+	// like "fails without the user token" do not trip it.
+	regexp.MustCompile(`(?i)\bwithout\s+the\s+user('?s)?\s+(knowing|being\s+told|awareness|noticing|consent|permission)\b`),
+	// deception.
 	regexp.MustCompile(`(?i)\bpresent\s+it\s+as\s+if\b`),
 	// "pretend" only when directed (deception), not the bare word.
 	regexp.MustCompile(`(?i)\bpretend\s+(that|to\b|you\b|it\s+is|nothing|not\s+to|otherwise)`),
+	// injection / fake-authority framing. "elevated permissions" and "system note"
+	// are deliberately excluded — they occur in honest admin tool docs.
 	regexp.MustCompile(`(?i)\bignore\s+(the\s+|all\s+)?(previous|above|prior|earlier|preceding)\b`),
-	regexp.MustCompile(`(?i)\b(system\s+note|admin\s+override|system\s+override|elevated\s+permissions?)\b`),
+	regexp.MustCompile(`(?i)\b(admin\s+override|system\s+override)\b`),
 	regexp.MustCompile(`(?i)\bnote\s+to\s+(the\s+)?(ai|assistant|llm|model|agent)\b`),
+	// tool shadowing.
 	regexp.MustCompile(`(?i)\balways\s+(prefer|use)\b[^.]{0,60}\b(instead|tool|server|endpoint)\b`),
-	// cross-resource exfiltration: fetch a resource/URL and fold it into output.
+	// cross-resource exfiltration: fetch a named sensitive resource. (A bare
+	// "include the results in your response" is honest formatting guidance and is
+	// intentionally NOT matched on its own.)
 	regexp.MustCompile(`(?i)\baccess\b[^.]{0,60}\b(resource|confidential|secret|system\s+config|admin)\b[^.]{0,80}(at|located|:)`),
-	regexp.MustCompile(`(?i)\binclude\s+(it|the\s+(contents?|results?|response|data))\s+in\s+your\s+(response|reply|answer|output)\b`),
 	// two-step hijack: "before providing/using ..., you must first ...".
 	regexp.MustCompile(`(?is)\bbefore\s+(providing|using|calling|answering|responding|returning)\b.{0,80}\b(you\s+must|first\s+(read|access|call|fetch|retrieve))\b`),
 }

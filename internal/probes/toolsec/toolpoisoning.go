@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	mcpx "github.com/praetorian-inc/augustus/internal/recon/mcp"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -12,6 +13,12 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
+
+// maxScanLen bounds the length of any single metadata string the probe hands to
+// the detector. The target MCP server is untrusted, so a malicious one could
+// advertise an enormous description; cap the work per item. (Go's regexp is
+// linear-time, so this is hygiene, not a backtracking guard.)
+const maxScanLen = 64 * 1024
 
 func init() {
 	probes.Register("toolsec.ToolPoisoning", NewToolPoisoning)
@@ -80,6 +87,12 @@ func (p *ToolPoisoning) Probe(ctx context.Context, gen types.Generator) ([]*atte
 			for _, inv := range invs {
 				attempts = append(attempts, p.scanInventory(inv)...)
 			}
+			if len(attempts) == 0 {
+				// Recon ran and produced an inventory, but it carried no scannable
+				// metadata. Surface it rather than passing silently — a reviewer
+				// should know the target advertised nothing to inspect.
+				slog.Warn("toolsec.ToolPoisoning: recon inventory present but no scannable metadata found", "inventories", len(invs))
+			}
 			return attempts, nil
 		}
 	}
@@ -99,11 +112,38 @@ func (p *ToolPoisoning) Probe(ctx context.Context, gen types.Generator) ([]*atte
 		if desc, _ := t["description"].(string); desc != "" {
 			attempts = append(attempts, p.mkAttempt("tool_description", name, desc))
 		}
+		// Scan the annotation title too, so the no-recon path has the same coverage
+		// as the recon path (a poisoned annotation title is otherwise missed here).
+		if at := annotationTitle(t["annotations"]); at != "" {
+			attempts = append(attempts, p.mkAttempt("tool_annotation_title", name, at))
+		}
 		if params, ok := t["parameters"]; ok {
 			attempts = append(attempts, p.mkAttempt("tool_input_schema", name, jsonString(params)))
 		}
 	}
 	return attempts, nil
+}
+
+// annotationTitle extracts a tool's annotation title from a ListTools-shaped map,
+// tolerating the concrete MCPToolAnnotations value the recon ToolMaps path stores
+// and the map form a live generator may return.
+func annotationTitle(v any) string {
+	switch a := v.(type) {
+	case types.MCPToolAnnotations:
+		return a.Title
+	case *types.MCPToolAnnotations:
+		if a != nil {
+			return a.Title
+		}
+	case map[string]any:
+		if s, ok := a["title"].(string); ok {
+			return s
+		}
+		if s, ok := a["Title"].(string); ok {
+			return s
+		}
+	}
+	return ""
 }
 
 // scanInventory turns one MCP inventory into per-item attempts covering every
@@ -122,7 +162,7 @@ func (p *ToolPoisoning) scanInventory(inv *types.MCPInventory) []*attempt.Attemp
 		if t.Title != "" {
 			attempts = append(attempts, p.mkAttempt("tool_title", t.Name, t.Title))
 		}
-		if t.Annotations != nil && t.Annotations.Title != "" {
+		if t.Annotations != nil && t.Annotations.Title != "" && t.Annotations.Title != t.Title {
 			attempts = append(attempts, p.mkAttempt("tool_annotation_title", t.Name, t.Annotations.Title))
 		}
 		if len(t.InputSchema) > 0 {
@@ -165,6 +205,9 @@ func (p *ToolPoisoning) scanInventory(inv *types.MCPInventory) []*attempt.Attemp
 // the output the detector scores; the location and subject go to metadata for the
 // finding report.
 func (p *ToolPoisoning) mkAttempt(location, subject, text string) *attempt.Attempt {
+	if len(text) > maxScanLen {
+		text = text[:maxScanLen]
+	}
 	a := attempt.New(fmt.Sprintf("%s: %s", location, subject))
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
