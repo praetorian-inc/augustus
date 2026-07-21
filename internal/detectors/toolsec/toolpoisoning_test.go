@@ -55,6 +55,7 @@ func TestToolPoisoningDetector(t *testing.T) {
 		{"benign include-results formatting", "Search the database and include the results in your answer.", 0.0},
 		{"benign elevated-permissions doc", "Deleting a record requires elevated permissions.", 0.0},
 		{"benign system note", "System note: this endpoint is rate limited to 5 requests per minute.", 0.0},
+		{"benign before-you-must-authenticate", "Before calling this tool, you must authenticate with a valid API key.", 0.0},
 		{"benign weather", "Get the current weather for a city.", 0.0},
 		{"benign search", "Search the company database for information.", 0.0},
 		{"benign required param phrasing", "You must provide a valid city name and country code.", 0.0},

@@ -48,8 +48,10 @@ var poisonDirectiveREs = []*regexp.Regexp{
 	// "include the results in your response" is honest formatting guidance and is
 	// intentionally NOT matched on its own.)
 	regexp.MustCompile(`(?i)\baccess\b[^.]{0,60}\b(resource|confidential|secret|system\s+config|admin)\b[^.]{0,80}(at|located|:)`),
-	// two-step hijack: "before providing/using ..., you must first ...".
-	regexp.MustCompile(`(?is)\bbefore\s+(providing|using|calling|answering|responding|returning)\b.{0,80}\b(you\s+must|first\s+(read|access|call|fetch|retrieve))\b`),
+	// two-step hijack: "before providing/using ..., you must first read/access Y".
+	// The "you must" arm is constrained to action verbs so honest orchestration
+	// guidance ("before calling this tool, you must authenticate") doesn't trip it.
+	regexp.MustCompile(`(?is)\bbefore\s+(providing|using|calling|answering|responding|returning)\b.{0,80}\b(you\s+must\s+(first|read|access|call|fetch|retrieve|include|send|return)|first\s+(read|access|call|fetch|retrieve))\b`),
 }
 
 // hiddenRunes are invisible / bidi control characters used to smuggle

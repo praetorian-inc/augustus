@@ -15,12 +15,6 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
-// maxScanLen bounds the length of any single metadata string the probe hands to
-// the detector. The target MCP server is untrusted, so a malicious one could
-// advertise an enormous description; cap the work per item. (Go's regexp is
-// linear-time, so this is hygiene, not a backtracking guard.)
-const maxScanLen = 64 * 1024
-
 func init() {
 	probes.Register("toolsec.ToolPoisoning", NewToolPoisoning)
 }
@@ -88,17 +82,18 @@ func (p *ToolPoisoning) Probe(ctx context.Context, gen types.Generator) ([]*atte
 			for _, inv := range invs {
 				attempts = append(attempts, p.scanInventory(inv)...)
 			}
-			if len(attempts) == 0 {
-				// Recon ran and produced an inventory, but it carried no scannable
-				// metadata. Surface it rather than passing silently — a reviewer
-				// should know the target advertised nothing to inspect.
-				slog.Warn("toolsec.ToolPoisoning: recon inventory present but no scannable metadata found", "inventories", len(invs))
+			if len(attempts) > 0 {
+				return attempts, nil
 			}
-			return attempts, nil
+			// Recon emitted an inventory but nothing scannable — MCP recon is
+			// best-effort and can still emit an inventory when catalog calls
+			// partially failed. Fall through to a live enumeration, which may
+			// recover a catalog recon missed, rather than passing a silent SAFE.
+			slog.Warn("toolsec.ToolPoisoning: recon inventory carried no scannable metadata; falling back to live enumeration", "inventories", len(invs))
 		}
 	}
 
-	// Fallback: no recon — enumerate the live tool catalog directly.
+	// Fallback: no recon (or empty recon) — enumerate the live tool catalog directly.
 	inv, ok := gen.(types.ToolInvoker)
 	if !ok {
 		return nil, fmt.Errorf("toolsec.ToolPoisoning: target %q is neither described by a recon.MCP inventory nor directly tool-invokable; run with --recon recon.MCP or point at a tool-surface generator such as mcp.MCP", gen.Name())
@@ -214,12 +209,10 @@ func (p *ToolPoisoning) mkAttempt(location, subject, text string) *attempt.Attem
 	a.Detector = p.GetPrimaryDetector()
 	a.Metadata["toolsec.tool"] = subject
 	a.Metadata["toolsec.poison_location"] = location
-	// The full text is scanned — no truncation. Plain metadata strings are already
-	// held in memory by recon, and the detector's RE2 patterns are linear-time, so
-	// scanning the whole thing costs O(n) with no catastrophic backtracking and no
-	// evasion (poison anywhere in a description/title/instruction is caught). Only
-	// schema *extraction* is size-bounded, in collectStrings, to cap the one place
-	// that allocates a new string.
+	// The full text is scanned — no truncation. Metadata is already held in memory
+	// by recon and the detector's RE2 patterns are linear-time, so scanning the
+	// whole thing costs O(n) with no catastrophic backtracking and no evasion:
+	// poison anywhere in a description/title/instruction/schema is caught.
 	a.AddOutput(text)
 	a.Complete()
 	return a
@@ -263,21 +256,21 @@ func schemaText(v any) string {
 }
 
 // collectStrings walks a decoded JSON value, appending every map key and string
-// value (recursively) to sb, newline-separated. It strictly bounds the total to
-// maxScanLen — appending only what fits before writing — so an adversarially huge
-// schema (a giant enum value or key) cannot drive a large allocation. Schemas are
-// tiny in practice; this bound only bites on hostile input.
+// value (recursively) to sb, newline-separated. It is deliberately unbounded: the
+// schema is already resident in memory (recon fetched it) and the detector's RE2
+// patterns are linear-time, so scanning it in full is O(n) and — crucially —
+// leaves no un-scanned tail an attacker could pad poison into. Bounding the scan
+// here was tried and removed: it created a silent detection gap without addressing
+// the real concern, which is how much metadata the recon/generator layer ingests
+// in the first place (out of scope for this probe).
 func collectStrings(v any, sb *strings.Builder) {
-	if sb.Len() >= maxScanLen {
-		return
-	}
 	switch t := v.(type) {
 	case string:
-		writeBounded(sb, t)
+		sb.WriteString(t)
 		sb.WriteByte('\n')
 	case map[string]any:
 		for k, val := range t {
-			writeBounded(sb, k)
+			sb.WriteString(k)
 			sb.WriteByte('\n')
 			collectStrings(val, sb)
 		}
@@ -285,16 +278,5 @@ func collectStrings(v any, sb *strings.Builder) {
 		for _, e := range t {
 			collectStrings(e, sb)
 		}
-	}
-}
-
-// writeBounded appends s to sb but never past maxScanLen total, so a single huge
-// string value can't blow the cap.
-func writeBounded(sb *strings.Builder, s string) {
-	if remaining := maxScanLen - sb.Len(); remaining > 0 {
-		if len(s) > remaining {
-			s = s[:remaining]
-		}
-		sb.WriteString(s)
 	}
 }
