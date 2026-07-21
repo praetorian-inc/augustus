@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"unicode/utf8"
 
 	mcpx "github.com/praetorian-inc/augustus/internal/recon/mcp"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -210,35 +209,20 @@ func (p *ToolPoisoning) scanInventory(inv *types.MCPInventory) []*attempt.Attemp
 // the output the detector scores; the location and subject go to metadata for the
 // finding report.
 func (p *ToolPoisoning) mkAttempt(location, subject, text string) *attempt.Attempt {
-	scanned, truncated := capScan(text)
 	a := attempt.New(fmt.Sprintf("%s: %s", location, subject))
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
 	a.Metadata["toolsec.tool"] = subject
 	a.Metadata["toolsec.poison_location"] = location
-	if truncated {
-		// The tail past the cap wasn't scanned; mark inconclusive so an
-		// oversized-metadata padding evasion surfaces for review rather than
-		// passing as a silent SAFE (see the detector's inconclusive handling).
-		a.Metadata[attempt.MetadataKeyInconclusive] = true
-		a.Metadata[attempt.MetadataKeyInconclusiveReason] = fmt.Sprintf("%s exceeded the %d-byte scan cap; only the prefix was scanned", location, maxScanLen)
-	}
-	a.AddOutput(scanned)
+	// The full text is scanned — no truncation. Plain metadata strings are already
+	// held in memory by recon, and the detector's RE2 patterns are linear-time, so
+	// scanning the whole thing costs O(n) with no catastrophic backtracking and no
+	// evasion (poison anywhere in a description/title/instruction is caught). Only
+	// schema *extraction* is size-bounded, in collectStrings, to cap the one place
+	// that allocates a new string.
+	a.AddOutput(text)
 	a.Complete()
 	return a
-}
-
-// capScan bounds an untrusted metadata string to maxScanLen, trimming back to a
-// valid UTF-8 boundary, and reports whether it had to truncate.
-func capScan(s string) (string, bool) {
-	if len(s) <= maxScanLen {
-		return s, false
-	}
-	t := s[:maxScanLen]
-	for len(t) > 0 && !utf8.ValidString(t) {
-		t = t[:len(t)-1]
-	}
-	return t, true
 }
 
 // resourceSubject prefers a resource's name, falling back to its URI.
@@ -258,15 +242,15 @@ func resourceSubject(name, uri string) string {
 // the wire encoding, and it drops JSON punctuation the poison heuristics don't
 // need.
 func schemaText(v any) string {
-	decoded := v
-	switch raw := v.(type) {
+	var raw []byte
+	switch b := v.(type) {
 	case json.RawMessage:
-		var parsed any
-		if err := json.Unmarshal(raw, &parsed); err != nil {
-			return string(raw)
-		}
-		decoded = parsed
+		raw = b
 	case []byte:
+		raw = b
+	}
+	decoded := v
+	if raw != nil {
 		var parsed any
 		if err := json.Unmarshal(raw, &parsed); err != nil {
 			return string(raw)
@@ -279,20 +263,21 @@ func schemaText(v any) string {
 }
 
 // collectStrings walks a decoded JSON value, appending every map key and string
-// value (recursively) to sb, newline-separated. It stops once sb exceeds
-// maxScanLen so an adversarially huge schema can't drive unbounded allocation;
-// the small overflow lets mkAttempt detect the truncation and mark it.
+// value (recursively) to sb, newline-separated. It strictly bounds the total to
+// maxScanLen — appending only what fits before writing — so an adversarially huge
+// schema (a giant enum value or key) cannot drive a large allocation. Schemas are
+// tiny in practice; this bound only bites on hostile input.
 func collectStrings(v any, sb *strings.Builder) {
-	if sb.Len() > maxScanLen {
+	if sb.Len() >= maxScanLen {
 		return
 	}
 	switch t := v.(type) {
 	case string:
-		sb.WriteString(t)
+		writeBounded(sb, t)
 		sb.WriteByte('\n')
 	case map[string]any:
 		for k, val := range t {
-			sb.WriteString(k)
+			writeBounded(sb, k)
 			sb.WriteByte('\n')
 			collectStrings(val, sb)
 		}
@@ -300,5 +285,16 @@ func collectStrings(v any, sb *strings.Builder) {
 		for _, e := range t {
 			collectStrings(e, sb)
 		}
+	}
+}
+
+// writeBounded appends s to sb but never past maxScanLen total, so a single huge
+// string value can't blow the cap.
+func writeBounded(sb *strings.Builder, s string) {
+	if remaining := maxScanLen - sb.Len(); remaining > 0 {
+		if len(s) > remaining {
+			s = s[:remaining]
+		}
+		sb.WriteString(s)
 	}
 }

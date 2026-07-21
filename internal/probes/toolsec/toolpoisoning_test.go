@@ -204,10 +204,11 @@ func TestToolPoisoning_LiveFallbackScansTitle(t *testing.T) {
 	}
 }
 
-// TestToolPoisoning_MarksOversizedMetadataInconclusive: a malicious server that
-// pads benign text past the scan cap and hides poison in the tail must not pass
-// as a silent SAFE — the truncated item is marked inconclusive for review.
-func TestToolPoisoning_MarksOversizedMetadataInconclusive(t *testing.T) {
+// TestToolPoisoning_ScansFullDescriptionNoTruncationEvasion: a description is
+// scanned in full, so a server that pads benign text past any internal buffer
+// size and hides poison in the tail cannot evade detection — the poison reaches
+// the detector verbatim.
+func TestToolPoisoning_ScansFullDescriptionNoTruncationEvasion(t *testing.T) {
 	padding := strings.Repeat("x", maxScanLen+10)
 	inv := &types.MCPInventory{
 		ServerName: "srv",
@@ -222,11 +223,11 @@ func TestToolPoisoning_MarksOversizedMetadataInconclusive(t *testing.T) {
 		t.Fatalf("Probe: %v", err)
 	}
 	a := findAttempt(attempts, "tool_description", "t")
-	if a == nil {
-		t.Fatal("no tool_description attempt for t")
+	if a == nil || len(a.Outputs) != 1 {
+		t.Fatalf("no tool_description attempt for t; attempts=%+v", attempts)
 	}
-	if v, _ := a.GetMetadata(attempt.MetadataKeyInconclusive); v != true {
-		t.Errorf("oversized description should be marked inconclusive, got %v", v)
+	if !strings.Contains(a.Outputs[0], "<IMPORTANT>") {
+		t.Errorf("full description was not scanned — tail poison dropped (len=%d)", len(a.Outputs[0]))
 	}
 }
 
