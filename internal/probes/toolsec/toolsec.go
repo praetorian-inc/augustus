@@ -1,10 +1,18 @@
 // Package toolsec provides tool-backend security probes for MCP targets.
-// Its probes (Injection, SSRF, PathTraversal) invoke REAL tools through
-// types.ToolInvoker to test the backend's own behaviour — injection
-// sinks, authorization, SSRF, path traversal. This is distinct from the
-// model-facing tool probes elsewhere in the tree that only ask whether
-// an LLM can be manipulated INTO a tool call: toolsec calls the tools
-// itself and observes what actually runs.
+// Its dynamic probes (Injection, SSRF, PathTraversal, BOLA, ResponseLeak)
+// invoke REAL tools through types.ToolInvoker to test the backend's own
+// behaviour — injection sinks, authorization, SSRF, path traversal, response
+// credential leakage. This is distinct from the model-facing tool probes
+// elsewhere in the tree that only ask whether an LLM can be manipulated INTO a
+// tool call: toolsec calls the tools itself and observes what actually runs.
+//
+// ToolPoisoning is the static member of the family: rather than invoking tools
+// it inspects the target server's OWN advertised metadata (tool descriptions,
+// schemas, server instructions, resource/prompt descriptions — read from a
+// shared recon.MCP inventory or a live ListTools enumeration) for hidden
+// instructions aimed at a consuming LLM (OWASP MCP03 tool poisoning). Still
+// server-integrated — the poison, if any, comes from the real target — and thus
+// distinct from the synthetic model-facing poisoning probes (toolcoercion.*).
 //
 // Sibling package: internal/probes/mcptransport houses transport-layer
 // probes (OriginValidation, SSESessionHijack) that bypass the MCP

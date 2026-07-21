@@ -1,0 +1,182 @@
+package toolsec
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	mcpx "github.com/praetorian-inc/augustus/internal/recon/mcp"
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/probes"
+	"github.com/praetorian-inc/augustus/pkg/recon"
+	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
+)
+
+func init() {
+	probes.Register("toolsec.ToolPoisoning", NewToolPoisoning)
+}
+
+// Compile-time assertions: ToolPoisoning exposes probe metadata and opts in to
+// shared reconnaissance.
+var (
+	_ types.ProbeMetadata     = (*ToolPoisoning)(nil)
+	_ recon.ContextAwareProbe = (*ToolPoisoning)(nil)
+)
+
+// ToolPoisoning is a static, server-integrated tool-poisoning probe (OWASP
+// MCP03 + MCP10). It reads the target MCP server's OWN advertised metadata —
+// tool descriptions, input schemas, server instructions, and resource/prompt
+// descriptions — and flags any that carry hidden instructions aimed at the host
+// LLM (secrecy/exfiltration directives, `<IMPORTANT>`-style smuggling tags,
+// invisible-Unicode smuggling).
+//
+// This is distinct from the model-facing tool-poisoning probes elsewhere in the
+// tree (toolcoercion.MCPToolPoison, tool.SchemaMutation), which test whether an
+// LLM can be manipulated by SYNTHETIC poisoned tool defs baked into a prompt.
+// ToolPoisoning inspects the REAL catalog of the server under test — the poison,
+// if any, comes from the target itself.
+//
+// It prefers a prior recon.MCP inventory (scan once, reuse everywhere) and falls
+// back to a live ToolInvoker.ListTools enumeration. A target that is neither
+// recon-described nor tool-invokable cannot be tested — it fails loud rather than
+// returning a clean-looking empty result (a silent false negative for a scanner).
+type ToolPoisoning struct {
+	reconContext
+}
+
+// NewToolPoisoning constructs the probe.
+func NewToolPoisoning(_ registry.Config) (probes.Prober, error) {
+	return &ToolPoisoning{}, nil
+}
+
+func (p *ToolPoisoning) Name() string { return "toolsec.ToolPoisoning" }
+
+func (p *ToolPoisoning) Description() string {
+	return "Statically inspects an MCP server's advertised tool/resource metadata for hidden instructions aimed at the host LLM (tool poisoning)"
+}
+
+func (p *ToolPoisoning) Goal() string {
+	return "Determine whether the target MCP server's tool definitions, schemas, server instructions, or resource/prompt metadata carry hidden instructions that manipulate a consuming LLM"
+}
+
+func (p *ToolPoisoning) GetPrimaryDetector() string { return "toolsec.ToolPoisoning" }
+
+func (p *ToolPoisoning) GetPrompts() []string {
+	return []string{"static scan of MCP tool descriptions, input schemas, server instructions, and resource/prompt metadata for hidden LLM-directed instructions"}
+}
+
+// Probe scans the target's advertised metadata and emits one attempt per scanned
+// item (the item's text is the attempt output; the toolsec.ToolPoisoning detector
+// scores it). It prefers a shared recon.MCP inventory (which also exposes server
+// instructions and resource/prompt metadata) and falls back to a live
+// ToolInvoker.ListTools enumeration.
+func (p *ToolPoisoning) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
+	// Rich path: a prior recon.MCP inventory exposes the full surface (tools +
+	// server instructions + resources + prompts), not just the tool catalog.
+	if p.store != nil {
+		if invs := mcpx.InventoriesFrom(p.store); len(invs) > 0 {
+			var attempts []*attempt.Attempt
+			for _, inv := range invs {
+				attempts = append(attempts, p.scanInventory(inv)...)
+			}
+			return attempts, nil
+		}
+	}
+
+	// Fallback: no recon — enumerate the live tool catalog directly.
+	inv, ok := gen.(types.ToolInvoker)
+	if !ok {
+		return nil, fmt.Errorf("toolsec.ToolPoisoning: target %q is neither described by a recon.MCP inventory nor directly tool-invokable; run with --recon recon.MCP or point at a tool-surface generator such as mcp.MCP", gen.Name())
+	}
+	tools, err := inv.ListTools(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("toolsec.ToolPoisoning: list tools: %w", err)
+	}
+	var attempts []*attempt.Attempt
+	for _, t := range tools {
+		name, _ := t["name"].(string)
+		if desc, _ := t["description"].(string); desc != "" {
+			attempts = append(attempts, p.mkAttempt("tool_description", name, desc))
+		}
+		if params, ok := t["parameters"]; ok {
+			attempts = append(attempts, p.mkAttempt("tool_input_schema", name, jsonString(params)))
+		}
+	}
+	return attempts, nil
+}
+
+// scanInventory turns one MCP inventory into per-item attempts covering every
+// surface an attacker can poison: tool descriptions and schemas, the server
+// instructions block, and resource / resource-template / prompt descriptions.
+func (p *ToolPoisoning) scanInventory(inv *types.MCPInventory) []*attempt.Attempt {
+	var attempts []*attempt.Attempt
+
+	if inv.Instructions != "" {
+		attempts = append(attempts, p.mkAttempt("server_instructions", inv.ServerName, inv.Instructions))
+	}
+	for _, t := range inv.Tools {
+		if t.Description != "" {
+			attempts = append(attempts, p.mkAttempt("tool_description", t.Name, t.Description))
+		}
+		if len(t.InputSchema) > 0 {
+			attempts = append(attempts, p.mkAttempt("tool_input_schema", t.Name, string(t.InputSchema)))
+		}
+	}
+	for _, r := range inv.Resources {
+		if r.Description != "" {
+			attempts = append(attempts, p.mkAttempt("resource_description", resourceSubject(r.Name, r.URI), r.Description))
+		}
+	}
+	for _, rt := range inv.ResourceTemplates {
+		if rt.Description != "" {
+			attempts = append(attempts, p.mkAttempt("resource_template_description", resourceSubject(rt.Name, rt.URITemplate), rt.Description))
+		}
+	}
+	for _, pr := range inv.Prompts {
+		if pr.Description != "" {
+			attempts = append(attempts, p.mkAttempt("prompt_description", pr.Name, pr.Description))
+		}
+		for _, arg := range pr.Arguments {
+			if arg.Description != "" {
+				attempts = append(attempts, p.mkAttempt("prompt_argument_description", pr.Name+"."+arg.Name, arg.Description))
+			}
+		}
+	}
+	return attempts
+}
+
+// mkAttempt records one scanned item as a completed attempt: the item's text is
+// the output the detector scores; the location and subject go to metadata for the
+// finding report.
+func (p *ToolPoisoning) mkAttempt(location, subject, text string) *attempt.Attempt {
+	a := attempt.New(fmt.Sprintf("%s: %s", location, subject))
+	a.Probe = p.Name()
+	a.Detector = p.GetPrimaryDetector()
+	a.Metadata["toolsec.tool"] = subject
+	a.Metadata["toolsec.poison_location"] = location
+	a.AddOutput(text)
+	a.Complete()
+	return a
+}
+
+// resourceSubject prefers a resource's name, falling back to its URI.
+func resourceSubject(name, uri string) string {
+	if name != "" {
+		return name
+	}
+	return uri
+}
+
+// jsonString renders a decoded schema value back to a scannable JSON string, so
+// poisoning in parameter names / descriptions / enum values is caught on the live
+// ListTools fallback path (which hands back a decoded map, not raw bytes).
+func jsonString(v any) string {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	if b, err := json.Marshal(v); err == nil {
+		return string(b)
+	}
+	return fmt.Sprintf("%v", v)
+}
