@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	mcpx "github.com/praetorian-inc/augustus/internal/recon/mcp"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -112,13 +113,16 @@ func (p *ToolPoisoning) Probe(ctx context.Context, gen types.Generator) ([]*atte
 		if desc, _ := t["description"].(string); desc != "" {
 			attempts = append(attempts, p.mkAttempt("tool_description", name, desc))
 		}
-		// Scan the annotation title too, so the no-recon path has the same coverage
-		// as the recon path (a poisoned annotation title is otherwise missed here).
+		// Scan title + annotation title too, so the no-recon path has the same
+		// coverage as the recon path (poison in either is otherwise missed here).
+		if title, _ := t["title"].(string); title != "" {
+			attempts = append(attempts, p.mkAttempt("tool_title", name, title))
+		}
 		if at := annotationTitle(t["annotations"]); at != "" {
 			attempts = append(attempts, p.mkAttempt("tool_annotation_title", name, at))
 		}
 		if params, ok := t["parameters"]; ok {
-			attempts = append(attempts, p.mkAttempt("tool_input_schema", name, jsonString(params)))
+			attempts = append(attempts, p.mkAttempt("tool_input_schema", name, schemaText(params)))
 		}
 	}
 	return attempts, nil
@@ -166,7 +170,7 @@ func (p *ToolPoisoning) scanInventory(inv *types.MCPInventory) []*attempt.Attemp
 			attempts = append(attempts, p.mkAttempt("tool_annotation_title", t.Name, t.Annotations.Title))
 		}
 		if len(t.InputSchema) > 0 {
-			attempts = append(attempts, p.mkAttempt("tool_input_schema", t.Name, string(t.InputSchema)))
+			attempts = append(attempts, p.mkAttempt("tool_input_schema", t.Name, schemaText(t.InputSchema)))
 		}
 	}
 	for _, r := range inv.Resources {
@@ -226,18 +230,47 @@ func resourceSubject(name, uri string) string {
 	return uri
 }
 
-// jsonString renders a decoded schema value back to a scannable JSON string, so
-// poisoning in parameter names / descriptions / enum values is caught on the live
-// ListTools fallback path (which hands back a decoded map, not raw bytes).
-func jsonString(v any) string {
-	if s, ok := v.(string); ok {
-		return s
+// schemaText extracts the scannable human-readable content of a tool input
+// schema — every JSON key, string value, and enum entry — as newline-joined
+// plain text. It accepts either raw schema bytes (recon path) or an
+// already-decoded value (live ListTools path). Decoding first is deliberate: it
+// unescapes any JSON-hex-encoded characters (`<IMPORTANT>` -> literal
+// `<IMPORTANT>`) so tag-based schema poisoning is caught rather than hidden by
+// the wire encoding, and it drops JSON punctuation the poison heuristics don't
+// need.
+func schemaText(v any) string {
+	decoded := v
+	switch raw := v.(type) {
+	case json.RawMessage:
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			return string(raw)
+		}
+	case []byte:
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			return string(raw)
+		}
 	}
-	if b, err := json.Marshal(v); err == nil {
-		return string(b)
+	var sb strings.Builder
+	collectStrings(decoded, &sb)
+	return sb.String()
+}
+
+// collectStrings walks a decoded JSON value, appending every map key and string
+// value (recursively) to sb, newline-separated.
+func collectStrings(v any, sb *strings.Builder) {
+	switch t := v.(type) {
+	case string:
+		sb.WriteString(t)
+		sb.WriteByte('\n')
+	case map[string]any:
+		for k, val := range t {
+			sb.WriteString(k)
+			sb.WriteByte('\n')
+			collectStrings(val, sb)
+		}
+	case []any:
+		for _, e := range t {
+			collectStrings(e, sb)
+		}
 	}
-	// On the rare marshal failure, return empty rather than Go's non-JSON map
-	// formatting — a malformed blob can't meaningfully feed the JSON-oriented
-	// heuristics anyway, and this avoids a spurious scan surface.
-	return ""
 }

@@ -34,8 +34,9 @@ var poisonDirectiveREs = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)\bwithout\s+the\s+user('?s)?\s+(knowing|being\s+told|awareness|noticing|consent|permission)\b`),
 	// deception.
 	regexp.MustCompile(`(?i)\bpresent\s+it\s+as\s+if\b`),
-	// "pretend" only when directed (deception), not the bare word.
-	regexp.MustCompile(`(?i)\bpretend\s+(that|to\b|you\b|it\s+is|nothing|not\s+to|otherwise)`),
+	// "pretend" only when directed (deception), not the bare word. The trailing
+	// \b bounds the whole group so "pretend nothingness" doesn't match.
+	regexp.MustCompile(`(?i)\bpretend\s+(that|to|you|it\s+is|nothing|not\s+to|otherwise)\b`),
 	// injection / fake-authority framing. "elevated permissions" and "system note"
 	// are deliberately excluded — they occur in honest admin tool docs.
 	regexp.MustCompile(`(?i)\bignore\s+(the\s+|all\s+)?(previous|above|prior|earlier|preceding)\b`),
