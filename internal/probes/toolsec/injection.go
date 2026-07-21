@@ -3,6 +3,7 @@ package toolsec
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
@@ -45,7 +46,7 @@ type Injection struct {
 	listen       string        // OOB collector bind address
 	baseOverride string        // URL the target should use to reach the collector (optional)
 	wait         time.Duration // grace period for callbacks after sending
-	marker       string        // collector body marker (non-blind reflection signal)
+	marker       string        // collector body (served on every hit; detection is by callback, not reflection)
 }
 
 // NewInjection constructs the probe with a fresh canary, the tool-safety policy
@@ -128,6 +129,7 @@ func (p *Injection) Probe(ctx context.Context, gen types.Generator) ([]*attempt.
 		pend     []pending
 	)
 
+sending:
 	for _, tool := range tools {
 		name, _ := tool["name"].(string)
 		if name == "" {
@@ -138,26 +140,45 @@ func (p *Injection) Probe(ctx context.Context, gen types.Generator) ([]*attempt.
 			if !isStringParam(param.typ) {
 				continue
 			}
+			// Stop issuing new calls once the context is done; the attempts already
+			// sent are still recorded and their callbacks reconciled below.
+			if ctx.Err() != nil {
+				break sending
+			}
 			// In-band computed-canary payloads (eval / SSTI / shell arithmetic).
 			for _, payload := range p.canary.payloads {
 				attempts = append(attempts, p.callOne(ctx, inv, name, param.name, params, payload))
 			}
-			// Out-of-band OS-command payloads (blind + reflected command injection).
+			// Out-of-band OS-command payloads (blind + non-blind command injection).
 			for _, f := range oobCmdFormats {
 				token := randToken()
-				a := p.callOOB(ctx, inv, name, param.name, params, f, col.url(token))
+				proofURL := shellProofURL(col.url(token), token)
+				a := p.callOOB(ctx, inv, name, param.name, params, f, proofURL)
 				pend = append(pend, pending{a: a, token: token})
 				attempts = append(attempts, a)
 			}
 		}
 	}
 
-	// Give the target time to make out-of-band callbacks, then record per-attempt
-	// whether its canary URL was fetched (blind command injection).
+	// Give the target time to make out-of-band callbacks, then reconcile each
+	// out-of-band attempt with what the collector saw.
 	if len(pend) > 0 {
 		p.waitForCallbacks(ctx)
 		for _, item := range pend {
-			item.a.Metadata[attempt.MetadataKeyInjectionOOBCallback] = col.wasHit(item.token)
+			hit := col.wasHit(item.token)
+			item.a.Metadata[attempt.MetadataKeyInjectionOOBCallback] = hit
+			// A payload that executed (callback fired) but then hung or errored the
+			// tool call is still a confirmed finding. Left as StatusError it would be
+			// classified "error", not "vuln" (results.Verdict maps StatusError ->
+			// error regardless of score), silently burying a blind RCE. Preserve the
+			// original error for the reviewer and revert to complete so the callback
+			// score produces a VULN verdict.
+			if hit && item.a.Status == attempt.StatusError {
+				if item.a.Error != "" {
+					item.a.Metadata["toolsec.injection_oob_call_error"] = item.a.Error
+				}
+				item.a.Complete()
+			}
 		}
 	}
 	return attempts, nil
@@ -184,18 +205,23 @@ func (p *Injection) callOne(ctx context.Context, inv types.ToolInvoker, tool, pa
 }
 
 // callOOB invokes a single (tool, param) with a shell-command-injection payload
-// that fetches the collector's canary URL, and records the attempt. The collector
-// marker is stored as the injection canary so the detector's existing
-// marker-reflection path catches non-blind command injection (the tool returned
-// the fetched body); the blind case is caught by the OOB callback recorded after
-// the wait.
+// that fetches the collector's (shell-proof) canary URL, and records the attempt.
+//
+// Detection is by out-of-band callback ONLY — deliberately not by reflecting the
+// collector body. The collector answers every /oob/<token> hit with the same
+// marker, so a tool that merely extracts and fetches the URL from the argument
+// text (an SSRF / link-preview sink, not a command sink) would get that marker
+// back and be misclassified as command injection. The callback path avoids this:
+// the URL's token carries a shell-proof marker (see shellProofURL) that only a
+// real shell resolves to the tracked token, and the callback catches BOTH the
+// blind case (nothing returned) and the non-blind case (a shell ran curl and the
+// callback still fired), so dropping reflection loses no true positives.
 func (p *Injection) callOOB(ctx context.Context, inv types.ToolInvoker, tool, param string, params []paramInfo, format, canaryURL string) *attempt.Attempt {
 	payload := fmt.Sprintf(format, canaryURL)
 
 	a := attempt.New(payload)
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
-	a.Metadata[attempt.MetadataKeyInjectionCanaries] = []string{p.marker}
 	a.Metadata[attempt.MetadataKeyInjectionOOBURL] = canaryURL
 	a.Metadata["toolsec.tool"] = tool
 	a.Metadata["toolsec.param"] = param
@@ -208,6 +234,25 @@ func (p *Injection) callOOB(ctx context.Context, inv types.ToolInvoker, tool, pa
 	a.AddOutput(res.Text)
 	a.Complete()
 	return a
+}
+
+// shellProofURL rewrites a collector canary URL so that only actual shell
+// execution reproduces the tracked token. It splices an empty command
+// substitution ("$()") into the middle of the token: a POSIX shell evaluating the
+// argument collapses "$()" to nothing, requesting the real /oob/<token> path the
+// collector tracks — command-execution-specific proof a plain URL fetch cannot
+// forge. A tool that instead extracts and fetches the literal URL from the
+// argument text requests a "...$()..." path, whose token does not match the
+// tracked one, so an SSRF / link-fetch sink cannot masquerade as command
+// injection. (On Windows cmd.exe "$()" is not a no-op, so cmd-only sinks may be
+// missed — a false negative, the safe direction.)
+func shellProofURL(url, token string) string {
+	if len(token) < 2 {
+		return url
+	}
+	mid := len(token) / 2
+	obfuscated := token[:mid] + "$()" + token[mid:]
+	return strings.Replace(url, token, obfuscated, 1)
 }
 
 // waitForCallbacks sleeps for the grace period, honoring context cancellation.

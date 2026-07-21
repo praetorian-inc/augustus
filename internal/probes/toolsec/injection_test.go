@@ -166,8 +166,11 @@ func (plainGen) ClearHistory()       {}
 func (plainGen) Name() string        { return "plain" }
 func (plainGen) Description() string { return "plain" }
 
-// testURLRE extracts the canary URL a shell-command payload would hand to curl.
-var testURLRE = regexp.MustCompile("https?://[^\\s`)\"']+")
+// testURLRE extracts a URL from argument text the way a naive URL-fetching tool
+// would: a literal scan with no shell processing. It stops at the shell-proof
+// "$(" that shellProofURL splices into the token, so the extracted URL resolves
+// to a different path than the shell-collapsed one.
+var testURLRE = regexp.MustCompile("https?://[^\\s`)$\"']+")
 
 func newInjectionProbeCfg(t *testing.T, cfg registry.Config) *Injection {
 	t.Helper()
@@ -178,32 +181,63 @@ func newInjectionProbeCfg(t *testing.T, cfg registry.Config) *Injection {
 	return p.(*Injection)
 }
 
-// shellFetchTool simulates a tool whose string argument is passed to a shell: any
-// URL embedded in a command-injection payload gets fetched (as `curl` would). When
-// blind is true the fetched body is discarded (the sink executed but returns
-// nothing to the client); otherwise the body is returned (non-blind). Arithmetic
-// canary payloads carry no URL and return a benign "ok".
-func shellFetchTool(blind bool) *mockTarget {
+// shellCollapse mimics the one piece of POSIX shell tokenization the OOB proof
+// relies on: an empty command substitution "$()" (and empty quotes) collapses to
+// nothing. Applying it before extracting the URL models a real shell resolving
+// the payload — as subprocess(shell=True) / os.system would.
+func shellCollapse(s string) string {
+	return strings.NewReplacer("$()", "", "''", "", `""`, "").Replace(s)
+}
+
+// shellExecTool simulates a tool whose string argument reaches a shell: it
+// collapses the shell-proof token, then fetches any embedded URL (as the injected
+// `curl` would). When blind is true the output is discarded (the sink executed but
+// returned nothing); otherwise the fetched body is returned. Arithmetic canary
+// payloads carry no URL and return a benign "ok".
+func shellExecTool(blind bool) *mockTarget {
 	return &mockTarget{
 		tools: []map[string]any{stringTool("run", "cmd")},
 		call: func(_ string, args map[string]any) types.ToolResult {
 			cmd, _ := args["cmd"].(string)
-			u := testURLRE.FindString(cmd)
+			u := testURLRE.FindString(shellCollapse(cmd))
 			if u == "" {
 				return types.ToolResult{Text: "ok"}
 			}
-			resp, err := http.Get(u) //nolint:gosec,noctx // localhost test collector
-			if err != nil {
-				return types.ToolResult{Text: "fetch error", IsError: true}
-			}
-			body, _ := io.ReadAll(resp.Body)
-			_ = resp.Body.Close()
+			body := fetch(u)
 			if blind {
-				return types.ToolResult{Text: ""}
+				return types.ToolResult{Text: "diagnostic complete"}
 			}
-			return types.ToolResult{Text: string(body)}
+			return types.ToolResult{Text: body}
 		},
 	}
+}
+
+// urlFetchTool simulates an SSRF / link-preview sink: it extracts and fetches a
+// URL from the argument text WITHOUT any shell processing. It must NOT be
+// classified as command injection — the shell-proof token means the literal URL
+// it fetches resolves to an untracked path, so no callback is attributed.
+func urlFetchTool() *mockTarget {
+	return &mockTarget{
+		tools: []map[string]any{stringTool("fetch", "text")},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			text, _ := args["text"].(string)
+			u := testURLRE.FindString(text) // literal extraction, no shell collapse
+			if u == "" {
+				return types.ToolResult{Text: "no url"}
+			}
+			return types.ToolResult{Text: fetch(u)}
+		},
+	}
+}
+
+func fetch(u string) string {
+	resp, err := http.Get(u) //nolint:gosec,noctx // localhost test collector
+	if err != nil {
+		return "fetch error"
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	return string(body)
 }
 
 func sawOOBCallback(attempts []*attempt.Attempt) bool {
@@ -217,40 +251,33 @@ func sawOOBCallback(attempts []*attempt.Attempt) bool {
 	return false
 }
 
-// TestInjection_DetectsBlindCommandInjection: a tool that shells out and returns
-// nothing still gets caught — the injected payload fetches the OOB collector, so a
-// callback is recorded even with no in-band signal.
-func TestInjection_DetectsBlindCommandInjection(t *testing.T) {
-	p := newInjectionProbeCfg(t, registry.Config{"oob_wait_seconds": 0})
-	attempts, err := p.Probe(context.Background(), shellFetchTool(true))
-	if err != nil {
-		t.Fatalf("Probe: %v", err)
-	}
-	if !sawOOBCallback(attempts) {
-		t.Fatal("expected an OOB callback (blind command injection) to be recorded")
+// TestInjection_DetectsCommandInjectionViaOOBCallback: a tool that shells out is
+// caught via the out-of-band callback, whether or not it returns the output.
+func TestInjection_DetectsCommandInjectionViaOOBCallback(t *testing.T) {
+	for _, blind := range []bool{false, true} {
+		p := newInjectionProbeCfg(t, registry.Config{"oob_wait_seconds": 0})
+		attempts, err := p.Probe(context.Background(), shellExecTool(blind))
+		if err != nil {
+			t.Fatalf("Probe(blind=%v): %v", blind, err)
+		}
+		if !sawOOBCallback(attempts) {
+			t.Errorf("blind=%v: expected an OOB callback (command injection) to be recorded", blind)
+		}
 	}
 }
 
-// TestInjection_DetectsReflectedCommandInjection: a non-blind sink returns the
-// fetched body (the collector marker), caught by the marker-reflection path.
-func TestInjection_DetectsReflectedCommandInjection(t *testing.T) {
+// TestInjection_NoOOBCallbackOnURLFetch is the key false-positive guard for the
+// Codex finding: a tool that fetches a URL out of the argument (SSRF / link
+// preview) but never runs a shell must not produce a command-injection callback,
+// because the shell-proof token it fetches resolves to an untracked path.
+func TestInjection_NoOOBCallbackOnURLFetch(t *testing.T) {
 	p := newInjectionProbeCfg(t, registry.Config{"oob_wait_seconds": 0})
-	attempts, err := p.Probe(context.Background(), shellFetchTool(false))
+	attempts, err := p.Probe(context.Background(), urlFetchTool())
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
 	}
-
-	det := &injectionDetectorStub{}
-	fired := false
-	for _, a := range attempts {
-		for _, s := range det.detect(a) {
-			if s == 1.0 {
-				fired = true
-			}
-		}
-	}
-	if !fired {
-		t.Error("expected reflected command injection (collector marker in output) to be flagged")
+	if sawOOBCallback(attempts) {
+		t.Error("URL-fetching (SSRF-like) tool triggered a false command-injection callback")
 	}
 }
 
