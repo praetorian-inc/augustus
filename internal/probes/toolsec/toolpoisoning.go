@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"unicode/utf8"
 
 	mcpx "github.com/praetorian-inc/augustus/internal/recon/mcp"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -209,17 +210,35 @@ func (p *ToolPoisoning) scanInventory(inv *types.MCPInventory) []*attempt.Attemp
 // the output the detector scores; the location and subject go to metadata for the
 // finding report.
 func (p *ToolPoisoning) mkAttempt(location, subject, text string) *attempt.Attempt {
-	if len(text) > maxScanLen {
-		text = text[:maxScanLen]
-	}
+	scanned, truncated := capScan(text)
 	a := attempt.New(fmt.Sprintf("%s: %s", location, subject))
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
 	a.Metadata["toolsec.tool"] = subject
 	a.Metadata["toolsec.poison_location"] = location
-	a.AddOutput(text)
+	if truncated {
+		// The tail past the cap wasn't scanned; mark inconclusive so an
+		// oversized-metadata padding evasion surfaces for review rather than
+		// passing as a silent SAFE (see the detector's inconclusive handling).
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = fmt.Sprintf("%s exceeded the %d-byte scan cap; only the prefix was scanned", location, maxScanLen)
+	}
+	a.AddOutput(scanned)
 	a.Complete()
 	return a
+}
+
+// capScan bounds an untrusted metadata string to maxScanLen, trimming back to a
+// valid UTF-8 boundary, and reports whether it had to truncate.
+func capScan(s string) (string, bool) {
+	if len(s) <= maxScanLen {
+		return s, false
+	}
+	t := s[:maxScanLen]
+	for len(t) > 0 && !utf8.ValidString(t) {
+		t = t[:len(t)-1]
+	}
+	return t, true
 }
 
 // resourceSubject prefers a resource's name, falling back to its URI.
@@ -242,13 +261,17 @@ func schemaText(v any) string {
 	decoded := v
 	switch raw := v.(type) {
 	case json.RawMessage:
-		if err := json.Unmarshal(raw, &decoded); err != nil {
+		var parsed any
+		if err := json.Unmarshal(raw, &parsed); err != nil {
 			return string(raw)
 		}
+		decoded = parsed
 	case []byte:
-		if err := json.Unmarshal(raw, &decoded); err != nil {
+		var parsed any
+		if err := json.Unmarshal(raw, &parsed); err != nil {
 			return string(raw)
 		}
+		decoded = parsed
 	}
 	var sb strings.Builder
 	collectStrings(decoded, &sb)
@@ -256,8 +279,13 @@ func schemaText(v any) string {
 }
 
 // collectStrings walks a decoded JSON value, appending every map key and string
-// value (recursively) to sb, newline-separated.
+// value (recursively) to sb, newline-separated. It stops once sb exceeds
+// maxScanLen so an adversarially huge schema can't drive unbounded allocation;
+// the small overflow lets mkAttempt detect the truncation and mark it.
 func collectStrings(v any, sb *strings.Builder) {
+	if sb.Len() > maxScanLen {
+		return
+	}
 	switch t := v.(type) {
 	case string:
 		sb.WriteString(t)

@@ -572,3 +572,16 @@ func TestRegistered(t *testing.T) {
 		t.Error("generator mcp.MCP is not registered")
 	}
 }
+
+// TestToolsToMaps_IncludesTitle: the live ListTools projection must carry a
+// tool's title so the toolsec.ToolPoisoning fallback path can scan it (parity
+// with the recon inventory path). Regression guard for LAB-4460.
+func TestToolsToMaps_IncludesTitle(t *testing.T) {
+	maps := toolsToMaps([]*mcpsdk.Tool{{Name: "n", Title: "friendly title", Description: "d"}})
+	if len(maps) != 1 {
+		t.Fatalf("len(maps) = %d, want 1", len(maps))
+	}
+	if got := maps[0]["title"]; got != "friendly title" {
+		t.Errorf("maps[0][\"title\"] = %v, want %q", got, "friendly title")
+	}
+}

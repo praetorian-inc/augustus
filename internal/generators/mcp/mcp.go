@@ -559,6 +559,9 @@ func toolsToMaps(tools []*mcpsdk.Tool) []map[string]any {
 			continue
 		}
 		tm := map[string]any{"name": t.Name}
+		if t.Title != "" {
+			tm["title"] = t.Title
+		}
 		if t.Description != "" {
 			tm["description"] = t.Description
 		}
