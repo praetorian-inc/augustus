@@ -254,15 +254,23 @@ func sawOOBCallback(attempts []*attempt.Attempt) bool {
 // TestInjection_DetectsCommandInjectionViaOOBCallback: a tool that shells out is
 // caught via the out-of-band callback, whether or not it returns the output.
 func TestInjection_DetectsCommandInjectionViaOOBCallback(t *testing.T) {
-	for _, blind := range []bool{false, true} {
-		p := newInjectionProbeCfg(t, registry.Config{"oob_wait_seconds": 0})
-		attempts, err := p.Probe(context.Background(), shellExecTool(blind))
-		if err != nil {
-			t.Fatalf("Probe(blind=%v): %v", blind, err)
-		}
-		if !sawOOBCallback(attempts) {
-			t.Errorf("blind=%v: expected an OOB callback (command injection) to be recorded", blind)
-		}
+	for _, tc := range []struct {
+		name  string
+		blind bool
+	}{
+		{"non_blind", false},
+		{"blind", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newInjectionProbeCfg(t, registry.Config{"oob_wait_seconds": 0})
+			attempts, err := p.Probe(context.Background(), shellExecTool(tc.blind))
+			if err != nil {
+				t.Fatalf("Probe: %v", err)
+			}
+			if !sawOOBCallback(attempts) {
+				t.Error("expected an OOB callback (command injection) to be recorded")
+			}
+		})
 	}
 }
 

@@ -44,12 +44,15 @@ func (d *InjectionDetector) Description() string {
 // Detect returns one score per output. It flags an attempt as vulnerable (1.0)
 // when either signal fires:
 //
-//   - a recorded canary marker appears in an output — the tool evaluated the
-//     injected payload in-band (eval/SSTI) or returned the collector's body
-//     (non-blind command injection); or
+//   - a recorded canary marker appears in an output — the tool evaluated an
+//     in-band computed-canary payload (eval / SSTI / shell arithmetic) and
+//     returned the product the probe planted; or
 //   - the probe recorded an out-of-band collector callback — the tool executed an
-//     injected OS command that fetched the canary URL (blind command injection),
-//     even when nothing was returned to the client.
+//     injected OS command that fetched the canary URL. The callback covers both
+//     the blind case (nothing returned to the client) and the non-blind case (the
+//     command ran and its output came back), which is why the OOB payloads
+//     deliberately carry no reflection marker: the callback alone is sufficient
+//     and reflecting the collector body would false-positive on SSRF-like tools.
 //
 // With neither signal it returns all-zero (cannot conclude), never an error.
 func (d *InjectionDetector) Detect(_ context.Context, a *attempt.Attempt) ([]float64, error) {

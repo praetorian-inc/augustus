@@ -140,17 +140,22 @@ sending:
 			if !isStringParam(param.typ) {
 				continue
 			}
-			// Stop issuing new calls once the context is done; the attempts already
-			// sent are still recorded and their callbacks reconciled below.
-			if ctx.Err() != nil {
-				break sending
-			}
 			// In-band computed-canary payloads (eval / SSTI / shell arithmetic).
 			for _, payload := range p.canary.payloads {
+				// Stop issuing new calls the moment the context is done; the attempts
+				// already sent are still recorded and their callbacks reconciled below.
+				// Checked per-call (not per-param) so cancellation doesn't emit a burst
+				// of immediately-erroring attempts for the rest of the param's payloads.
+				if ctx.Err() != nil {
+					break sending
+				}
 				attempts = append(attempts, p.callOne(ctx, inv, name, param.name, params, payload))
 			}
 			// Out-of-band OS-command payloads (blind + non-blind command injection).
 			for _, f := range oobCmdFormats {
+				if ctx.Err() != nil {
+					break sending
+				}
 				token := randToken()
 				proofURL := shellProofURL(col.url(token), token)
 				a := p.callOOB(ctx, inv, name, param.name, params, f, proofURL)
