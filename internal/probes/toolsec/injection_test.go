@@ -2,6 +2,9 @@ package toolsec
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -162,6 +165,114 @@ func (plainGen) Generate(context.Context, *attempt.Conversation, int) ([]attempt
 func (plainGen) ClearHistory()       {}
 func (plainGen) Name() string        { return "plain" }
 func (plainGen) Description() string { return "plain" }
+
+// testURLRE extracts the canary URL a shell-command payload would hand to curl.
+var testURLRE = regexp.MustCompile("https?://[^\\s`)\"']+")
+
+func newInjectionProbeCfg(t *testing.T, cfg registry.Config) *Injection {
+	t.Helper()
+	p, err := NewInjection(cfg)
+	if err != nil {
+		t.Fatalf("NewInjection: %v", err)
+	}
+	return p.(*Injection)
+}
+
+// shellFetchTool simulates a tool whose string argument is passed to a shell: any
+// URL embedded in a command-injection payload gets fetched (as `curl` would). When
+// blind is true the fetched body is discarded (the sink executed but returns
+// nothing to the client); otherwise the body is returned (non-blind). Arithmetic
+// canary payloads carry no URL and return a benign "ok".
+func shellFetchTool(blind bool) *mockTarget {
+	return &mockTarget{
+		tools: []map[string]any{stringTool("run", "cmd")},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			cmd, _ := args["cmd"].(string)
+			u := testURLRE.FindString(cmd)
+			if u == "" {
+				return types.ToolResult{Text: "ok"}
+			}
+			resp, err := http.Get(u) //nolint:gosec,noctx // localhost test collector
+			if err != nil {
+				return types.ToolResult{Text: "fetch error", IsError: true}
+			}
+			body, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			if blind {
+				return types.ToolResult{Text: ""}
+			}
+			return types.ToolResult{Text: string(body)}
+		},
+	}
+}
+
+func sawOOBCallback(attempts []*attempt.Attempt) bool {
+	for _, a := range attempts {
+		if v, ok := a.GetMetadata(attempt.MetadataKeyInjectionOOBCallback); ok {
+			if b, _ := v.(bool); b {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// TestInjection_DetectsBlindCommandInjection: a tool that shells out and returns
+// nothing still gets caught — the injected payload fetches the OOB collector, so a
+// callback is recorded even with no in-band signal.
+func TestInjection_DetectsBlindCommandInjection(t *testing.T) {
+	p := newInjectionProbeCfg(t, registry.Config{"oob_wait_seconds": 0})
+	attempts, err := p.Probe(context.Background(), shellFetchTool(true))
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if !sawOOBCallback(attempts) {
+		t.Fatal("expected an OOB callback (blind command injection) to be recorded")
+	}
+}
+
+// TestInjection_DetectsReflectedCommandInjection: a non-blind sink returns the
+// fetched body (the collector marker), caught by the marker-reflection path.
+func TestInjection_DetectsReflectedCommandInjection(t *testing.T) {
+	p := newInjectionProbeCfg(t, registry.Config{"oob_wait_seconds": 0})
+	attempts, err := p.Probe(context.Background(), shellFetchTool(false))
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+
+	det := &injectionDetectorStub{}
+	fired := false
+	for _, a := range attempts {
+		for _, s := range det.detect(a) {
+			if s == 1.0 {
+				fired = true
+			}
+		}
+	}
+	if !fired {
+		t.Error("expected reflected command injection (collector marker in output) to be flagged")
+	}
+}
+
+// TestInjection_NoOOBCallbackOnEcho: a tool that echoes its argument without
+// shelling out must not trigger any callback — no false command-injection finding.
+func TestInjection_NoOOBCallbackOnEcho(t *testing.T) {
+	p := newInjectionProbeCfg(t, registry.Config{"oob_wait_seconds": 0})
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("echo", "message")},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			msg, _ := args["message"].(string)
+			return types.ToolResult{Text: "you said: " + msg}
+		},
+	}
+	attempts, err := p.Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if sawOOBCallback(attempts) {
+		t.Error("echo tool triggered a false OOB callback")
+	}
+}
 
 func TestToolParams(t *testing.T) {
 	params := toolParams(stringTool("t", "q"))
