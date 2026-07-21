@@ -119,6 +119,12 @@ func (p *ToolPoisoning) scanInventory(inv *types.MCPInventory) []*attempt.Attemp
 		if t.Description != "" {
 			attempts = append(attempts, p.mkAttempt("tool_description", t.Name, t.Description))
 		}
+		if t.Title != "" {
+			attempts = append(attempts, p.mkAttempt("tool_title", t.Name, t.Title))
+		}
+		if t.Annotations != nil && t.Annotations.Title != "" {
+			attempts = append(attempts, p.mkAttempt("tool_annotation_title", t.Name, t.Annotations.Title))
+		}
 		if len(t.InputSchema) > 0 {
 			attempts = append(attempts, p.mkAttempt("tool_input_schema", t.Name, string(t.InputSchema)))
 		}
@@ -127,15 +133,24 @@ func (p *ToolPoisoning) scanInventory(inv *types.MCPInventory) []*attempt.Attemp
 		if r.Description != "" {
 			attempts = append(attempts, p.mkAttempt("resource_description", resourceSubject(r.Name, r.URI), r.Description))
 		}
+		if r.Title != "" {
+			attempts = append(attempts, p.mkAttempt("resource_title", resourceSubject(r.Name, r.URI), r.Title))
+		}
 	}
 	for _, rt := range inv.ResourceTemplates {
 		if rt.Description != "" {
 			attempts = append(attempts, p.mkAttempt("resource_template_description", resourceSubject(rt.Name, rt.URITemplate), rt.Description))
 		}
+		if rt.Title != "" {
+			attempts = append(attempts, p.mkAttempt("resource_template_title", resourceSubject(rt.Name, rt.URITemplate), rt.Title))
+		}
 	}
 	for _, pr := range inv.Prompts {
 		if pr.Description != "" {
 			attempts = append(attempts, p.mkAttempt("prompt_description", pr.Name, pr.Description))
+		}
+		if pr.Title != "" {
+			attempts = append(attempts, p.mkAttempt("prompt_title", pr.Name, pr.Title))
 		}
 		for _, arg := range pr.Arguments {
 			if arg.Description != "" {
@@ -178,5 +193,8 @@ func jsonString(v any) string {
 	if b, err := json.Marshal(v); err == nil {
 		return string(b)
 	}
-	return fmt.Sprintf("%v", v)
+	// On the rare marshal failure, return empty rather than Go's non-JSON map
+	// formatting — a malformed blob can't meaningfully feed the JSON-oriented
+	// heuristics anyway, and this avoids a spurious scan surface.
+	return ""
 }
