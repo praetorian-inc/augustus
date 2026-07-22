@@ -2,7 +2,9 @@ package vertex
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -12,6 +14,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/praetorian-inc/augustus/internal/generators/googleai"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/probes"
@@ -171,6 +174,60 @@ func TestVertexGenerator_Generate_SingleResponse(t *testing.T) {
 	contents, ok := receivedRequest["contents"].([]any)
 	assert.True(t, ok, "should have contents array")
 	assert.Len(t, contents, 1)
+}
+
+func TestVertexGenerator_Generate_WithDocument(t *testing.T) {
+	var capturedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(mockVertexResponse("I read the PDF"))
+	}))
+	defer server.Close()
+
+	g, err := NewVertex(registry.Config{
+		"model":      "gemini-pro",
+		"project_id": "test-project",
+		"location":   "us-central1",
+		"base_url":   server.URL,
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	doc := attempt.Document{Data: []byte("%PDF-1.4 fake"), MimeType: "application/pdf"}
+	conv.AddPromptMessage(attempt.NewUserMessageWithDocuments("summarize", []attempt.Document{doc}))
+
+	resp, err := g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	require.Len(t, resp, 1)
+	assert.Equal(t, "I read the PDF", resp[0].Content)
+
+	// Vertex must emit the same inlineData document part shape as gemini.Gemini
+	// (both delegate to googleai.BuildDocumentParts), keeping the two
+	// Gemini-schema paths in parity.
+	var req googleai.GenerateRequest
+	require.NoError(t, json.Unmarshal(capturedBody, &req))
+	require.Len(t, req.Contents, 1)
+	require.Len(t, req.Contents[0].Parts, 2, "expected text + inlineData document parts")
+
+	assert.Equal(t, "summarize", req.Contents[0].Parts[0].Text)
+	assert.Nil(t, req.Contents[0].Parts[0].InlineData)
+
+	require.NotNil(t, req.Contents[0].Parts[1].InlineData)
+	assert.Equal(t, "application/pdf", req.Contents[0].Parts[1].InlineData.MimeType)
+	assert.Equal(t, base64.StdEncoding.EncodeToString(doc.Data), req.Contents[0].Parts[1].InlineData.Data)
+}
+
+func TestVertexGenerator_SupportsDocuments(t *testing.T) {
+	g, err := NewVertex(registry.Config{
+		"model":      "gemini-pro",
+		"project_id": "test-project",
+		"location":   "us-central1",
+	})
+	require.NoError(t, err)
+	v, ok := g.(*Vertex)
+	require.True(t, ok)
+	assert.True(t, v.SupportsDocuments())
 }
 
 func TestVertexGenerator_Generate_MultipleResponses(t *testing.T) {
