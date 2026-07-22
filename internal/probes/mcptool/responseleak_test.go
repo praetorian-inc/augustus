@@ -1,4 +1,4 @@
-package toolsec
+package mcptool
 
 import (
 	"context"
@@ -301,7 +301,7 @@ func TestResponseLeak_CredentialVendingToolFlagged(t *testing.T) {
 		t.Error("denylisted tool get_token was invoked")
 	}
 	for _, a := range attempts {
-		if a.Metadata["toolsec.tool"] == "get_token" {
+		if a.Metadata["mcptool.tool"] == "get_token" {
 			t.Errorf("denylisted tool produced an attempt: %+v", a.Metadata)
 		}
 		for _, s := range scoreConfigLeak(t, a) {
@@ -341,7 +341,7 @@ func TestResponseLeak_DedupesIdenticalArgCases(t *testing.T) {
 	}
 	pingAttempts := 0
 	for _, a := range attempts {
-		if a.Metadata["toolsec.tool"] == "ping" {
+		if a.Metadata["mcptool.tool"] == "ping" {
 			pingAttempts++
 		}
 	}
@@ -373,8 +373,8 @@ func TestResponseLeak_AllToolsGated(t *testing.T) {
 	if a.Status != attempt.StatusComplete {
 		t.Errorf("informational attempt status = %q, want complete", a.Status)
 	}
-	if a.Metadata["toolsec.gated"] == nil {
-		t.Errorf("informational attempt missing toolsec.gated metadata: %+v", a.Metadata)
+	if a.Metadata["mcptool.gated"] == nil {
+		t.Errorf("informational attempt missing mcptool.gated metadata: %+v", a.Metadata)
 	}
 	for _, s := range scoreConfigLeak(t, a) {
 		if s != 0.0 {
@@ -512,10 +512,10 @@ func TestResponseLeak_PrefersReconStore(t *testing.T) {
 	}
 	sawLookup := false
 	for _, a := range attempts {
-		if a.Metadata["toolsec.tool"] == "lookup" {
+		if a.Metadata["mcptool.tool"] == "lookup" {
 			sawLookup = true
 		}
-		if a.Metadata["toolsec.tool"] == "decoy" {
+		if a.Metadata["mcptool.tool"] == "decoy" {
 			t.Error("probe tested the decoy tool from ListTools instead of the recon inventory")
 		}
 	}

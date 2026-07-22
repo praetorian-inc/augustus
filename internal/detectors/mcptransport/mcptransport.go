@@ -12,12 +12,12 @@ import (
 // probe ran but couldn't make a confident SAFE/VULN determination.
 // A non-zero, sub-1.0 value keeps the finding visible in the report
 // without asserting the target is vulnerable. Duplicated from
-// internal/detectors/toolsec/toolsec.go so the two detector packages
+// internal/detectors/mcptool/mcptool.go so the two detector packages
 // don't need to import each other; the constant is trivial.
 const InconclusiveScore = 0.5
 
 // metaBool reads a bool attempt-metadata value tolerating JSON
-// round-trip. Duplicated from internal/detectors/toolsec/ssrf.go.
+// round-trip. Duplicated from internal/detectors/mcptool/ssrf.go.
 func metaBool(a *attempt.Attempt, key string) bool {
 	raw, ok := a.GetMetadata(key)
 	if !ok {

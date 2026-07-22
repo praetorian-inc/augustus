@@ -1,4 +1,4 @@
-package toolsec
+package mcptool
 
 import (
 	"context"
@@ -17,7 +17,7 @@ import (
 )
 
 func init() {
-	probes.Register("toolsec.SSRF", NewSSRF)
+	probes.Register("mcptool.SSRF", NewSSRF)
 }
 
 var (
@@ -58,7 +58,7 @@ func NewSSRF(cfg registry.Config) (probes.Prober, error) {
 	}, nil
 }
 
-func (p *SSRF) Name() string { return "toolsec.SSRF" }
+func (p *SSRF) Name() string { return "mcptool.SSRF" }
 
 func (p *SSRF) Description() string {
 	return "Injects out-of-band canary URLs into URL-like tool arguments and detects server-side request forgery via callback (blind) or reflected content (non-blind)"
@@ -68,7 +68,7 @@ func (p *SSRF) Goal() string {
 	return "Determine whether any directly-invokable tool fetches attacker-controlled URLs (SSRF)"
 }
 
-func (p *SSRF) GetPrimaryDetector() string { return "toolsec.SSRF" }
+func (p *SSRF) GetPrimaryDetector() string { return "mcptool.SSRF" }
 
 func (p *SSRF) GetPrompts() []string {
 	return []string{"out-of-band SSRF canary URL injected into URL-like parameters"}
@@ -84,13 +84,13 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 	// clean-looking empty result (a silent false negative for a scanner).
 	inv, ok := gen.(types.ToolInvoker)
 	if !ok {
-		return nil, fmt.Errorf("toolsec.SSRF: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
+		return nil, fmt.Errorf("mcptool.SSRF: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
 	}
 
 	// Prefer shared reconnaissance; fall back to live enumeration.
 	tools, err := p.resolveTools(ctx, gen)
 	if err != nil {
-		return nil, fmt.Errorf("toolsec.SSRF: list tools: %w", err)
+		return nil, fmt.Errorf("mcptool.SSRF: list tools: %w", err)
 	}
 	// Apply the safety gate before invoking anything (skips destructive tools
 	// unless opted in).
@@ -134,8 +134,8 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 			a := attempt.New(canaryURL)
 			a.Probe = p.Name()
 			a.Detector = p.GetPrimaryDetector()
-			a.Metadata["toolsec.tool"] = name
-			a.Metadata["toolsec.param"] = param.name
+			a.Metadata["mcptool.tool"] = name
+			a.Metadata["mcptool.param"] = param.name
 			a.Metadata[attempt.MetadataKeySSRFOOBURL] = canaryURL
 
 			reflected := false
@@ -155,7 +155,7 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 	}
 
 	if len(attempts) == 0 {
-		slog.Warn("toolsec.SSRF: no URL-like tool parameters found; set ssrf_all_string_params=true to test every string parameter", "tools", len(tools))
+		slog.Warn("mcptool.SSRF: no URL-like tool parameters found; set ssrf_all_string_params=true to test every string parameter", "tools", len(tools))
 		return nil, nil
 	}
 

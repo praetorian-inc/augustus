@@ -1,4 +1,4 @@
-package toolsec
+package mcptool
 
 import (
 	"context"
@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	// Blank import registers the real toolsec.BOLA detector so the probe test can
+	// Blank import registers the real mcptool.BOLA detector so the probe test can
 	// exercise it end-to-end via the detector registry (S6).
-	_ "github.com/praetorian-inc/augustus/internal/detectors/toolsec"
+	_ "github.com/praetorian-inc/augustus/internal/detectors/mcptool"
 	mcpx "github.com/praetorian-inc/augustus/internal/recon/mcp"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
@@ -21,15 +21,15 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
-// realBOLADetect scores an attempt through the REAL toolsec.BOLA detector obtained
+// realBOLADetect scores an attempt through the REAL mcptool.BOLA detector obtained
 // from the detector registry (with the supplied config), so the probe test
 // exercises the shipping detector — not a local re-implementation that could
 // diverge (Mauro S6).
 func realBOLADetect(t *testing.T, cfg registry.Config, a *attempt.Attempt) []float64 {
 	t.Helper()
-	factory, ok := detectors.Get("toolsec.BOLA")
+	factory, ok := detectors.Get("mcptool.BOLA")
 	if !ok {
-		t.Fatal("toolsec.BOLA detector not registered")
+		t.Fatal("mcptool.BOLA detector not registered")
 	}
 	d, err := factory(cfg)
 	if err != nil {
@@ -68,8 +68,8 @@ func judgeDetectorConfig() registry.Config {
 
 // TestBOLA_Registered confirms the probe's init() populated the probe registry.
 func TestBOLA_Registered(t *testing.T) {
-	if _, ok := probes.Get("toolsec.BOLA"); !ok {
-		t.Fatal("toolsec.BOLA not registered in the probe registry")
+	if _, ok := probes.Get("mcptool.BOLA"); !ok {
+		t.Fatal("mcptool.BOLA not registered in the probe registry")
 	}
 }
 
@@ -197,11 +197,11 @@ func TestBOLA_IssuesThreeCallsAndStampsControls(t *testing.T) {
 	}
 
 	// Metadata stamps.
-	if v, _ := a.GetMetadata("toolsec.tool"); v != "get_order" {
-		t.Errorf("toolsec.tool = %v, want get_order", v)
+	if v, _ := a.GetMetadata("mcptool.tool"); v != "get_order" {
+		t.Errorf("mcptool.tool = %v, want get_order", v)
 	}
-	if v, _ := a.GetMetadata("toolsec.param"); v != "id" {
-		t.Errorf("toolsec.param = %v, want id", v)
+	if v, _ := a.GetMetadata("mcptool.param"); v != "id" {
+		t.Errorf("mcptool.param = %v, want id", v)
 	}
 	if v, _ := a.GetMetadata(attempt.MetadataKeyBOLAID); v != "ord_2" {
 		t.Errorf("bola.id = %v, want ord_2", v)
@@ -578,7 +578,7 @@ func TestBOLA_OwnIDSuppressionScopedToGetter(t *testing.T) {
 	if len(attempts) != 1 {
 		t.Fatalf("expected 1 attempt on the victim's get_ticket(1) (id collision is cross-getter), got %d", len(attempts))
 	}
-	if v, _ := attempts[0].GetMetadata("toolsec.tool"); v != "get_ticket" {
+	if v, _ := attempts[0].GetMetadata("mcptool.tool"); v != "get_ticket" {
 		t.Errorf("attacked tool = %v, want get_ticket", v)
 	}
 }

@@ -1,6 +1,6 @@
-// Package toolsec provides detectors for the transport-agnostic tool-security
-// probes (internal/probes/toolsec).
-package toolsec
+// Package mcptool provides detectors for the transport-agnostic tool-security
+// probes (internal/probes/mcptool).
+package mcptool
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
-// InconclusiveScore is the score a toolsec detector returns when the paired
+// InconclusiveScore is the score a mcptool detector returns when the paired
 // probe attempt is marked with attempt.MetadataKeyInconclusive — the probe
 // ran but couldn't make a confident SAFE/VULN determination. A non-zero,
 // sub-1.0 value keeps the finding visible in the report (a reviewer must
@@ -19,7 +19,7 @@ import (
 const InconclusiveScore = 0.5
 
 func init() {
-	detectors.Register("toolsec.Injection", NewInjectionDetector)
+	detectors.Register("mcptool.Injection", NewInjectionDetector)
 }
 
 // InjectionDetector flags a tool output that contains an injection canary marker
@@ -35,7 +35,7 @@ func NewInjectionDetector(_ registry.Config) (detectors.Detector, error) {
 	return &InjectionDetector{}, nil
 }
 
-func (d *InjectionDetector) Name() string { return "toolsec.Injection" }
+func (d *InjectionDetector) Name() string { return "mcptool.Injection" }
 
 func (d *InjectionDetector) Description() string {
 	return "Flags tool outputs containing an injection canary marker, indicating the tool evaluated attacker-controlled input"

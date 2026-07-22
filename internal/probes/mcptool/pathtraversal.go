@@ -1,4 +1,4 @@
-package toolsec
+package mcptool
 
 import (
 	"context"
@@ -16,7 +16,7 @@ import (
 )
 
 func init() {
-	probes.Register("toolsec.PathTraversal", NewPathTraversal)
+	probes.Register("mcptool.PathTraversal", NewPathTraversal)
 }
 
 var (
@@ -125,8 +125,8 @@ func buildWritePayloads() []pathTraversalPayload {
 }
 
 // PathTraversal tests a directly-invokable tool surface for filesystem path
-// traversal. It runs against every tool the shared toolsec policy permits
-// (see internal/probes/toolsec/toolsec.go), selecting the payload flavour
+// traversal. It runs against every tool the shared mcptool policy permits
+// (see internal/probes/mcptool/mcptool.go), selecting the payload flavour
 // from the tool's MCP annotations:
 //
 //   - ReadOnly-annotated tools get READ payloads targeting /etc/passwd and
@@ -156,7 +156,7 @@ func NewPathTraversal(cfg registry.Config) (probes.Prober, error) {
 	}, nil
 }
 
-func (p *PathTraversal) Name() string { return "toolsec.PathTraversal" }
+func (p *PathTraversal) Name() string { return "mcptool.PathTraversal" }
 
 func (p *PathTraversal) Description() string {
 	return "Tests directly-invokable tools for filesystem path traversal. Read-only tools get /etc/passwd-class payloads detected via file-content signatures; write-capable tools get novel /tmp/proof-<canary> payloads detected via canary echo — non-destructive proof of arbitrary-path writes without overwriting sensitive files."
@@ -166,7 +166,7 @@ func (p *PathTraversal) Goal() string {
 	return "Determine whether any directly-invokable tool exposes an unrestricted filesystem-path sink, in EITHER read direction (arbitrary file read via traversal) or write direction (writes to attacker-chosen paths outside the intended sandbox), without damaging the target's files."
 }
 
-func (p *PathTraversal) GetPrimaryDetector() string { return "toolsec.PathTraversal" }
+func (p *PathTraversal) GetPrimaryDetector() string { return "mcptool.PathTraversal" }
 
 func (p *PathTraversal) GetPrompts() []string {
 	// Only the read set is stable-across-run and useful for report
@@ -178,19 +178,19 @@ func (p *PathTraversal) GetPrompts() []string {
 	return out
 }
 
-// Probe discovers tools, applies the shared toolsec policy (allow/deny/
+// Probe discovers tools, applies the shared mcptool policy (allow/deny/
 // destructive gate), picks the read-or-write payload set from each tool's
 // annotations, and dispatches. Returns no attempts for non-ToolInvoker
 // targets.
 func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
 	inv, ok := gen.(types.ToolInvoker)
 	if !ok {
-		return nil, fmt.Errorf("toolsec.PathTraversal: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
+		return nil, fmt.Errorf("mcptool.PathTraversal: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
 	}
 
 	tools, err := p.resolveTools(ctx, gen)
 	if err != nil {
-		return nil, fmt.Errorf("toolsec.PathTraversal: list tools: %w", err)
+		return nil, fmt.Errorf("mcptool.PathTraversal: list tools: %w", err)
 	}
 	tools = p.policy.Filter(p.Name(), tools)
 	if len(tools) == 0 {
@@ -241,7 +241,7 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 		}
 	}
 	if !pathParamSeen {
-		slog.Warn("toolsec.PathTraversal: no path-like tool parameters found; set pathtraversal_all_string_params=true to test every string parameter", "tools", len(tools))
+		slog.Warn("mcptool.PathTraversal: no path-like tool parameters found; set pathtraversal_all_string_params=true to test every string parameter", "tools", len(tools))
 	}
 	return attempts, nil
 }
@@ -350,8 +350,8 @@ func (p *PathTraversal) callOne(ctx context.Context, inv types.ToolInvoker, tool
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
 	a.Metadata[attempt.MetadataKeyPathTraversalSignatures] = tp.signatures
-	a.Metadata["toolsec.tool"] = tool
-	a.Metadata["toolsec.param"] = param
+	a.Metadata["mcptool.tool"] = tool
+	a.Metadata["mcptool.param"] = param
 	if tp.isWrite {
 		a.Metadata[attempt.MetadataKeyPathTraversalIsWrite] = true
 	}

@@ -1,4 +1,4 @@
-package toolsec
+package mcptool
 
 import (
 	"context"
@@ -42,7 +42,7 @@ func fetchTool(returnBody bool) func(string, map[string]any) types.ToolResult {
 
 func attemptFor(attempts []*attempt.Attempt, tool string) *attempt.Attempt {
 	for _, a := range attempts {
-		if v, _ := a.GetMetadata("toolsec.tool"); v == tool {
+		if v, _ := a.GetMetadata("mcptool.tool"); v == tool {
 			return a
 		}
 	}

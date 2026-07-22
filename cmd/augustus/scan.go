@@ -324,35 +324,6 @@ func createProbes(probeNames []string, yamlCfg *config.Config, targetGeneratorNa
 	return probeList, nil
 }
 
-// createRecons instantiates reconnaissance modules by name, resolving each
-// module's config from the YAML recon.settings section (merged with global
-// judge defaults). yamlCfg may be nil; ResolveReconConfig is nil-safe and then
-// yields only the (empty) defaults.
-func createRecons(names []string, yamlCfg *config.Config) ([]recon.Recon, error) {
-	mods := make([]recon.Recon, 0, len(names))
-	for _, name := range names {
-		var reconCfg registry.Config = yamlCfg.ResolveReconConfig(name)
-		m, err := recon.Create(name, reconCfg)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create recon module %s: %w", name, err)
-		}
-		mods = append(mods, m)
-	}
-	return mods, nil
-}
-
-// injectProbeContext delivers the shared reconnaissance store to every probe
-// that opts in via recon.ContextAwareProbe. Probes that do not implement the
-// interface are left untouched — they structurally cannot see recon.
-func injectProbeContext(probeList []probes.Prober, store *recon.Store) {
-	pc := recon.ProbeContext{Recon: store}
-	for _, p := range probeList {
-		if aware, ok := p.(recon.ContextAwareProbe); ok {
-			aware.SetContext(pc)
-		}
-	}
-}
-
 // emitObservations prints reconnaissance observations. Each observation is
 // emitted as a JSON line on stdout; the human-readable banner goes to stderr so
 // stdout stays a pure JSONL stream for machine consumers (e.g. `--format jsonl`).
@@ -744,14 +715,12 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	store := recon.NewStore()
 	var reconErr error
 	if len(cfg.reconNames) > 0 {
-		reconModules, rerr := createRecons(cfg.reconNames, yamlCfg)
-		if rerr != nil {
-			return rerr
-		}
-		if rerr := recon.Run(ctx, gen, reconModules, store); rerr != nil {
-			// Best-effort for a full scan: recon feeds the probes, which are the
-			// real activity, so a recon error must not abort them. It is retained
-			// so a recon-ONLY scan (no probes) can report it rather than exiting 0.
+		// Best-effort: recon.RunAll builds each module independently and runs
+		// whatever constructed, so one misconfigured module never aborts the rest.
+		// The joined construct+run error is retained so a recon-ONLY scan (no
+		// probes) can report it rather than exiting 0.
+		resolve := func(name string) registry.Config { return yamlCfg.ResolveReconConfig(name) }
+		if rerr := recon.RunAll(ctx, gen, cfg.reconNames, resolve, store); rerr != nil {
 			slog.Warn("reconnaissance completed with errors", "error", rerr)
 			reconErr = rerr
 		}
@@ -833,7 +802,7 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	// Feed reconnaissance to probes that opt in (recon.ContextAwareProbe).
 	// Done before buff wrapping so the raw probes' interface is reachable —
 	// BuffedProber wrappers do not forward it (same reason as the detector map).
-	injectProbeContext(probeList, store)
+	recon.InjectProbeContext(probeList, store)
 
 	// Create detectors
 	detectorList, err := createDetectors(cfg.detectorNames, probeList, yamlCfg)
@@ -894,6 +863,18 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 
 	// Run the scan
 	scanErr := harness.Run(ctx, gen, probeList, detectorList, eval)
+
+	// Surface reconnaissance failures in the exit code. Recon is best-effort —
+	// every module that could build and run already did, and the probe phase ran
+	// on whatever they gathered — but a module that failed (to construct or at
+	// runtime) leaves recon-dependent probes without their inputs. mcptool.BOLA,
+	// for one, no-ops on an empty identifiers store, so a failed recon module
+	// would otherwise let the scan exit 0 as a false green ("not vulnerable" when
+	// the probe never actually ran). Folding reconErr into scanErr makes the
+	// degradation loud without suppressing the probe results we did get.
+	if reconErr != nil {
+		scanErr = errors.Join(scanErr, fmt.Errorf("reconnaissance completed with errors (recon-dependent probe results may be incomplete): %w", reconErr))
+	}
 
 	// Runtime hooks: run cleanup hook after scan.
 	if cleanupErr := runCleanupHook(cfg); cleanupErr != nil {

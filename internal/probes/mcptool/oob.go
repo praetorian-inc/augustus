@@ -1,4 +1,4 @@
-package toolsec
+package mcptool
 
 import (
 	"fmt"
@@ -35,7 +35,7 @@ func startCollector(listen, baseOverride, marker string) (*oobCollector, error) 
 	}
 	ln, err := net.Listen("tcp", listen)
 	if err != nil {
-		return nil, fmt.Errorf("toolsec: OOB collector listen on %q: %w", listen, err)
+		return nil, fmt.Errorf("mcptool: OOB collector listen on %q: %w", listen, err)
 	}
 
 	base := baseOverride

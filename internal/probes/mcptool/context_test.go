@@ -1,4 +1,4 @@
-package toolsec
+package mcptool
 
 import (
 	"context"
@@ -57,10 +57,10 @@ func TestInjection_PrefersReconStore(t *testing.T) {
 
 	sawCalc := false
 	for _, a := range attempts {
-		if tool, _ := a.GetMetadata("toolsec.tool"); tool == "calc" {
+		if tool, _ := a.GetMetadata("mcptool.tool"); tool == "calc" {
 			sawCalc = true
 		}
-		if tool, _ := a.GetMetadata("toolsec.tool"); tool == "decoy" {
+		if tool, _ := a.GetMetadata("mcptool.tool"); tool == "decoy" {
 			t.Errorf("probe tested decoy tool from ListTools instead of recon inventory")
 		}
 	}

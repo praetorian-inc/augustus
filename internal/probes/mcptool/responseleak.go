@@ -1,4 +1,4 @@
-package toolsec
+package mcptool
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 )
 
 func init() {
-	probes.Register("toolsec.ResponseLeak", NewResponseLeak)
+	probes.Register("mcptool.ResponseLeak", NewResponseLeak)
 }
 
 // maxResponseBytes bounds how much of each tool response (Text and raw) is stored
@@ -90,7 +90,7 @@ func NewResponseLeak(cfg registry.Config) (probes.Prober, error) {
 	return &ResponseLeak{policy: toolpolicy.New(cfg)}, nil
 }
 
-func (p *ResponseLeak) Name() string { return "toolsec.ResponseLeak" }
+func (p *ResponseLeak) Name() string { return "mcptool.ResponseLeak" }
 
 func (p *ResponseLeak) Description() string {
 	return "Invokes each tool with inputs that surface secrets in the response (verbose errors, debug output, echoed config) and scores responses for exposed credentials"
@@ -110,7 +110,7 @@ func (p *ResponseLeak) GetPrompts() []string { return nil }
 func (p *ResponseLeak) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
 	inv, ok := gen.(types.ToolInvoker)
 	if !ok {
-		return nil, fmt.Errorf("toolsec.ResponseLeak: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
+		return nil, fmt.Errorf("mcptool.ResponseLeak: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
 	}
 
 	// Prefer a prior MCP inventory gathered by the recon phase; only fall back to
@@ -118,7 +118,7 @@ func (p *ResponseLeak) Probe(ctx context.Context, gen types.Generator) ([]*attem
 	// ToolInvoker asserted above (recon supplies the catalog, not the transport).
 	tools, err := p.resolveTools(ctx, gen)
 	if err != nil {
-		return nil, fmt.Errorf("toolsec.ResponseLeak: list tools: %w", err)
+		return nil, fmt.Errorf("mcptool.ResponseLeak: list tools: %w", err)
 	}
 	// Apply the safety gate before invoking anything (skips destructive tools
 	// unless opted in).
@@ -156,8 +156,8 @@ func (p *ResponseLeak) callOne(ctx context.Context, inv types.ToolInvoker, tool 
 	a := attempt.New(fmt.Sprintf("tool=%s case=%s", tool, c.name))
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
-	a.Metadata["toolsec.tool"] = tool
-	a.Metadata["toolsec.case"] = c.name
+	a.Metadata["mcptool.tool"] = tool
+	a.Metadata["mcptool.case"] = c.name
 
 	res, err := inv.CallTool(ctx, tool, c.args)
 	if err != nil {
@@ -189,7 +189,7 @@ func (p *ResponseLeak) gatedAttempt(advertised int) *attempt.Attempt {
 	a := attempt.New("all advertised tools excluded by policy")
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
-	a.Metadata["toolsec.gated"] = advertised
+	a.Metadata["mcptool.gated"] = advertised
 	a.AddOutput(fmt.Sprintf("all %d advertised tool(s) were excluded by policy; none were invoked", advertised))
 	a.Complete()
 	return a

@@ -1,4 +1,4 @@
-package toolsec
+package mcptool
 
 import "encoding/json"
 

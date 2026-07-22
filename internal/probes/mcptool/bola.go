@@ -1,4 +1,4 @@
-package toolsec
+package mcptool
 
 import (
 	"context"
@@ -17,7 +17,7 @@ import (
 )
 
 func init() {
-	probes.Register("toolsec.BOLA", NewBOLA)
+	probes.Register("mcptool.BOLA", NewBOLA)
 }
 
 // Compile-time assertions: BOLA exposes probe metadata and consumes shared
@@ -34,7 +34,7 @@ var (
 //
 // The probe is a payload SENDER only: for each victim object it issues up to
 // three calls and records them as evidence — it renders no verdict. Scoring is
-// entirely the toolsec.BOLA detector's job (a server-agnostic prune → judge
+// entirely the mcptool.BOLA detector's job (a server-agnostic prune → judge
 // chain), so the probe assumes nothing about response format, id format, or
 // field names:
 //
@@ -59,17 +59,17 @@ func NewBOLA(cfg registry.Config) (probes.Prober, error) {
 	}, nil
 }
 
-func (p *BOLA) Name() string { return "toolsec.BOLA" }
+func (p *BOLA) Name() string { return "mcptool.BOLA" }
 
 func (p *BOLA) Description() string {
-	return "Replays other identities' confirmed object identifiers against the attacker's session, recording attack + positive/negative control responses for the toolsec.BOLA detector to adjudicate a cross-tenant object read (BOLA)"
+	return "Replays other identities' confirmed object identifiers against the attacker's session, recording attack + positive/negative control responses for the mcptool.BOLA detector to adjudicate a cross-tenant object read (BOLA)"
 }
 
 func (p *BOLA) Goal() string {
 	return "Determine whether the attacker identity can read objects owned by another identity via a directly-invokable getter tool (BOLA)"
 }
 
-func (p *BOLA) GetPrimaryDetector() string { return "toolsec.BOLA" }
+func (p *BOLA) GetPrimaryDetector() string { return "mcptool.BOLA" }
 
 func (p *BOLA) GetPrompts() []string {
 	return []string{"cross-identity object identifier replayed into a confirmed getter tool"}
@@ -87,7 +87,7 @@ func (p *BOLA) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 	}
 	attacker, ok := gen.(types.ToolInvoker)
 	if !ok {
-		slog.Warn("toolsec.BOLA: target is not a ToolInvoker; skipping")
+		slog.Warn("mcptool.BOLA: target is not a ToolInvoker; skipping")
 		return nil, nil
 	}
 
@@ -101,7 +101,7 @@ func (p *BOLA) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 		}
 	}
 	if !attackerKnown {
-		slog.Warn("toolsec.BOLA: attacker_identity_label matches no discovered identity; skipping to avoid false positives (it must equal recon's identity_label)", "attacker_identity_label", p.attackerLabel)
+		slog.Warn("mcptool.BOLA: attacker_identity_label matches no discovered identity; skipping to avoid false positives (it must equal recon's identity_label)", "attacker_identity_label", p.attackerLabel)
 		return nil, nil
 	}
 
@@ -153,8 +153,8 @@ func (p *BOLA) callVictimObject(ctx context.Context, attacker types.ToolInvoker,
 	a := attempt.New(obj.ID)
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
-	a.Metadata["toolsec.tool"] = obj.Tool
-	a.Metadata["toolsec.param"] = obj.Param
+	a.Metadata["mcptool.tool"] = obj.Tool
+	a.Metadata["mcptool.param"] = obj.Param
 	a.Metadata[attempt.MetadataKeyBOLAID] = obj.ID
 	a.Metadata[attempt.MetadataKeyBOLAVictimIdentity] = victim
 	// Generic ground-truth sentence for the goal-conditioned judge — no server- or
@@ -190,7 +190,7 @@ func (p *BOLA) callVictimObject(ctx context.Context, attacker types.ToolInvoker,
 		// detector loses only its cheap stage-1 prune (the judge still calibrates on
 		// the positive control), but a transient blip must never be invisible.
 		a.Metadata[attempt.MetadataKeyBOLANegativeControlError] = negErr.Error()
-		slog.Warn("toolsec.BOLA: negative-control call failed; no denial baseline for this attempt",
+		slog.Warn("mcptool.BOLA: negative-control call failed; no denial baseline for this attempt",
 			"tool", obj.Tool, "id", nxID, "error", negErr)
 	}
 

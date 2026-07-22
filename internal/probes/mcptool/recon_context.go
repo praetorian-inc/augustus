@@ -1,4 +1,4 @@
-package toolsec
+package mcptool
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
-// reconContext is embedded by toolsec probes to consume shared reconnaissance.
+// reconContext is embedded by mcptool probes to consume shared reconnaissance.
 // It provides the ContextAwareProbe opt-in plus a tool-source resolver that
 // prefers a prior MCP inventory over a second live enumeration.
 type reconContext struct {
