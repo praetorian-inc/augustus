@@ -29,14 +29,15 @@ func (plainProbe) Probe(context.Context, types.Generator) ([]*attempt.Attempt, e
 }
 func (plainProbe) Name() string { return "plain.Probe" }
 
-// injectProbeContext must deliver the store to context-aware probes and leave
-// others untouched (no panic, no interface required).
+// recon.InjectProbeContext must deliver the store to context-aware probes and
+// leave others untouched (no panic, no interface required). Exercised here on a
+// real []probes.Prober to confirm the generic works with the probe interface.
 func TestInjectProbeContext(t *testing.T) {
 	store := recon.NewStore()
 	aware := &ctxProbe{}
 	plain := plainProbe{}
 
-	injectProbeContext([]probes.Prober{aware, plain}, store)
+	recon.InjectProbeContext([]probes.Prober{aware, plain}, store)
 
 	if aware.got != store {
 		t.Errorf("context-aware probe did not receive the shared store: got %v", aware.got)
