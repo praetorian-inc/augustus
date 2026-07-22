@@ -106,8 +106,14 @@ func WriteHTML(outputPath string, attempts []*attempt.Attempt) (err error) {
 
 		for probeName, probeAtts := range probeAttempts {
 			stats := summary.ByProbe[probeName]
-			fmt.Fprintf(&sb, "        <div class=\"probe-section\">\n            <div class=\"probe-header\">\n                <h2>%s</h2>\n                <div class=\"probe-stats\">%d/%d passed</div>\n            </div>\n            <div class=\"probe-content\">\n",
-				html.EscapeString(probeName), stats.Passed, stats.Total)
+			// Surface the errored count so "1/3 passed" is not misread as
+			// "2 failed" when the breakdown is 1 failed + 1 errored (LAB-4316).
+			statsLine := fmt.Sprintf("%d/%d passed", stats.Passed, stats.Total)
+			if stats.Errored > 0 {
+				statsLine += fmt.Sprintf(", %d errored", stats.Errored)
+			}
+			fmt.Fprintf(&sb, "        <div class=\"probe-section\">\n            <div class=\"probe-header\">\n                <h2>%s</h2>\n                <div class=\"probe-stats\">%s</div>\n            </div>\n            <div class=\"probe-content\">\n",
+				html.EscapeString(probeName), statsLine)
 
 			for _, att := range probeAtts {
 				writeAttemptHTML(&sb, att)
@@ -155,6 +161,7 @@ func writeCSS(sb *strings.Builder) {
         .status-badge.vuln { background: #f8d7da; color: #721c24; }
         .status-badge.review { background: #fff3cd; color: #856404; }
         .status-badge.error { background: #e2e3e5; color: #383d41; }
+        .error-message { color: #383d41; }
         .attempt-detail { margin: 10px 0; }
         .attempt-detail strong { display: inline-block; min-width: 100px; color: #495057; }
         .prompt, .response { background: #f8f9fa; padding: 10px; border-radius: 4px; margin-top: 5px; font-family: 'Courier New', monospace; font-size: 0.9em; white-space: pre-wrap; word-wrap: break-word; }
@@ -253,7 +260,12 @@ func writeAttemptHTML(sb *strings.Builder, att *attempt.Attempt) {
 	// [0.00] when only a secondary detector flagged the attempt.
 	effectiveScores := att.GetEffectiveScores()
 	scoresStr := "[]"
-	if len(effectiveScores) > 0 {
+	switch {
+	case verdict == "error":
+		// An errored attempt has no score — show "no verdict" rather than an
+		// empty "[]" that could be misread as a real 0.00/safe result (LAB-4316).
+		scoresStr = "no verdict"
+	case len(effectiveScores) > 0:
 		parts := make([]string, len(effectiveScores))
 		for i, s := range effectiveScores {
 			parts[i] = fmt.Sprintf("%.2f", s)
@@ -266,6 +278,12 @@ func writeAttemptHTML(sb *strings.Builder, att *attempt.Attempt) {
 	fmt.Fprintf(sb, "                <div class=\"attempt\">\n                    <div class=\"attempt-header\">\n                        <span class=\"status-badge %s\">%s</span>\n                        <span class=\"scores\">%s</span>\n                    </div>\n",
 		statusClass, statusText, scoresStr)
 	sb.WriteString("                    <div class=\"attempt-detail\"><strong>Detector:</strong> " + html.EscapeString(att.Detector) + "</div>\n")
+	// An errored attempt carries no verdict — surface its error message so an
+	// operator reading the report can diagnose the broken probe rather than
+	// mistaking it for a clean or vulnerable result (LAB-4316).
+	if verdict == "error" && att.Error != "" {
+		sb.WriteString("                    <div class=\"attempt-detail error-message\"><strong>Error:</strong> " + html.EscapeString(att.Error) + "</div>\n")
+	}
 
 	if !isMultiTurn {
 		sb.WriteString("                    <div class=\"attempt-detail\"><strong>Prompt:</strong><div class=\"prompt\">" + html.EscapeString(att.Prompt) + "</div></div>\n")

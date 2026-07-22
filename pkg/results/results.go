@@ -110,6 +110,20 @@ type ProbeStats struct {
 
 	// Failed is the number of attempts that failed.
 	Failed int `json:"failed"`
+
+	// Errored is the number of attempts that errored before producing a verdict
+	// (verdict "error"). Kept separate from Failed so a broken probe is not
+	// reported as a clean pass or a genuine failure (LAB-4316).
+	Errored int `json:"errored"`
+}
+
+// IsErrored reports whether an attempt never produced a verdict about the
+// target — it errored or never completed. Such an attempt carries no signal
+// about the target's safety, so it must not be scored as passed or failed
+// (LAB-4316). Exported so the CLI evaluators share a single errored-status
+// predicate with Verdict rather than re-deriving it.
+func IsErrored(status attempt.Status) bool {
+	return status == attempt.StatusError || status == attempt.StatusPending
 }
 
 // Verdict classifies an attempt for display. It is the single source of truth
@@ -130,7 +144,7 @@ type ProbeStats struct {
 //     the threshold), or an at-threshold score outside the visible-multimodal
 //     case above.
 func Verdict(a *attempt.Attempt) string {
-	if a.Status == attempt.StatusError || a.Status == attempt.StatusPending {
+	if IsErrored(a.Status) {
 		return "error"
 	}
 
@@ -214,7 +228,6 @@ func ComputeSummary(attempts []*attempt.Attempt) Summary {
 		// DISJOINT buckets that sum to TotalAttempts: safe→Passed, review→Review,
 		// vuln→Failed, error→Errored. Only "safe" passes.
 		verdict := Verdict(a)
-		passed := verdict == "safe"
 
 		switch verdict {
 		case "safe":
@@ -227,12 +240,18 @@ func ComputeSummary(attempts []*attempt.Attempt) Summary {
 			summary.Errored++
 		}
 
-		// Update per-probe statistics (passed = "safe" only, consistent above).
+		// Update per-probe statistics by the same four-way verdict so a probe's
+		// errored attempts are surfaced separately rather than folded into Failed
+		// (LAB-4316). Review is grouped with Failed at the per-probe level (no
+		// separate ProbeStats.Review bucket); only "safe" passes.
 		stats := summary.ByProbe[a.Probe]
 		stats.Total++
-		if passed {
+		switch verdict {
+		case "error":
+			stats.Errored++
+		case "safe":
 			stats.Passed++
-		} else {
+		default: // vuln, review
 			stats.Failed++
 		}
 		summary.ByProbe[a.Probe] = stats
