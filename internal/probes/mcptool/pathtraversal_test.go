@@ -1,4 +1,4 @@
-package toolsec
+package mcptool
 
 import (
 	"context"
@@ -515,7 +515,7 @@ func TestPathTraversal_ErrorsOnNonToolInvoker(t *testing.T) {
 // probe test does not depend on the detector package.
 type pathTraversalDetectorStub struct{}
 
-// writeSuccessREStub mirrors detectors/toolsec's writeSuccessRE — a write
+// writeSuccessREStub mirrors detectors/mcptool's writeSuccessRE — a write
 // finding needs a success verb, not just the canary echoed.
 var writeSuccessREStub = regexp.MustCompile(`(?i)\b(wrote|written|saved|created|stored|updated|uploaded|success|successfully|ok|done|complete)\b`)
 

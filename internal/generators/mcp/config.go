@@ -157,7 +157,7 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	// tool_call parameters. These are validated lazily (in callTool) rather than
 	// here, because the generator is also usable purely as a types.ToolInvoker
 	// (ListTools/CallTool), for which tool_name/arg_name are irrelevant — a
-	// toolsec probe drives the generator without ever touching the tool_call
+	// mcptool probe drives the generator without ever touching the tool_call
 	// Generate path, so requiring them at construction would break that use.
 	if cfg.Mode == ModeToolCall {
 		cfg.ToolName = registry.GetString(m, "tool_name", "")

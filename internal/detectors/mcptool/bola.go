@@ -1,4 +1,4 @@
-package toolsec
+package mcptool
 
 import (
 	"context"
@@ -15,11 +15,11 @@ import (
 )
 
 func init() {
-	detectors.Register("toolsec.BOLA", NewBOLADetector)
+	detectors.Register("mcptool.BOLA", NewBOLADetector)
 }
 
 // BOLADetector adjudicates a broken-object-level-authorization (BOLA/IDOR) leak
-// from the evidence the toolsec.BOLA probe records: an ATTACK output (a getter
+// from the evidence the mcptool.BOLA probe records: an ATTACK output (a getter
 // called, under the attacker's identity, with an id owned by ANOTHER identity),
 // a NEGATIVE control (the same getter with a well-formed-nonexistent id), and an
 // optional POSITIVE control (the attacker's OWN object via the same getter).
@@ -67,7 +67,7 @@ func NewBOLADetector(cfg registry.Config) (detectors.Detector, error) {
 	return d, nil
 }
 
-func (d *BOLADetector) Name() string { return "toolsec.BOLA" }
+func (d *BOLADetector) Name() string { return "mcptool.BOLA" }
 
 func (d *BOLADetector) Description() string {
 	return "Adjudicates a cross-identity object read (BOLA) via a server-agnostic prune (target vs nonexistent-id baseline) then an opt-in calibrated LLM judge"
@@ -106,13 +106,13 @@ func (d *BOLADetector) Detect(ctx context.Context, a *attempt.Attempt) ([]float6
 
 	// STAGE 2 — opt-in calibrated judge.
 	if d.judgeGen == nil {
-		slog.Warn("toolsec.BOLA: served-shaped response but no judge configured; scoring inconclusive (0.5) — configure judge_generator_type or review manually", "probe", a.Probe)
+		slog.Warn("mcptool.BOLA: served-shaped response but no judge configured; scoring inconclusive (0.5) — configure judge_generator_type or review manually", "probe", a.Probe)
 		return []float64{0.5}, nil
 	}
-	tool := metaString(a, "toolsec.tool")
+	tool := metaString(a, "mcptool.tool")
 	score, err := d.classify(ctx, tool, pos, neg, attack)
 	if err != nil {
-		slog.Error("toolsec.BOLA: judge error, scoring inconclusive (0.5) — fails to inconclusive not false-negative", "probe", a.Probe, "err", err)
+		slog.Error("mcptool.BOLA: judge error, scoring inconclusive (0.5) — fails to inconclusive not false-negative", "probe", a.Probe, "err", err)
 		return []float64{0.5}, nil
 	}
 	return []float64{score}, nil

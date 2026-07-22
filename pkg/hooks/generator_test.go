@@ -106,7 +106,7 @@ func TestHookedGenerator_PreservesMCPCapabilities(t *testing.T) {
 }
 
 // A hooked PLAIN generator must NOT advertise MCP capabilities — otherwise the
-// type-assert-and-skip pattern in toolsec/recon would falsely match and fail at
+// type-assert-and-skip pattern in mcptool/recon would falsely match and fail at
 // runtime.
 func TestHookedGenerator_PlainGeneratorHasNoMCPCapabilities(t *testing.T) {
 	h := NewHookedGenerator(&mockGenerator{name: "plain"}, nil, nil)

@@ -33,7 +33,7 @@ func TestMCPInventory_ToolMaps(t *testing.T) {
 	if echo["description"] != "Echoes the query back." {
 		t.Errorf("description = %v", echo["description"])
 	}
-	// parameters must decode to a map so toolsec.toolParams can read it.
+	// parameters must decode to a map so mcptool.toolParams can read it.
 	params, ok := echo["parameters"].(map[string]any)
 	if !ok {
 		t.Fatalf("parameters is %T, want map[string]any", echo["parameters"])

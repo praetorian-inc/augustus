@@ -1,4 +1,4 @@
-package toolsec
+package mcptool
 
 import (
 	"context"
@@ -9,10 +9,10 @@ import (
 )
 
 func init() {
-	detectors.Register("toolsec.SSRF", NewSSRFDetector)
+	detectors.Register("mcptool.SSRF", NewSSRFDetector)
 }
 
-// SSRFDetector flags an attempt as vulnerable when the toolsec.SSRF probe
+// SSRFDetector flags an attempt as vulnerable when the mcptool.SSRF probe
 // recorded either an out-of-band callback (blind SSRF) or a reflected collector
 // marker (non-blind SSRF) in the attempt metadata.
 type SSRFDetector struct{}
@@ -22,10 +22,10 @@ func NewSSRFDetector(_ registry.Config) (detectors.Detector, error) {
 	return &SSRFDetector{}, nil
 }
 
-func (d *SSRFDetector) Name() string { return "toolsec.SSRF" }
+func (d *SSRFDetector) Name() string { return "mcptool.SSRF" }
 
 func (d *SSRFDetector) Description() string {
-	return "Flags server-side request forgery via out-of-band callback or reflected collector marker recorded by the toolsec.SSRF probe"
+	return "Flags server-side request forgery via out-of-band callback or reflected collector marker recorded by the mcptool.SSRF probe"
 }
 
 // Detect returns one score per output. A confirmed SSRF scores 1.0. Blind SSRF

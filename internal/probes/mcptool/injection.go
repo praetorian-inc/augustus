@@ -1,4 +1,4 @@
-package toolsec
+package mcptool
 
 import (
 	"context"
@@ -13,7 +13,7 @@ import (
 )
 
 func init() {
-	probes.Register("toolsec.Injection", NewInjection)
+	probes.Register("mcptool.Injection", NewInjection)
 }
 
 // Compile-time assertions: Injection exposes probe metadata and opts in to
@@ -42,7 +42,7 @@ func NewInjection(cfg registry.Config) (probes.Prober, error) {
 	return &Injection{canary: newCanary(), policy: toolpolicy.New(cfg)}, nil
 }
 
-func (p *Injection) Name() string { return "toolsec.Injection" }
+func (p *Injection) Name() string { return "mcptool.Injection" }
 
 func (p *Injection) Description() string {
 	return "Injects computed canary payloads into tool arguments to detect code/command/template injection sinks in directly-invokable tools"
@@ -52,7 +52,7 @@ func (p *Injection) Goal() string {
 	return "Determine whether any directly-invokable tool evaluates attacker-controlled arguments (RCE/SSTI/eval-class injection)"
 }
 
-func (p *Injection) GetPrimaryDetector() string { return "toolsec.Injection" }
+func (p *Injection) GetPrimaryDetector() string { return "mcptool.Injection" }
 
 func (p *Injection) GetPrompts() []string { return p.canary.payloads }
 
@@ -66,13 +66,13 @@ func (p *Injection) Probe(ctx context.Context, gen types.Generator) ([]*attempt.
 	// clean-looking empty result (a silent false negative for a scanner).
 	inv, ok := gen.(types.ToolInvoker)
 	if !ok {
-		return nil, fmt.Errorf("toolsec.Injection: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
+		return nil, fmt.Errorf("mcptool.Injection: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
 	}
 
 	// Prefer shared reconnaissance; fall back to live enumeration.
 	tools, err := p.resolveTools(ctx, gen)
 	if err != nil {
-		return nil, fmt.Errorf("toolsec.Injection: list tools: %w", err)
+		return nil, fmt.Errorf("mcptool.Injection: list tools: %w", err)
 	}
 	// Apply the safety gate before invoking anything (skips destructive tools
 	// unless opted in). A target that genuinely advertises no testable tools is a
@@ -107,8 +107,8 @@ func (p *Injection) callOne(ctx context.Context, inv types.ToolInvoker, tool, pa
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
 	a.Metadata[attempt.MetadataKeyInjectionCanaries] = []string{p.canary.marker}
-	a.Metadata["toolsec.tool"] = tool
-	a.Metadata["toolsec.param"] = param
+	a.Metadata["mcptool.tool"] = tool
+	a.Metadata["mcptool.param"] = param
 
 	res, err := inv.CallTool(ctx, tool, benignArgs(params, param, payload))
 	if err != nil {

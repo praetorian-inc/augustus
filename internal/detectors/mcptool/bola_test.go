@@ -1,4 +1,4 @@
-package toolsec
+package mcptool
 
 import (
 	"context"
@@ -53,7 +53,7 @@ func newBOLADetectorWithJudge(j *stubJudge) *BOLADetector {
 // no negative control).
 func bolaAttempt(id, nxID, attack, neg, pos string) *attempt.Attempt {
 	a := attempt.New("bola")
-	a.Metadata["toolsec.tool"] = "get_object"
+	a.Metadata["mcptool.tool"] = "get_object"
 	a.Metadata[attempt.MetadataKeyBOLAID] = id
 	if nxID != "" {
 		a.Metadata[attempt.MetadataKeyBOLANonexistentID] = nxID
@@ -69,8 +69,8 @@ func bolaAttempt(id, nxID, attack, neg, pos string) *attempt.Attempt {
 }
 
 func TestBOLADetector_Registered(t *testing.T) {
-	if _, ok := detectors.Get("toolsec.BOLA"); !ok {
-		t.Fatal("toolsec.BOLA not registered in the detector registry")
+	if _, ok := detectors.Get("mcptool.BOLA"); !ok {
+		t.Fatal("mcptool.BOLA not registered in the detector registry")
 	}
 }
 

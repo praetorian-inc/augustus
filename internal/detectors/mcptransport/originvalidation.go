@@ -12,7 +12,7 @@ func init() {
 	detectors.Register("mcptransport.OriginValidation", NewOriginValidationDetector)
 }
 
-// OriginValidationDetector flags an attempt as vulnerable when the toolsec.DNS-
+// OriginValidationDetector flags an attempt as vulnerable when the mcptool.DNS-
 // Rebinding probe recorded that a request a spec-compliant, allowlist-based
 // MCP server would refuse was in fact accepted (or a CORS preflight reflected
 // the attacker Origin with credentials). The probe carries a class label so

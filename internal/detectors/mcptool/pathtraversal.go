@@ -1,4 +1,4 @@
-package toolsec
+package mcptool
 
 import (
 	"context"
@@ -11,14 +11,14 @@ import (
 )
 
 func init() {
-	detectors.Register("toolsec.PathTraversal", NewPathTraversalDetector)
+	detectors.Register("mcptool.PathTraversal", NewPathTraversalDetector)
 }
 
 // PathTraversalDetector flags a tool output that contains a file-content
 // signature the probe expected to see if the traversal payload resolved to the
 // target file. The signature (e.g. "root:x:0:0:", "[extensions]") never appears
 // in the payload text, so a tool that merely echoes its argument cannot trigger
-// a false positive — mirroring the toolsec.Injection design.
+// a false positive — mirroring the mcptool.Injection design.
 type PathTraversalDetector struct{}
 
 // NewPathTraversalDetector constructs the detector.
@@ -26,7 +26,7 @@ func NewPathTraversalDetector(_ registry.Config) (detectors.Detector, error) {
 	return &PathTraversalDetector{}, nil
 }
 
-func (d *PathTraversalDetector) Name() string { return "toolsec.PathTraversal" }
+func (d *PathTraversalDetector) Name() string { return "mcptool.PathTraversal" }
 
 func (d *PathTraversalDetector) Description() string {
 	return "Flags tool outputs containing a well-known system-file signature (e.g. /etc/passwd or win.ini) that only a real filesystem read could have produced"
