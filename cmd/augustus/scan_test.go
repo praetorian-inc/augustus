@@ -468,6 +468,61 @@ func TestScanCommand_ReconOnly_FailsOnModuleError(t *testing.T) {
 	assert.Contains(t, err.Error(), "reconnaissance failed")
 }
 
+// TestScanCommand_FullScan_FailsLoudOnReconConstructionError: on a full scan, a
+// requested recon module that failed to CONSTRUCT (typo'd name, bad config)
+// never ran. Recon is best-effort, so the probe phase still runs on whatever
+// other modules gathered — but the scan must exit non-zero so a recon-dependent
+// probe (e.g. mcptool.BOLA, which no-ops on an empty store) cannot hide behind a
+// false green. Cleanup still runs to tear down an eagerly-provisioned --setup.
+func TestScanCommand_FullScan_FailsLoudOnReconConstructionError(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	markerFile := filepath.Join(tmpDir, "cleanup_ran")
+
+	cfg := &scanConfig{
+		generatorName: "test.Repeat",
+		reconNames:    []string{"recon.notRegistered"}, // unknown name → construction failure
+		probeNames:    []string{"test.Test"},
+		detectorNames: []string{"always.Pass"},
+		harnessName:   "probewise.Probewise",
+		outputFormat:  "table",
+		setup:         `echo "SETUP=1"`,
+		cleanup:       fmt.Sprintf(`touch %s`, markerFile),
+	}
+
+	eval := &mockEvaluator{}
+	err := runScan(ctx, cfg, eval)
+	require.Error(t, err, "full scan with a failed-to-construct recon module must not exit 0")
+	assert.Contains(t, err.Error(), "reconnaissance completed with errors")
+	assert.NotEmpty(t, eval.attempts, "probes should still run despite the recon failure")
+
+	_, statErr := os.Stat(markerFile)
+	assert.NoError(t, statErr, "cleanup must still run to tear down an eagerly-provisioned --setup")
+}
+
+// TestScanCommand_FullScan_FailsLoudOnReconRunError: same contract for a recon
+// module that BUILT but errored during Run — the probe phase still runs, and the
+// scan still exits non-zero. Recon failures fail loud regardless of whether they
+// occur at construction or at runtime.
+func TestScanCommand_FullScan_FailsLoudOnReconRunError(t *testing.T) {
+	ctx := context.Background()
+
+	cfg := &scanConfig{
+		generatorName: "test.Repeat",
+		reconNames:    []string{reconFakeErr}, // constructs OK, errors during Run
+		probeNames:    []string{"test.Test"},
+		detectorNames: []string{"always.Pass"},
+		harnessName:   "probewise.Probewise",
+		outputFormat:  "table",
+	}
+
+	eval := &mockEvaluator{}
+	err := runScan(ctx, cfg, eval)
+	require.Error(t, err, "a recon run error must surface as a non-zero exit on a full scan")
+	assert.Contains(t, err.Error(), "reconnaissance completed with errors")
+	assert.NotEmpty(t, eval.attempts, "probes should still run despite the recon run error")
+}
+
 // TestScanCommand_SetupHookFailure tests that a failing setup hook causes scan to fail.
 func TestScanCommand_SetupHookFailure(t *testing.T) {
 	ctx := context.Background()

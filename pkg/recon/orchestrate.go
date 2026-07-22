@@ -43,9 +43,12 @@ func CreateAll(names []string, resolve ConfigResolver) ([]Recon, error) {
 // RunAll creates the named recon modules (see CreateAll) and runs them into
 // store, returning the construction and run errors joined. The run proceeds with
 // whatever modules constructed, so one misconfigured module never blocks the
-// rest. This is the single entry point for the standard reconnaissance phase:
-// both the CLI scan flow and external embedders (e.g. Guard) should call it
-// rather than re-implementing the create-then-run loop.
+// rest. Callers should treat a non-nil error as "some requested recon did not
+// complete" and surface it (fail loud) rather than silently proceeding — a
+// recon-dependent probe with no inputs produces a false green. This is the
+// single entry point for the standard reconnaissance phase: both the CLI scan
+// flow and external embedders (e.g. Guard) should call it rather than
+// re-implementing the create-then-run loop.
 func RunAll(ctx context.Context, gen types.Generator, names []string, resolve ConfigResolver, store *Store) error {
 	mods, createErr := CreateAll(names, resolve)
 	runErr := Run(ctx, gen, mods, store)

@@ -864,6 +864,18 @@ func runScanResolved(ctx context.Context, cfg *scanConfig, yamlCfg *config.Confi
 	// Run the scan
 	scanErr := harness.Run(ctx, gen, probeList, detectorList, eval)
 
+	// Surface reconnaissance failures in the exit code. Recon is best-effort —
+	// every module that could build and run already did, and the probe phase ran
+	// on whatever they gathered — but a module that failed (to construct or at
+	// runtime) leaves recon-dependent probes without their inputs. mcptool.BOLA,
+	// for one, no-ops on an empty identifiers store, so a failed recon module
+	// would otherwise let the scan exit 0 as a false green ("not vulnerable" when
+	// the probe never actually ran). Folding reconErr into scanErr makes the
+	// degradation loud without suppressing the probe results we did get.
+	if reconErr != nil {
+		scanErr = errors.Join(scanErr, fmt.Errorf("reconnaissance completed with errors (recon-dependent probe results may be incomplete): %w", reconErr))
+	}
+
 	// Runtime hooks: run cleanup hook after scan.
 	if cleanupErr := runCleanupHook(cfg); cleanupErr != nil {
 		scanErr = errors.Join(scanErr, cleanupErr)
