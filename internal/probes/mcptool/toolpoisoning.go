@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"strings"
 
 	mcpx "github.com/praetorian-inc/augustus/internal/recon/mcp"
@@ -74,53 +73,72 @@ func (p *ToolPoisoning) GetPrompts() []string {
 // instructions and resource/prompt metadata) and falls back to a live
 // ToolInvoker.ListTools enumeration.
 func (p *ToolPoisoning) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
+	var attempts []*attempt.Attempt
+	reconCoveredTools := false
+
 	// Rich path: a prior recon.MCP inventory exposes the full surface (tools +
 	// server instructions + resources + prompts), not just the tool catalog.
 	if p.store != nil {
-		if invs := mcpx.InventoriesFrom(p.store); len(invs) > 0 {
-			var attempts []*attempt.Attempt
-			for _, inv := range invs {
-				attempts = append(attempts, p.scanInventory(inv)...)
+		for _, inv := range mcpx.InventoriesFrom(p.store) {
+			attempts = append(attempts, p.scanInventory(inv)...)
+			if len(inv.Tools) > 0 {
+				reconCoveredTools = true
 			}
-			if len(attempts) > 0 {
-				return attempts, nil
-			}
-			// Recon emitted an inventory but nothing scannable — MCP recon is
-			// best-effort and can still emit an inventory when catalog calls
-			// partially failed. Fall through to a live enumeration, which may
-			// recover a catalog recon missed, rather than passing a silent SAFE.
-			slog.Warn("mcptool.ToolPoisoning: recon inventory carried no scannable metadata; falling back to live enumeration", "inventories", len(invs))
 		}
 	}
+	// Only skip live enumeration when recon actually covered the TOOL catalog. A
+	// recon inventory can carry non-tool metadata (server instructions/resources)
+	// while its best-effort tools/list failed — returning here on those alone
+	// would miss poisoned tool descriptions/schemas the live ListTools fallback
+	// could still recover.
+	if reconCoveredTools {
+		return attempts, nil
+	}
 
-	// Fallback: no recon (or empty recon) — enumerate the live tool catalog directly.
+	// No recon, or recon produced no tool catalog: enumerate the live catalog to
+	// recover tool metadata, keeping any non-tool recon attempts collected above.
 	inv, ok := gen.(types.ToolInvoker)
 	if !ok {
+		if len(attempts) > 0 {
+			// Recon gave us non-tool metadata; report it rather than erroring.
+			return attempts, nil
+		}
 		return nil, fmt.Errorf("mcptool.ToolPoisoning: target %q is neither described by a recon.MCP inventory nor directly tool-invokable; run with --recon recon.MCP or point at a tool-surface generator such as mcp.MCP", gen.Name())
 	}
 	tools, err := inv.ListTools(ctx)
 	if err != nil {
+		if len(attempts) > 0 {
+			// Don't discard non-tool recon attempts on a live-enumeration error.
+			return attempts, nil
+		}
 		return nil, fmt.Errorf("mcptool.ToolPoisoning: list tools: %w", err)
 	}
-	var attempts []*attempt.Attempt
 	for _, t := range tools {
-		name, _ := t["name"].(string)
-		if desc, _ := t["description"].(string); desc != "" {
-			attempts = append(attempts, p.mkAttempt("tool_description", name, desc))
-		}
-		// Scan title + annotation title too, so the no-recon path has the same
-		// coverage as the recon path (poison in either is otherwise missed here).
-		if title, _ := t["title"].(string); title != "" {
-			attempts = append(attempts, p.mkAttempt("tool_title", name, title))
-		}
-		if at := annotationTitle(t["annotations"]); at != "" {
-			attempts = append(attempts, p.mkAttempt("tool_annotation_title", name, at))
-		}
-		if params, ok := t["parameters"]; ok {
-			attempts = append(attempts, p.mkAttempt("tool_input_schema", name, schemaText(params)))
-		}
+		attempts = append(attempts, p.scanToolMap(t)...)
 	}
 	return attempts, nil
+}
+
+// scanToolMap scans one ListTools-shaped tool map (name / title / annotation
+// title / input schema) for poisoning, emitting an attempt per non-empty item.
+func (p *ToolPoisoning) scanToolMap(t map[string]any) []*attempt.Attempt {
+	name, _ := t["name"].(string)
+	var attempts []*attempt.Attempt
+	if desc, _ := t["description"].(string); desc != "" {
+		attempts = append(attempts, p.mkAttempt("tool_description", name, desc))
+	}
+	// Scan title + annotation title too, so the no-recon path has the same
+	// coverage as the recon path (poison in either is otherwise missed here).
+	if title, _ := t["title"].(string); title != "" {
+		attempts = append(attempts, p.mkAttempt("tool_title", name, title))
+	}
+	if at := annotationTitle(t["annotations"]); at != "" {
+		attempts = append(attempts, p.mkAttempt("tool_annotation_title", name, at))
+	}
+	if params, ok := t["parameters"]; ok {
+		attempts = append(attempts, p.mkAttempt("tool_input_schema", name, schemaText(params)))
+	}
+	return attempts
 }
 
 // annotationTitle extracts a tool's annotation title from a ListTools-shaped map,
@@ -241,17 +259,24 @@ func schemaText(v any) string {
 		raw = b
 	case []byte:
 		raw = b
-	}
-	decoded := v
-	if raw != nil {
-		var parsed any
-		if err := json.Unmarshal(raw, &parsed); err != nil {
-			return string(raw)
+	default:
+		// A decoded map/slice (recon ToolMaps) OR a concrete schema object — the
+		// live ListTools path stores the SDK's *jsonschema.Schema value under
+		// "parameters". Marshal to JSON so every shape is walked uniformly;
+		// otherwise a non-map schema object yields no scannable text and hides
+		// schema poisoning on the no-recon path.
+		m, err := json.Marshal(v)
+		if err != nil {
+			return ""
 		}
-		decoded = parsed
+		raw = m
+	}
+	var parsed any
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		return string(raw)
 	}
 	var sb strings.Builder
-	collectStrings(decoded, &sb)
+	collectStrings(parsed, &sb)
 	return sb.String()
 }
 

@@ -40,22 +40,49 @@ func (m *MCP) MCPInventory(ctx context.Context) (*types.MCPInventory, error) {
 			inv.Capabilities = capabilitiesFrom(init.Capabilities)
 		}
 
+		// Each catalog is paginated: follow nextCursor across all pages so a server
+		// cannot hide poisoned/hostile definitions on a later page behind a benign
+		// first page. listAll bounds pages and detects cursor repetition.
 		if inv.Capabilities.Tools {
-			if res, e := sess.ListTools(callCtx, nil); e == nil {
-				inv.Tools = mcpToolsFrom(res.Tools)
+			if tools, e := listAll(func(cursor string) ([]*mcpsdk.Tool, string, error) {
+				res, err := sess.ListTools(callCtx, &mcpsdk.ListToolsParams{Cursor: cursor})
+				if err != nil {
+					return nil, "", err
+				}
+				return res.Tools, res.NextCursor, nil
+			}); e == nil {
+				inv.Tools = mcpToolsFrom(tools)
 			}
 		}
 		if inv.Capabilities.Resources {
-			if res, e := sess.ListResources(callCtx, nil); e == nil {
-				inv.Resources = mcpResourcesFrom(res.Resources)
+			if res, e := listAll(func(cursor string) ([]*mcpsdk.Resource, string, error) {
+				r, err := sess.ListResources(callCtx, &mcpsdk.ListResourcesParams{Cursor: cursor})
+				if err != nil {
+					return nil, "", err
+				}
+				return r.Resources, r.NextCursor, nil
+			}); e == nil {
+				inv.Resources = mcpResourcesFrom(res)
 			}
-			if res, e := sess.ListResourceTemplates(callCtx, nil); e == nil {
-				inv.ResourceTemplates = mcpResourceTemplatesFrom(res.ResourceTemplates)
+			if tpls, e := listAll(func(cursor string) ([]*mcpsdk.ResourceTemplate, string, error) {
+				r, err := sess.ListResourceTemplates(callCtx, &mcpsdk.ListResourceTemplatesParams{Cursor: cursor})
+				if err != nil {
+					return nil, "", err
+				}
+				return r.ResourceTemplates, r.NextCursor, nil
+			}); e == nil {
+				inv.ResourceTemplates = mcpResourceTemplatesFrom(tpls)
 			}
 		}
 		if inv.Capabilities.Prompts {
-			if res, e := sess.ListPrompts(callCtx, nil); e == nil {
-				inv.Prompts = mcpPromptsFrom(res.Prompts)
+			if prompts, e := listAll(func(cursor string) ([]*mcpsdk.Prompt, string, error) {
+				r, err := sess.ListPrompts(callCtx, &mcpsdk.ListPromptsParams{Cursor: cursor})
+				if err != nil {
+					return nil, "", err
+				}
+				return r.Prompts, r.NextCursor, nil
+			}); e == nil {
+				inv.Prompts = mcpPromptsFrom(prompts)
 			}
 		}
 		return nil
@@ -195,4 +222,31 @@ func mcpPromptsFrom(prompts []*mcpsdk.Prompt) []types.MCPPrompt {
 		out = append(out, mp)
 	}
 	return out
+}
+
+// maxListPages caps catalog pagination so a server that repeats or never
+// terminates its cursor cannot hang the scan. Real MCP catalogs are far smaller.
+const maxListPages = 1000
+
+// listAll follows an MCP list operation's nextCursor across all pages,
+// accumulating items. It guards against a hostile/buggy server with a hard page
+// cap and cursor-repeat detection. list must return one page's items plus the
+// next cursor ("" when there are no more pages) for the given cursor.
+func listAll[T any](list func(cursor string) ([]T, string, error)) ([]T, error) {
+	var out []T
+	seen := make(map[string]bool)
+	cursor := ""
+	for range maxListPages {
+		items, next, err := list(cursor)
+		if err != nil {
+			return out, err
+		}
+		out = append(out, items...)
+		if next == "" || seen[next] {
+			break
+		}
+		seen[next] = true
+		cursor = next
+	}
+	return out, nil
 }

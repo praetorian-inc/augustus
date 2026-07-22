@@ -507,12 +507,20 @@ func (m *MCP) ListTools(ctx context.Context) ([]map[string]any, error) {
 	err := m.withSession(ctx, func(ctx context.Context, sess *mcpsdk.ClientSession) error {
 		callCtx, cancel := context.WithTimeout(ctx, m.cfg.RequestTimeout)
 		defer cancel()
-		result, err := sess.ListTools(callCtx, nil)
+		// Paginate: follow nextCursor across all pages so a server can't hide tools
+		// on a later page from tool-surface probes (loop/cursor-repeat bounded).
+		sdkTools, err := listAll(func(cursor string) ([]*mcpsdk.Tool, string, error) {
+			res, err := sess.ListTools(callCtx, &mcpsdk.ListToolsParams{Cursor: cursor})
+			if err != nil {
+				return nil, "", err
+			}
+			m.storeRawJSON(res)
+			return res.Tools, res.NextCursor, nil
+		})
 		if err != nil {
 			return fmt.Errorf("mcp: tools/list failed: %w", err)
 		}
-		m.storeRawJSON(result)
-		tools = toolsToMaps(result.Tools)
+		tools = toolsToMaps(sdkTools)
 		return nil
 	})
 	if err != nil {
