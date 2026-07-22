@@ -3,6 +3,8 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"sort"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -44,46 +46,38 @@ func (m *MCP) MCPInventory(ctx context.Context) (*types.MCPInventory, error) {
 		// cannot hide poisoned/hostile definitions on a later page behind a benign
 		// first page. listAll bounds pages and detects cursor repetition.
 		if inv.Capabilities.Tools {
-			if tools, e := listAll(func(cursor string) ([]*mcpsdk.Tool, string, error) {
+			inv.Tools = mcpToolsFrom(reconList("tools", func(cursor string) ([]*mcpsdk.Tool, string, error) {
 				res, err := sess.ListTools(callCtx, &mcpsdk.ListToolsParams{Cursor: cursor})
 				if err != nil {
 					return nil, "", err
 				}
 				return res.Tools, res.NextCursor, nil
-			}); e == nil {
-				inv.Tools = mcpToolsFrom(tools)
-			}
+			}))
 		}
 		if inv.Capabilities.Resources {
-			if res, e := listAll(func(cursor string) ([]*mcpsdk.Resource, string, error) {
+			inv.Resources = mcpResourcesFrom(reconList("resources", func(cursor string) ([]*mcpsdk.Resource, string, error) {
 				r, err := sess.ListResources(callCtx, &mcpsdk.ListResourcesParams{Cursor: cursor})
 				if err != nil {
 					return nil, "", err
 				}
 				return r.Resources, r.NextCursor, nil
-			}); e == nil {
-				inv.Resources = mcpResourcesFrom(res)
-			}
-			if tpls, e := listAll(func(cursor string) ([]*mcpsdk.ResourceTemplate, string, error) {
+			}))
+			inv.ResourceTemplates = mcpResourceTemplatesFrom(reconList("resource_templates", func(cursor string) ([]*mcpsdk.ResourceTemplate, string, error) {
 				r, err := sess.ListResourceTemplates(callCtx, &mcpsdk.ListResourceTemplatesParams{Cursor: cursor})
 				if err != nil {
 					return nil, "", err
 				}
 				return r.ResourceTemplates, r.NextCursor, nil
-			}); e == nil {
-				inv.ResourceTemplates = mcpResourceTemplatesFrom(tpls)
-			}
+			}))
 		}
 		if inv.Capabilities.Prompts {
-			if prompts, e := listAll(func(cursor string) ([]*mcpsdk.Prompt, string, error) {
+			inv.Prompts = mcpPromptsFrom(reconList("prompts", func(cursor string) ([]*mcpsdk.Prompt, string, error) {
 				r, err := sess.ListPrompts(callCtx, &mcpsdk.ListPromptsParams{Cursor: cursor})
 				if err != nil {
 					return nil, "", err
 				}
 				return r.Prompts, r.NextCursor, nil
-			}); e == nil {
-				inv.Prompts = mcpPromptsFrom(prompts)
-			}
+			}))
 		}
 		return nil
 	})
@@ -228,10 +222,18 @@ func mcpPromptsFrom(prompts []*mcpsdk.Prompt) []types.MCPPrompt {
 // terminates its cursor cannot hang the scan. Real MCP catalogs are far smaller.
 const maxListPages = 1000
 
+// errListTruncated signals that pagination stopped at maxListPages with a cursor
+// still pending — the catalog was NOT fully enumerated. Callers keep the items
+// gathered so far but must not treat the enumeration as complete (a hostile
+// catalog could hide content past the cap).
+var errListTruncated = errors.New("mcp: catalog pagination exceeded page cap; results may be incomplete")
+
 // listAll follows an MCP list operation's nextCursor across all pages,
 // accumulating items. It guards against a hostile/buggy server with a hard page
 // cap and cursor-repeat detection. list must return one page's items plus the
-// next cursor ("" when there are no more pages) for the given cursor.
+// next cursor ("" when there are no more pages) for the given cursor. It returns
+// errListTruncated (with the items collected so far) if the page budget is
+// exhausted while a fresh cursor is still pending — never a silent partial-as-complete.
 func listAll[T any](list func(cursor string) ([]T, string, error)) ([]T, error) {
 	var out []T
 	seen := make(map[string]bool)
@@ -243,10 +245,27 @@ func listAll[T any](list func(cursor string) ([]T, string, error)) ([]T, error) 
 		}
 		out = append(out, items...)
 		if next == "" || seen[next] {
-			break
+			return out, nil
 		}
 		seen[next] = true
 		cursor = next
 	}
-	return out, nil
+	return out, errListTruncated
+}
+
+// reconList runs a paginated catalog enumeration for the inventory. On a
+// truncated-at-cap result it keeps what was gathered but logs a warning so the
+// partial catalog is never mistaken for a complete one; on any other list error
+// it returns nil, preserving the best-effort "leave that catalog empty" behavior.
+func reconList[T any](catalog string, list func(cursor string) ([]T, string, error)) []T {
+	items, err := listAll(list)
+	if err == nil {
+		return items
+	}
+	if errors.Is(err, errListTruncated) {
+		slog.Warn("recon.MCP: catalog truncated at page cap; results may be incomplete",
+			"catalog", catalog, "pages", maxListPages)
+		return items
+	}
+	return nil
 }

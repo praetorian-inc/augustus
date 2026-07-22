@@ -58,3 +58,20 @@ func TestListAll_PropagatesError(t *testing.T) {
 		t.Fatal("expected the page error to propagate")
 	}
 }
+
+// TestListAll_ErrorsOnPageCapExhaustion: a catalog that keeps emitting fresh
+// unique cursors past the page budget must surface errListTruncated (with the
+// items gathered so far) rather than silently reporting a complete enumeration.
+func TestListAll_ErrorsOnPageCapExhaustion(t *testing.T) {
+	n := 0
+	items, err := listAll(func(_ string) ([]int, string, error) {
+		n++
+		return []int{n}, fmt.Sprintf("cursor-%d", n), nil // always a new unique cursor
+	})
+	if !errors.Is(err, errListTruncated) {
+		t.Fatalf("expected errListTruncated on cap exhaustion, got %v", err)
+	}
+	if len(items) != maxListPages {
+		t.Errorf("expected %d items gathered before the cap, got %d", maxListPages, len(items))
+	}
+}

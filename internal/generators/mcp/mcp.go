@@ -517,8 +517,13 @@ func (m *MCP) ListTools(ctx context.Context) ([]map[string]any, error) {
 			m.storeRawJSON(res)
 			return res.Tools, res.NextCursor, nil
 		})
-		if err != nil {
+		if err != nil && !errors.Is(err, errListTruncated) {
 			return fmt.Errorf("mcp: tools/list failed: %w", err)
+		}
+		if errors.Is(err, errListTruncated) {
+			// Keep the pages we did enumerate but flag the truncation — never a
+			// silent partial-as-complete tool list.
+			slog.Warn("mcp: tool catalog truncated at page cap; results may be incomplete", "pages", maxListPages)
 		}
 		tools = toolsToMaps(sdkTools)
 		return nil
