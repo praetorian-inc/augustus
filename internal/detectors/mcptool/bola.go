@@ -112,7 +112,7 @@ func (d *BOLADetector) Detect(ctx context.Context, a *attempt.Attempt) ([]float6
 	tool := metaString(a, "mcptool.tool")
 	score, err := d.classify(ctx, tool, pos, neg, attack)
 	if err != nil {
-		slog.Error("mcptool.BOLA: judge error, scoring inconclusive (0.5) — fails to inconclusive not false-negative", "probe", a.Probe, "err", err)
+		slog.Error("mcptool.BOLA: judge error; scoring inconclusive (0.5), not a false negative", "probe", a.Probe, "err", err)
 		return []float64{0.5}, nil
 	}
 	return []float64{score}, nil

@@ -12,13 +12,13 @@ func init() {
 	detectors.Register("mcptransport.OriginValidation", NewOriginValidationDetector)
 }
 
-// OriginValidationDetector flags an attempt as vulnerable when the mcptool.DNS-
-// Rebinding probe recorded that a request a spec-compliant, allowlist-based
-// MCP server would refuse was in fact accepted (or a CORS preflight reflected
-// the attacker Origin with credentials). The probe carries a class label so
-// the reviewer can group findings by concrete validator weakness — an
-// any-origin server (root cause) is a different finding than a case-variant
-// or localhost-lookalike bypass, even though both trip the detector.
+// OriginValidationDetector flags an attempt as vulnerable when the
+// mcptransport.OriginValidation probe recorded that a request a spec-compliant,
+// allowlist-based MCP server would refuse was in fact accepted (or a CORS
+// preflight reflected the attacker Origin with credentials). The probe carries
+// a class label so the reviewer can group findings by concrete validator
+// weakness — an any-origin server (root cause) is a different finding than a
+// case-variant or localhost-lookalike bypass, even though both trip the detector.
 type OriginValidationDetector struct{}
 
 // NewOriginValidationDetector constructs the detector.
