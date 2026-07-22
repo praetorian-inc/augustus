@@ -417,7 +417,7 @@ func newCountingHTTPTarget(t *testing.T) (url string, reqCount func() int32) {
 }
 
 // Regression: ListTools must expose "parameters" as a decoded JSON-schema map
-// (not the SDK schema object), so toolsec.toolParams can read a tool's params on
+// (not the SDK schema object), so mcptool.toolParams can read a tool's params on
 // the live-enumeration path (when no --recon inventory was gathered). Storing the
 // raw *jsonschema.Schema made toolParams see nothing → probes sent no payloads.
 func TestToolInvoker_ListTools_ParametersDecoded(t *testing.T) {
@@ -547,7 +547,7 @@ func TestToolInvoker_ListToolsMemoized(t *testing.T) {
 }
 
 // TestToolCallValidationDeferred: with no tool_name, construction succeeds and
-// the ToolInvoker path works (a toolsec probe uses it), but the tool_call
+// the ToolInvoker path works (a mcptool probe uses it), but the tool_call
 // Generate path fails loudly at call time.
 func TestToolCallValidationDeferred(t *testing.T) {
 	url, _ := newHTTPTarget(t)

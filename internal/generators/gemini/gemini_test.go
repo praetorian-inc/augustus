@@ -177,6 +177,46 @@ func TestGeminiGenerator_Generate_WithMultipleImages(t *testing.T) {
 	assert.Equal(t, []string{"image/png", "image/jpeg", "image/webp"}, mimes)
 }
 
+func TestGeminiGenerator_Generate_WithDocument(t *testing.T) {
+	var capturedBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		capturedBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(mockGeminiResponse("I read the PDF"))
+	}))
+	defer server.Close()
+
+	g := newTestGenerator(t, server.URL)
+	conv := attempt.NewConversation()
+	doc := attempt.Document{Data: []byte("%PDF-1.4 fake"), MimeType: "application/pdf"}
+	conv.AddPromptMessage(attempt.NewUserMessageWithDocuments("summarize", []attempt.Document{doc}))
+
+	resp, err := g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	require.Len(t, resp, 1)
+	assert.Equal(t, "I read the PDF", resp[0].Content)
+
+	var req googleai.GenerateRequest
+	require.NoError(t, json.Unmarshal(capturedBody, &req))
+	require.Len(t, req.Contents, 1)
+	require.Len(t, req.Contents[0].Parts, 2, "expected text + inlineData document parts")
+
+	// Part 0: text
+	assert.Equal(t, "summarize", req.Contents[0].Parts[0].Text)
+	assert.Nil(t, req.Contents[0].Parts[0].InlineData)
+
+	// Part 1: inlineData (base64 of PDF bytes, application/pdf)
+	assert.Empty(t, req.Contents[0].Parts[1].Text)
+	require.NotNil(t, req.Contents[0].Parts[1].InlineData)
+	assert.Equal(t, "application/pdf", req.Contents[0].Parts[1].InlineData.MimeType)
+	assert.Equal(t, base64.StdEncoding.EncodeToString(doc.Data), req.Contents[0].Parts[1].InlineData.Data)
+}
+
+func TestGeminiGenerator_SupportsDocuments(t *testing.T) {
+	g := newTestGenerator(t, "http://example.invalid")
+	assert.True(t, g.SupportsDocuments())
+}
+
 func TestGeminiGenerator_Generate_WithSystemInstruction(t *testing.T) {
 	var capturedBody []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -15,7 +15,7 @@ Selected by `--format`, default `table` (`ScanCmd` in `cmd/augustus/cli.go`; eva
 
 | Format | Behavior |
 |---|---|
-| `table` (default) | Human-readable table to stdout: PROBE, DETECTOR, PASSED, SCORE, STATUS, plus an `Overall: N passed, M failed` summary. |
+| `table` (default) | Human-readable table to stdout: PROBE, DETECTOR, PASSED, SCORE, STATUS, plus an `Overall: N passed, M failed, K errored` summary. Errored probes render as `STATUS=ERROR` with no verdict. |
 | `json` | Single pretty-printed JSON object `{ "attempts": [...], "count": N }`. |
 | `jsonl` | One JSON object per line (`AttemptResult`), ideal for `jq`/line tools. |
 
@@ -50,6 +50,12 @@ Each attempt's verdict is computed by `results.Verdict()` (`pkg/results/results.
 - **`safe`** — no threshold-level detection
 
 `passed` is `true` only for `safe`; the summary reports `passed` / `review` / `failed` / `errored` as disjoint buckets that sum to the total.
+
+An `error` attempt never produced a verdict about the target (auth failure, 404, timeout, transport drop), so it is surfaced as a distinct **errored** outcome rather than passed or failed (LAB-4316):
+
+- It is **never** shown as `passed: true` / SAFE.
+- The `table`/`json`/`jsonl` summaries count it separately (`Summary.Errored`, `ProbeStats.Errored`); it is excluded from the passed/failed tally.
+- A run with any errored probe exits with a **distinct exit code `3`** (vs `0` clean, `1` runtime error, `2` usage), unless an operational error (e.g. a failed cleanup hook) also occurred, in which case the runtime-error exit `1` takes precedence.
 
 ### JSONL `AttemptResult` fields
 

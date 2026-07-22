@@ -296,10 +296,11 @@ func (g *Vertex) generateOne(ctx context.Context, conv *attempt.Conversation) (a
 }
 
 // conversationToContents converts an Augustus Conversation to Vertex AI contents.
-// Images on user turns are emitted as inlineData parts via the shared
-// googleai.BuildImageParts helper (same path as gemini.Gemini); an unset or
-// unsupported image MIME type returns an error rather than silently dropping
-// the attachment and running the probe as a text-only request.
+// Images and documents on user turns are emitted as inlineData parts via the
+// shared googleai.BuildImageParts / BuildDocumentParts helpers (same path as
+// gemini.Gemini); an unset or unsupported attachment MIME type returns an error
+// rather than silently dropping the attachment and running the probe as a
+// text-only request.
 func (g *Vertex) conversationToContents(conv *attempt.Conversation) ([]googleai.Content, error) {
 	contents := make([]googleai.Content, 0)
 
@@ -325,8 +326,8 @@ func (g *Vertex) conversationToContents(conv *attempt.Conversation) ([]googleai.
 			})
 		default:
 			// Standard user message: text part (if non-empty) followed by one
-			// inlineData part per image.
-			parts := make([]googleai.ContentPart, 0, 1+len(turn.Prompt.Images))
+			// inlineData part per image, then one inlineData part per document.
+			parts := make([]googleai.ContentPart, 0, 1+len(turn.Prompt.Images)+len(turn.Prompt.Documents))
 			if turn.Prompt.Content != "" {
 				parts = append(parts, googleai.ContentPart{Text: turn.Prompt.Content})
 			}
@@ -335,6 +336,11 @@ func (g *Vertex) conversationToContents(conv *attempt.Conversation) ([]googleai.
 				return nil, err
 			}
 			parts = append(parts, imgParts...)
+			docParts, err := googleai.BuildDocumentParts(turn.Prompt.Documents)
+			if err != nil {
+				return nil, err
+			}
+			parts = append(parts, docParts...)
 			contents = append(contents, googleai.Content{
 				Role:  "user",
 				Parts: parts,
@@ -376,6 +382,10 @@ func (g *Vertex) Name() string {
 // SupportsVision reports that the Vertex AI path transmits inlineData image
 // parts (Gemini vision). See types.VisionCapable.
 func (g *Vertex) SupportsVision() bool { return true }
+
+// SupportsDocuments reports that the Vertex AI path transmits inlineData
+// document (PDF) parts. See types.DocumentCapable.
+func (g *Vertex) SupportsDocuments() bool { return true }
 
 // Description returns a human-readable description.
 func (g *Vertex) Description() string {

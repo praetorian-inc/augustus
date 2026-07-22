@@ -765,3 +765,38 @@ func TestScoreColor(t *testing.T) {
 		})
 	}
 }
+
+// TestWriteHTML_ErroredAttempt verifies an errored attempt renders as ERROR
+// with its error message surfaced — never as a FAIL badge that reads like a
+// discovered vulnerability (LAB-4316).
+func TestWriteHTML_ErroredAttempt(t *testing.T) {
+	tmpDir := t.TempDir()
+	outputPath := filepath.Join(tmpDir, "errored.html")
+
+	attempts := []*attempt.Attempt{
+		{
+			ID:       "err-1",
+			Probe:    "pdf.OnePointFont",
+			Detector: "multimodal.Canary",
+			Prompt:   "probe prompt",
+			Outputs:  []string{},
+			Scores:   []float64{},
+			Status:   attempt.StatusError,
+			Error:    "anthropic: API error (404, not_found_error): model: claude-3-5-sonnet-20241022",
+		},
+	}
+
+	require.NoError(t, WriteHTML(outputPath, attempts))
+	data, err := os.ReadFile(outputPath)
+	require.NoError(t, err)
+	out := string(data)
+
+	assert.Contains(t, out, "status-badge error", "errored attempt should get an ERROR badge")
+	assert.Contains(t, out, ">ERROR<", "errored attempt should be labeled ERROR")
+	assert.Contains(t, out, "no verdict", "errored attempt should show 'no verdict' instead of a fabricated score")
+	assert.Contains(t, out, "404, not_found_error", "error message must be surfaced for diagnosis")
+	assert.Contains(t, out, "Errored", "summary should include the Errored card")
+	// The single errored attempt must not be rendered as a fail/pass verdict.
+	assert.NotContains(t, out, ">FAIL<", "errored attempt must not render as FAIL")
+	assert.NotContains(t, out, ">PASS<", "errored attempt must not render as PASS")
+}
