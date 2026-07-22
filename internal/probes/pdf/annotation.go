@@ -11,7 +11,10 @@ import (
 func init() { probes.Register("pdf.AnnotationInjection", newAnnotationInjection) }
 
 func newAnnotationInjection(cfg registry.Config) (probes.Prober, error) {
-	canary := resolveCanary(cfg)
+	canary, err := resolveCanary(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("pdf.AnnotationInjection: %w", err)
+	}
 	data, err := pdfbuild.AnnotationInjection(canary)
 	if err != nil {
 		return nil, fmt.Errorf("pdf.AnnotationInjection: %w", err)

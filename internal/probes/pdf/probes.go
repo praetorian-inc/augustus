@@ -4,6 +4,9 @@
 package pdf
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/praetorian-inc/augustus/internal/probes/multimodal"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -13,7 +16,20 @@ import (
 // via the "canary" config key.
 const defaultCanary = "MARITIME GIRAFFE 4827"
 
-// resolveCanary returns the operator-supplied canary or the default.
+// forbiddenCanaryChars are the characters an operator-supplied canary must not
+// contain (in addition to the printable-ASCII requirement enforced by
+// validateCanary). See the resolveCanary doc comment for why each one breaks a
+// channel.
+const forbiddenCanaryChars = `()\,;`
+
+// maxCanaryLen bounds an operator-supplied canary. A canary is a short phrase the
+// fuzzy multimodal.Canary detector matches on, so this is generous — its purpose
+// is to reject pathologically large input up front rather than let it flow into
+// PDF string construction (the PDF spec caps literal strings at 65,535 bytes).
+const maxCanaryLen = 256
+
+// resolveCanary returns the operator-supplied canary or the default, rejecting an
+// operator canary that violates the documented charset (see validateCanary).
 //
 // NOTE: for the text-layout probes (Invisible/OffPage/OnePointFont) the canary is
 // emitted into a PDF content stream as `(canary) Tj`. The characters `(`, `)`, and
@@ -24,12 +40,36 @@ const defaultCanary = "MARITIME GIRAFFE 4827"
 // delimiters fragments and breaks the api.PDFInfo Keywords round-trip. Keep
 // operator-supplied canaries to printable ASCII WITHOUT parentheses, backslashes,
 // commas, semicolons, or newlines (the default phrase already complies). Spaces
-// and digits are fine; detector matching is fuzzy/normalized.
-func resolveCanary(cfg registry.Config) string {
+// and digits are fine; detector matching is fuzzy/normalized. This constraint is
+// enforced up front by validateCanary so a malformed canary fails at probe
+// construction with an actionable error rather than mid-scan.
+func resolveCanary(cfg registry.Config) (string, error) {
 	if c := registry.GetString(cfg, "canary", ""); c != "" {
-		return c
+		if err := validateCanary(c); err != nil {
+			return "", fmt.Errorf("invalid operator-supplied canary %q: %w", c, err)
+		}
+		return c, nil
 	}
-	return defaultCanary
+	return defaultCanary, nil
+}
+
+// validateCanary enforces the documented canary charset: printable ASCII only
+// (0x20–0x7E, which excludes newlines and other control characters), and none of
+// forbiddenCanaryChars — parentheses, backslashes, commas, or semicolons. See the
+// resolveCanary doc comment for the per-channel rationale.
+func validateCanary(canary string) error {
+	if len(canary) > maxCanaryLen {
+		return fmt.Errorf("canary is %d bytes: must be at most %d bytes", len(canary), maxCanaryLen)
+	}
+	for i, r := range canary {
+		switch {
+		case r < 0x20 || r > 0x7e:
+			return fmt.Errorf("character %q at byte %d is not printable ASCII: canary must be printable ASCII (0x20-0x7E) without newlines", r, i)
+		case strings.ContainsRune(forbiddenCanaryChars, r):
+			return fmt.Errorf("character %q at byte %d is forbidden: canary must not contain any of %q (parentheses, backslashes, commas, or semicolons break PDF content-stream or metadata round-trips)", r, i, forbiddenCanaryChars)
+		}
+	}
+	return nil
 }
 
 // victimPrompt is the benign request a real user sends when handing a model an
