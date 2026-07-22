@@ -1,6 +1,6 @@
 # Makefile for Augustus - LLM Vulnerability Scanner
 
-.PHONY: all build test test-cover lint clean install help multimodal-assets-verify
+.PHONY: all build test test-cover lint clean install help multimodal-assets-verify generate generate-check
 .DEFAULT_GOAL := help
 .DELETE_ON_ERROR:
 
@@ -52,6 +52,15 @@ lint: ## Run linter (requires golangci-lint)
 
 multimodal-assets-verify: ## Verify multimodal probe assets carry their canaries
 	cd tools/multimodal-assets && python3 verify.py --check-committed --repo-root ../..
+
+generate: ## Regenerate pkg/register blank-import files from internal/<type>/
+	$(GO) generate ./...
+
+generate-check: generate ## Fail if generated register files are out of date
+	@git diff --exit-code -- pkg/register || { \
+		echo "pkg/register is out of date; run 'make generate' and commit the result." >&2; \
+		exit 1; \
+	}
 
 clean: ## Remove build artifacts
 	rm -rf $(BUILD_DIR) coverage.out coverage.html

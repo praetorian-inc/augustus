@@ -4,7 +4,7 @@
 // endpoint itself (Origin/Host validation, session-id quality, session
 // lifetime) that no MCP tool invocation could reach.
 //
-// It is the sibling of `internal/probes/toolsec/`, which houses probes
+// It is the sibling of `internal/probes/mcptool/`, which houses probes
 // that go THROUGH the MCP protocol via types.ToolInvoker to test tool-
 // backend behaviour (injection sinks, SSRF, path traversal). The two
 // packages target genuinely different surfaces and share only small
@@ -31,7 +31,7 @@ import (
 
 // randToken returns a random 16-hex-char token used for canary URLs and
 // per-run nonces in the probes' payloads. Duplicated from
-// internal/probes/toolsec/toolsec.go rather than shared via a common
+// internal/probes/mcptool/mcptool.go rather than shared via a common
 // util package — it's an 8-line function and cross-package imports for
 // utilities of this size don't earn their keep.
 func randToken() string {

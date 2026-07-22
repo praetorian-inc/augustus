@@ -233,7 +233,7 @@ func TestInsecureSkipVerify_TLSEndToEnd(t *testing.T) {
 }
 
 // TestMCPInventory_EnumeratesToolSurface (F7): the real MCPInventory enumeration
-// (which anchors the recon→toolsec chain) must read the server fingerprint and
+// (which anchors the recon→mcptool chain) must read the server fingerprint and
 // tool catalog from a live session.
 func TestMCPInventory_EnumeratesToolSurface(t *testing.T) {
 	url, _ := newHTTPTarget(t)

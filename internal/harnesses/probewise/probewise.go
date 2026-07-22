@@ -196,15 +196,25 @@ func (p *Probewise) Run(
 
 	allAttempts := results.Attempts
 
-	// Call evaluator if provided (even with partial results)
+	// Call evaluator if provided (even with partial results). An
+	// errProbesErrored result is a verdict signal (some attempts never reached
+	// the model); capture it but do not return yet, so genuine probe-level
+	// failures still get reported below (LAB-4316).
+	var evalErr error
 	if eval != nil && len(allAttempts) > 0 {
 		if err := eval.Evaluate(evalCtx, allAttempts); err != nil {
-			return fmt.Errorf("evaluation failed: %w", err)
+			evalErr = fmt.Errorf("evaluation failed: %w", err)
 		}
 	}
 
-	// Report any scan errors (probe failures or scan-level errors)
-	return reportScanErrors(&results, scanErr, allAttempts)
+	// Report any scan errors (probe failures or scan-level errors). These take
+	// precedence over the errored-attempts sentinel: a "N of M probes failed"
+	// report is more actionable than the no-verdict signal, and must not be
+	// masked when a run hits both.
+	if err := reportScanErrors(&results, scanErr, allAttempts); err != nil {
+		return err
+	}
+	return evalErr
 }
 
 // init registers the probewise harness with the global registry.
