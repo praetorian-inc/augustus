@@ -41,22 +41,45 @@ func (d *InjectionDetector) Description() string {
 	return "Flags tool outputs containing an injection canary marker, indicating the tool evaluated attacker-controlled input"
 }
 
-// Detect returns one score per output: 1.0 if any recorded canary marker appears
-// in the output, else 0.0. With no canary recorded it returns all-zero (cannot
-// conclude), never an error.
+// Detect returns one score per output. It flags an attempt as vulnerable (1.0)
+// when either signal fires:
+//
+//   - a recorded canary marker appears in an output — the tool evaluated an
+//     in-band computed-canary payload (eval / SSTI / shell arithmetic) and
+//     returned the product the probe planted; or
+//   - the probe recorded an out-of-band collector callback — the tool executed an
+//     injected OS command that fetched the canary URL. The callback covers both
+//     the blind case (nothing returned to the client) and the non-blind case (the
+//     command ran and its output came back), which is why the OOB payloads
+//     deliberately carry no reflection marker: the callback alone is sufficient
+//     and reflecting the collector body would false-positive on SSRF-like tools.
+//
+// With neither signal it returns all-zero (cannot conclude), never an error.
 func (d *InjectionDetector) Detect(_ context.Context, a *attempt.Attempt) ([]float64, error) {
-	scores := make([]float64, len(a.Outputs))
+	callback := metaBool(a, attempt.MetadataKeyInjectionOOBCallback)
 	markers := markersFrom(a)
-	if len(markers) == 0 {
-		return scores, nil
-	}
+
+	scores := make([]float64, len(a.Outputs))
+	reflected := false
 	for i, out := range a.Outputs {
 		for _, m := range markers {
 			if m != "" && strings.Contains(out, m) {
 				scores[i] = 1.0
+				reflected = true
 				break
 			}
 		}
+	}
+	if !callback || reflected {
+		return scores, nil
+	}
+	// Blind command injection: the OOB callback fired without an in-band marker.
+	if len(scores) == 0 {
+		// The tool returned no output at all — surface the finding as a single score.
+		return []float64{1.0}, nil
+	}
+	for i := range scores {
+		scores[i] = 1.0
 	}
 	return scores, nil
 }

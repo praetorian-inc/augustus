@@ -3,6 +3,8 @@ package mcptool
 import (
 	"context"
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -24,41 +26,68 @@ var (
 )
 
 // Injection tests a directly-invokable tool surface for code / command /
-// template injection. For every string parameter of every discovered tool it
-// sends computed-arithmetic canary payloads; a tool that evaluates a payload
-// returns the product (the marker), which never appears in the payload text — so
-// a tool that merely echoes input cannot trigger a false positive.
+// template injection. It sends two complementary payload families into every
+// string parameter of every discovered tool:
+//
+//   - In-band computed-arithmetic canaries (bare eval, SSTI, shell arithmetic):
+//     a tool that evaluates a payload returns the product (the marker), which
+//     never appears in the payload text — so a tool that merely echoes input
+//     cannot trigger a false positive.
+//   - Out-of-band OS-command payloads (OWASP MCP05): shell-metacharacter payloads
+//     that fetch a unique canary URL from a built-in collector. A tool that shells
+//     out triggers a callback, catching BLIND command injection (nothing returned
+//     to the client) as well as the non-blind case (the fetched body is reflected).
 //
 // The target must implement types.ToolInvoker; other targets are skipped.
 type Injection struct {
 	reconContext
-	canary canary
-	policy toolpolicy.Policy
+	canary       canary
+	policy       toolpolicy.Policy
+	listen       string        // OOB collector bind address
+	baseOverride string        // URL the target should use to reach the collector (optional)
+	wait         time.Duration // grace period for callbacks after sending
+	marker       string        // collector body (served on every hit; detection is by callback, not reflection)
 }
 
-// NewInjection constructs the probe with a fresh canary and the tool-safety
-// policy parsed from config (allow_destructive, tool_allowlist, tool_denylist).
+// NewInjection constructs the probe with a fresh canary, the tool-safety policy
+// parsed from config (allow_destructive, tool_allowlist, tool_denylist), and the
+// out-of-band collector settings (all defaulted so a localhost target works with
+// zero config).
 func NewInjection(cfg registry.Config) (probes.Prober, error) {
-	return &Injection{canary: newCanary(), policy: toolpolicy.New(cfg)}, nil
+	return &Injection{
+		canary:       newCanary(),
+		policy:       toolpolicy.New(cfg),
+		listen:       registry.GetString(cfg, "oob_listen", "127.0.0.1:0"),
+		baseOverride: registry.GetString(cfg, "oob_base_url", ""),
+		wait:         time.Duration(registry.GetInt(cfg, "oob_wait_seconds", 3)) * time.Second,
+		marker:       "AUGOOB" + randToken(),
+	}, nil
 }
 
 func (p *Injection) Name() string { return "mcptool.Injection" }
 
 func (p *Injection) Description() string {
-	return "Injects computed canary payloads into tool arguments to detect code/command/template injection sinks in directly-invokable tools"
+	return "Injects computed canary and out-of-band shell-command payloads into tool arguments to detect code/command/template injection sinks (including blind OS command injection) in directly-invokable tools"
 }
 
 func (p *Injection) Goal() string {
-	return "Determine whether any directly-invokable tool evaluates attacker-controlled arguments (RCE/SSTI/eval-class injection)"
+	return "Determine whether any directly-invokable tool evaluates or executes attacker-controlled arguments (RCE/SSTI/eval-class and OS command injection)"
 }
 
 func (p *Injection) GetPrimaryDetector() string { return "mcptool.Injection" }
 
-func (p *Injection) GetPrompts() []string { return p.canary.payloads }
+func (p *Injection) GetPrompts() []string {
+	out := append([]string(nil), p.canary.payloads...)
+	for _, f := range oobCmdFormats {
+		out = append(out, fmt.Sprintf(f, "<oob-canary-url>"))
+	}
+	return out
+}
 
-// Probe discovers the target's tools and injects canary payloads into each
-// string parameter. Returns no attempts (and no error) when the target has no
-// directly-invokable tool surface.
+// Probe discovers the target's tools and injects both payload families into each
+// string parameter. Returns an error (not a clean empty result) when the target
+// has no directly-invokable tool surface, so a non-tool target reads as
+// unsupported rather than as a silent "no injection sinks".
 func (p *Injection) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
 	// Invoking tools requires a live ToolInvoker; recon only supplies the
 	// catalog, so the payloads must be sent to the real target. A non-ToolInvoker
@@ -82,7 +111,25 @@ func (p *Injection) Probe(ctx context.Context, gen types.Generator) ([]*attempt.
 		return nil, nil
 	}
 
-	var attempts []*attempt.Attempt
+	// The collector receives out-of-band callbacks from blind command-injection
+	// sinks. Kept alive until after the callback grace period below.
+	col, err := startCollector(p.listen, p.baseOverride, p.marker)
+	if err != nil {
+		return nil, fmt.Errorf("mcptool.Injection: start OOB collector: %w", err)
+	}
+	defer col.close()
+
+	type pending struct {
+		a     *attempt.Attempt
+		token string
+	}
+
+	var (
+		attempts []*attempt.Attempt
+		pend     []pending
+	)
+
+sending:
 	for _, tool := range tools {
 		name, _ := tool["name"].(string)
 		if name == "" {
@@ -93,15 +140,57 @@ func (p *Injection) Probe(ctx context.Context, gen types.Generator) ([]*attempt.
 			if !isStringParam(param.typ) {
 				continue
 			}
+			// In-band computed-canary payloads (eval / SSTI / shell arithmetic).
 			for _, payload := range p.canary.payloads {
+				// Stop issuing new calls the moment the context is done; the attempts
+				// already sent are still recorded and their callbacks reconciled below.
+				// Checked per-call (not per-param) so cancellation doesn't emit a burst
+				// of immediately-erroring attempts for the rest of the param's payloads.
+				if ctx.Err() != nil {
+					break sending
+				}
 				attempts = append(attempts, p.callOne(ctx, inv, name, param.name, params, payload))
+			}
+			// Out-of-band OS-command payloads (blind + non-blind command injection).
+			for _, f := range oobCmdFormats {
+				if ctx.Err() != nil {
+					break sending
+				}
+				token := randToken()
+				proofURL := shellProofURL(col.url(token), token)
+				a := p.callOOB(ctx, inv, name, param.name, params, f, proofURL)
+				pend = append(pend, pending{a: a, token: token})
+				attempts = append(attempts, a)
+			}
+		}
+	}
+
+	// Give the target time to make out-of-band callbacks, then reconcile each
+	// out-of-band attempt with what the collector saw.
+	if len(pend) > 0 {
+		p.waitForCallbacks(ctx)
+		for _, item := range pend {
+			hit := col.wasHit(item.token)
+			item.a.Metadata[attempt.MetadataKeyInjectionOOBCallback] = hit
+			// A payload that executed (callback fired) but then hung or errored the
+			// tool call is still a confirmed finding. Left as StatusError it would be
+			// classified "error", not "vuln" (results.Verdict maps StatusError ->
+			// error regardless of score), silently burying a blind RCE. Preserve the
+			// original error for the reviewer and revert to complete so the callback
+			// score produces a VULN verdict.
+			if hit && item.a.Status == attempt.StatusError {
+				if item.a.Error != "" {
+					item.a.Metadata["mcptool.injection_oob_call_error"] = item.a.Error
+				}
+				item.a.Complete()
 			}
 		}
 	}
 	return attempts, nil
 }
 
-// callOne invokes a single (tool, param, payload) and records the attempt.
+// callOne invokes a single (tool, param, payload) with an in-band computed canary
+// and records the attempt.
 func (p *Injection) callOne(ctx context.Context, inv types.ToolInvoker, tool, param string, params []paramInfo, payload string) *attempt.Attempt {
 	a := attempt.New(payload)
 	a.Probe = p.Name()
@@ -118,4 +207,68 @@ func (p *Injection) callOne(ctx context.Context, inv types.ToolInvoker, tool, pa
 	a.AddOutput(res.Text)
 	a.Complete()
 	return a
+}
+
+// callOOB invokes a single (tool, param) with a shell-command-injection payload
+// that fetches the collector's (shell-proof) canary URL, and records the attempt.
+//
+// Detection is by out-of-band callback ONLY — deliberately not by reflecting the
+// collector body. The collector answers every /oob/<token> hit with the same
+// marker, so a tool that merely extracts and fetches the URL from the argument
+// text (an SSRF / link-preview sink, not a command sink) would get that marker
+// back and be misclassified as command injection. The callback path avoids this:
+// the URL's token carries a shell-proof marker (see shellProofURL) that only a
+// real shell resolves to the tracked token, and the callback catches BOTH the
+// blind case (nothing returned) and the non-blind case (a shell ran curl and the
+// callback still fired), so dropping reflection loses no true positives.
+func (p *Injection) callOOB(ctx context.Context, inv types.ToolInvoker, tool, param string, params []paramInfo, format, canaryURL string) *attempt.Attempt {
+	payload := fmt.Sprintf(format, canaryURL)
+
+	a := attempt.New(payload)
+	a.Probe = p.Name()
+	a.Detector = p.GetPrimaryDetector()
+	a.Metadata[attempt.MetadataKeyInjectionOOBURL] = canaryURL
+	a.Metadata["mcptool.tool"] = tool
+	a.Metadata["mcptool.param"] = param
+
+	res, err := inv.CallTool(ctx, tool, benignArgs(params, param, payload))
+	if err != nil {
+		a.SetError(err)
+		return a
+	}
+	a.AddOutput(res.Text)
+	a.Complete()
+	return a
+}
+
+// shellProofURL rewrites a collector canary URL so that only actual shell
+// execution reproduces the tracked token. It splices an empty command
+// substitution ("$()") into the middle of the token: a POSIX shell evaluating the
+// argument collapses "$()" to nothing, requesting the real /oob/<token> path the
+// collector tracks — command-execution-specific proof a plain URL fetch cannot
+// forge. A tool that instead extracts and fetches the literal URL from the
+// argument text requests a "...$()..." path, whose token does not match the
+// tracked one, so an SSRF / link-fetch sink cannot masquerade as command
+// injection. (On Windows cmd.exe "$()" is not a no-op, so cmd-only sinks may be
+// missed — a false negative, the safe direction.)
+func shellProofURL(url, token string) string {
+	if len(token) < 2 {
+		return url
+	}
+	mid := len(token) / 2
+	obfuscated := token[:mid] + "$()" + token[mid:]
+	return strings.Replace(url, token, obfuscated, 1)
+}
+
+// waitForCallbacks sleeps for the grace period, honoring context cancellation.
+func (p *Injection) waitForCallbacks(ctx context.Context) {
+	if p.wait <= 0 {
+		return
+	}
+	t := time.NewTimer(p.wait)
+	defer t.Stop()
+	select {
+	case <-t.C:
+	case <-ctx.Done():
+	}
 }

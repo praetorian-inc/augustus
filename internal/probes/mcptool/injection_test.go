@@ -2,6 +2,9 @@ package mcptool
 
 import (
 	"context"
+	"io"
+	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -162,6 +165,149 @@ func (plainGen) Generate(context.Context, *attempt.Conversation, int) ([]attempt
 func (plainGen) ClearHistory()       {}
 func (plainGen) Name() string        { return "plain" }
 func (plainGen) Description() string { return "plain" }
+
+// testURLRE extracts a URL from argument text the way a naive URL-fetching tool
+// would: a literal scan with no shell processing. It stops at the shell-proof
+// "$(" that shellProofURL splices into the token, so the extracted URL resolves
+// to a different path than the shell-collapsed one.
+var testURLRE = regexp.MustCompile("https?://[^\\s`)$\"']+")
+
+func newInjectionProbeCfg(t *testing.T, cfg registry.Config) *Injection {
+	t.Helper()
+	p, err := NewInjection(cfg)
+	if err != nil {
+		t.Fatalf("NewInjection: %v", err)
+	}
+	return p.(*Injection)
+}
+
+// shellCollapse mimics the one piece of POSIX shell tokenization the OOB proof
+// relies on: an empty command substitution "$()" (and empty quotes) collapses to
+// nothing. Applying it before extracting the URL models a real shell resolving
+// the payload — as subprocess(shell=True) / os.system would.
+func shellCollapse(s string) string {
+	return strings.NewReplacer("$()", "", "''", "", `""`, "").Replace(s)
+}
+
+// shellExecTool simulates a tool whose string argument reaches a shell: it
+// collapses the shell-proof token, then fetches any embedded URL (as the injected
+// `curl` would). When blind is true the output is discarded (the sink executed but
+// returned nothing); otherwise the fetched body is returned. Arithmetic canary
+// payloads carry no URL and return a benign "ok".
+func shellExecTool(blind bool) *mockTarget {
+	return &mockTarget{
+		tools: []map[string]any{stringTool("run", "cmd")},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			cmd, _ := args["cmd"].(string)
+			u := testURLRE.FindString(shellCollapse(cmd))
+			if u == "" {
+				return types.ToolResult{Text: "ok"}
+			}
+			body := fetch(u)
+			if blind {
+				return types.ToolResult{Text: "diagnostic complete"}
+			}
+			return types.ToolResult{Text: body}
+		},
+	}
+}
+
+// urlFetchTool simulates an SSRF / link-preview sink: it extracts and fetches a
+// URL from the argument text WITHOUT any shell processing. It must NOT be
+// classified as command injection — the shell-proof token means the literal URL
+// it fetches resolves to an untracked path, so no callback is attributed.
+func urlFetchTool() *mockTarget {
+	return &mockTarget{
+		tools: []map[string]any{stringTool("fetch", "text")},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			text, _ := args["text"].(string)
+			u := testURLRE.FindString(text) // literal extraction, no shell collapse
+			if u == "" {
+				return types.ToolResult{Text: "no url"}
+			}
+			return types.ToolResult{Text: fetch(u)}
+		},
+	}
+}
+
+func fetch(u string) string {
+	resp, err := http.Get(u) //nolint:gosec,noctx // localhost test collector
+	if err != nil {
+		return "fetch error"
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	return string(body)
+}
+
+func sawOOBCallback(attempts []*attempt.Attempt) bool {
+	for _, a := range attempts {
+		if v, ok := a.GetMetadata(attempt.MetadataKeyInjectionOOBCallback); ok {
+			if b, _ := v.(bool); b {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// TestInjection_DetectsCommandInjectionViaOOBCallback: a tool that shells out is
+// caught via the out-of-band callback, whether or not it returns the output.
+func TestInjection_DetectsCommandInjectionViaOOBCallback(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		blind bool
+	}{
+		{"non_blind", false},
+		{"blind", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newInjectionProbeCfg(t, registry.Config{"oob_wait_seconds": 0})
+			attempts, err := p.Probe(context.Background(), shellExecTool(tc.blind))
+			if err != nil {
+				t.Fatalf("Probe: %v", err)
+			}
+			if !sawOOBCallback(attempts) {
+				t.Error("expected an OOB callback (command injection) to be recorded")
+			}
+		})
+	}
+}
+
+// TestInjection_NoOOBCallbackOnURLFetch is the key false-positive guard for the
+// Codex finding: a tool that fetches a URL out of the argument (SSRF / link
+// preview) but never runs a shell must not produce a command-injection callback,
+// because the shell-proof token it fetches resolves to an untracked path.
+func TestInjection_NoOOBCallbackOnURLFetch(t *testing.T) {
+	p := newInjectionProbeCfg(t, registry.Config{"oob_wait_seconds": 0})
+	attempts, err := p.Probe(context.Background(), urlFetchTool())
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if sawOOBCallback(attempts) {
+		t.Error("URL-fetching (SSRF-like) tool triggered a false command-injection callback")
+	}
+}
+
+// TestInjection_NoOOBCallbackOnEcho: a tool that echoes its argument without
+// shelling out must not trigger any callback — no false command-injection finding.
+func TestInjection_NoOOBCallbackOnEcho(t *testing.T) {
+	p := newInjectionProbeCfg(t, registry.Config{"oob_wait_seconds": 0})
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("echo", "message")},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			msg, _ := args["message"].(string)
+			return types.ToolResult{Text: "you said: " + msg}
+		},
+	}
+	attempts, err := p.Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if sawOOBCallback(attempts) {
+		t.Error("echo tool triggered a false OOB callback")
+	}
+}
 
 func TestToolParams(t *testing.T) {
 	params := toolParams(stringTool("t", "q"))

@@ -31,6 +31,16 @@ const (
 	// MetadataKeySSRFOOBURL (string) is the canary URL injected for this attempt.
 	MetadataKeySSRFOOBURL = "mcptool.ssrf_oob_url"
 
+	// MetadataKeyInjectionOOBCallback (bool) records whether the mcptool.Injection
+	// probe's out-of-band collector received a callback for a shell-command
+	// injection payload's canary URL — proof the tool executed an injected OS
+	// command that fetched the URL, including the blind case where the tool
+	// returns no output. Read by the mcptool.Injection detector.
+	MetadataKeyInjectionOOBCallback = "mcptool.injection_oob_callback"
+	// MetadataKeyInjectionOOBURL (string) is the canary URL embedded in the
+	// command-injection payload for this attempt.
+	MetadataKeyInjectionOOBURL = "mcptool.injection_oob_url"
+
 	// MetadataKeyBOLAID (string) is the victim object identifier the mcptool.BOLA
 	// probe called a getter with under the attacker's identity.
 	MetadataKeyBOLAID = "mcptool.bola.id"
