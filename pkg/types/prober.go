@@ -31,6 +31,37 @@ type ProbeMetadata interface {
 	GetPrompts() []string
 }
 
+// RiskInfo is a probe's curated security write-up for the vulnerability it
+// detects: the vulnerability description and its impact, remediation guidance,
+// newline-separated reference URLs, and a taxonomy-mapping block (e.g. CWE ids).
+// Keeping it on the probe lets a finding's definition live next to the probe
+// logic rather than being duplicated and maintained by each consumer.
+type RiskInfo struct {
+	// Description explains the vulnerability the probe detects (not the probe's
+	// mechanics — that is Description() on ProbeMetadata).
+	Description string
+	// Impact describes what an attacker gains when the vulnerability is present.
+	Impact string
+	// Recommendation is the remediation guidance.
+	Recommendation string
+	// References is a newline-separated list of reference URLs.
+	References string
+	// Taxonomies is a taxonomy-mapping block (e.g. "- cwe: 94\n- cwe: 95").
+	Taxonomies string
+}
+
+// RiskDescriber is an optional interface for probes that carry a curated
+// security write-up (RiskInfo) for the vulnerability they detect. Consumers
+// building a finding/risk definition check for it via type assertion:
+//
+//	if rd, ok := prober.(RiskDescriber); ok { info := rd.RiskInfo(); ... }
+//
+// Probes that don't implement it fall back to the generic ProbeMetadata
+// Description/Goal.
+type RiskDescriber interface {
+	RiskInfo() RiskInfo
+}
+
 // ProbeDetectorConfig is an optional interface for probes that carry
 // per-probe detector configuration overrides.
 // When a probe implements this interface and GetDetectorConfig() returns a

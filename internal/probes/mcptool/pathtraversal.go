@@ -158,6 +158,19 @@ func NewPathTraversal(cfg registry.Config) (probes.Prober, error) {
 
 func (p *PathTraversal) Name() string { return "mcptool.PathTraversal" }
 
+var _ types.RiskDescriber = (*PathTraversal)(nil)
+
+// RiskInfo is the curated security write-up for this probe's finding.
+func (p *PathTraversal) RiskInfo() types.RiskInfo {
+	return types.RiskInfo{
+		Description:    "A directly-invokable MCP tool exposes a filesystem-path parameter that is not confined to its intended directory, allowing access to files outside the sandbox — including via prefix-preserving payloads that defeat a naive startsWith check.",
+		Impact:         "A caller can read files the tool's process can access beyond the intended directory. Where the parameter feeds a write, it also allows creating or overwriting files at chosen paths.",
+		Recommendation: "Canonicalize the path (absolute, symlinks resolved) and reject it unless it resolves within an allowlisted base directory — compare the resolved path, not the raw string. Prefer opaque server-side file identifiers over caller-supplied paths, and run the tool with least privilege.",
+		References:     "https://cwe.mitre.org/data/definitions/22.html\nhttps://cwe.mitre.org/data/definitions/73.html\nhttps://owasp.org/www-community/attacks/Path_Traversal",
+		Taxonomies:     "- cwe: 22\n- cwe: 23\n- cwe: 73",
+	}
+}
+
 func (p *PathTraversal) Description() string {
 	return "Tests directly-invokable tools for filesystem path traversal. Read-only tools get /etc/passwd-class payloads detected via file-content signatures; write-capable tools get novel /tmp/proof-<canary> payloads detected via canary echo — non-destructive proof of arbitrary-path writes without overwriting sensitive files."
 }

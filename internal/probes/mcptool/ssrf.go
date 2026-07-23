@@ -60,6 +60,19 @@ func NewSSRF(cfg registry.Config) (probes.Prober, error) {
 
 func (p *SSRF) Name() string { return "mcptool.SSRF" }
 
+var _ types.RiskDescriber = (*SSRF)(nil)
+
+// RiskInfo is the curated security write-up for this probe's finding.
+func (p *SSRF) RiskInfo() types.RiskInfo {
+	return types.RiskInfo{
+		Description:    "A directly-invokable MCP tool issues a network request to a URL taken from its arguments without restricting the destination (server-side request forgery).",
+		Impact:         "A caller can direct outbound requests from the tool's host, including to internal services and cloud metadata endpoints (e.g. 169.254.169.254) that are otherwise unreachable.",
+		Recommendation: "Allowlist request destinations by scheme, host, and port; reject private, link-local, and cloud-metadata addresses; re-resolve DNS after validation to defeat rebinding; disable redirects to unvetted hosts; and apply egress filtering on the tool host.",
+		References:     "https://cwe.mitre.org/data/definitions/918.html\nhttps://owasp.org/www-community/attacks/Server_Side_Request_Forgery",
+		Taxonomies:     "- cwe: 918",
+	}
+}
+
 func (p *SSRF) Description() string {
 	return "Injects out-of-band canary URLs into URL-like tool arguments and detects server-side request forgery via callback (blind) or reflected content (non-blind)"
 }

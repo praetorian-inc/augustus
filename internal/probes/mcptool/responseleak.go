@@ -92,6 +92,19 @@ func NewResponseLeak(cfg registry.Config) (probes.Prober, error) {
 
 func (p *ResponseLeak) Name() string { return "mcptool.ResponseLeak" }
 
+var _ types.RiskDescriber = (*ResponseLeak)(nil)
+
+// RiskInfo is the curated security write-up for this probe's finding.
+func (p *ResponseLeak) RiskInfo() types.RiskInfo {
+	return types.RiskInfo{
+		Description:    "A directly-invokable MCP tool returns credentials or secrets in its response — for example in verbose errors, debug output, or echoed configuration.",
+		Impact:         "A caller can collect API keys, tokens, or connection strings the tool exposes and reuse them against the systems those credentials protect.",
+		Recommendation: "Keep secrets out of tool output: return generic errors, disable debug/verbose responses in production, and redact credential-shaped values before returning configuration or diagnostics. Scope each tool's own credentials to least privilege so a leak is contained.",
+		References:     "https://cwe.mitre.org/data/definitions/200.html\nhttps://cwe.mitre.org/data/definitions/209.html\nhttps://cwe.mitre.org/data/definitions/532.html\nhttps://owasp.org/www-project-top-10-for-large-language-model-applications/",
+		Taxonomies:     "- cwe: 200\n- cwe: 209\n- cwe: 532",
+	}
+}
+
 func (p *ResponseLeak) Description() string {
 	return "Invokes each tool with inputs that surface secrets in the response (verbose errors, debug output, echoed config) and scores responses for exposed credentials"
 }

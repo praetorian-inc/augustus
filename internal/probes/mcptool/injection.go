@@ -66,6 +66,19 @@ func NewInjection(cfg registry.Config) (probes.Prober, error) {
 
 func (p *Injection) Name() string { return "mcptool.Injection" }
 
+var _ types.RiskDescriber = (*Injection)(nil)
+
+// RiskInfo is the curated security write-up for this probe's finding.
+func (p *Injection) RiskInfo() types.RiskInfo {
+	return types.RiskInfo{
+		Description:    "A directly-invokable MCP tool passes attacker-controlled arguments to a code, command, or template evaluation sink instead of treating them as data.",
+		Impact:         "A caller who can invoke the tool can run code, OS commands, or template expressions in the tool's process, bounded by that process's privileges.",
+		Recommendation: "Don't pass tool arguments to eval/exec, a shell, or a template engine. Parse them with a restricted parser (e.g. an arithmetic-only grammar or ast.literal_eval), validate against an allowlist, and run tools with least privilege.",
+		References:     "https://cwe.mitre.org/data/definitions/94.html\nhttps://cwe.mitre.org/data/definitions/95.html\nhttps://owasp.org/www-project-top-10-for-large-language-model-applications/",
+		Taxonomies:     "- cwe: 94\n- cwe: 95\n- cwe: 78",
+	}
+}
+
 func (p *Injection) Description() string {
 	return "Injects computed canary and out-of-band shell-command payloads into tool arguments to detect code/command/template injection sinks (including blind OS command injection) in directly-invokable tools"
 }
