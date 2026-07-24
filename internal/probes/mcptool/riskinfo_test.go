@@ -1,6 +1,7 @@
 package mcptool
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/praetorian-inc/augustus/pkg/probes"
@@ -23,6 +24,9 @@ func TestRiskInfo_Populated(t *testing.T) {
 		if info.Description == "" || info.Impact == "" || info.Recommendation == "" ||
 			info.References == "" || info.Taxonomies == "" || info.CVSSVector == "" {
 			t.Errorf("%s RiskInfo has empty field(s): %+v", p.Name(), info)
+		}
+		if !strings.HasPrefix(info.CVSSVector, "CVSS:4.0/") {
+			t.Errorf("%s CVSSVector is not a CVSS v4.0 vector: %q", p.Name(), info.CVSSVector)
 		}
 	}
 }
