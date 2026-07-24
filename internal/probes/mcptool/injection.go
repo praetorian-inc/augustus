@@ -76,6 +76,7 @@ func (p *Injection) RiskInfo() types.RiskInfo {
 		Recommendation: "Don't pass tool arguments to eval/exec, a shell, or a template engine. Parse them with a restricted parser (e.g. an arithmetic-only grammar or ast.literal_eval), validate against an allowlist, and run tools with least privilege.",
 		References:     "https://cwe.mitre.org/data/definitions/94.html\nhttps://cwe.mitre.org/data/definitions/95.html\nhttps://owasp.org/www-project-top-10-for-large-language-model-applications/",
 		Taxonomies:     "- cwe: 94\n- cwe: 95\n- cwe: 78",
+		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
 	}
 }
 

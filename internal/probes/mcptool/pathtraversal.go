@@ -168,6 +168,7 @@ func (p *PathTraversal) RiskInfo() types.RiskInfo {
 		Recommendation: "Canonicalize the path (absolute, symlinks resolved) and reject it unless it resolves within an allowlisted base directory — compare the resolved path, not the raw string. Prefer opaque server-side file identifiers over caller-supplied paths, and run the tool with least privilege.",
 		References:     "https://cwe.mitre.org/data/definitions/22.html\nhttps://cwe.mitre.org/data/definitions/73.html\nhttps://owasp.org/www-community/attacks/Path_Traversal",
 		Taxonomies:     "- cwe: 22\n- cwe: 23\n- cwe: 73",
+		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N",
 	}
 }
 

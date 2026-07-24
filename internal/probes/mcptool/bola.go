@@ -71,6 +71,7 @@ func (p *BOLA) RiskInfo() types.RiskInfo {
 		Recommendation: "Check ownership on every access — scope each lookup to the caller's identity (filter by owner/tenant server-side) — and return an identical not-found for objects the caller may not access. Don't rely on identifier unpredictability, and apply the same check to every tool that takes an object identifier.",
 		References:     "https://cwe.mitre.org/data/definitions/639.html\nhttps://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/",
 		Taxonomies:     "- cwe: 639\n- cwe: 284\n- cwe: 285",
+		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N",
 	}
 }
 

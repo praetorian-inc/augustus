@@ -70,6 +70,7 @@ func (p *SSRF) RiskInfo() types.RiskInfo {
 		Recommendation: "Allowlist request destinations by scheme, host, and port; reject private, link-local, and cloud-metadata addresses; re-resolve DNS after validation to defeat rebinding; disable redirects to unvetted hosts; and apply egress filtering on the tool host.",
 		References:     "https://cwe.mitre.org/data/definitions/918.html\nhttps://owasp.org/www-community/attacks/Server_Side_Request_Forgery",
 		Taxonomies:     "- cwe: 918",
+		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N",
 	}
 }
 

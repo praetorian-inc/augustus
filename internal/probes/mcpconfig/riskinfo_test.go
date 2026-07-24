@@ -21,7 +21,7 @@ func TestRiskInfo_Populated(t *testing.T) {
 		}
 		info := rd.RiskInfo()
 		if info.Description == "" || info.Impact == "" || info.Recommendation == "" ||
-			info.References == "" || info.Taxonomies == "" {
+			info.References == "" || info.Taxonomies == "" || info.CVSSVector == "" {
 			t.Errorf("%s RiskInfo has empty field(s): %+v", p.Name(), info)
 		}
 	}

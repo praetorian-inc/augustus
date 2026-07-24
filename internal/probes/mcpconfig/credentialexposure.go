@@ -130,6 +130,7 @@ func (p *CredentialExposure) RiskInfo() types.RiskInfo {
 		Recommendation: "Keep credentials out of committed configuration: load them from a secrets manager or injected environment at runtime, reference them indirectly rather than inlining values, and rotate any secret that has already been committed. Scope each credential to least privilege.",
 		References:     "https://cwe.mitre.org/data/definitions/798.html\nhttps://cwe.mitre.org/data/definitions/312.html\nhttps://owasp.org/www-project-top-10-for-large-language-model-applications/",
 		Taxonomies:     "- cwe: 798\n- cwe: 312\n- cwe: 200",
+		CVSSVector:     "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N",
 	}
 }
 

@@ -91,6 +91,7 @@ func (p *SSESessionHijack) RiskInfo() types.RiskInfo {
 		Recommendation: "Bind each session to its connection and an authenticated principal, and require a secret credential on every request rather than the session ID alone. Generate IDs from a secure RNG, expire them when the stream closes and after an idle timeout, and reject any ID replayed on a different connection.",
 		References:     "https://cwe.mitre.org/data/definitions/287.html\nhttps://cwe.mitre.org/data/definitions/330.html\nhttps://cwe.mitre.org/data/definitions/613.html\nhttps://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html",
 		Taxonomies:     "- cwe: 287\n- cwe: 330\n- cwe: 613",
+		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N",
 	}
 }
 

@@ -173,6 +173,7 @@ func (p *OriginValidation) RiskInfo() types.RiskInfo {
 		Recommendation: "Allowlist permitted Origin and Host values on every MCP HTTP/SSE request and reject anything else. Don't reflect an arbitrary origin into Access-Control-Allow-Origin, and never pair a reflected origin with Access-Control-Allow-Credentials. Require a per-session token a cross-origin page can't obtain.",
 		References:     "https://cwe.mitre.org/data/definitions/346.html\nhttps://cwe.mitre.org/data/definitions/350.html\nhttps://cwe.mitre.org/data/definitions/942.html\nhttps://nvd.nist.gov/vuln/detail/CVE-2025-49596",
 		Taxonomies:     "- cwe: 346\n- cwe: 350\n- cwe: 942",
+		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:A/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N",
 	}
 }
 

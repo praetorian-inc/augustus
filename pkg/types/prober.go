@@ -48,6 +48,10 @@ type RiskInfo struct {
 	References string
 	// Taxonomies is a taxonomy-mapping block (e.g. "- cwe: 94\n- cwe: 95").
 	Taxonomies string
+	// CVSSVector is the CVSS v4.0 vector string for the vulnerability (e.g.
+	// "CVSS:4.0/AV:N/AC:L/..."). Consumers derive the numeric score from it.
+	// Conservatively scored; optional — empty when the probe has no curated severity.
+	CVSSVector string
 }
 
 // RiskDescriber is an optional interface for probes that carry a curated

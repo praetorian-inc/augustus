@@ -102,6 +102,7 @@ func (p *ResponseLeak) RiskInfo() types.RiskInfo {
 		Recommendation: "Keep secrets out of tool output: return generic errors, disable debug/verbose responses in production, and redact credential-shaped values before returning configuration or diagnostics. Scope each tool's own credentials to least privilege so a leak is contained.",
 		References:     "https://cwe.mitre.org/data/definitions/200.html\nhttps://cwe.mitre.org/data/definitions/209.html\nhttps://cwe.mitre.org/data/definitions/532.html\nhttps://owasp.org/www-project-top-10-for-large-language-model-applications/",
 		Taxonomies:     "- cwe: 200\n- cwe: 209\n- cwe: 532",
+		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N",
 	}
 }
 
