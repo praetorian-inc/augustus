@@ -81,6 +81,20 @@ func NewSSESessionHijack(cfg registry.Config) (probes.Prober, error) {
 
 func (p *SSESessionHijack) Name() string { return "mcptransport.SSESessionHijack" }
 
+var _ types.RiskDescriber = (*SSESessionHijack)(nil)
+
+// RiskInfo is the curated security write-up for this probe's finding.
+func (p *SSESessionHijack) RiskInfo() types.RiskInfo {
+	return types.RiskInfo{
+		Description:    "An MCP server accepts its SSE session identifier as a bearer token that is not bound to the connection or lifetime it was issued for — the ID is honored when replayed on a separate connection or after its stream has closed.",
+		Impact:         "Someone who obtains a session ID — from logs, a Referer header, a proxy, or network interception — can reuse it to act with the victim's authority over the MCP tool surface.",
+		Recommendation: "Bind each session to its connection and an authenticated principal, and require a secret credential on every request rather than the session ID alone. Expire sessions when the stream closes and after an idle timeout, and reject any ID replayed on a different connection.",
+		References:     "https://cwe.mitre.org/data/definitions/287.html\nhttps://cwe.mitre.org/data/definitions/613.html\nhttps://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html",
+		Taxonomies:     "- cwe: 287\n- cwe: 613",
+		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N",
+	}
+}
+
 func (p *SSESessionHijack) Description() string {
 	return "Tests MCP SSE session-management for hijack primitives: obtains one valid session ID via a normal SSE handshake, then replays it off the original TCP connection (with stream still open — the true cross-connection replay test) and again after the stream closes. If either replay is accepted, the ID is a naked bearer token that any attacker who obtains it can use to drive the MCP tool surface."
 }

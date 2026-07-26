@@ -163,6 +163,20 @@ func NewOriginValidation(cfg registry.Config) (probes.Prober, error) {
 
 func (p *OriginValidation) Name() string { return "mcptransport.OriginValidation" }
 
+var _ types.RiskDescriber = (*OriginValidation)(nil)
+
+// RiskInfo is the curated security write-up for this probe's finding.
+func (p *OriginValidation) RiskInfo() types.RiskInfo {
+	return types.RiskInfo{
+		Description:    "An MCP HTTP/SSE endpoint does not validate the Origin (and Host) header the MCP specification requires it to enforce, accepting requests with foreign Origin/Host values a compliant server would reject. Because the endpoint binds to a loopback or private-network address, this is a precondition for DNS rebinding.",
+		Impact:         "A web page the victim visits can reach the local MCP endpoint from the victim's browser and drive its tool surface from outside the assumed local-only boundary. Where credentialed CORS reflection is present, the responses are also exposed to the attacker's origin.",
+		Recommendation: "Allowlist permitted Origin and Host values on every MCP HTTP/SSE request and reject anything else. Don't reflect an arbitrary origin into Access-Control-Allow-Origin, and never pair a reflected origin with Access-Control-Allow-Credentials. Require a per-session token a cross-origin page can't obtain.",
+		References:     "https://cwe.mitre.org/data/definitions/346.html\nhttps://cwe.mitre.org/data/definitions/350.html\nhttps://cwe.mitre.org/data/definitions/942.html\nhttps://nvd.nist.gov/vuln/detail/CVE-2025-49596",
+		Taxonomies:     "- cwe: 346\n- cwe: 350\n- cwe: 942",
+		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:A/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N",
+	}
+}
+
 func (p *OriginValidation) Description() string {
 	return "Tests MCP HTTP endpoints for missing Origin/Host validation — the mitigation MCP servers must implement to block browser DNS-rebinding attacks (CVE-2025-49596 class). Classifies the target host at probe time: loopback / RFC1918-LAN targets get full-VULN scoring because they are the browser-driven-rebinding attack path; public endpoints get inconclusive scoring because the same wire finding is CSRF-class rather than rebinding-class there, and exploitability depends on cookie/auth deployment context the probe cannot inspect."
 }

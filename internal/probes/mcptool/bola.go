@@ -61,6 +61,20 @@ func NewBOLA(cfg registry.Config) (probes.Prober, error) {
 
 func (p *BOLA) Name() string { return "mcptool.BOLA" }
 
+var _ types.RiskDescriber = (*BOLA)(nil)
+
+// RiskInfo is the curated security write-up for this probe's finding.
+func (p *BOLA) RiskInfo() types.RiskInfo {
+	return types.RiskInfo{
+		Description:    "A directly-invokable MCP tool returns an object by identifier without checking that the caller owns it (broken object-level authorization).",
+		Impact:         "A caller can read other identities' objects by supplying their identifiers, which are often sequential or enumerable. Where a mutating tool shares the flaw, the same gap allows cross-identity modification.",
+		Recommendation: "Check ownership on every access — scope each lookup to the caller's identity (filter by owner/tenant server-side) — and return an identical not-found for objects the caller may not access. Don't rely on identifier unpredictability, and apply the same check to every tool that takes an object identifier.",
+		References:     "https://cwe.mitre.org/data/definitions/639.html\nhttps://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/",
+		Taxonomies:     "- cwe: 639\n- cwe: 284\n- cwe: 285",
+		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N",
+	}
+}
+
 func (p *BOLA) Description() string {
 	return "Replays other identities' confirmed object identifiers against the attacker's session, recording attack + positive/negative control responses for the mcptool.BOLA detector to adjudicate a cross-tenant object read (BOLA)"
 }

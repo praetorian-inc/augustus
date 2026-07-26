@@ -120,6 +120,20 @@ func (p *CredentialExposure) informational() *attempt.Attempt {
 // Name returns the fully qualified probe name.
 func (p *CredentialExposure) Name() string { return probeName }
 
+var _ types.RiskDescriber = (*CredentialExposure)(nil)
+
+// RiskInfo is the curated security write-up for this probe's finding.
+func (p *CredentialExposure) RiskInfo() types.RiskInfo {
+	return types.RiskInfo{
+		Description:    "An MCP server's configuration, .env files, or connection strings contain hard-coded credentials — provider API keys, secret-named values, or URI userinfo.",
+		Impact:         "Anyone able to read the configuration (a source repo, an image layer, a shared config directory) obtains working credentials for the services the server integrates with.",
+		Recommendation: "Keep credentials out of committed configuration: load them from a secrets manager or injected environment at runtime, reference them indirectly rather than inlining values, and rotate any secret that has already been committed. Scope each credential to least privilege.",
+		References:     "https://cwe.mitre.org/data/definitions/798.html\nhttps://cwe.mitre.org/data/definitions/312.html\nhttps://owasp.org/www-project-top-10-for-large-language-model-applications/",
+		Taxonomies:     "- cwe: 798\n- cwe: 312\n- cwe: 200",
+		CVSSVector:     "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N",
+	}
+}
+
 // Description returns a human-readable description.
 func (p *CredentialExposure) Description() string {
 	return "Scores MCP server configuration gathered by the recon.MCPConfig module for exposed credentials"
