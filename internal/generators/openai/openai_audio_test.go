@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -56,9 +57,12 @@ func TestOpenAI_Generate_AudioPath(t *testing.T) {
 // aggregates the responses, honoring Generate's contract instead of silently
 // returning a single message.
 func TestOpenAI_Generate_AudioFanOut(t *testing.T) {
-	var requests int
+	// atomic even though generateChatAudio fans out sequentially today: the
+	// counter is written from server goroutines and read from the test
+	// goroutine, so this stays race-free if the fan-out is ever parallelized.
+	var requests atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		requests++
+		requests.Add(1)
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"ok"}}],"usage":{"total_tokens":3}}`)
 	}))
@@ -76,8 +80,8 @@ func TestOpenAI_Generate_AudioFanOut(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if requests != 3 {
-		t.Fatalf("requests = %d, want 3 (one per requested completion)", requests)
+	if got := requests.Load(); got != 3 {
+		t.Fatalf("requests = %d, want 3 (one per requested completion)", got)
 	}
 	if len(resp) != 3 {
 		t.Fatalf("len(resp) = %d, want 3", len(resp))

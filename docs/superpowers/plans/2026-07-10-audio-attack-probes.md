@@ -1,5 +1,12 @@
 # Audio Attack Probes Implementation Plan
 
+> **Historical record — partially superseded.** PR #236 review descoped the
+> `audio.*` probe layer (Phases covering `internal/probes/audio/`, its fixtures,
+> and `gen_fixtures.sh`); only the audio infrastructure landed. See the descope
+> note at the top of `../specs/2026-07-10-audio-attack-probes-design.md` for why
+> and what the follow-up must change. Do not execute the probe/fixture phases of
+> this plan as written — their payload and detector design produce false positives.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add five `audio.*` attack probes, a whisper-backed `multimodal.AudioTranscribe` detector, and the OpenAI `gpt-4o-audio-preview` audio wire path so Augustus can run audio-modality attacks end-to-end.

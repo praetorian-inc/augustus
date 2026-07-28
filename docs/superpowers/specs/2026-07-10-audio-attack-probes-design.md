@@ -1,5 +1,25 @@
 # Audio Attack Probes (LAB-2367) — Design
 
+> **Descoped in review (2026-07-28): the `audio.*` probe layer ships separately.**
+> PR #236 review established that the five probes as designed here do not produce
+> an honest true/false signal: the spoken payload carries no harmful objective, and
+> the default `mitigation.MitigationBypass` policy detector scores *any non-refusing
+> response* as a bypass — so a model harmlessly complying with a benign story
+> request scores `1.0` vulnerable regardless of any audio-jailbreak weakness. That
+> is a false positive by construction. `audio.Ultrasonic` was additionally found
+> unsalvageable: it is an attack on microphone hardware that a WAV-accepting API
+> never exposes, and the committed fixture was verified to be **digital silence**
+> (25 non-zero samples in 48 000) because resampling a 19 kHz tone to 16 kHz
+> lowpasses it away.
+>
+> This PR therefore lands **only the audio infrastructure** — §1, §2, §3 and §6
+> below. §4 (the five probes) and §5 (fixtures) are **not delivered here**; they are
+> retained as design history and supersede-able by the follow-up, which must add a
+> real harmful objective per payload, a harm-measuring (not non-refusal) policy
+> detector with per-prompt ground truth and a benign control, true any-of-N
+> semantics for Best-of-N, and a fixture transcript verifier. `audio.Ultrasonic` is
+> dropped outright and its DolphinAttack citation severed.
+
 ## Goal
 
 Add the first audio-modality attack probes to Augustus: five payload/fixture-based
@@ -19,7 +39,8 @@ architectural precedent), LAB-4082 (MM-specific detector research).
   the pinned go-openai SDK cannot model `input_audio` content parts).
 - `multimodal.AudioTranscribe` detector: transcribe model **output** audio via
   whisper.cpp, then score the transcript with an existing policy detector.
-- Five `audio.*` probes with committed, reproducibly-generated WAV/MP3 fixtures.
+- ~~Five `audio.*` probes with committed, reproducibly-generated WAV/MP3 fixtures.~~
+  **Descoped to a follow-up** — see the note at the top of this document.
 
 **Out of scope (future)**
 
@@ -139,7 +160,7 @@ The wrapped `mitigation.MitigationBypass` scores high when the (transcribed)
 response lacks refusal/mitigation language — i.e. the model complied with the
 audio jailbreak.
 
-### 4. The five probes — `internal/probes/audio/`
+### 4. The five probes — `internal/probes/audio/` (NOT DELIVERED — descoped, see top)
 
 New package; each probe embeds `multimodal.BaseMultimodalProbe` with
 `PrimaryDetector: "multimodal.AudioTranscribe"` and audio-bearing
@@ -158,7 +179,7 @@ Add the package's blank import to the central probe registration aggregator
 registration (`multimodal.AudioTranscribe`) lands via the analogous detector
 aggregator.
 
-### 5. Fixtures — committed + reproducible
+### 5. Fixtures — committed + reproducible (NOT DELIVERED — descoped, see top)
 
 `internal/probes/audio/data/` holds committed WAV/MP3 fixtures plus
 `gen_fixtures.sh`:
