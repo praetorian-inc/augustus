@@ -47,6 +47,23 @@ func newTranscriber(cfg registry.Config) (Transcriber, error) {
 	return &whisperTranscriber{model: model}, nil
 }
 
+// Close releases the CGo-owned whisper model. whisper.New allocates a full
+// model copy outside Go's heap, so it is not reclaimed by the GC — only by this
+// call or process exit.
+//
+// NOTE: types.Detector has no teardown hook, so nothing in the scan pipeline
+// calls this yet; a whisper-enabled run holds one model for the process
+// lifetime. This makes the resource releasable so that a detector-lifecycle
+// hook can wire it up without touching the whisper backend again.
+func (w *whisperTranscriber) Close() error {
+	if w.model == nil {
+		return nil
+	}
+	err := w.model.Close()
+	w.model = nil // idempotent: a second Close is a no-op, never a double free
+	return err
+}
+
 // Transcribe decodes the audio attachment (expected to be 16-bit PCM WAV,
 // which is what the multimodal audio-attack fixtures produce) into the
 // mono 16kHz float32 samples whisper.cpp expects, then runs the model over

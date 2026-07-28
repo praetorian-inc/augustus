@@ -6,7 +6,7 @@
 > note at the top of `../specs/2026-07-10-audio-attack-probes-design.md` for why
 > and what the follow-up must change. Do not execute the probe/fixture phases of
 > this plan as written — their payload and detector design produce false positives.
-
+>
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add five `audio.*` attack probes, a whisper-backed `multimodal.AudioTranscribe` detector, and the OpenAI `gpt-4o-audio-preview` audio wire path so Augustus can run audio-modality attacks end-to-end.
@@ -544,7 +544,10 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Consumes: `openaicompat.BuildAudioChatBody`, `openaicompat.ParseAudioChatResponse`, `openaicompat.AudioChatParams` (Task 3); `types.AudioCapable` (Task 1).
 - Produces:
   - `func (g *OpenAI) SupportsAudio() bool` (returns `g.isChat`)
-  - `func (g *CompatGenerator) SupportsAudio() bool { return true }`
+  - `func (g *CompatGenerator) SupportsAudio() bool { return false }` — the
+    generic compat generator's SDK builder cannot emit audio content parts, and
+    `ConversationToMessages` drops audio, so reporting `true` would defeat
+    capability gating and mis-score a text-only request as an audio attack.
   - `OpenAI` struct gains `apiKey string`, `baseURL string`, `httpClient *http.Client`.
 
 - [ ] **Step 1: Write failing test (httptest audio round-trip)**
@@ -1128,6 +1131,13 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ## Task 7: Audio fixtures — generator script + committed assets + embed
 
+> **⛔ DESCOPED — DO NOT EXECUTE.** Superseded by the follow-up (LAB-5251). The
+> payloads specified here carry no harmful objective, which combined with the
+> default `mitigation.MitigationBypass` detector produces a false positive on any
+> compliant model. The `ultrasonic.wav` recipe is additionally broken (19 kHz at a
+> 16 kHz sample rate resamples to silence) and its probe is dropped outright.
+> Retained as design history only.
+
 **Files:**
 - Create: `internal/probes/audio/data/gen_fixtures.sh`
 - Create (generated, committed): `internal/probes/audio/data/*.wav`
@@ -1187,7 +1197,7 @@ Make it executable: `chmod +x internal/probes/audio/data/gen_fixtures.sh`.
 - [ ] **Step 2: Generate the fixtures**
 
 Run: `bash internal/probes/audio/data/gen_fixtures.sh`
-Expected: prints "fixtures regenerated: 9 files"; the `.wav` files exist. (macOS-only; on Linux, obtain the committed fixtures from a macOS run.)
+Expected: prints "fixtures regenerated: 10 files"; the `.wav` files exist. (macOS-only; on Linux, obtain the committed fixtures from a macOS run.)
 
 - [ ] **Step 3: Write embed.go and the loader**
 
@@ -1279,6 +1289,12 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ---
 
 ## Task 8: The five `audio.*` probes + registration
+
+> **⛔ DESCOPED — DO NOT EXECUTE.** Superseded by the follow-up (LAB-5251). These
+> probes were removed from the PR: they score non-refusal rather than harmful
+> compliance, the multilingual legs invert non-English refusals, `BestOfN`
+> implements no any-of-N search, and `audio.Ultrasonic` is unreachable via a WAV
+> API. Retained as design history only.
 
 **Files:**
 - Create: `internal/probes/audio/probes.go` (five probes + `init()` registration)
@@ -1501,6 +1517,11 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ---
 
 ## Task 9: End-to-end verification & docs
+
+> **⚠️ PARTIALLY DESCOPED.** The CLAUDE.md step landed. Every acceptance step that
+> exercises `audio.*` probes is superseded by the follow-up (LAB-5251) — the probes
+> are not in the tree. Infrastructure verification for what actually shipped is
+> `go build ./...`, `go test -race ./...`, `make lint`, `make generate-check`.
 
 **Files:**
 - Modify: `CLAUDE.md` (add `AudioCapable` to the optional-generator-interfaces list; note the `whisper` build tag) — only if the user wants CLAUDE.md updated (per global instruction to avoid unsolicited docs; ask first).

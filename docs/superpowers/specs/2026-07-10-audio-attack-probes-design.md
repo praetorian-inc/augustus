@@ -222,13 +222,28 @@ framing, no authored harmful how-to content).
 
 ## Acceptance mapping
 
-- `augustus scan openai.gpt-4o-audio-preview --probe audio.*` runs end-to-end on
-  ≥3/5 probes → §2 (OpenAI audio path) + §1 (gating) + §4 (probes). Requires
-  `-tags whisper` build for scoring.
-- `augustus scan gemini.Gemini --probe audio.*` → explicitly deferred until the
-  Gemini audio path lands (out of scope here).
-- `multimodal.AudioTranscribe` produces non-zero scoring on ≥3/5 probes → §3
-  (transcript → `mitigation.MitigationBypass`).
+**Delivered here (infrastructure only):**
+
+- `types.AudioCapable` gating fails loud with a wrapped `ErrAudioUnsupported`
+  rather than sending a text-only request → §1.
+- The OpenAI `gpt-4o-audio-preview` wire path emits `input_audio` parts and
+  parses returned audio/transcript → §2.
+- `multimodal.AudioTranscribe` resolves and scores a provider transcript on the
+  default CGo-free build; the whisper path compiles under `-tags whisper` and its
+  stub fails loudly otherwise → §3.
+- `go build ./...`, `go test -race ./...`, `make lint`, `make generate-check` all clean.
+
+**Follow-up criteria (NOT acceptance for this PR — see the descope note at top):**
+
+- ~~`augustus scan openai.gpt-4o-audio-preview --probe audio.*` runs end-to-end on
+  ≥3/5 probes~~ — requires the reworked probes; §4/§5 are not delivered here.
+- ~~`multimodal.AudioTranscribe` produces non-zero scoring on ≥3/5 probes~~ —
+  and must measure *harmful compliance*, not non-refusal: scoring "non-zero" via
+  `mitigation.MitigationBypass` is precisely the false positive that descoped the
+  probes. The follow-up replaces this criterion with a harm-measuring judge plus a
+  benign control that must score `0.0`.
+- `augustus scan gemini.Gemini --probe audio.*` → still deferred until the Gemini
+  audio path lands (out of scope in both this PR and the follow-up).
 
 ## Risks / notes
 

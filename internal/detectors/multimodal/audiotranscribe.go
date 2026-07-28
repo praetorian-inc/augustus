@@ -3,6 +3,7 @@ package multimodal
 import (
 	"context"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/praetorian-inc/augustus/internal/detectors/mitigation"
@@ -70,6 +71,20 @@ func NewAudioTranscribe(cfg registry.Config) (detectors.Detector, error) {
 
 func (d *AudioTranscribe) Name() string        { return d.name }
 func (d *AudioTranscribe) Description() string { return d.description }
+
+// Close releases any resources held by the transcriber, satisfying io.Closer.
+// The whisper.cpp backend holds a CGo-allocated model that the Go GC cannot
+// reclaim; the stub backend holds nothing and returns nil.
+//
+// types.Detector currently has no teardown hook, so the scan pipeline never
+// calls this. It exists so a detector-lifecycle hook can release the model
+// without reaching into the build-tagged backend.
+func (d *AudioTranscribe) Close() error {
+	if c, ok := d.transcriber.(io.Closer); ok {
+		return c.Close()
+	}
+	return nil
+}
 
 // Detect is transcript-first, whisper-fallback:
 //
