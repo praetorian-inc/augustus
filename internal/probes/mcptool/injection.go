@@ -78,9 +78,11 @@ func (p *Injection) RiskInfo() types.RiskInfo {
 		Taxonomies:     "- cwe: 94\n- cwe: 95\n- cwe: 78",
 		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
 		Verification: "## How this is confirmed\n\n" +
-			"Augustus enumerates the directly-invokable tools and injects a unique computed-arithmetic canary — a product of two random operands — into each string argument. A tool that returns the *evaluated result* rather than echoing the literal expression proves its arguments reach a code, command, or template evaluation sink. The product is unguessable, so an exact match is conclusive and no LLM judge is involved. (The out-of-band shell-command variant additionally proves OS-command execution when the canary host records a callback.)\n\n" +
+			"Augustus enumerates the directly-invokable tools and injects a unique computed-arithmetic canary — a product of two random operands — into each string argument. Two independent signals confirm a sink:\n\n" +
+			"- In-band: the tool returns the *evaluated product* rather than echoing the literal expression, showing the argument reached a code/command/template evaluation sink. The product is unguessable, so the match itself is not chance — but evaluation is only a finding for an argument not meant to be executed (a tool whose declared purpose is arithmetic evaluates legitimately). Judge the sink against the argument's intended role.\n" +
+			"- Out-of-band: a shell-command payload triggers a callback to the augustus out-of-band host, proving OS-command execution independently of what the tool returns in-band.\n\n" +
 			"## Reproduce\n\n" +
-			"Re-run the `mcptool.Injection` probe against the affected endpoint via the `mcp.MCP` generator (`mode: list_tools`). A vulnerable tool echoes the product of the injected canary in its response.",
+			"Re-run the `mcptool.Injection` probe against the affected endpoint via the `mcp.MCP` generator (`mode: list_tools`). An in-band finding echoes the injected canary's product in the response; a blind finding is confirmed by the out-of-band callback rather than the response — so confirm against the recorded proof (the canary echo and/or the OOB hit), not the response text alone.",
 	}
 }
 
