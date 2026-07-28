@@ -22,7 +22,8 @@ func TestRiskInfo_Populated(t *testing.T) {
 		}
 		info := rd.RiskInfo()
 		if info.Description == "" || info.Impact == "" || info.Recommendation == "" ||
-			info.References == "" || info.Taxonomies == "" || info.CVSSVector == "" {
+			info.References == "" || info.Taxonomies == "" || info.CVSSVector == "" ||
+			info.Verification == "" {
 			t.Errorf("%s RiskInfo has empty field(s): %+v", p.Name(), info)
 		}
 		if !strings.HasPrefix(info.CVSSVector, "CVSS:4.0/") {

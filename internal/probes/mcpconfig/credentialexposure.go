@@ -131,6 +131,10 @@ func (p *CredentialExposure) RiskInfo() types.RiskInfo {
 		References:     "https://cwe.mitre.org/data/definitions/798.html\nhttps://cwe.mitre.org/data/definitions/312.html\nhttps://owasp.org/www-project-top-10-for-large-language-model-applications/",
 		Taxonomies:     "- cwe: 798\n- cwe: 312\n- cwe: 200",
 		CVSSVector:     "CVSS:4.0/AV:L/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N",
+		Verification: "## How this is confirmed\n\n" +
+			"Augustus scores the MCP server configuration gathered by the `recon.MCPConfig` module (an inline config string, a config file, or a walked config directory) for exposed secrets. A hard-coded provider API key, a secret-named value, or credentials embedded in URI userinfo constitutes the finding. Confirm by inspecting the cited configuration source and verifying the value is a live credential.\n\n" +
+			"## Reproduce\n\n" +
+			"Re-run the `mcpconfig.CredentialExposure` probe with the `recon.MCPConfig` module pointed at the same configuration source (inline string, file, or directory) that produced the finding. This probe scores collected configuration rather than attacking the live endpoint.",
 	}
 }
 

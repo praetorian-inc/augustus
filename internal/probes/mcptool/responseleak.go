@@ -103,6 +103,10 @@ func (p *ResponseLeak) RiskInfo() types.RiskInfo {
 		References:     "https://cwe.mitre.org/data/definitions/200.html\nhttps://cwe.mitre.org/data/definitions/209.html\nhttps://cwe.mitre.org/data/definitions/532.html\nhttps://owasp.org/www-project-top-10-for-large-language-model-applications/",
 		Taxonomies:     "- cwe: 200\n- cwe: 209\n- cwe: 532",
 		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N",
+		Verification: "## How this is confirmed\n\n" +
+			"Augustus invokes each tool with inputs that surface secrets — triggering verbose errors, debug output, or echoed configuration — and scores the responses for credential patterns. A response containing an API key, token, or connection string proves the tool leaks secrets to its caller.\n\n" +
+			"## Reproduce\n\n" +
+			"Re-run the `mcptool.ResponseLeak` probe against the affected endpoint via the `mcp.MCP` generator (`mode: list_tools`). The flagged tool's response contains the exposed credential.",
 	}
 }
 

@@ -169,6 +169,10 @@ func (p *PathTraversal) RiskInfo() types.RiskInfo {
 		References:     "https://cwe.mitre.org/data/definitions/22.html\nhttps://cwe.mitre.org/data/definitions/73.html\nhttps://owasp.org/www-community/attacks/Path_Traversal",
 		Taxonomies:     "- cwe: 22\n- cwe: 23\n- cwe: 73",
 		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:N/SI:N/SA:N",
+		Verification: "## How this is confirmed\n\n" +
+			"Augustus sends path-traversal payloads to filesystem-path parameters. Read-only tools receive `/etc/passwd`-class inputs, detected by file-content signatures in the response; write-capable tools receive a novel canary path under `/tmp`, detected by canary echo — a non-destructive proof of an arbitrary-path write that never overwrites a sensitive file. Either detection proves the parameter escapes its intended directory, including via prefix-preserving payloads that defeat a naive `startsWith` check.\n\n" +
+			"## Reproduce\n\n" +
+			"Re-run the `mcptool.PathTraversal` probe against the affected endpoint via the `mcp.MCP` generator (`mode: list_tools`). The response reveals the out-of-directory file contents (read) or echoes the canary path (write).",
 	}
 }
 

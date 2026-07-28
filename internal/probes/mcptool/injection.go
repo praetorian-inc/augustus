@@ -77,6 +77,10 @@ func (p *Injection) RiskInfo() types.RiskInfo {
 		References:     "https://cwe.mitre.org/data/definitions/94.html\nhttps://cwe.mitre.org/data/definitions/95.html\nhttps://owasp.org/www-project-top-10-for-large-language-model-applications/",
 		Taxonomies:     "- cwe: 94\n- cwe: 95\n- cwe: 78",
 		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
+		Verification: "## How this is confirmed\n\n" +
+			"Augustus enumerates the directly-invokable tools and injects a unique computed-arithmetic canary — a product of two random operands — into each string argument. A tool that returns the *evaluated result* rather than echoing the literal expression proves its arguments reach a code, command, or template evaluation sink. The product is unguessable, so an exact match is conclusive and no LLM judge is involved. (The out-of-band shell-command variant additionally proves OS-command execution when the canary host records a callback.)\n\n" +
+			"## Reproduce\n\n" +
+			"Re-run the `mcptool.Injection` probe against the affected endpoint via the `mcp.MCP` generator (`mode: list_tools`). A vulnerable tool echoes the product of the injected canary in its response.",
 	}
 }
 

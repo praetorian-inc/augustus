@@ -52,6 +52,15 @@ type RiskInfo struct {
 	// "CVSS:4.0/AV:N/AC:L/..."). Consumers derive the numeric score from it.
 	// Conservatively scored; optional — empty when the probe has no curated severity.
 	CVSSVector string
+	// Verification is a curated, reproduction-oriented write-up for the finding:
+	// how the probe confirms the vulnerability and how to reproduce it — distinct
+	// from Description (what the vulnerability is). It is STATIC Markdown prose: it
+	// carries NO live target values and MUST NOT contain template tokens (e.g.
+	// "{{...}}"), so a consumer can render it as-is and safely append a
+	// data-built reproduction command (target endpoint/transport inserted as inert
+	// data, never evaluated). Optional — empty when the probe has no curated
+	// verification write-up.
+	Verification string
 }
 
 // RiskDescriber is an optional interface for probes that carry a curated

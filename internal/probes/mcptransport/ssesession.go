@@ -92,6 +92,10 @@ func (p *SSESessionHijack) RiskInfo() types.RiskInfo {
 		References:     "https://cwe.mitre.org/data/definitions/287.html\nhttps://cwe.mitre.org/data/definitions/613.html\nhttps://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html",
 		Taxonomies:     "- cwe: 287\n- cwe: 613",
 		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:P/PR:N/UI:N/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N",
+		Verification: "## How this is confirmed\n\n" +
+			"Augustus obtains a valid session identifier through a normal SSE handshake, then replays it (a) on a separate TCP connection while the original stream is still open — the true cross-connection replay test — and (b) again after the original stream has closed. If either replay is accepted, the session ID is an unbound bearer token that anyone who obtains it can use to drive the MCP tool surface.\n\n" +
+			"## Reproduce\n\n" +
+			"Re-run the `mcptransport.SSESessionHijack` probe against the affected endpoint via the `mcp.MCP` generator. The server accepts the replayed session ID off its original connection and/or after the stream has closed.",
 	}
 }
 
