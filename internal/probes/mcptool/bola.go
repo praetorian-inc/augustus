@@ -72,6 +72,10 @@ func (p *BOLA) RiskInfo() types.RiskInfo {
 		References:     "https://cwe.mitre.org/data/definitions/639.html\nhttps://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/",
 		Taxonomies:     "- cwe: 639\n- cwe: 284\n- cwe: 285",
 		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N",
+		Verification: "## How this is confirmed\n\n" +
+			"Augustus replays an object identifier confirmed to belong to another identity against the attacker's own session, then compares the attack response to positive and negative controls. When the victim's object is returned to the attacker, the tool is authorizing by identifier alone — broken object-level authorization. Ownership ground truth comes from the `recon.MCPIdentifiers` enumeration (the set-difference of identifiers across identities), not from parsing responses.\n\n" +
+			"## Reproduce\n\n" +
+			"Re-run the `mcptool.BOLA` probe against the affected endpoint via the `mcp.MCP` generator, with the `recon.MCP` and `recon.MCPIdentifiers` modules enabled. Requires at least two identities (attacker + victim) so the probe can source a victim-owned identifier to replay.",
 	}
 }
 

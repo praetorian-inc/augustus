@@ -71,6 +71,10 @@ func (p *SSRF) RiskInfo() types.RiskInfo {
 		References:     "https://cwe.mitre.org/data/definitions/918.html\nhttps://owasp.org/www-community/attacks/Server_Side_Request_Forgery",
 		Taxonomies:     "- cwe: 918",
 		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:L/VI:N/VA:N/SC:N/SI:N/SA:N",
+		Verification: "## How this is confirmed\n\n" +
+			"Augustus injects out-of-band canary URLs into URL-like tool arguments. A blind SSRF is proven when the canary host records a callback originating from the tool's server; a non-blind SSRF is proven when the fetched content is reflected back in the tool response. Reaching an internal-only destination (for example the cloud metadata service at 169.254.169.254) demonstrates the impact.\n\n" +
+			"## Reproduce\n\n" +
+			"Re-run the `mcptool.SSRF` probe against the affected endpoint via the `mcp.MCP` generator (`mode: list_tools`). Blind detection requires reachable out-of-band callback infrastructure; without it, only reflected (non-blind) SSRF is observable.",
 	}
 }
 

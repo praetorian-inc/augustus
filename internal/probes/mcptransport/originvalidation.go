@@ -174,6 +174,10 @@ func (p *OriginValidation) RiskInfo() types.RiskInfo {
 		References:     "https://cwe.mitre.org/data/definitions/346.html\nhttps://cwe.mitre.org/data/definitions/350.html\nhttps://cwe.mitre.org/data/definitions/942.html\nhttps://nvd.nist.gov/vuln/detail/CVE-2025-49596",
 		Taxonomies:     "- cwe: 346\n- cwe: 350\n- cwe: 942",
 		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:A/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N",
+		Verification: "## How this is confirmed\n\n" +
+			"Augustus sends requests carrying a foreign `Origin` (and `Host`) header that a specification-compliant MCP server must reject, and observes the endpoint accept them. Because the endpoint binds a loopback or private-network address, this is the precondition for a browser DNS-rebinding attack (CVE-2025-49596 class). On a loopback / RFC1918 target the finding is scored full; on a public endpoint the same wire result is CSRF-class and scored inconclusive, since exploitability depends on cookie/auth context the probe cannot inspect.\n\n" +
+			"## Reproduce\n\n" +
+			"Re-run the `mcptransport.OriginValidation` probe against the affected endpoint via the `mcp.MCP` generator. The endpoint returns a success response to a request bearing a foreign Origin/Host it should have rejected.",
 	}
 }
 
