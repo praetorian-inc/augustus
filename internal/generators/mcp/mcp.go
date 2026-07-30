@@ -441,12 +441,14 @@ func (m *MCP) httpClient() *http.Client {
 
 // exchange dispatches one request according to the configured mode.
 func (m *MCP) exchange(ctx context.Context, sess *mcpsdk.ClientSession, conv *attempt.Conversation) (attempt.Message, error) {
+	// listTools paginates and takes one RequestTimeout per page (see pageCtx), so
+	// it derives its own deadlines; only the single-shot tool call is bounded here.
+	if m.cfg.Mode == ModeListTools {
+		return m.listTools(ctx, sess)
+	}
+
 	callCtx, cancel := context.WithTimeout(ctx, m.cfg.RequestTimeout)
 	defer cancel()
-
-	if m.cfg.Mode == ModeListTools {
-		return m.listTools(callCtx, sess)
-	}
 	return m.callTool(callCtx, sess, conv)
 }
 
@@ -486,7 +488,9 @@ func (m *MCP) listTools(ctx context.Context, sess *mcpsdk.ClientSession) (attemp
 	// Paginate: a server must not be able to keep tools out of the rendered
 	// catalog by placing them on a later page (loop/cursor-repeat bounded).
 	sdkTools, err := listAll(func(cursor string) ([]*mcpsdk.Tool, string, error) {
-		res, err := sess.ListTools(ctx, &mcpsdk.ListToolsParams{Cursor: cursor})
+		pctx, cancel := m.pageCtx(ctx)
+		defer cancel()
+		res, err := sess.ListTools(pctx, &mcpsdk.ListToolsParams{Cursor: cursor})
 		if err != nil {
 			return nil, "", err
 		}
@@ -518,12 +522,12 @@ func (m *MCP) ListTools(ctx context.Context) ([]map[string]any, error) {
 
 	var tools []map[string]any
 	err := m.withSession(ctx, func(ctx context.Context, sess *mcpsdk.ClientSession) error {
-		callCtx, cancel := context.WithTimeout(ctx, m.cfg.RequestTimeout)
-		defer cancel()
 		// Paginate: follow nextCursor across all pages so a server can't hide tools
 		// on a later page from tool-surface probes (loop/cursor-repeat bounded).
 		sdkTools, err := listAll(func(cursor string) ([]*mcpsdk.Tool, string, error) {
-			res, err := sess.ListTools(callCtx, &mcpsdk.ListToolsParams{Cursor: cursor})
+			pctx, cancel := m.pageCtx(ctx)
+			defer cancel()
+			res, err := sess.ListTools(pctx, &mcpsdk.ListToolsParams{Cursor: cursor})
 			if err != nil {
 				return nil, "", err
 			}

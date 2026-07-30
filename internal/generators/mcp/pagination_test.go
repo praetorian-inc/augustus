@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -214,5 +215,57 @@ func TestGenerate_ListToolsMode_EnumeratesEveryPage(t *testing.T) {
 		if !strings.Contains(got, toolPageName(i)) {
 			t.Errorf("list_tools output missing %q (later pages dropped); got:\n%s", toolPageName(i), got)
 		}
+	}
+}
+
+// TestPagination_PerPageDeadline: RequestTimeout is documented as the deadline
+// for each individual call, so every page must get its own budget rather than all
+// pages splitting one. Sharing a single deadline across pages would make a slow
+// multi-page catalog fail partway and — through reconList's best-effort path —
+// report an EMPTY catalog, a worse answer than the truncated enumeration the
+// pagination helper exists to avoid.
+//
+// The server below delays every response, so the pages together take longer than
+// one RequestTimeout while each page comfortably fits inside one.
+func TestPagination_PerPageDeadline(t *testing.T) {
+	const (
+		perRequestDelay = 350 * time.Millisecond
+		toolCount       = 8 // 8 pages at PageSize 1 => ~2.8s total, well past the 2s budget
+		requestTimeout  = 2 * time.Second
+	)
+
+	handler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server {
+		srv := mcpsdk.NewServer(
+			&mcpsdk.Implementation{Name: "augustus-slow-paginated-server", Version: "v0"},
+			&mcpsdk.ServerOptions{PageSize: 1},
+		)
+		for i := range toolCount {
+			mcpsdk.AddTool(srv, &mcpsdk.Tool{Name: toolPageName(i), Description: "slow page"},
+				func(_ context.Context, _ *mcpsdk.CallToolRequest, _ toolInput) (*mcpsdk.CallToolResult, any, error) {
+					return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "ok"}}}, nil, nil
+				})
+		}
+		return srv
+	}, nil)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(perRequestDelay)
+		handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(ts.Close)
+
+	inv := newGen(t, registry.Config{
+		"transport":       "http",
+		"endpoint":        ts.URL,
+		"request_timeout": 2, // seconds; must bound each page, not the whole walk
+	}).(types.ToolInvoker)
+
+	tools, err := inv.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("ListTools: %v (a per-page deadline should not have expired)", err)
+	}
+	if len(tools) != toolCount {
+		t.Errorf("ListTools returned %d tools, want %d — pages appear to be sharing one %v budget",
+			len(tools), toolCount, requestTimeout)
 	}
 }

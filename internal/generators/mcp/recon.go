@@ -29,9 +29,6 @@ func (m *MCP) MCPInventory(ctx context.Context) (*types.MCPInventory, error) {
 	inv := &types.MCPInventory{}
 
 	err := m.withSession(ctx, func(ctx context.Context, sess *mcpsdk.ClientSession) error {
-		callCtx, cancel := context.WithTimeout(ctx, m.cfg.RequestTimeout)
-		defer cancel()
-
 		if init := sess.InitializeResult(); init != nil {
 			inv.ProtocolVersion = init.ProtocolVersion
 			inv.Instructions = init.Instructions
@@ -47,7 +44,9 @@ func (m *MCP) MCPInventory(ctx context.Context) (*types.MCPInventory, error) {
 		// first page. listAll bounds pages and detects cursor repetition.
 		if inv.Capabilities.Tools {
 			inv.Tools = mcpToolsFrom(reconList("tools", func(cursor string) ([]*mcpsdk.Tool, string, error) {
-				res, err := sess.ListTools(callCtx, &mcpsdk.ListToolsParams{Cursor: cursor})
+				pctx, cancel := m.pageCtx(ctx)
+				defer cancel()
+				res, err := sess.ListTools(pctx, &mcpsdk.ListToolsParams{Cursor: cursor})
 				if err != nil {
 					return nil, "", err
 				}
@@ -56,14 +55,18 @@ func (m *MCP) MCPInventory(ctx context.Context) (*types.MCPInventory, error) {
 		}
 		if inv.Capabilities.Resources {
 			inv.Resources = mcpResourcesFrom(reconList("resources", func(cursor string) ([]*mcpsdk.Resource, string, error) {
-				r, err := sess.ListResources(callCtx, &mcpsdk.ListResourcesParams{Cursor: cursor})
+				pctx, cancel := m.pageCtx(ctx)
+				defer cancel()
+				r, err := sess.ListResources(pctx, &mcpsdk.ListResourcesParams{Cursor: cursor})
 				if err != nil {
 					return nil, "", err
 				}
 				return r.Resources, r.NextCursor, nil
 			}))
 			inv.ResourceTemplates = mcpResourceTemplatesFrom(reconList("resource_templates", func(cursor string) ([]*mcpsdk.ResourceTemplate, string, error) {
-				r, err := sess.ListResourceTemplates(callCtx, &mcpsdk.ListResourceTemplatesParams{Cursor: cursor})
+				pctx, cancel := m.pageCtx(ctx)
+				defer cancel()
+				r, err := sess.ListResourceTemplates(pctx, &mcpsdk.ListResourceTemplatesParams{Cursor: cursor})
 				if err != nil {
 					return nil, "", err
 				}
@@ -72,7 +75,9 @@ func (m *MCP) MCPInventory(ctx context.Context) (*types.MCPInventory, error) {
 		}
 		if inv.Capabilities.Prompts {
 			inv.Prompts = mcpPromptsFrom(reconList("prompts", func(cursor string) ([]*mcpsdk.Prompt, string, error) {
-				r, err := sess.ListPrompts(callCtx, &mcpsdk.ListPromptsParams{Cursor: cursor})
+				pctx, cancel := m.pageCtx(ctx)
+				defer cancel()
+				r, err := sess.ListPrompts(pctx, &mcpsdk.ListPromptsParams{Cursor: cursor})
 				if err != nil {
 					return nil, "", err
 				}
@@ -216,6 +221,17 @@ func mcpPromptsFrom(prompts []*mcpsdk.Prompt) []types.MCPPrompt {
 		out = append(out, mp)
 	}
 	return out
+}
+
+// pageCtx derives the deadline for a single page of a paginated enumeration.
+// Config documents RequestTimeout as the deadline for each individual call, so
+// every page gets its own budget instead of all pages splitting one: sharing a
+// single deadline across pages would make a slow multi-page catalog fail partway
+// and report EMPTY, which is a worse answer than the truncated one this whole
+// helper exists to avoid. The caller's context and maxListPages bound the
+// enumeration as a whole.
+func (m *MCP) pageCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, m.cfg.RequestTimeout)
 }
 
 // maxListPages caps catalog pagination so a server that repeats or never
