@@ -86,15 +86,26 @@ func (m *MCP) GetPrompt(ctx context.Context, name string, args map[string]string
 	return out, nil
 }
 
-// resourceText assembles the text of every returned content block. Binary blocks
-// (Blob) contribute nothing to the text; callers needing them read Raw.
+// resourceText assembles the readable content of every returned block.
+//
+// A block carries EITHER Text or Blob, and blob content must be included: a server
+// serving an arbitrary file read as application/octet-stream returns the bytes in
+// Blob, so skipping it left the probe with an empty output and the file-signature
+// detector with nothing to match — a false negative in exactly the case the probe
+// exists to find. Blob bytes are appended as-is because the signatures that prove a
+// finding are ASCII, so they survive regardless of the declared MIME type. Callers
+// bound the assembled result; the raw payload remains available in Raw.
 func resourceText(contents []*mcpsdk.ResourceContents) string {
 	var parts []string
 	for _, c := range contents {
-		if c == nil || c.Text == "" {
+		switch {
+		case c == nil:
 			continue
+		case c.Text != "":
+			parts = append(parts, c.Text)
+		case len(c.Blob) > 0:
+			parts = append(parts, string(c.Blob))
 		}
-		parts = append(parts, c.Text)
 	}
 	return strings.Join(parts, "\n")
 }

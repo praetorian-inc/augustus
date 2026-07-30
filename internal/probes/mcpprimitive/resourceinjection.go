@@ -209,19 +209,20 @@ func (p *ResourceInjection) buildPayloads(invs []*types.MCPInventory, col *mcppr
 		add(resourcePayload{uriPayload: b})
 	}
 
-	// Bare out-of-band canary URIs: does the server fetch what it is handed?
-	for _, scheme := range []string{"http", "https"} {
-		token := mcpprobe.RandToken()
-		canary := col.URL(token)
-		if scheme == "https" {
-			canary = strings.Replace(canary, "http://", "https://", 1)
-		}
-		add(resourcePayload{
-			uriPayload: uriPayload{uri: canary, class: classSSRF},
-			token:      token,
-			oobURL:     canary,
-		})
-	}
+	// A bare out-of-band canary URI: does the server fetch what it is handed?
+	//
+	// Only http is sent. The collector serves plaintext, so a server that DID fetch
+	// an https canary would fail the TLS handshake and no callback could ever fire —
+	// the payload would cost a request and a token while being undetectable by
+	// construction. Covering https needs a TLS-terminating collector, which belongs
+	// with the out-of-band infrastructure work, not here.
+	oobToken := mcpprobe.RandToken()
+	oobCanary := col.URL(oobToken)
+	add(resourcePayload{
+		uriPayload: uriPayload{uri: oobCanary, class: classSSRF},
+		token:      oobToken,
+		oobURL:     oobCanary,
+	})
 
 	targets := 0
 	for _, inv := range invs {
@@ -309,7 +310,7 @@ func (p *ResourceInjection) readOne(ctx context.Context, reader types.MCPPrimiti
 	}
 	a.Metadata[attempt.MetadataKeyPrimitiveReflected] = p.marker != "" && strings.Contains(res.Text, p.marker)
 	if res.MIMEType != "" {
-		a.Metadata["mcpprimitive.mime_type"] = res.MIMEType
+		a.Metadata[attempt.MetadataKeyPrimitiveMIMEType] = res.MIMEType
 	}
 	// Bounded: an advertised resource may point at an arbitrarily large file, and
 	// the signature that proves a finding sits at the start of the content.

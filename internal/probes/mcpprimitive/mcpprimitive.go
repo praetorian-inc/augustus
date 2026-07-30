@@ -150,11 +150,14 @@ func traversalFrom(advertised string) []uriPayload {
 	}
 }
 
-// expandTemplate replaces every placeholder in a URI template — {param} and the
-// RFC 6570 operator forms such as {+path} / {?q} — with value, yielding a
-// concrete URI to request. Servers that interpolate a template parameter into a
-// filesystem path or an outbound URL are the sink this reaches. Returns "" when
-// the template carries no placeholder.
+// expandTemplate renders a URI template with value substituted for every variable,
+// honouring the RFC 6570 operators. Returns "" when the template carries no
+// placeholder.
+//
+// Operator handling matters for reach, not neatness: raw-substituting the whole
+// expression turns "https://svc/search{?q}" into "https://svc/searchVALUE", which
+// the server's template matcher rejects before the payload gets anywhere near the
+// sink — so a vulnerable query-style template would be silently missed.
 func expandTemplate(tpl, value string) string {
 	if !strings.Contains(tpl, "{") {
 		return ""
@@ -173,10 +176,64 @@ func expandTemplate(tpl, value string) string {
 			break
 		}
 		b.WriteString(rest[:start])
-		b.WriteString(value)
+		b.WriteString(expandExpression(rest[start+1:start+end], value))
 		rest = rest[start+end+1:]
 	}
 	return b.String()
+}
+
+// expandExpression renders one template expression — the text between the braces,
+// operator included — substituting value for each variable it names.
+func expandExpression(expr, value string) string {
+	if expr == "" {
+		return ""
+	}
+	var op byte
+	switch expr[0] {
+	case '+', '#', '.', '/', ';', '?', '&':
+		op = expr[0]
+		expr = expr[1:]
+	}
+
+	var names []string
+	for _, n := range strings.Split(expr, ",") {
+		n = strings.TrimSuffix(strings.TrimSpace(n), "*") // explode modifier
+		if i := strings.Index(n, ":"); i >= 0 {
+			n = n[:i] // prefix modifier
+		}
+		if n != "" {
+			names = append(names, n)
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+
+	values := make([]string, len(names))
+	for i := range values {
+		values[i] = value
+	}
+	pairs := make([]string, len(names))
+	for i, n := range names {
+		pairs[i] = n + "=" + value
+	}
+
+	switch op {
+	case '#':
+		return "#" + strings.Join(values, ",")
+	case '.':
+		return "." + strings.Join(values, ".")
+	case '/':
+		return "/" + strings.Join(values, "/")
+	case ';':
+		return ";" + strings.Join(pairs, ";")
+	case '?':
+		return "?" + strings.Join(pairs, "&")
+	case '&':
+		return "&" + strings.Join(pairs, "&")
+	default: // simple ("") and reserved ("+") expansion
+		return strings.Join(values, ",")
+	}
 }
 
 // promptArgs builds the argument map for one prompts/get call: the payload in

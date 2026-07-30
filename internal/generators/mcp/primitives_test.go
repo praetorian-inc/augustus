@@ -28,6 +28,14 @@ func newPrimitiveServer() *mcpsdk.Server {
 			}}, nil
 		})
 
+	srv.AddResource(
+		&mcpsdk.Resource{URI: "blob://payroll.bin", Name: "payroll", MIMEType: "application/octet-stream"},
+		func(_ context.Context, req *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {
+			return &mcpsdk.ReadResourceResult{Contents: []*mcpsdk.ResourceContents{
+				{URI: req.Params.URI, MIMEType: "application/octet-stream", Blob: []byte("root:x:0:0:root:/root:/bin/bash")},
+			}}, nil
+		})
+
 	srv.AddPrompt(
 		&mcpsdk.Prompt{
 			Name:      "greet",
@@ -152,13 +160,38 @@ func TestMCPInventory_EnumeratesPrimitives(t *testing.T) {
 	if err != nil {
 		t.Fatalf("MCPInventory() error = %v", err)
 	}
-	if len(inv.Resources) != 1 || inv.Resources[0].URI != "file:///notes.txt" {
-		t.Errorf("Resources = %+v, want the one served resource", inv.Resources)
+	wantURIs := map[string]bool{"file:///notes.txt": false, "blob://payroll.bin": false}
+	for _, r := range inv.Resources {
+		if _, ok := wantURIs[r.URI]; ok {
+			wantURIs[r.URI] = true
+		}
+	}
+	for uri, seen := range wantURIs {
+		if !seen {
+			t.Errorf("inventory did not enumerate %q; got %+v", uri, inv.Resources)
+		}
 	}
 	if len(inv.Prompts) != 1 || inv.Prompts[0].Name != "greet" {
 		t.Errorf("Prompts = %+v, want the one served prompt", inv.Prompts)
 	}
 	if len(inv.Prompts) == 1 && len(inv.Prompts[0].Arguments) != 1 {
 		t.Errorf("prompt arguments = %+v, want the declared 'who' argument", inv.Prompts[0].Arguments)
+	}
+}
+
+// TestReadResource_IncludesBlobContent: a server can serve an arbitrary file read as
+// application/octet-stream, putting the bytes in Blob rather than Text. Dropping
+// those blocks left the probe with an empty output and the file-signature detector
+// with nothing to match, so a genuinely vulnerable server reported SAFE.
+func TestReadResource_IncludesBlobContent(t *testing.T) {
+	res, err := newPrimitiveGen(t).ReadResource(context.Background(), "blob://payroll.bin")
+	if err != nil {
+		t.Fatalf("ReadResource() error = %v", err)
+	}
+	if !strings.Contains(res.Text, "root:x:0:0:") {
+		t.Errorf("blob content missing from Text (%q); the signature detector would see nothing", res.Text)
+	}
+	if res.Blocks != 1 {
+		t.Errorf("Blocks = %d, want 1", res.Blocks)
 	}
 }

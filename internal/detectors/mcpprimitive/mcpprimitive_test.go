@@ -148,3 +148,25 @@ func TestInjectionDetector_Identity(t *testing.T) {
 		t.Error("Description() is empty")
 	}
 }
+
+// TestInjectionDetector_CallbackAppliesToEveryOutput: a callback is attempt-wide
+// evidence — the sink was reached — so it must not leave outputs that happen to
+// carry no in-band match sitting at 0.0 alongside one that does.
+func TestInjectionDetector_CallbackAppliesToEveryOutput(t *testing.T) {
+	a := attemptWith(
+		[]string{"root:x:0:0:leaked", "nothing here"},
+		map[string]any{
+			attempt.MetadataKeyPrimitiveSignatures:  []string{"root:x:0:0:"},
+			attempt.MetadataKeyPrimitiveOOBCallback: true,
+		},
+	)
+	got, err := newInjection(t).Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	for i, s := range got {
+		if s != 1.0 {
+			t.Errorf("score[%d] = %v, want 1.0 (scores = %v)", i, s, got)
+		}
+	}
+}

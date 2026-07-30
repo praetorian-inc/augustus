@@ -198,8 +198,16 @@ func TestExpandTemplate(t *testing.T) {
 		want  string
 	}{
 		{"simple param", "file:///docs/{path}", "X", "file:///docs/X"},
-		{"rfc6570 reserved expansion", "file:///docs/{+path}", "X", "file:///docs/X"},
-		{"query form", "https://api/{?q}", "X", "https://api/X"},
+		{"reserved expansion", "file:///docs/{+path}", "X", "file:///docs/X"},
+		{"fragment operator", "https://api/page{#frag}", "X", "https://api/page#X"},
+		{"path segment operator", "file:///docs{/path}", "X", "file:///docs/X"},
+		{"label operator", "https://api/file{.ext}", "X", "https://api/file.X"},
+		{"path-style parameter", "https://api/x{;id}", "X", "https://api/x;id=X"},
+		{"query operator", "https://svc/search{?q}", "X", "https://svc/search?q=X"},
+		{"query continuation", "https://svc/s?a=1{&b}", "X", "https://svc/s?a=1&b=X"},
+		{"multi-variable query", "https://svc/s{?a,b}", "X", "https://svc/s?a=X&b=X"},
+		{"explode modifier stripped", "file:///docs/{path*}", "X", "file:///docs/X"},
+		{"prefix modifier stripped", "file:///docs/{path:3}", "X", "file:///docs/X"},
 		{"two placeholders", "file:///{dir}/{name}", "X", "file:///X/X"},
 		{"no placeholder", "file:///docs/fixed.txt", "X", ""},
 		{"unterminated placeholder", "file:///docs/{path", "X", "file:///docs/{path"},

@@ -221,4 +221,7 @@ const (
 	// error — preserving it keeps a refusal visible to a reviewer instead of
 	// collapsing it into a silent non-finding.
 	MetadataKeyPrimitiveCallError = "mcpprimitive.call_error"
+	// MetadataKeyPrimitiveMIMEType (string) is the MIME type the server declared for
+	// the first returned content block.
+	MetadataKeyPrimitiveMIMEType = "mcpprimitive.mime_type"
 )
