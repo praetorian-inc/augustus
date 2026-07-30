@@ -50,6 +50,7 @@ Generators may also implement these **optional** interfaces (in `pkg/types/gener
 - **DocumentCapable**: `SupportsDocuments() bool` — the document-modality parallel of `VisionCapable`: declares that the generator's wire layer can transmit document attachments (`Message.Documents`, e.g. PDFs). Document probes (`internal/probes/pdf/*`) gate on this so a generator that can't carry documents fails the probe rather than silently sending a text-only request and mis-reporting the target as safe. Report **structural** capability — Anthropic returns `true` unconditionally; Bedrock returns `true` only for the Claude builder (Nova/Titan/Llama return `false`, as only the Claude path emits document blocks).
 - **ToolInvoker** (`pkg/types/tool_invoker.go`): `ListTools()` / `CallTool()` — declares that the target exposes a directly-invokable tool surface (e.g. an MCP server) rather than only chat completion. This is distinct from the model-facing tool wire layer (`Conversation.Tools`/`Message.ToolCalls`), which presents probe-defined tools *to* an LLM and executes nothing: `ToolInvoker` invokes REAL tools on the backend. It is the basis for the `internal/probes/mcptool/*` probes (broken object-level authorization via `mcptool.BOLA`, injection-into-a-sink via `mcptool.Injection`, `mcptool.SSRF` against tool backends, and response credential leakage via `mcptool.ResponseLeak`).
 - **MCPReconnaissance** (`pkg/types/mcp_recon.go`): `MCPInventory()` — declares that the target's full MCP attack surface (declared capabilities, negotiated protocol version, server instructions, and the tool/resource/prompt catalog) can be enumerated from the connected session. Implemented by the `mcp.MCP` generator and consumed by the `recon.MCP` reconnaissance module. Assembles raw descriptive data only — it renders no verdict.
+- **MCPPrimitiveReader** (`pkg/types/mcp_primitives.go`): `ReadResource()` / `GetPrompt()` — declares that the target exposes the MCP content-bearing primitives BEYOND tools. `ToolInvoker` covers only tools/list + tools/call, and `MCPReconnaissance` enumerates the resource/prompt catalog but never fetches the CONTENT behind an entry; this interface adds that retrieval. Both calls are outbound (same direction as tools/call), so it introduces no new protocol direction — server-initiated callbacks (sampling/createMessage, elicitation/create) remain unimplemented. Note the denial contract: resources/read and prompts/get have no application-level error flag like `ToolResult.IsError`, so a refusal arrives as a Go error — probes treat an error as the denial signal and a returned body as acceptance. It is the basis for the `internal/probes/mcpprimitive/*` probes (`mcpprimitive.ResourceInjection`, `mcpprimitive.PromptInjection`).
 - **MCPEndpoint** (in `pkg/types/mcp_endpoint.go`): declares that the generator connects to an HTTP-based MCP target and exposes the plumbing transport-layer probes need — `EndpointURL()`, `Transport()` (kind: "http"/"sse"), `HTTPClient()` (with the generator's proxy / TLS / injected headers), `AnonymousHTTPClient()` (same transport but WITHOUT header injection, for probes that model an unauthenticated attacker), and `ProxyURL()`. Transport-layer probes (`mcptransport.OriginValidation`, `mcptransport.SSESessionHijack`) type-assert this so raw-HTTP checks still inherit proxy config and honour operator-configured credential boundaries.
 
 ### Reconnaissance (pkg/recon/)
@@ -99,6 +100,7 @@ internal/           Implementation details (not importable externally)
   detectors/        95+ detector implementations
   buffs/            7 buff transformations
   attackengine/     Iterative attack engine (PAIR/TAP)
+  mcpprobe/         Shared MCP probe kit: computed-arithmetic canaries, shell-command payload families, and the out-of-band callback collector (used by probes/mcptool and probes/mcpprimitive)
   recon/            Reconnaissance modules (recon/mcp — MCP attack-surface enumeration + per-identity identifier harvesting; recon/mcpconfig — MCP config-file collection; recon/llm — navigator-LLM base for LLM-driven recon)
 ```
 
@@ -175,6 +177,12 @@ augustus scan mcp.MCP --recon recon.MCP --probe mcptool.Injection --probe mcptoo
 
 # Composed recon (recon-consumes-recon) feeding the BOLA probe; per-module settings via a recon.settings config block
 augustus scan mcp.MCP --recon recon.MCP --recon recon.MCPIdentifiers --probe mcptool.BOLA --config-file bola.yaml
+
+# Non-tool primitive surfaces (resources/read + prompts/get). ResourceInjection needs no
+# catalog — it always sends its baseline URI payloads — but recon enriches both probes.
+augustus scan mcp.MCP --recon recon.MCP \
+  --probe mcpprimitive.ResourceInjection --probe mcpprimitive.PromptInjection \
+  --config '{"endpoint":"http://localhost:8000/mcp"}'
 ```
 
 ## Commit Convention

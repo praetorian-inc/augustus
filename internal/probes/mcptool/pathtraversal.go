@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
@@ -105,7 +106,7 @@ var readPayloads = []pathTraversalPayload{
 // read set. The canary hex is fresh per call so parallel runs don't collide
 // and each attempt's success is self-identifying in the response.
 func buildWritePayloads() []pathTraversalPayload {
-	canary := "augwrite-" + randToken()
+	canary := "augwrite-" + mcpprobe.RandToken()
 	name := "proof-" + canary
 	// Signature: the canary appearing in the tool's response text is the
 	// signal. The path IS the payload, but the canary is a random 16-hex
