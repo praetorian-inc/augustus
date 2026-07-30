@@ -483,13 +483,26 @@ func (m *MCP) callTool(ctx context.Context, sess *mcpsdk.ClientSession, conv *at
 // listTools issues tools/list and returns the advertised tools rendered as text
 // so detectors can inspect names, descriptions, and schemas for injected content.
 func (m *MCP) listTools(ctx context.Context, sess *mcpsdk.ClientSession) (attempt.Message, error) {
-	result, err := sess.ListTools(ctx, nil)
-	if err != nil {
+	// Paginate: a server must not be able to keep tools out of the rendered
+	// catalog by placing them on a later page (loop/cursor-repeat bounded).
+	sdkTools, err := listAll(func(cursor string) ([]*mcpsdk.Tool, string, error) {
+		res, err := sess.ListTools(ctx, &mcpsdk.ListToolsParams{Cursor: cursor})
+		if err != nil {
+			return nil, "", err
+		}
+		m.storeRawJSON(res)
+		return res.Tools, res.NextCursor, nil
+	})
+	if err != nil && !errors.Is(err, errListTruncated) {
 		return attempt.Message{}, fmt.Errorf("mcp: tools/list failed: %w", err)
 	}
+	if errors.Is(err, errListTruncated) {
+		// Keep the pages we did enumerate but flag the truncation — never a
+		// silent partial-as-complete tool list.
+		slog.Warn("mcp: tool catalog truncated at page cap; results may be incomplete", "pages", maxListPages)
+	}
 
-	m.storeRawJSON(result)
-	return attempt.NewAssistantMessage(formatTools(result.Tools)), nil
+	return attempt.NewAssistantMessage(formatTools(sdkTools)), nil
 }
 
 // ListTools implements types.ToolInvoker. It returns the target's advertised
@@ -507,12 +520,25 @@ func (m *MCP) ListTools(ctx context.Context) ([]map[string]any, error) {
 	err := m.withSession(ctx, func(ctx context.Context, sess *mcpsdk.ClientSession) error {
 		callCtx, cancel := context.WithTimeout(ctx, m.cfg.RequestTimeout)
 		defer cancel()
-		result, err := sess.ListTools(callCtx, nil)
-		if err != nil {
+		// Paginate: follow nextCursor across all pages so a server can't hide tools
+		// on a later page from tool-surface probes (loop/cursor-repeat bounded).
+		sdkTools, err := listAll(func(cursor string) ([]*mcpsdk.Tool, string, error) {
+			res, err := sess.ListTools(callCtx, &mcpsdk.ListToolsParams{Cursor: cursor})
+			if err != nil {
+				return nil, "", err
+			}
+			m.storeRawJSON(res)
+			return res.Tools, res.NextCursor, nil
+		})
+		if err != nil && !errors.Is(err, errListTruncated) {
 			return fmt.Errorf("mcp: tools/list failed: %w", err)
 		}
-		m.storeRawJSON(result)
-		tools = toolsToMaps(result.Tools)
+		if errors.Is(err, errListTruncated) {
+			// Keep the pages we did enumerate but flag the truncation — never a
+			// silent partial-as-complete tool list.
+			slog.Warn("mcp: tool catalog truncated at page cap; results may be incomplete", "pages", maxListPages)
+		}
+		tools = toolsToMaps(sdkTools)
 		return nil
 	})
 	if err != nil {
