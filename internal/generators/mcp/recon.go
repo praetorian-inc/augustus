@@ -30,7 +30,7 @@ func (m *MCP) MCPInventory(ctx context.Context) (*types.MCPInventory, error) {
 	inv := &types.MCPInventory{}
 
 	err := m.withSession(ctx, func(ctx context.Context, sess *mcpsdk.ClientSession) error {
-		budget := m.walkBudget()
+		lim := m.walkLimits()
 
 		if init := sess.InitializeResult(); init != nil {
 			inv.ProtocolVersion = init.ProtocolVersion
@@ -43,50 +43,61 @@ func (m *MCP) MCPInventory(ctx context.Context) (*types.MCPInventory, error) {
 		}
 
 		// Each catalog is paginated: follow nextCursor across all pages so a server
-		// cannot hide poisoned/hostile definitions on a later page behind a benign
-		// first page. Each enumeration gets its OWN walk budget so a slow tools/list
-		// cannot starve the resource and prompt catalogs into coming back empty.
+		// cannot hide poisoned or hostile definitions on a later page behind a benign
+		// first page. listAll derives a fresh walk budget per call, so a slow
+		// tools/list cannot starve the resource and prompt catalogs.
+		//
+		// A catalog that stopped early is recorded in inv.Incomplete: the inventory is
+		// then a lower bound on the surface, and a consumer must not score it as if it
+		// were the whole one.
+		markIncomplete := func(catalog string, truncated bool) {
+			if truncated {
+				inv.Incomplete = append(inv.Incomplete, catalog)
+			}
+		}
+
 		if inv.Capabilities.Tools {
-			inv.Tools = mcpToolsFrom(reconList(ctx, budget, "tools", func(cursor string) ([]*mcpsdk.Tool, string, error) {
-				pctx, cancel := m.pageCtx(ctx)
-				defer cancel()
+			tools, truncated := reconList(ctx, lim, "tools", func(pctx context.Context, cursor string) ([]*mcpsdk.Tool, string, error) {
 				res, err := sess.ListTools(pctx, &mcpsdk.ListToolsParams{Cursor: cursor})
 				if err != nil {
 					return nil, "", err
 				}
 				return res.Tools, res.NextCursor, nil
-			}))
+			})
+			inv.Tools = mcpToolsFrom(tools)
+			markIncomplete("tools", truncated)
 		}
 		if inv.Capabilities.Resources {
-			inv.Resources = mcpResourcesFrom(reconList(ctx, budget, "resources", func(cursor string) ([]*mcpsdk.Resource, string, error) {
-				pctx, cancel := m.pageCtx(ctx)
-				defer cancel()
+			resources, truncated := reconList(ctx, lim, "resources", func(pctx context.Context, cursor string) ([]*mcpsdk.Resource, string, error) {
 				r, err := sess.ListResources(pctx, &mcpsdk.ListResourcesParams{Cursor: cursor})
 				if err != nil {
 					return nil, "", err
 				}
 				return r.Resources, r.NextCursor, nil
-			}))
-			inv.ResourceTemplates = mcpResourceTemplatesFrom(reconList(ctx, budget, "resource_templates", func(cursor string) ([]*mcpsdk.ResourceTemplate, string, error) {
-				pctx, cancel := m.pageCtx(ctx)
-				defer cancel()
+			})
+			inv.Resources = mcpResourcesFrom(resources)
+			markIncomplete("resources", truncated)
+
+			templates, truncated := reconList(ctx, lim, "resource_templates", func(pctx context.Context, cursor string) ([]*mcpsdk.ResourceTemplate, string, error) {
 				r, err := sess.ListResourceTemplates(pctx, &mcpsdk.ListResourceTemplatesParams{Cursor: cursor})
 				if err != nil {
 					return nil, "", err
 				}
 				return r.ResourceTemplates, r.NextCursor, nil
-			}))
+			})
+			inv.ResourceTemplates = mcpResourceTemplatesFrom(templates)
+			markIncomplete("resource_templates", truncated)
 		}
 		if inv.Capabilities.Prompts {
-			inv.Prompts = mcpPromptsFrom(reconList(ctx, budget, "prompts", func(cursor string) ([]*mcpsdk.Prompt, string, error) {
-				pctx, cancel := m.pageCtx(ctx)
-				defer cancel()
+			prompts, truncated := reconList(ctx, lim, "prompts", func(pctx context.Context, cursor string) ([]*mcpsdk.Prompt, string, error) {
 				r, err := sess.ListPrompts(pctx, &mcpsdk.ListPromptsParams{Cursor: cursor})
 				if err != nil {
 					return nil, "", err
 				}
 				return r.Prompts, r.NextCursor, nil
-			}))
+			})
+			inv.Prompts = mcpPromptsFrom(prompts)
+			markIncomplete("prompts", truncated)
 		}
 		return nil
 	})
@@ -227,42 +238,33 @@ func mcpPromptsFrom(prompts []*mcpsdk.Prompt) []types.MCPPrompt {
 	return out
 }
 
-// pageCtx derives the deadline for a single page of a paginated enumeration.
+// walkLimits are the two deadlines that bound one paginated catalog enumeration.
 // Config documents RequestTimeout as the deadline for each individual call, so
-// every page gets its own budget instead of all pages splitting one: sharing a
-// single deadline across pages would make a slow multi-page catalog fail partway
-// and report EMPTY, which is a worse answer than the truncated one this whole
-// helper exists to avoid. walkCtx bounds the enumeration as a whole.
+// Page is applied per page rather than to a whole walk: one deadline shared across
+// pages would make a slow multi-page catalog fail partway and report EMPTY, which
+// is a worse answer than the truncated one this helper exists to produce.
 //
-// Page deadlines derive from the caller's ctx, NOT from walkCtx, so a page
-// already in flight when the overall budget runs out still completes on its own
-// terms; listAll then stops cleanly at the next loop boundary and reports
-// truncation, rather than surfacing a mid-request cancellation as a hard error.
-func (m *MCP) pageCtx(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, m.cfg.RequestTimeout)
+// Walk then bounds the enumeration as a whole. Per-page deadlines alone leave the
+// page COUNT capped by maxListPages but the total time uncapped, and a hostile
+// server answering each page just under the per-page deadline could stall a scan
+// for hours — both --timeout and --probe-timeout default to no timeout, and the
+// recon phase sets no deadline at all.
+type walkLimits struct {
+	Walk time.Duration // wall-clock bound for the whole enumeration
+	Page time.Duration // deadline for a single page
 }
 
-// walkBudget is the wall-clock bound for ONE paginated catalog enumeration.
-// Because pageCtx gives every page its own RequestTimeout, maxListPages caps the
-// page COUNT but nothing caps the total: a hostile server answering each page
-// just under the per-page deadline could stall a scan for hours, and both
-// --timeout and --probe-timeout default to no timeout while the recon phase sets
-// no deadline at all. Exhausting this budget is reported as truncation (partial
-// catalog plus a warning), never as an error, so a merely slow server still
-// yields the pages it did serve.
-//
-// It is deliberately PER CATALOG rather than per inventory: one budget shared
-// across tools, resources, resource templates, and prompts would let a large or
-// deliberately slow tool list exhaust it and force every later catalog to come
-// back empty — hiding hostile resource and prompt definitions behind a slow
-// tools/list, which is the very failure this bound exists to prevent.
-func (m *MCP) walkBudget() time.Duration {
-	return listWalkBudgetFactor * m.cfg.RequestTimeout
-}
-
-// walkCtx derives a fresh whole-enumeration budget for one catalog walk.
-func (m *MCP) walkCtx(ctx context.Context) (context.Context, context.CancelFunc) {
-	return context.WithTimeout(ctx, m.walkBudget())
+// walkLimits reports the enumeration deadlines for this generator. listAll derives
+// a FRESH Walk budget per call, so every catalog is bounded independently: one
+// budget shared across tools, resources, resource templates, and prompts would let
+// a large or deliberately slow tool list exhaust it and force every later catalog
+// to come back empty — hiding hostile resource and prompt definitions behind a
+// slow tools/list, the very failure this bound exists to prevent.
+func (m *MCP) walkLimits() walkLimits {
+	return walkLimits{
+		Walk: listWalkBudgetFactor * m.cfg.RequestTimeout,
+		Page: m.cfg.RequestTimeout,
+	}
 }
 
 const (
@@ -277,23 +279,27 @@ const (
 )
 
 // errListTruncated signals that pagination stopped early with a cursor still
-// pending — at maxListPages, on a repeated cursor, or with the whole-enumeration
-// budget spent. The catalog was NOT fully enumerated: callers keep the items
-// gathered so far but must not treat the enumeration as complete (a hostile
-// catalog could hide content on the pages that were never fetched).
+// pending — at maxListPages, on a repeated cursor, or with the walk budget spent.
+// The catalog was NOT fully enumerated: callers keep the items gathered so far but
+// must not treat the enumeration as complete (a hostile catalog could hide content
+// on the pages that were never fetched).
 var errListTruncated = errors.New("mcp: catalog pagination stopped early; results may be incomplete")
 
 // listAll follows an MCP list operation's nextCursor across all pages,
-// accumulating items. It guards against a hostile/buggy server with a hard page
-// cap, cursor-repeat detection, and the walkCtx wall-clock budget. list must
-// return one page's items plus the next cursor ("" when there are no more pages)
-// for the given cursor.
+// accumulating items. It owns both enumeration deadlines: a fresh whole-walk
+// budget (so each call is bounded independently) and a per-page deadline derived
+// FROM that budget, so an in-flight page can never push the walk past its bound.
+// list receives the page context and returns one page's items plus the next cursor
+// ("" when there are no more pages).
 //
 // Exactly one condition means "the catalog ended": the server returned an empty
 // nextCursor. Every other stop leaves a cursor pending and returns
 // errListTruncated with the items collected so far — never a silent
 // partial-as-complete. Caller cancellation is distinct from both and propagates.
-func listAll[T any](ctx, walkCtx context.Context, list func(cursor string) ([]T, string, error)) ([]T, error) {
+func listAll[T any](ctx context.Context, lim walkLimits, list func(pctx context.Context, cursor string) ([]T, string, error)) ([]T, error) {
+	walkCtx, cancelWalk := context.WithTimeout(ctx, lim.Walk)
+	defer cancelWalk()
+
 	var out []T
 	seen := make(map[string]bool)
 	cursor := ""
@@ -301,18 +307,31 @@ func listAll[T any](ctx, walkCtx context.Context, list func(cursor string) ([]T,
 		// The caller aborting — scan shutdown, --timeout, Ctrl-C — is NOT truncation.
 		// Reporting it as such would have the scan carry on against a partial catalog
 		// it was told to stop building, so propagate it and let the caller unwind.
-		// Checked before walkCtx because walkCtx is derived from ctx and would
-		// otherwise mask a cancellation as our own budget expiring.
+		// Checked before walkCtx because walkCtx derives from ctx and would otherwise
+		// mask a cancellation as our own budget expiring.
 		if err := ctx.Err(); err != nil {
 			return out, err
 		}
 		if walkCtx.Err() != nil {
 			return out, errListTruncated
 		}
-		items, next, err := list(cursor)
+
+		// Page deadline derives from walkCtx, so it is min(Page, walk remaining): a
+		// page starting just before the budget expires cannot overrun it.
+		pctx, cancelPage := context.WithTimeout(walkCtx, lim.Page)
+		items, next, err := list(pctx, cursor)
+		cancelPage()
 		if err != nil {
+			// Classify by WHICH deadline fired, not by the error the SDK surfaced. A
+			// page cut short because the walk budget ran out is truncation — keep the
+			// pages we have. Reporting it as a transport failure would collapse the
+			// catalog to empty, which is the outcome this whole bound exists to avoid.
+			if ctx.Err() == nil && walkCtx.Err() != nil {
+				return out, errListTruncated
+			}
 			return out, err
 		}
+
 		out = append(out, items...)
 		if next == "" {
 			return out, nil
@@ -331,26 +350,23 @@ func listAll[T any](ctx, walkCtx context.Context, list func(cursor string) ([]T,
 	return out, errListTruncated
 }
 
-// reconList runs one paginated catalog enumeration for the inventory under its
-// own walk budget. On a truncated result it keeps what was gathered but logs a
-// warning so the partial catalog is never mistaken for a complete one; on any
+// reconList runs one paginated catalog enumeration for the inventory, reporting
+// whether it was truncated so the inventory can carry a machine-readable
+// completeness marker. On truncation it keeps what was gathered and warns; on any
 // other list error it returns nil, preserving the best-effort "leave that catalog
 // empty" behavior — but says so rather than failing silently.
-func reconList[T any](ctx context.Context, budget time.Duration, catalog string, list func(cursor string) ([]T, string, error)) []T {
-	walkCtx, cancel := context.WithTimeout(ctx, budget)
-	defer cancel()
-
-	items, err := listAll(ctx, walkCtx, list)
+func reconList[T any](ctx context.Context, lim walkLimits, catalog string, list func(pctx context.Context, cursor string) ([]T, string, error)) ([]T, bool) {
+	items, err := listAll(ctx, lim, list)
 	switch {
 	case err == nil:
-		return items
+		return items, false
 	case errors.Is(err, errListTruncated):
 		slog.Warn("recon.MCP: catalog enumeration stopped early; results may be incomplete",
 			"catalog", catalog, "collected", len(items), "page_cap", maxListPages)
-		return items
+		return items, true
 	default:
 		slog.Warn("recon.MCP: catalog enumeration failed; leaving it empty",
 			"catalog", catalog, "error", err)
-		return nil
+		return nil, true
 	}
 }

@@ -493,13 +493,8 @@ func (m *MCP) callTool(ctx context.Context, sess *mcpsdk.ClientSession, conv *at
 // here would need a flag and would make the tools case inconsistent with its
 // three siblings.
 func (m *MCP) listAllTools(ctx context.Context, sess *mcpsdk.ClientSession) ([]*mcpsdk.Tool, bool, error) {
-	walkCtx, cancelWalk := m.walkCtx(ctx)
-	defer cancelWalk()
-
 	var lastPage *mcpsdk.ListToolsResult
-	tools, err := listAll(ctx, walkCtx, func(cursor string) ([]*mcpsdk.Tool, string, error) {
-		pctx, cancel := m.pageCtx(ctx)
-		defer cancel()
+	tools, err := listAll(ctx, m.walkLimits(), func(pctx context.Context, cursor string) ([]*mcpsdk.Tool, string, error) {
 		res, err := sess.ListTools(pctx, &mcpsdk.ListToolsParams{Cursor: cursor})
 		if err != nil {
 			return nil, "", err
@@ -587,12 +582,19 @@ func (m *MCP) ListTools(ctx context.Context) ([]map[string]any, error) {
 		return nil, err
 	}
 
-	// Serve a truncated catalog to this caller but do NOT memoize it: the cache
-	// lives for the session, so caching a known-incomplete tool surface would hand
-	// every later probe the same partial view with no further warning. Leaving it
-	// uncached costs one extra tools/list and gives the next caller a full walk.
+	// A truncated enumeration FAILS CLOSED. Returning a knowingly partial catalog
+	// with a nil error is the exact defect this branch exists to remove, one layer
+	// up: a server can halt the walk after a benign prefix, and every mcptool.* probe
+	// would then scan that prefix, find nothing, and report the target clean. An
+	// honest "could not enumerate the surface" beats a false pass.
+	//
+	// The partial catalog is still returned alongside the error, so a caller that
+	// deliberately wants best-effort data can use it; the default `if err != nil`
+	// path skips the target instead. It is also NOT memoized — the cache lives for
+	// the session, so storing an incomplete surface would hand the same partial view
+	// to every later probe.
 	if truncated {
-		return tools, nil
+		return tools, fmt.Errorf("mcp: refusing to report a partial tool catalog as complete (%d tools enumerated): %w", len(tools), errListTruncated)
 	}
 
 	m.toolsMu.Lock()

@@ -49,6 +49,16 @@ type MCPInventory struct {
 	Prompts           []MCPPrompt           `json:"prompts"`
 	// Counts is a convenience roll-up for reporting.
 	Counts MCPInventoryCounts `json:"counts"`
+	// Incomplete names the catalogs whose enumeration stopped early — a repeated
+	// cursor, the page cap, the wall-clock budget, or an outright list failure. It
+	// is empty when every declared catalog was fully enumerated.
+	//
+	// A non-empty value makes the inventory a LOWER BOUND on the target's surface,
+	// not a description of it. A hostile server can halt enumeration after a benign
+	// prefix, so a consumer that scores only what was collected would report clean
+	// on a surface it never saw. Reconnaissance renders no verdict, so this is
+	// recorded as a fact rather than acted on here; consumers decide.
+	Incomplete []string `json:"incomplete,omitempty"`
 }
 
 // ToolMaps renders the inventory's tools in the same wire shape that
@@ -79,6 +89,11 @@ func (inv *MCPInventory) ToolMaps() []map[string]any {
 	}
 	return out
 }
+
+// IsComplete reports whether every declared catalog was fully enumerated. Probes
+// consuming a shared inventory should prefer a complete one and fall back to a live
+// enumeration rather than scoring a known-partial attack surface.
+func (inv *MCPInventory) IsComplete() bool { return len(inv.Incomplete) == 0 }
 
 // MCPIdentifiers is the mcp.identifiers observation payload: object identifiers
 // discovered for ONE identity, each already validated against the getter tool

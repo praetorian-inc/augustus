@@ -3,11 +3,13 @@ package mcp
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -17,6 +19,10 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
+
+// testLimits are generous enumeration deadlines for the unit tests: they exercise
+// cursor semantics, not timing, so neither bound should ever fire.
+var testLimits = walkLimits{Walk: time.Minute, Page: 10 * time.Second}
 
 // TestListAll_FollowsCursors: listAll accumulates items across every page,
 // following nextCursor until it is empty.
@@ -29,7 +35,7 @@ func TestListAll_FollowsCursors(t *testing.T) {
 		"c1": {[]int{3}, "c2"},
 		"c2": {[]int{4}, ""}, // last page
 	}
-	got, err := listAll(context.Background(), context.Background(), func(cursor string) ([]int, string, error) {
+	got, err := listAll(context.Background(), testLimits, func(_ context.Context, cursor string) ([]int, string, error) {
 		p := pages[cursor]
 		return p.items, p.next, nil
 	})
@@ -49,7 +55,7 @@ func TestListAll_FollowsCursors(t *testing.T) {
 // have the partial catalog pass as the target's full attack surface.
 func TestListAll_StopsOnCursorRepeat(t *testing.T) {
 	calls := 0
-	got, err := listAll(context.Background(), context.Background(), func(_ string) ([]int, string, error) {
+	got, err := listAll(context.Background(), testLimits, func(_ context.Context, _ string) ([]int, string, error) {
 		calls++
 		return []int{calls}, "loop", nil // always the same next cursor
 	})
@@ -67,7 +73,7 @@ func TestListAll_StopsOnCursorRepeat(t *testing.T) {
 // TestListAll_PropagatesError: a page error is returned (with the pages gathered
 // so far), not silently swallowed.
 func TestListAll_PropagatesError(t *testing.T) {
-	_, err := listAll(context.Background(), context.Background(), func(_ string) ([]int, string, error) {
+	_, err := listAll(context.Background(), testLimits, func(_ context.Context, _ string) ([]int, string, error) {
 		return nil, "", errors.New("boom")
 	})
 	if err == nil {
@@ -80,7 +86,7 @@ func TestListAll_PropagatesError(t *testing.T) {
 // items gathered so far) rather than silently reporting a complete enumeration.
 func TestListAll_ErrorsOnPageCapExhaustion(t *testing.T) {
 	n := 0
-	items, err := listAll(context.Background(), context.Background(), func(_ string) ([]int, string, error) {
+	items, err := listAll(context.Background(), testLimits, func(_ context.Context, _ string) ([]int, string, error) {
 		n++
 		return []int{n}, fmt.Sprintf("cursor-%d", n), nil // always a new unique cursor
 	})
@@ -333,8 +339,12 @@ func TestPagination_WholeWalkIsTimeBounded(t *testing.T) {
 	tools, err := inv.ListTools(context.Background())
 	elapsed := time.Since(start)
 
-	if err != nil {
-		t.Fatalf("ListTools: %v — a spent walk budget must degrade to truncation, not an error", err)
+	// A spent walk budget is classified as TRUNCATION, not a transport failure, which
+	// ListTools then surfaces to its caller as a fail-closed error. Both halves matter:
+	// the classification is what keeps the partial catalog (rather than collapsing it
+	// to empty), and the error is what stops a probe scoring that partial as clean.
+	if !errors.Is(err, errListTruncated) {
+		t.Fatalf("ListTools err = %v, want it to wrap errListTruncated", err)
 	}
 
 	// The bound itself, asserted on page count rather than elapsed time: the
@@ -360,7 +370,7 @@ func TestListAll_PropagatesCallerCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	_, err := listAll(ctx, context.Background(), func(_ string) ([]int, string, error) {
+	_, err := listAll(ctx, testLimits, func(_ context.Context, _ string) ([]int, string, error) {
 		t.Error("list should not be called once the caller has cancelled")
 		return nil, "", nil
 	})
@@ -376,10 +386,9 @@ func TestListAll_PropagatesCallerCancellation(t *testing.T) {
 // Our own walk budget expiring IS truncation — partial results plus a warning —
 // and must not be confused with the caller cancelling.
 func TestListAll_WalkBudgetIsTruncationNotCancellation(t *testing.T) {
-	walkCtx, cancel := context.WithCancel(context.Background())
-	cancel()
+	spent := walkLimits{Walk: time.Nanosecond, Page: time.Second}
 
-	_, err := listAll(context.Background(), walkCtx, func(_ string) ([]int, string, error) {
+	_, err := listAll(context.Background(), spent, func(_ context.Context, _ string) ([]int, string, error) {
 		t.Error("list should not be called once the walk budget is spent")
 		return nil, "", nil
 	})
@@ -447,8 +456,11 @@ func TestListTools_DoesNotMemoizeTruncatedCatalog(t *testing.T) {
 	}).(*MCP)
 
 	tools, err := g.ListTools(context.Background())
-	if err != nil {
-		t.Fatalf("ListTools: %v", err)
+	// A truncated enumeration fails closed: probes must skip the target rather than
+	// scan a partial prefix and report clean. The partial catalog is still returned
+	// alongside the error for a caller that deliberately wants best-effort data.
+	if !errors.Is(err, errListTruncated) {
+		t.Fatalf("ListTools err = %v, want errListTruncated on a truncated walk", err)
 	}
 	if len(tools) == 0 || len(tools) == toolCount {
 		t.Fatalf("expected a truncated walk, got %d of %d tools", len(tools), toolCount)
@@ -552,5 +564,150 @@ func TestGenerate_ListToolsMode_MarksTruncatedCatalog(t *testing.T) {
 	})
 	if out := generate(t, complete, "ignored prompt"); strings.Contains(out, truncationNotice) {
 		t.Errorf("a fully enumerated catalog was marked truncated:\n%s", out)
+	}
+}
+
+// TestListTools_FailsClosedOnTruncation: returning a knowingly partial catalog with
+// a nil error would reproduce this branch's own bug one layer up — a server can halt
+// the walk after a benign prefix, and every mcptool.* probe would scan that prefix,
+// find nothing, and report the target clean. An honest error beats a false pass.
+func TestListTools_FailsClosedOnTruncation(t *testing.T) {
+	t.Parallel()
+
+	const toolCount = 40
+	inv := newGen(t, registry.Config{
+		"transport":       "http",
+		"endpoint":        newSlowToolsTarget(t, 100*time.Millisecond, toolCount),
+		"request_timeout": 0.2,
+	}).(types.ToolInvoker)
+
+	tools, err := inv.ListTools(context.Background())
+	if err == nil {
+		t.Fatal("a truncated catalog was returned with a nil error; probes would score a partial surface as clean")
+	}
+	if !errors.Is(err, errListTruncated) {
+		t.Errorf("err = %v, want it to wrap errListTruncated so callers can classify it", err)
+	}
+	// Best-effort data still travels with the error, for a caller that wants it.
+	if len(tools) == 0 {
+		t.Error("the pages that were enumerated should still be returned alongside the error")
+	}
+}
+
+// TestMCPInventory_MarksIncompleteCatalogs: the inventory must carry a
+// machine-readable completeness marker. Without it, a truncated catalog is
+// indistinguishable from a small one, and context-aware probes reuse it as though it
+// described the target's whole surface.
+func TestMCPInventory_MarksIncompleteCatalogs(t *testing.T) {
+	t.Parallel()
+
+	const count = 40
+	rec := newGen(t, registry.Config{
+		"transport":       "http",
+		"endpoint":        newSlowToolsTarget(t, 100*time.Millisecond, count),
+		"request_timeout": 0.2, // tools/list truncates; resources and prompts are instant
+	}).(types.MCPReconnaissance)
+
+	inv, err := rec.MCPInventory(context.Background())
+	if err != nil {
+		t.Fatalf("MCPInventory: %v", err)
+	}
+
+	if inv.IsComplete() {
+		t.Error("a truncated tools catalog was reported as a complete inventory")
+	}
+	if !slices.Contains(inv.Incomplete, "tools") {
+		t.Errorf("Incomplete = %v, want it to name \"tools\"", inv.Incomplete)
+	}
+	// Only the catalog that actually truncated is marked — the marker has to be
+	// precise, or a consumer cannot tell which part of the surface it is missing.
+	for _, complete := range []string{"resources", "prompts"} {
+		if slices.Contains(inv.Incomplete, complete) {
+			t.Errorf("%q was marked incomplete but enumerated fully", complete)
+		}
+	}
+}
+
+// TestMCPInventory_CompleteWalkHasNoMarker: the marker must stay absent on a full
+// enumeration, so it serializes away and a complete inventory is byte-identical to
+// what earlier versions emitted.
+func TestMCPInventory_CompleteWalkHasNoMarker(t *testing.T) {
+	t.Parallel()
+
+	rec := newGen(t, registry.Config{
+		"transport": "http",
+		"endpoint":  newPaginatedTarget(t),
+	}).(types.MCPReconnaissance)
+
+	inv, err := rec.MCPInventory(context.Background())
+	if err != nil {
+		t.Fatalf("MCPInventory: %v", err)
+	}
+	if !inv.IsComplete() {
+		t.Errorf("a fully enumerated inventory was marked incomplete: %v", inv.Incomplete)
+	}
+
+	raw, err := json.Marshal(inv)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(raw), "incomplete") {
+		t.Errorf("the completeness marker leaked into a complete inventory's JSON:\n%s", raw)
+	}
+}
+
+// TestConfig_ClampsNonPositiveRequestTimeout: 0 means "no timeout" elsewhere in
+// Augustus, but as a deadline it is already expired — every page would fail instantly
+// and the scan would report an empty tool surface instead of an error.
+func TestConfig_ClampsNonPositiveRequestTimeout(t *testing.T) {
+	t.Parallel()
+
+	def := DefaultConfig().RequestTimeout
+	for _, v := range []any{0, -5, 0.0} {
+		cfg, err := ConfigFromMap(registry.Config{"endpoint": "http://example.invalid/mcp", "request_timeout": v})
+		if err != nil {
+			t.Fatalf("ConfigFromMap(request_timeout=%v): %v", v, err)
+		}
+		if cfg.RequestTimeout != def {
+			t.Errorf("request_timeout=%v gave %v, want the %v default (a non-positive deadline expires instantly)", v, cfg.RequestTimeout, def)
+		}
+	}
+}
+
+// TestListAll_PageDeadlineIsBoundedByWalkBudget: each page's deadline must be
+// min(Page, walk remaining). Deriving it from the caller instead would let a page
+// that starts just before the walk budget expires run a further full Page timeout,
+// so the advertised whole-walk bound could be overrun by up to one request_timeout.
+//
+// Asserted on the deadline the page actually receives rather than on elapsed time:
+// the overshoot is at most 10% of the walk budget (Walk is 10x Page), which is far
+// too small for a timing assertion to catch reliably.
+func TestListAll_PageDeadlineIsBoundedByWalkBudget(t *testing.T) {
+	t.Parallel()
+
+	// A Page allowance far larger than Walk: the walk bound must dominate.
+	lim := walkLimits{Walk: 100 * time.Millisecond, Page: 10 * time.Second}
+	start := time.Now()
+
+	var pageDeadlines []time.Time
+	_, _ = listAll(context.Background(), lim, func(pctx context.Context, _ string) ([]int, string, error) {
+		dl, ok := pctx.Deadline()
+		if !ok {
+			t.Error("page context carries no deadline")
+			return nil, "", nil
+		}
+		pageDeadlines = append(pageDeadlines, dl)
+		return []int{1}, "next", nil // always a fresh cursor, so the walk runs to a bound
+	})
+
+	if len(pageDeadlines) == 0 {
+		t.Fatal("list was never called")
+	}
+	walkDeadline := start.Add(lim.Walk)
+	for i, dl := range pageDeadlines {
+		if dl.After(walkDeadline.Add(5 * time.Millisecond)) {
+			t.Errorf("page %d deadline is %v past the walk deadline; a page can overrun the whole-walk bound",
+				i, dl.Sub(walkDeadline))
+		}
 	}
 }
