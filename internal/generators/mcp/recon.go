@@ -272,6 +272,13 @@ type walkLimits struct {
 	// back-to-back and blow straight through a configured request rate — against a
 	// customer's production MCP server, in a tool whose whole job is to be pointed
 	// at infrastructure someone else owns.
+	//
+	// This does mean an N-page walk spends N+1 tokens: withSession's charge plus one
+	// per page. That off-by-one is deliberate. Over-throttling costs a little wall
+	// clock; under-throttling hammers someone's production service, and only one of
+	// those is recoverable. Charging exactly once per request would mean threading
+	// "the session already paid" through every paginating caller, which is more
+	// coupling than a single token is worth.
 	BeforePage func(context.Context) error
 }
 
@@ -390,12 +397,25 @@ func listAll[T any](ctx context.Context, lim walkLimits, list func(pctx context.
 			return out, err
 		}
 
+		// Enforce the volume bound while appending, not merely between pages: a single
+		// huge page would otherwise push the total far past the cap before any check
+		// ran, leaving the "bound" bounded only by one page's size. Appending just
+		// what fits keeps out genuinely capped and drops the references to the rest.
+		//
+		// Dropping items means the catalog is incomplete even if the server said this
+		// was the last page, so this reports truncation regardless of the cursor —
+		// unlike a fully enumerated catalog that merely happens to be large, which is
+		// complete and is handled below.
+		if room := maxListItems - len(out); len(items) > room {
+			out = append(out, items[:room]...)
+			return out, errListTruncated
+		}
 		out = append(out, items...)
 		if next == "" {
 			return out, nil
 		}
-		// Volume bound: pages remain, so this is truncation like every other early
-		// stop — never a complete catalog.
+		// Volume bound reached on a page boundary: pages remain, so this is truncation
+		// like every other early stop — never a complete catalog.
 		if len(out) >= maxListItems {
 			return out, errListTruncated
 		}

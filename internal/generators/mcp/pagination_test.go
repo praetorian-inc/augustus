@@ -921,3 +921,74 @@ func TestWalkLimits_WiresTheRateLimiter(t *testing.T) {
 		t.Errorf("8 charges against a 5/s limit took only %v; the hook is not actually throttling", elapsed)
 	}
 }
+
+// TestListAllTools_TruncationDoesNotEscapeToSessionRetry pins the invariant behind a
+// round-5 review finding that turned out to be a false positive.
+//
+// withSession retries its callback once when the callback returns a non-context
+// error, on the assumption a reused persistent session went stale. So a truncation
+// error must never be returned FROM that callback: if it were, a truncated walk would
+// be silently repeated after a reconnect, doubling attacker-controlled work and
+// potentially masking the first truncation behind a second, different catalog.
+//
+// It does not escape today — listAllTools reports truncation via its bool and keeps
+// err nil, and ListTools builds the fail-closed error only after withSession has
+// returned. This test exists so that stays true: moving the error inside the callback
+// would be an easy and invisible refactor to get wrong.
+func TestListAllTools_TruncationDoesNotEscapeToSessionRetry(t *testing.T) {
+	t.Parallel()
+
+	g := newGen(t, registry.Config{
+		"transport":       "http",
+		"endpoint":        newSlowToolsTarget(t, 100*time.Millisecond, 40),
+		"request_timeout": 0.2, // walk budget 2s => the 40-page walk truncates
+	}).(*MCP)
+
+	sess, _, release, err := g.acquireSession(context.Background())
+	if err != nil {
+		t.Fatalf("acquireSession: %v", err)
+	}
+	defer release()
+
+	tools, truncated, err := g.listAllTools(context.Background(), sess)
+	if !truncated {
+		t.Fatalf("expected a truncated walk (got %d tools); the test premise no longer holds", len(tools))
+	}
+	if err != nil {
+		t.Errorf("listAllTools returned err = %v on truncation; withSession would treat it as a stale session and repeat the whole walk", err)
+	}
+	if errors.Is(err, errListTruncated) {
+		t.Error("the truncation sentinel reached the withSession callback boundary")
+	}
+}
+
+// TestListAll_ItemBoundHoldsAgainstOneHugePage: the volume bound must cap the total,
+// not the total-plus-one-page. A server returning a single oversized page — terminal
+// or not — must not slip past the cap, and dropping items makes the result truncated
+// even when the server claimed that page was the last.
+func TestListAll_ItemBoundHoldsAgainstOneHugePage(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name string
+		next string
+	}{
+		{"nonterminal huge page", "more"},
+		{"terminal huge page", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			huge := make([]int, maxListItems*3)
+			items, err := listAll(context.Background(), testLimits,
+				func(_ context.Context, _ string) ([]int, string, error) {
+					return huge, tc.next, nil
+				})
+			if !errors.Is(err, errListTruncated) {
+				t.Errorf("err = %v, want errListTruncated: items were dropped, so the catalog is incomplete", err)
+			}
+			if len(items) != maxListItems {
+				t.Errorf("collected %d items, want exactly the %d bound", len(items), maxListItems)
+			}
+		})
+	}
+}
