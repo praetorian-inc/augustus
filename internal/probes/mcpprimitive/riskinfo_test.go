@@ -13,7 +13,7 @@ import (
 // literal, so zero-value structs are sufficient — no construction needed.
 func TestRiskInfo_Populated(t *testing.T) {
 	for _, p := range []probes.Prober{
-		&ResourceInjection{}, &PromptInjection{},
+		&ResourceInjection{}, &PromptTemplateInjection{},
 	} {
 		rd, ok := p.(types.RiskDescriber)
 		if !ok {
@@ -44,7 +44,7 @@ func TestRiskInfo_Populated(t *testing.T) {
 // detector this package ships.
 func TestProbeMetadata_Populated(t *testing.T) {
 	for _, p := range []probes.Prober{
-		&ResourceInjection{}, &PromptInjection{},
+		&ResourceInjection{}, &PromptTemplateInjection{},
 	} {
 		md, ok := p.(types.ProbeMetadata)
 		if !ok {
@@ -77,9 +77,9 @@ func TestGetPrompts_NonEmpty(t *testing.T) {
 	if len(res.GetPrompts()) == 0 {
 		t.Error("ResourceInjection.GetPrompts() is empty")
 	}
-	// PromptInjection renders its canary payloads, so it needs a constructed probe.
+	// PromptTemplateInjection renders its canary payloads, so it needs a constructed probe.
 	p := newPromptProbe(t, nil)
 	if len(p.GetPrompts()) == 0 {
-		t.Error("PromptInjection.GetPrompts() is empty")
+		t.Error("PromptTemplateInjection.GetPrompts() is empty")
 	}
 }

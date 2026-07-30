@@ -51,6 +51,12 @@ type resourcePayload struct {
 // each advertised resource TEMPLATE, whose parameter is interpolated straight into
 // the sink.
 //
+// Each advertised resource is additionally read AS-IS — the server's intended use,
+// not an attack — so the secondary content detector can score the bodies the server
+// genuinely serves for smuggled model-directed instructions. Every other payload
+// requests a URI of the probe's own choosing, so without this pass a poisoned
+// advertised resource would never be looked at.
+//
 // The baseline set is sent even when the catalog is empty, deliberately: recon
 // gates enumeration on the server's declared capabilities and treats a failed list
 // call as an empty one, so "no resources advertised" is not evidence that
@@ -225,6 +231,14 @@ func (p *ResourceInjection) buildPayloads(invs []*types.MCPInventory, col *mcppr
 				continue
 			}
 			targets++
+			// Read the advertised resource AS-IS. This is not an attack — it is the
+			// server's intended use — but it is the only way the secondary content
+			// detector ever sees what the server actually serves. Without it a server
+			// whose advertised resource bodies carry hidden model-directed
+			// instructions would go unreported, since every other payload here
+			// requests a URI of our own choosing. Carries no signatures, so the
+			// primary sink detector cannot fire on it.
+			add(resourcePayload{uriPayload: uriPayload{uri: res.URI, class: classResourceContent}})
 			for _, tp := range traversalFrom(res.URI) {
 				add(resourcePayload{uriPayload: tp})
 			}

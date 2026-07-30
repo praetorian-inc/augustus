@@ -203,6 +203,9 @@ const (
 	//	resource-traversal          resource URI escaped its intended scope (arbitrary file read)
 	//	resource-template-arg       a resource-template parameter was interpolated into a sink
 	//	resource-ssrf               resources/read fetched a caller-supplied URL
+	//	resource-content            an advertised resource read as-is (no payload), so
+	//	                            its served body can be scored for smuggled instructions
+	//	prompt-content              an argument-less prompt template rendered as-is, same purpose
 	//	prompt-template-injection   prompts/get evaluated an argument (SSTI/eval)
 	//	prompt-command-injection    prompts/get executed an OS command while rendering
 	MetadataKeyPrimitiveClass = "mcpprimitive.class"

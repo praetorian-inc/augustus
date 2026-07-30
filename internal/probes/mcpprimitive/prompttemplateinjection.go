@@ -15,17 +15,17 @@ import (
 )
 
 func init() {
-	probes.Register("mcpprimitive.PromptInjection", NewPromptInjection)
+	probes.Register("mcpprimitive.PromptTemplateInjection", NewPromptTemplateInjection)
 }
 
 var (
-	_ types.ProbeMetadata           = (*PromptInjection)(nil)
-	_ types.ProbeSecondaryDetectors = (*PromptInjection)(nil)
-	_ types.RiskDescriber           = (*PromptInjection)(nil)
-	_ recon.ContextAwareProbe       = (*PromptInjection)(nil)
+	_ types.ProbeMetadata           = (*PromptTemplateInjection)(nil)
+	_ types.ProbeSecondaryDetectors = (*PromptTemplateInjection)(nil)
+	_ types.RiskDescriber           = (*PromptTemplateInjection)(nil)
+	_ recon.ContextAwareProbe       = (*PromptTemplateInjection)(nil)
 )
 
-// PromptInjection attacks the arguments of prompts/get. A prompt template is
+// PromptTemplateInjection attacks the arguments of prompts/get. A prompt template is
 // rendered SERVER-SIDE with caller-supplied argument values, which makes the
 // renderer an injection sink in exactly the way a tool argument is:
 //
@@ -43,7 +43,7 @@ var (
 // Unlike tool arguments, MCP prompt arguments carry no JSON-schema type (the spec
 // declares name/description/required only), so every argument is a candidate
 // string sink and there is no type filter to apply.
-type PromptInjection struct {
+type PromptTemplateInjection struct {
 	reconContext
 	canary       mcpprobe.Canary
 	listen       string        // OOB collector bind address
@@ -53,10 +53,10 @@ type PromptInjection struct {
 	maxTargets   int           // cap on prompt templates attacked
 }
 
-// NewPromptInjection constructs the probe with a fresh canary. Every setting
+// NewPromptTemplateInjection constructs the probe with a fresh canary. Every setting
 // defaults so a localhost target works with zero config.
-func NewPromptInjection(cfg registry.Config) (probes.Prober, error) {
-	return &PromptInjection{
+func NewPromptTemplateInjection(cfg registry.Config) (probes.Prober, error) {
+	return &PromptTemplateInjection{
 		canary:       mcpprobe.NewCanary(),
 		listen:       registry.GetString(cfg, "oob_listen", "127.0.0.1:0"),
 		baseOverride: registry.GetString(cfg, "oob_base_url", ""),
@@ -66,28 +66,28 @@ func NewPromptInjection(cfg registry.Config) (probes.Prober, error) {
 	}, nil
 }
 
-func (p *PromptInjection) Name() string { return "mcpprimitive.PromptInjection" }
+func (p *PromptTemplateInjection) Name() string { return "mcpprimitive.PromptTemplateInjection" }
 
-func (p *PromptInjection) Description() string {
+func (p *PromptTemplateInjection) Description() string {
 	return "Injects computed-arithmetic canaries and out-of-band shell-command payloads into MCP prompt-template arguments to detect server-side template evaluation (SSTI/eval) and OS-command execution in the prompt renderer, including the blind case"
 }
 
-func (p *PromptInjection) Goal() string {
+func (p *PromptTemplateInjection) Goal() string {
 	return "Determine whether an MCP server evaluates or executes caller-supplied prompt-template arguments when rendering a prompts/get response"
 }
 
-func (p *PromptInjection) GetPrimaryDetector() string { return "mcpprimitive.Injection" }
+func (p *PromptTemplateInjection) GetPrimaryDetector() string { return "mcpprimitive.Injection" }
 
 // GetSecondaryDetectors scores the RENDERED template for smuggled model-directed
 // instructions, so a poisoned prompt template is reported alongside the sink
 // verdict (OWASP MCP10).
-func (p *PromptInjection) GetSecondaryDetectors() []types.SecondaryDetector {
+func (p *PromptTemplateInjection) GetSecondaryDetectors() []types.SecondaryDetector {
 	return []types.SecondaryDetector{{Name: "mcpprimitive.ContentInjection"}}
 }
 
 // GetPrompts returns the payload shapes. The arithmetic canaries carry per-run
 // operands, so the command family is rendered with a placeholder host.
-func (p *PromptInjection) GetPrompts() []string {
+func (p *PromptTemplateInjection) GetPrompts() []string {
 	out := append([]string(nil), p.canary.Payloads...)
 	for _, f := range mcpprobe.OOBCmdFormats {
 		out = append(out, fmt.Sprintf(f, "oob-canary-url"))
@@ -96,7 +96,7 @@ func (p *PromptInjection) GetPrompts() []string {
 }
 
 // RiskInfo is the curated security write-up for this probe's finding.
-func (p *PromptInjection) RiskInfo() types.RiskInfo {
+func (p *PromptTemplateInjection) RiskInfo() types.RiskInfo {
 	return types.RiskInfo{
 		Description:    "An MCP server renders a prompt template by evaluating caller-supplied argument values instead of interpolating them as inert text, so a prompts/get request reaches a template-expression or command-execution sink in the server process.",
 		Impact:         "A caller who can request a prompt executes template expressions — and, where the renderer shells out, operating-system commands — in the server process, bounded only by that process's privileges. Because the rendered prompt is placed directly into a host model's context, the same sink also lets a caller rewrite the instructions the model receives.",
@@ -110,35 +110,35 @@ func (p *PromptInjection) RiskInfo() types.RiskInfo {
 			"- Out-of-band: a shell-command payload triggers a callback to the augustus out-of-band host, proving the renderer executed an operating-system command independently of what the rendered prompt contains.\n\n" +
 			"Templates that declare no arguments are fetched once without a payload, so the served template is still scored for instructions aimed at the host model. A server that rejects the render returns a protocol error, recorded as the denial signal rather than treated as a finding.\n\n" +
 			"## Reproduce\n\n" +
-			"Re-run the `mcpprimitive.PromptInjection` probe against the affected endpoint via the `mcp.MCP` generator. An in-band finding echoes the canary's product in the rendered prompt; a blind finding is confirmed by the recorded out-of-band callback rather than the rendered text, so confirm against the recorded proof and not the response alone. Blind detection requires out-of-band infrastructure the target can reach.",
+			"Re-run the `mcpprimitive.PromptTemplateInjection` probe against the affected endpoint via the `mcp.MCP` generator. An in-band finding echoes the canary's product in the rendered prompt; a blind finding is confirmed by the recorded out-of-band callback rather than the rendered text, so confirm against the recorded proof and not the response alone. Blind detection requires out-of-band infrastructure the target can reach.",
 	}
 }
 
 // Probe renders every advertised prompt template with adversarial arguments.
 // A target that cannot read primitives is a hard error; a target that genuinely
 // advertises no prompt templates is a legitimate empty result.
-func (p *PromptInjection) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
+func (p *PromptTemplateInjection) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
 	reader, ok := gen.(types.MCPPrimitiveReader)
 	if !ok {
-		return nil, fmt.Errorf("mcpprimitive.PromptInjection: target %q cannot read MCP primitives; this probe requires a primitive-reading generator such as mcp.MCP", gen.Name())
+		return nil, fmt.Errorf("mcpprimitive.PromptTemplateInjection: target %q cannot read MCP primitives; this probe requires a primitive-reading generator such as mcp.MCP", gen.Name())
 	}
 
 	// Unlike resource URIs, prompt names and their argument lists cannot be
 	// guessed — the catalog is the only source, so its absence is fatal here.
 	invs, err := p.resolveInventories(ctx, gen)
 	if err != nil {
-		return nil, fmt.Errorf("mcpprimitive.PromptInjection: enumerate prompt catalog: %w", err)
+		return nil, fmt.Errorf("mcpprimitive.PromptTemplateInjection: enumerate prompt catalog: %w", err)
 	}
 	prompts := collectPrompts(invs, p.maxTargets)
 	if len(prompts) == 0 {
-		slog.Warn("mcpprimitive.PromptInjection: target advertises no prompt templates; nothing to attack",
+		slog.Warn("mcpprimitive.PromptTemplateInjection: target advertises no prompt templates; nothing to attack",
 			"probe", p.Name())
 		return nil, nil
 	}
 
 	col, err := mcpprobe.StartCollector(p.listen, p.baseOverride, p.marker)
 	if err != nil {
-		return nil, fmt.Errorf("mcpprimitive.PromptInjection: start OOB collector: %w", err)
+		return nil, fmt.Errorf("mcpprimitive.PromptTemplateInjection: start OOB collector: %w", err)
 	}
 	defer col.Close()
 
@@ -202,7 +202,7 @@ sending:
 // protocol error is the server's denial signal rather than a probe failure, so it
 // is preserved in metadata and the attempt completed — keeping a refusal visible
 // instead of collapsing it into an error verdict.
-func (p *PromptInjection) render(
+func (p *PromptTemplateInjection) render(
 	ctx context.Context,
 	reader types.MCPPrimitiveReader,
 	name, arg, class string,
@@ -264,7 +264,7 @@ func collectPrompts(invs []*types.MCPInventory, limit int) []types.MCPPrompt {
 		}
 	}
 	if truncated {
-		slog.Warn("mcpprimitive.PromptInjection: prompt-template cap reached; later catalog entries were not attacked",
+		slog.Warn("mcpprimitive.PromptTemplateInjection: prompt-template cap reached; later catalog entries were not attacked",
 			"cap", limit)
 	}
 	return out

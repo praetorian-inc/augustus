@@ -6,7 +6,7 @@
 //   - ResourceInjection attacks the resource URI: filesystem traversal (arbitrary
 //     file read) and scheme abuse that turns resources/read into a server-side
 //     request forgery primitive.
-//   - PromptInjection attacks prompt-template arguments: server-side template
+//   - PromptTemplateInjection attacks prompt-template arguments: server-side template
 //     evaluation (SSTI/eval) and OS-command execution in the renderer.
 //
 // Both probes additionally score the CONTENT the server returns for smuggled
@@ -102,12 +102,13 @@ type uriPayload struct {
 
 // Payload classes recorded in attempt metadata.
 const (
-	classTraversal     = "resource-traversal"
-	classTemplateArg   = "resource-template-arg"
-	classSSRF          = "resource-ssrf"
-	classPromptSSTI    = "prompt-template-injection"
-	classPromptOOBCmd  = "prompt-command-injection"
-	classPromptContent = "prompt-content"
+	classTraversal       = "resource-traversal"
+	classTemplateArg     = "resource-template-arg"
+	classSSRF            = "resource-ssrf"
+	classResourceContent = "resource-content"
+	classPromptSSTI      = "prompt-template-injection"
+	classPromptOOBCmd    = "prompt-command-injection"
+	classPromptContent   = "prompt-content"
 )
 
 // baselineURIPayloads are tried against every target regardless of what the
