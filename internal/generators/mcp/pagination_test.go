@@ -1,9 +1,11 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -27,7 +29,7 @@ func TestListAll_FollowsCursors(t *testing.T) {
 		"c1": {[]int{3}, "c2"},
 		"c2": {[]int{4}, ""}, // last page
 	}
-	got, err := listAll(func(cursor string) ([]int, string, error) {
+	got, err := listAll(context.Background(), func(cursor string) ([]int, string, error) {
 		p := pages[cursor]
 		return p.items, p.next, nil
 	})
@@ -43,7 +45,7 @@ func TestListAll_FollowsCursors(t *testing.T) {
 // non-empty cursor forever must not loop indefinitely.
 func TestListAll_StopsOnCursorRepeat(t *testing.T) {
 	calls := 0
-	got, err := listAll(func(_ string) ([]int, string, error) {
+	got, err := listAll(context.Background(), func(_ string) ([]int, string, error) {
 		calls++
 		return []int{calls}, "loop", nil // always the same next cursor
 	})
@@ -61,7 +63,7 @@ func TestListAll_StopsOnCursorRepeat(t *testing.T) {
 // TestListAll_PropagatesError: a page error is returned (with the pages gathered
 // so far), not silently swallowed.
 func TestListAll_PropagatesError(t *testing.T) {
-	_, err := listAll(func(_ string) ([]int, string, error) {
+	_, err := listAll(context.Background(), func(_ string) ([]int, string, error) {
 		return nil, "", errors.New("boom")
 	})
 	if err == nil {
@@ -74,7 +76,7 @@ func TestListAll_PropagatesError(t *testing.T) {
 // items gathered so far) rather than silently reporting a complete enumeration.
 func TestListAll_ErrorsOnPageCapExhaustion(t *testing.T) {
 	n := 0
-	items, err := listAll(func(_ string) ([]int, string, error) {
+	items, err := listAll(context.Background(), func(_ string) ([]int, string, error) {
 		n++
 		return []int{n}, fmt.Sprintf("cursor-%d", n), nil // always a new unique cursor
 	})
@@ -267,5 +269,82 @@ func TestPagination_PerPageDeadline(t *testing.T) {
 	if len(tools) != toolCount {
 		t.Errorf("ListTools returned %d tools, want %d — pages appear to be sharing one %v budget",
 			len(tools), toolCount, requestTimeout)
+	}
+}
+
+// TestPagination_WholeWalkIsTimeBounded: pageCtx gives every page its own
+// RequestTimeout, so maxListPages caps the page COUNT but nothing caps total
+// wall-clock. Both --timeout and --probe-timeout default to no timeout and the
+// recon phase sets no deadline, so without walkCtx a hostile server answering
+// each page just under the per-page deadline could stall a scan for hours.
+//
+// Exhausting the walk budget must degrade to truncation — a partial catalog plus
+// a warning — and never to an error or an empty result, so a merely slow server
+// still yields the pages it did serve.
+func TestPagination_WholeWalkIsTimeBounded(t *testing.T) {
+	const (
+		requestTimeout = 0.5                    // seconds => 500ms per page, 5s whole walk
+		perPageDelay   = 200 * time.Millisecond // 2.5x headroom under the per-page budget
+		toolCount      = 40                     // 8s of pages against a 5s walk budget
+		// Bounded, the walk stops near 5s. Unbounded it must serve all 40 pages,
+		// which the server-side delay makes take at least 8s on ANY machine — so
+		// this threshold cannot be crossed by a slow CI box, only by a missing bound.
+		walkBoundSlack = 7 * time.Second
+	)
+
+	handler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server {
+		srv := mcpsdk.NewServer(
+			&mcpsdk.Implementation{Name: "augustus-stalling-server", Version: "v0"},
+			&mcpsdk.ServerOptions{PageSize: 1},
+		)
+		for i := range toolCount {
+			mcpsdk.AddTool(srv, &mcpsdk.Tool{Name: toolPageName(i), Description: "stalling page"},
+				func(_ context.Context, _ *mcpsdk.CallToolRequest, _ toolInput) (*mcpsdk.CallToolResult, any, error) {
+					return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "ok"}}}, nil, nil
+				})
+		}
+		return srv
+	}, nil)
+
+	// Delay only the paginated listing, so connect/handshake keeps its own budget
+	// and the test isolates the walk bound rather than racing the handshake.
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if body, err := io.ReadAll(r.Body); err == nil {
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			if bytes.Contains(body, []byte("tools/list")) {
+				time.Sleep(perPageDelay)
+			}
+		}
+		handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(ts.Close)
+
+	inv := newGen(t, registry.Config{
+		"transport":       "http",
+		"endpoint":        ts.URL,
+		"request_timeout": requestTimeout,
+	}).(types.ToolInvoker)
+
+	start := time.Now()
+	tools, err := inv.ListTools(context.Background())
+	elapsed := time.Since(start)
+
+	if err != nil {
+		t.Fatalf("ListTools: %v — a spent walk budget must degrade to truncation, not an error", err)
+	}
+
+	// The bound itself. Asserted unconditionally: an unbounded walk cannot finish
+	// these 40 delayed pages in under 8s, so this is the assertion that fails if
+	// walkCtx stops bounding the enumeration.
+	if elapsed > walkBoundSlack {
+		t.Errorf("enumeration took %v with no effective bound; the walk budget should have stopped it near 5s", elapsed)
+	}
+	if len(tools) == toolCount {
+		t.Errorf("enumerated all %d pages, so the walk budget never applied", toolCount)
+	}
+
+	// Graceful degradation: truncation keeps what was served rather than discarding it.
+	if len(tools) == 0 {
+		t.Error("walk budget exhaustion emptied the catalog; the pages already served must be kept")
 	}
 }

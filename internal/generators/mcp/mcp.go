@@ -487,7 +487,9 @@ func (m *MCP) callTool(ctx context.Context, sess *mcpsdk.ClientSession, conv *at
 func (m *MCP) listTools(ctx context.Context, sess *mcpsdk.ClientSession) (attempt.Message, error) {
 	// Paginate: a server must not be able to keep tools out of the rendered
 	// catalog by placing them on a later page (loop/cursor-repeat bounded).
-	sdkTools, err := listAll(func(cursor string) ([]*mcpsdk.Tool, string, error) {
+	walkCtx, cancelWalk := m.walkCtx(ctx)
+	defer cancelWalk()
+	sdkTools, err := listAll(walkCtx, func(cursor string) ([]*mcpsdk.Tool, string, error) {
 		pctx, cancel := m.pageCtx(ctx)
 		defer cancel()
 		res, err := sess.ListTools(pctx, &mcpsdk.ListToolsParams{Cursor: cursor})
@@ -503,7 +505,8 @@ func (m *MCP) listTools(ctx context.Context, sess *mcpsdk.ClientSession) (attemp
 	if errors.Is(err, errListTruncated) {
 		// Keep the pages we did enumerate but flag the truncation — never a
 		// silent partial-as-complete tool list.
-		slog.Warn("mcp: tool catalog truncated at page cap; results may be incomplete", "pages", maxListPages)
+		slog.Warn("mcp: tool catalog enumeration stopped early; results may be incomplete",
+			"collected", len(sdkTools), "page_cap", maxListPages)
 	}
 
 	return attempt.NewAssistantMessage(formatTools(sdkTools)), nil
@@ -524,7 +527,9 @@ func (m *MCP) ListTools(ctx context.Context) ([]map[string]any, error) {
 	err := m.withSession(ctx, func(ctx context.Context, sess *mcpsdk.ClientSession) error {
 		// Paginate: follow nextCursor across all pages so a server can't hide tools
 		// on a later page from tool-surface probes (loop/cursor-repeat bounded).
-		sdkTools, err := listAll(func(cursor string) ([]*mcpsdk.Tool, string, error) {
+		walkCtx, cancelWalk := m.walkCtx(ctx)
+		defer cancelWalk()
+		sdkTools, err := listAll(walkCtx, func(cursor string) ([]*mcpsdk.Tool, string, error) {
 			pctx, cancel := m.pageCtx(ctx)
 			defer cancel()
 			res, err := sess.ListTools(pctx, &mcpsdk.ListToolsParams{Cursor: cursor})
@@ -540,7 +545,8 @@ func (m *MCP) ListTools(ctx context.Context) ([]map[string]any, error) {
 		if errors.Is(err, errListTruncated) {
 			// Keep the pages we did enumerate but flag the truncation — never a
 			// silent partial-as-complete tool list.
-			slog.Warn("mcp: tool catalog truncated at page cap; results may be incomplete", "pages", maxListPages)
+			slog.Warn("mcp: tool catalog enumeration stopped early; results may be incomplete",
+				"collected", len(sdkTools), "page_cap", maxListPages)
 		}
 		tools = toolsToMaps(sdkTools)
 		return nil
