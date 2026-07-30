@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	_ "github.com/praetorian-inc/augustus/internal/detectors/mcpprimitive"
+	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -364,5 +365,40 @@ func TestResourceInjection_ReadsAdvertisedResourceAsIs(t *testing.T) {
 	}
 	if len(scores) == 0 || scores[0] != 1.0 {
 		t.Errorf("content scores = %v, want 1.0 for a poisoned advertised resource", scores)
+	}
+}
+
+// TestResourceInjection_BoundsHugeResponse: a resource URI can point at an
+// arbitrarily large file, and an advertised resource is read as-is, so a hostile or
+// simply enormous body must be bounded before it lands in an attempt — otherwise one
+// read inflates both memory and the JSONL report without limit. The bound must not
+// cost detection: the proof signature sits at the start of the content, not the end.
+func TestResourceInjection_BoundsHugeResponse(t *testing.T) {
+	huge := passwdBody + strings.Repeat("A", mcpprobe.MaxResponseBytes+4096)
+	target := &mockTarget{
+		read: func(uri string) (types.MCPResourceResult, error) {
+			if strings.Contains(uri, "etc/passwd") {
+				return types.MCPResourceResult{URI: uri, Text: huge, Blocks: 1}, nil
+			}
+			return types.MCPResourceResult{}, fmt.Errorf("not found: %s", uri)
+		},
+	}
+
+	attempts, err := newResourceProbe(t, nil).Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+
+	limit := mcpprobe.MaxResponseBytes + len("…[truncated]")
+	for _, a := range attempts {
+		for _, out := range a.Outputs {
+			if len(out) > limit {
+				t.Fatalf("stored output is %d bytes, want it bounded to %d", len(out), limit)
+			}
+		}
+	}
+	// Truncation must not have hidden the evidence.
+	if got := scoreAll(t, attempts); got != 1.0 {
+		t.Errorf("top score = %v, want 1.0 — the signature precedes the cut and must still be found", got)
 	}
 }

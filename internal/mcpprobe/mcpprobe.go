@@ -5,8 +5,9 @@
 // and prompts/get).
 //
 // Both surfaces are injection sinks reached by the same two payload families, so
-// the canary construction, the shell-command payload set and the out-of-band
-// collector live here rather than being duplicated per package. Only genuinely
+// the canary construction, the shell-command payload set, the out-of-band
+// collector and the stored-response bound live here rather than being duplicated
+// per package. Only genuinely
 // surface-independent pieces belong here: the tool-schema helpers (parameter
 // parsing, benign argument synthesis) stay in mcptool, because prompt arguments
 // carry no JSON-schema types and need their own builder.
@@ -134,4 +135,31 @@ func WaitForCallbacks(ctx context.Context, d time.Duration) {
 	case <-t.C:
 	case <-ctx.Done():
 	}
+}
+
+// MaxResponseBytes bounds how much of a single protocol response is stored per
+// attempt output. 10 MiB is far above where a real leaked credential or file
+// signature appears, so it avoids the false negative a small (1 MiB) cap caused —
+// where evidence past the boundary was hidden before scoring — while still
+// bounding report memory against a hostile or simply enormous response.
+const MaxResponseBytes = 10 << 20 // 10 MiB
+
+// TruncateResponse caps s to MaxResponseBytes, appending a marker when it cuts so
+// a truncated output is distinguishable from one that happened to end there.
+func TruncateResponse(s string) string {
+	if len(s) <= MaxResponseBytes {
+		return s
+	}
+	return s[:MaxResponseBytes] + "…[truncated]"
+}
+
+// TruncateResponseBytes caps a raw byte payload to MaxResponseBytes and only then
+// converts it to a string. Truncating before the []byte-to-string conversion avoids
+// materializing the entire (possibly huge/hostile) payload as a string first, so the
+// cap bounds the allocation rather than merely the stored output.
+func TruncateResponseBytes(b []byte) string {
+	if len(b) <= MaxResponseBytes {
+		return string(b)
+	}
+	return string(b[:MaxResponseBytes]) + "…[truncated]"
 }

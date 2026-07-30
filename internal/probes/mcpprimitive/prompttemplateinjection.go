@@ -235,7 +235,9 @@ func (p *PromptTemplateInjection) render(
 		a.Complete()
 		return a
 	}
-	a.AddOutput(res.Text)
+	// Bounded for the same reason as a resource body: a rendered template can be
+	// arbitrarily large, and the canary that proves a finding is not at the end.
+	a.AddOutput(mcpprobe.TruncateResponse(res.Text))
 	a.Complete()
 	return a
 }

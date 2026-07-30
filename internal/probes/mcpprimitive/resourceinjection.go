@@ -31,6 +31,10 @@ var (
 type resourcePayload struct {
 	uriPayload
 	token string
+	// oobURL is the collector URL this payload plants. It differs from uri for a
+	// template expansion, where the request URI is the expanded template and the
+	// canary sits inside it — so the metadata must carry this, not the URI.
+	oobURL string
 }
 
 // ResourceInjection attacks the URI parameter of resources/read. The URI is fully
@@ -215,6 +219,7 @@ func (p *ResourceInjection) buildPayloads(invs []*types.MCPInventory, col *mcppr
 		add(resourcePayload{
 			uriPayload: uriPayload{uri: canary, class: classSSRF},
 			token:      token,
+			oobURL:     canary,
 		})
 	}
 
@@ -259,10 +264,12 @@ func (p *ResourceInjection) buildPayloads(invs []*types.MCPInventory, col *mcppr
 			}
 			// Canary URL through the template parameter.
 			token := mcpprobe.RandToken()
-			if uri := expandTemplate(tpl.URITemplate, col.URL(token)); uri != "" {
+			canary := col.URL(token)
+			if uri := expandTemplate(tpl.URITemplate, canary); uri != "" {
 				add(resourcePayload{
 					uriPayload: uriPayload{uri: uri, class: classTemplateArg},
 					token:      token,
+					oobURL:     canary,
 				})
 			}
 		}
@@ -288,7 +295,7 @@ func (p *ResourceInjection) readOne(ctx context.Context, reader types.MCPPrimiti
 		a.Metadata[attempt.MetadataKeyPrimitiveSignatures] = rp.signatures
 	}
 	if rp.token != "" {
-		a.Metadata[attempt.MetadataKeyPrimitiveOOBURL] = rp.uri
+		a.Metadata[attempt.MetadataKeyPrimitiveOOBURL] = rp.oobURL
 	}
 
 	res, err := reader.ReadResource(ctx, rp.uri)
@@ -304,7 +311,9 @@ func (p *ResourceInjection) readOne(ctx context.Context, reader types.MCPPrimiti
 	if res.MIMEType != "" {
 		a.Metadata["mcpprimitive.mime_type"] = res.MIMEType
 	}
-	a.AddOutput(res.Text)
+	// Bounded: an advertised resource may point at an arbitrarily large file, and
+	// the signature that proves a finding sits at the start of the content.
+	a.AddOutput(mcpprobe.TruncateResponse(res.Text))
 	a.Complete()
 	return a
 }
