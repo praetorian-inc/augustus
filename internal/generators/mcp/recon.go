@@ -57,45 +57,57 @@ func (m *MCP) MCPInventory(ctx context.Context) (*types.MCPInventory, error) {
 		}
 
 		if inv.Capabilities.Tools {
-			tools, truncated := reconList(ctx, lim, "tools", func(pctx context.Context, cursor string) ([]*mcpsdk.Tool, string, error) {
+			tools, truncated, err := reconList(ctx, lim, "tools", func(pctx context.Context, cursor string) ([]*mcpsdk.Tool, string, error) {
 				res, err := sess.ListTools(pctx, &mcpsdk.ListToolsParams{Cursor: cursor})
 				if err != nil {
 					return nil, "", err
 				}
 				return res.Tools, res.NextCursor, nil
 			})
+			if err != nil {
+				return err
+			}
 			inv.Tools = mcpToolsFrom(tools)
 			markIncomplete("tools", truncated)
 		}
 		if inv.Capabilities.Resources {
-			resources, truncated := reconList(ctx, lim, "resources", func(pctx context.Context, cursor string) ([]*mcpsdk.Resource, string, error) {
+			resources, truncated, err := reconList(ctx, lim, "resources", func(pctx context.Context, cursor string) ([]*mcpsdk.Resource, string, error) {
 				r, err := sess.ListResources(pctx, &mcpsdk.ListResourcesParams{Cursor: cursor})
 				if err != nil {
 					return nil, "", err
 				}
 				return r.Resources, r.NextCursor, nil
 			})
+			if err != nil {
+				return err
+			}
 			inv.Resources = mcpResourcesFrom(resources)
 			markIncomplete("resources", truncated)
 
-			templates, truncated := reconList(ctx, lim, "resource_templates", func(pctx context.Context, cursor string) ([]*mcpsdk.ResourceTemplate, string, error) {
+			templates, truncated, err := reconList(ctx, lim, "resource_templates", func(pctx context.Context, cursor string) ([]*mcpsdk.ResourceTemplate, string, error) {
 				r, err := sess.ListResourceTemplates(pctx, &mcpsdk.ListResourceTemplatesParams{Cursor: cursor})
 				if err != nil {
 					return nil, "", err
 				}
 				return r.ResourceTemplates, r.NextCursor, nil
 			})
+			if err != nil {
+				return err
+			}
 			inv.ResourceTemplates = mcpResourceTemplatesFrom(templates)
 			markIncomplete("resource_templates", truncated)
 		}
 		if inv.Capabilities.Prompts {
-			prompts, truncated := reconList(ctx, lim, "prompts", func(pctx context.Context, cursor string) ([]*mcpsdk.Prompt, string, error) {
+			prompts, truncated, err := reconList(ctx, lim, "prompts", func(pctx context.Context, cursor string) ([]*mcpsdk.Prompt, string, error) {
 				r, err := sess.ListPrompts(pctx, &mcpsdk.ListPromptsParams{Cursor: cursor})
 				if err != nil {
 					return nil, "", err
 				}
 				return r.Prompts, r.NextCursor, nil
 			})
+			if err != nil {
+				return err
+			}
 			inv.Prompts = mcpPromptsFrom(prompts)
 			markIncomplete("prompts", truncated)
 		}
@@ -350,23 +362,33 @@ func listAll[T any](ctx context.Context, lim walkLimits, list func(pctx context.
 	return out, errListTruncated
 }
 
-// reconList runs one paginated catalog enumeration for the inventory, reporting
-// whether it was truncated so the inventory can carry a machine-readable
-// completeness marker. On truncation it keeps what was gathered and warns; on any
-// other list error it returns nil, preserving the best-effort "leave that catalog
-// empty" behavior — but says so rather than failing silently.
-func reconList[T any](ctx context.Context, lim walkLimits, catalog string, list func(pctx context.Context, cursor string) ([]T, string, error)) ([]T, bool) {
+// reconList runs one paginated catalog enumeration for the inventory. It reports
+// the items, whether the enumeration was truncated (so the inventory can carry a
+// machine-readable completeness marker), and a fatal error.
+//
+// Three outcomes, deliberately distinct:
+//   - truncated: keep what was gathered, warn, mark the catalog incomplete
+//   - a failed list call: leave that catalog empty and warn, preserving the
+//     best-effort contract that a partially reachable SERVER still yields a usable
+//     fingerprint rather than failing the whole inventory
+//   - the CALLER aborted: return the error. Best-effort emptiness exists for an
+//     unreachable server, not for a scan being torn down — flattening a Ctrl-C or a
+//     --timeout into "empty catalogs" would hand back a successful-looking inventory
+//     that merely looks like a target with nothing on it.
+func reconList[T any](ctx context.Context, lim walkLimits, catalog string, list func(pctx context.Context, cursor string) ([]T, string, error)) ([]T, bool, error) {
 	items, err := listAll(ctx, lim, list)
 	switch {
 	case err == nil:
-		return items, false
+		return items, false, nil
 	case errors.Is(err, errListTruncated):
 		slog.Warn("recon.MCP: catalog enumeration stopped early; results may be incomplete",
 			"catalog", catalog, "collected", len(items), "page_cap", maxListPages)
-		return items, true
+		return items, true, nil
+	case ctx.Err() != nil:
+		return nil, true, err
 	default:
 		slog.Warn("recon.MCP: catalog enumeration failed; leaving it empty",
 			"catalog", catalog, "error", err)
-		return nil, true
+		return nil, true, nil
 	}
 }

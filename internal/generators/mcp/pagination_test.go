@@ -697,7 +697,9 @@ func TestListAll_PageDeadlineIsBoundedByWalkBudget(t *testing.T) {
 			return nil, "", nil
 		}
 		pageDeadlines = append(pageDeadlines, dl)
-		return []int{1}, "next", nil // always a fresh cursor, so the walk runs to a bound
+		// A genuinely fresh cursor each time, so the walk really does run until a bound
+		// stops it rather than tripping the cursor-repeat check after two pages.
+		return []int{1}, fmt.Sprintf("cursor-%d", len(pageDeadlines)), nil
 	})
 
 	if len(pageDeadlines) == 0 {
@@ -709,5 +711,81 @@ func TestListAll_PageDeadlineIsBoundedByWalkBudget(t *testing.T) {
 			t.Errorf("page %d deadline is %v past the walk deadline; a page can overrun the whole-walk bound",
 				i, dl.Sub(walkDeadline))
 		}
+	}
+}
+
+// TestListAll_PageDeadlineWalkBoundRunsManyPages guards the premise of the test
+// above: with fresh cursors the walk is stopped by a bound, not by cursor-repeat
+// detection, so the deadline assertion is exercised across many pages.
+func TestListAll_PageDeadlineWalkBoundRunsManyPages(t *testing.T) {
+	t.Parallel()
+
+	calls := 0
+	_, err := listAll(context.Background(), walkLimits{Walk: 50 * time.Millisecond, Page: time.Minute},
+		func(_ context.Context, _ string) ([]int, string, error) {
+			calls++
+			return []int{calls}, fmt.Sprintf("cursor-%d", calls), nil
+		})
+	if !errors.Is(err, errListTruncated) {
+		t.Fatalf("err = %v, want errListTruncated from a bound", err)
+	}
+	if calls < 3 {
+		t.Errorf("only %d pages walked; the walk ended too early to exercise the deadline bound", calls)
+	}
+}
+
+// TestReconList_PropagatesCallerCancellation: listAll classifies a caller abort as a
+// cancellation rather than truncation, but that only matters if the consumer honours
+// it. reconList's best-effort "leave the catalog empty" contract exists for a
+// partially reachable SERVER; applying it to a Ctrl-C or an expired --timeout would
+// let MCPInventory hand back a successful-looking inventory whose empty catalogs are
+// indistinguishable from a target that simply advertises nothing.
+//
+// Asserted directly on reconList rather than through MCPInventory: a context that is
+// already cancelled fails at session acquisition, so an end-to-end test would pass
+// without ever reaching this code path.
+func TestReconList_PropagatesCallerCancellation(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	items, truncated, err := reconList(ctx, testLimits, "tools", func(_ context.Context, _ string) ([]int, string, error) {
+		t.Error("list should not be called once the caller has cancelled")
+		return nil, "", nil
+	})
+	if err == nil {
+		t.Fatal("reconList swallowed a caller cancellation; MCPInventory would report a successful empty inventory")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("err = %v, want it to wrap context.Canceled", err)
+	}
+	if items != nil {
+		t.Errorf("items = %v, want nil on cancellation", items)
+	}
+	if !truncated {
+		t.Error("a cancelled enumeration must not be reported as a complete catalog")
+	}
+}
+
+// TestReconList_ListFailureStaysBestEffort: the counterpart. A failing list call is
+// NOT a cancellation — the inventory contract deliberately leaves that catalog empty
+// so a partially reachable server still yields a usable fingerprint, rather than
+// failing the whole inventory.
+func TestReconList_ListFailureStaysBestEffort(t *testing.T) {
+	t.Parallel()
+
+	items, truncated, err := reconList(context.Background(), testLimits, "tools",
+		func(_ context.Context, _ string) ([]int, string, error) {
+			return nil, "", errors.New("server said no")
+		})
+	if err != nil {
+		t.Errorf("err = %v, want nil: a failed list call stays best-effort, not fatal", err)
+	}
+	if items != nil {
+		t.Errorf("items = %v, want nil for a failed catalog", items)
+	}
+	if !truncated {
+		t.Error("a failed enumeration must be marked incomplete, not reported as complete")
 	}
 }
