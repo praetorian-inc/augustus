@@ -521,3 +521,36 @@ func TestListTools_RawResponseCarriesEveryPage(t *testing.T) {
 		}
 	}
 }
+
+// TestGenerate_ListToolsMode_MarksTruncatedCatalog: the rendered catalog IS the
+// artifact a detector scores on the mode:list_tools path, so a truncated walk must
+// say so there and not only in the operator log — otherwise a detector judges a
+// partial tool surface as if it were the target's whole one and reports clean.
+// The notice must be absent on a complete walk, so normal output stays untouched.
+func TestGenerate_ListToolsMode_MarksTruncatedCatalog(t *testing.T) {
+	t.Parallel()
+
+	const toolCount = 40
+	truncating := newGen(t, registry.Config{
+		"transport":       "http",
+		"endpoint":        newSlowToolsTarget(t, 100*time.Millisecond, toolCount),
+		"request_timeout": 0.2, // 200ms per page, 2s whole walk => truncates
+		"mode":            "list_tools",
+	})
+
+	got := generate(t, truncating, "ignored prompt")
+	if !strings.Contains(got, truncationNotice) {
+		t.Errorf("truncated catalog rendered with no incompleteness notice:\n%s", got)
+	}
+
+	// A complete walk must NOT carry the notice: scanner metadata in the detector's
+	// input is only justified when it is true.
+	complete := newGen(t, registry.Config{
+		"transport": "http",
+		"endpoint":  newPaginatedTarget(t),
+		"mode":      "list_tools",
+	})
+	if out := generate(t, complete, "ignored prompt"); strings.Contains(out, truncationNotice) {
+		t.Errorf("a fully enumerated catalog was marked truncated:\n%s", out)
+	}
+}

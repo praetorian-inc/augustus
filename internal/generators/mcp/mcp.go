@@ -533,14 +533,31 @@ func (m *MCP) listAllTools(ctx context.Context, sess *mcpsdk.ClientSession) ([]*
 	return tools, truncated, nil
 }
 
+// truncationNotice marks a rendered catalog as incomplete. It is scanner
+// metadata, not target output: worded with no imperative or instruction-like
+// phrasing so a detector scanning the catalog for injected instructions cannot
+// mistake it for something the target said, and appended ONLY on truncation so a
+// normal walk's output is untouched.
+const truncationNotice = "\n\n[augustus: tool catalog enumeration stopped early — this listing is incomplete]"
+
 // listTools issues tools/list and returns the advertised tools rendered as text
 // so detectors can inspect names, descriptions, and schemas for injected content.
 func (m *MCP) listTools(ctx context.Context, sess *mcpsdk.ClientSession) (attempt.Message, error) {
-	sdkTools, _, err := m.listAllTools(ctx, sess)
+	sdkTools, truncated, err := m.listAllTools(ctx, sess)
 	if err != nil {
 		return attempt.Message{}, err
 	}
-	return attempt.NewAssistantMessage(formatTools(sdkTools)), nil
+
+	// Carry the truncation into the probe-facing output, not just the operator log:
+	// this text IS the artifact a detector scores, so without the notice a detector
+	// would judge a partial catalog as if it were the target's whole tool surface
+	// and report clean. attempt.Message has no metadata channel, so for this path
+	// the rendered text is the only place the signal can travel.
+	text := formatTools(sdkTools)
+	if truncated {
+		text += truncationNotice
+	}
+	return attempt.NewAssistantMessage(text), nil
 }
 
 // ListTools implements types.ToolInvoker. It returns the target's advertised
