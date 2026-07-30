@@ -482,33 +482,64 @@ func (m *MCP) callTool(ctx context.Context, sess *mcpsdk.ClientSession, conv *at
 	return attempt.NewAssistantMessage(contentText(result.Content)), nil
 }
 
-// listTools issues tools/list and returns the advertised tools rendered as text
-// so detectors can inspect names, descriptions, and schemas for injected content.
-func (m *MCP) listTools(ctx context.Context, sess *mcpsdk.ClientSession) (attempt.Message, error) {
-	// Paginate: a server must not be able to keep tools out of the rendered
-	// catalog by placing them on a later page (loop/cursor-repeat bounded).
+// listAllTools performs one paginated tools/list walk, returning every advertised
+// tool and whether the enumeration was truncated. It is the single place the
+// tools/list cursor semantics live for the two model-facing paths (mode:list_tools
+// and ToolInvoker.ListTools). A truncated walk is a warning plus partial results,
+// not an error; only a transport/protocol failure or caller cancellation errors.
+//
+// The recon inventory deliberately keeps its own closure: it enumerates four
+// catalogs through one generic helper and skips storeRawJSON, so folding it in
+// here would need a flag and would make the tools case inconsistent with its
+// three siblings.
+func (m *MCP) listAllTools(ctx context.Context, sess *mcpsdk.ClientSession) ([]*mcpsdk.Tool, bool, error) {
 	walkCtx, cancelWalk := m.walkCtx(ctx)
 	defer cancelWalk()
-	sdkTools, err := listAll(walkCtx, func(cursor string) ([]*mcpsdk.Tool, string, error) {
+
+	var lastPage *mcpsdk.ListToolsResult
+	tools, err := listAll(ctx, walkCtx, func(cursor string) ([]*mcpsdk.Tool, string, error) {
 		pctx, cancel := m.pageCtx(ctx)
 		defer cancel()
 		res, err := sess.ListTools(pctx, &mcpsdk.ListToolsParams{Cursor: cursor})
 		if err != nil {
 			return nil, "", err
 		}
-		m.storeRawJSON(res)
+		lastPage = res
 		return res.Tools, res.NextCursor, nil
 	})
 	if err != nil && !errors.Is(err, errListTruncated) {
-		return attempt.Message{}, fmt.Errorf("mcp: tools/list failed: %w", err)
+		return nil, false, fmt.Errorf("mcp: tools/list failed: %w", err)
 	}
-	if errors.Is(err, errListTruncated) {
+
+	truncated := errors.Is(err, errListTruncated)
+	if truncated {
 		// Keep the pages we did enumerate but flag the truncation — never a
 		// silent partial-as-complete tool list.
 		slog.Warn("mcp: tool catalog enumeration stopped early; results may be incomplete",
-			"collected", len(sdkTools), "page_cap", maxListPages)
+			"collected", len(tools), "page_cap", maxListPages)
 	}
 
+	// Record the WHOLE catalog as the raw response. LastRawResponse documents "the
+	// most recent tool list", and runtime hooks read it expecting every tool that
+	// was enumerated; storing each page in turn would leave only the FINAL page
+	// visible, so a hook scanning a paginated catalog would see one tool instead of
+	// all of them. Rebuilt from the last page so its result-level fields (_meta, and
+	// a still-pending nextCursor that honestly marks a truncated walk) survive.
+	if lastPage != nil {
+		combined := *lastPage
+		combined.Tools = tools
+		m.storeRawJSON(&combined)
+	}
+	return tools, truncated, nil
+}
+
+// listTools issues tools/list and returns the advertised tools rendered as text
+// so detectors can inspect names, descriptions, and schemas for injected content.
+func (m *MCP) listTools(ctx context.Context, sess *mcpsdk.ClientSession) (attempt.Message, error) {
+	sdkTools, _, err := m.listAllTools(ctx, sess)
+	if err != nil {
+		return attempt.Message{}, err
+	}
 	return attempt.NewAssistantMessage(formatTools(sdkTools)), nil
 }
 
@@ -524,35 +555,27 @@ func (m *MCP) ListTools(ctx context.Context) ([]map[string]any, error) {
 	}
 
 	var tools []map[string]any
+	var truncated bool
 	err := m.withSession(ctx, func(ctx context.Context, sess *mcpsdk.ClientSession) error {
 		// Paginate: follow nextCursor across all pages so a server can't hide tools
 		// on a later page from tool-surface probes (loop/cursor-repeat bounded).
-		walkCtx, cancelWalk := m.walkCtx(ctx)
-		defer cancelWalk()
-		sdkTools, err := listAll(walkCtx, func(cursor string) ([]*mcpsdk.Tool, string, error) {
-			pctx, cancel := m.pageCtx(ctx)
-			defer cancel()
-			res, err := sess.ListTools(pctx, &mcpsdk.ListToolsParams{Cursor: cursor})
-			if err != nil {
-				return nil, "", err
-			}
-			m.storeRawJSON(res)
-			return res.Tools, res.NextCursor, nil
-		})
-		if err != nil && !errors.Is(err, errListTruncated) {
-			return fmt.Errorf("mcp: tools/list failed: %w", err)
+		sdkTools, trunc, err := m.listAllTools(ctx, sess)
+		if err != nil {
+			return err
 		}
-		if errors.Is(err, errListTruncated) {
-			// Keep the pages we did enumerate but flag the truncation — never a
-			// silent partial-as-complete tool list.
-			slog.Warn("mcp: tool catalog enumeration stopped early; results may be incomplete",
-				"collected", len(sdkTools), "page_cap", maxListPages)
-		}
-		tools = toolsToMaps(sdkTools)
+		tools, truncated = toolsToMaps(sdkTools), trunc
 		return nil
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	// Serve a truncated catalog to this caller but do NOT memoize it: the cache
+	// lives for the session, so caching a known-incomplete tool surface would hand
+	// every later probe the same partial view with no further warning. Leaving it
+	// uncached costs one extra tools/list and gives the next caller a full walk.
+	if truncated {
+		return tools, nil
 	}
 
 	m.toolsMu.Lock()

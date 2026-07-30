@@ -29,7 +29,7 @@ func TestListAll_FollowsCursors(t *testing.T) {
 		"c1": {[]int{3}, "c2"},
 		"c2": {[]int{4}, ""}, // last page
 	}
-	got, err := listAll(context.Background(), func(cursor string) ([]int, string, error) {
+	got, err := listAll(context.Background(), context.Background(), func(cursor string) ([]int, string, error) {
 		p := pages[cursor]
 		return p.items, p.next, nil
 	})
@@ -42,15 +42,19 @@ func TestListAll_FollowsCursors(t *testing.T) {
 }
 
 // TestListAll_StopsOnCursorRepeat: a hostile/buggy server that returns the same
-// non-empty cursor forever must not loop indefinitely.
+// non-empty cursor forever must not loop indefinitely, and must report the walk as
+// TRUNCATED rather than complete — a cursor is still pending, so a repeat is the
+// same "pages we never fetched" situation as the page cap and the walk budget.
+// Reporting completion here would let a server halt the walk after page one and
+// have the partial catalog pass as the target's full attack surface.
 func TestListAll_StopsOnCursorRepeat(t *testing.T) {
 	calls := 0
-	got, err := listAll(context.Background(), func(_ string) ([]int, string, error) {
+	got, err := listAll(context.Background(), context.Background(), func(_ string) ([]int, string, error) {
 		calls++
 		return []int{calls}, "loop", nil // always the same next cursor
 	})
-	if err != nil {
-		t.Fatalf("listAll: %v", err)
+	if !errors.Is(err, errListTruncated) {
+		t.Fatalf("listAll err = %v, want errListTruncated on a repeated cursor", err)
 	}
 	if calls > 2 {
 		t.Errorf("cursor repeat not detected: %d calls (want <= 2)", calls)
@@ -63,7 +67,7 @@ func TestListAll_StopsOnCursorRepeat(t *testing.T) {
 // TestListAll_PropagatesError: a page error is returned (with the pages gathered
 // so far), not silently swallowed.
 func TestListAll_PropagatesError(t *testing.T) {
-	_, err := listAll(context.Background(), func(_ string) ([]int, string, error) {
+	_, err := listAll(context.Background(), context.Background(), func(_ string) ([]int, string, error) {
 		return nil, "", errors.New("boom")
 	})
 	if err == nil {
@@ -76,7 +80,7 @@ func TestListAll_PropagatesError(t *testing.T) {
 // items gathered so far) rather than silently reporting a complete enumeration.
 func TestListAll_ErrorsOnPageCapExhaustion(t *testing.T) {
 	n := 0
-	items, err := listAll(context.Background(), func(_ string) ([]int, string, error) {
+	items, err := listAll(context.Background(), context.Background(), func(_ string) ([]int, string, error) {
 		n++
 		return []int{n}, fmt.Sprintf("cursor-%d", n), nil // always a new unique cursor
 	})
@@ -230,6 +234,8 @@ func TestGenerate_ListToolsMode_EnumeratesEveryPage(t *testing.T) {
 // The server below delays every response, so the pages together take longer than
 // one RequestTimeout while each page comfortably fits inside one.
 func TestPagination_PerPageDeadline(t *testing.T) {
+	t.Parallel()
+
 	const (
 		perRequestDelay = 350 * time.Millisecond
 		toolCount       = 8 // 8 pages at PageSize 1 => ~2.8s total, well past the 2s budget
@@ -282,14 +288,12 @@ func TestPagination_PerPageDeadline(t *testing.T) {
 // a warning — and never to an error or an empty result, so a merely slow server
 // still yields the pages it did serve.
 func TestPagination_WholeWalkIsTimeBounded(t *testing.T) {
+	t.Parallel()
+
 	const (
 		requestTimeout = 0.5                    // seconds => 500ms per page, 5s whole walk
 		perPageDelay   = 200 * time.Millisecond // 2.5x headroom under the per-page budget
 		toolCount      = 40                     // 8s of pages against a 5s walk budget
-		// Bounded, the walk stops near 5s. Unbounded it must serve all 40 pages,
-		// which the server-side delay makes take at least 8s on ANY machine — so
-		// this threshold cannot be crossed by a slow CI box, only by a missing bound.
-		walkBoundSlack = 7 * time.Second
 	)
 
 	handler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server {
@@ -333,18 +337,187 @@ func TestPagination_WholeWalkIsTimeBounded(t *testing.T) {
 		t.Fatalf("ListTools: %v — a spent walk budget must degrade to truncation, not an error", err)
 	}
 
-	// The bound itself. Asserted unconditionally: an unbounded walk cannot finish
-	// these 40 delayed pages in under 8s, so this is the assertion that fails if
-	// walkCtx stops bounding the enumeration.
-	if elapsed > walkBoundSlack {
-		t.Errorf("enumeration took %v with no effective bound; the walk budget should have stopped it near 5s", elapsed)
-	}
+	// The bound itself, asserted on page count rather than elapsed time: the
+	// server-side delay means an unbounded walk MUST serve all 40 pages, so this
+	// check is exact and machine-independent. An elapsed-time assertion would
+	// overlap the 5s bound too closely to survive a loaded or parallel CI box.
 	if len(tools) == toolCount {
-		t.Errorf("enumerated all %d pages, so the walk budget never applied", toolCount)
+		t.Errorf("enumerated all %d pages in %v, so the walk budget never applied", toolCount, elapsed)
 	}
 
 	// Graceful degradation: truncation keeps what was served rather than discarding it.
 	if len(tools) == 0 {
 		t.Error("walk budget exhaustion emptied the catalog; the pages already served must be kept")
+	}
+}
+
+// TestListAll_PropagatesCallerCancellation: a cancelled CALLER context means the
+// scan is being torn down (shutdown, --timeout, Ctrl-C). That is not truncation —
+// reporting it as such would have callers log "results may be incomplete" and
+// carry on against a catalog they were told to stop building. The cancellation
+// must surface so the caller unwinds.
+func TestListAll_PropagatesCallerCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := listAll(ctx, context.Background(), func(_ string) ([]int, string, error) {
+		t.Error("list should not be called once the caller has cancelled")
+		return nil, "", nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("listAll err = %v, want context.Canceled (not masked as truncation)", err)
+	}
+	if errors.Is(err, errListTruncated) {
+		t.Error("caller cancellation was reported as truncation")
+	}
+}
+
+// TestListAll_WalkBudgetIsTruncationNotCancellation: the mirror of the test above.
+// Our own walk budget expiring IS truncation — partial results plus a warning —
+// and must not be confused with the caller cancelling.
+func TestListAll_WalkBudgetIsTruncationNotCancellation(t *testing.T) {
+	walkCtx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := listAll(context.Background(), walkCtx, func(_ string) ([]int, string, error) {
+		t.Error("list should not be called once the walk budget is spent")
+		return nil, "", nil
+	})
+	if !errors.Is(err, errListTruncated) {
+		t.Fatalf("listAll err = %v, want errListTruncated for a spent walk budget", err)
+	}
+}
+
+// newSlowToolsTarget starts a paginating MCP server that delays ONLY tools/list,
+// one tool per page. With a short request_timeout the tools walk exhausts its
+// budget and truncates, while the resource and prompt catalogs answer instantly.
+func newSlowToolsTarget(t *testing.T, delay time.Duration, count int) string {
+	t.Helper()
+
+	handler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server {
+		srv := mcpsdk.NewServer(
+			&mcpsdk.Implementation{Name: "augustus-slow-tools-server", Version: "v0"},
+			&mcpsdk.ServerOptions{PageSize: 1},
+		)
+		for i := range count {
+			mcpsdk.AddTool(srv, &mcpsdk.Tool{Name: toolPageName(i), Description: "slow tool page"},
+				func(_ context.Context, _ *mcpsdk.CallToolRequest, _ toolInput) (*mcpsdk.CallToolResult, any, error) {
+					return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "ok"}}}, nil, nil
+				})
+			srv.AddResource(
+				&mcpsdk.Resource{URI: fmt.Sprintf("file:///res-%02d.txt", i), Name: fmt.Sprintf("res-%02d", i)},
+				func(_ context.Context, _ *mcpsdk.ReadResourceRequest) (*mcpsdk.ReadResourceResult, error) {
+					return &mcpsdk.ReadResourceResult{}, nil
+				})
+			srv.AddPrompt(
+				&mcpsdk.Prompt{Name: fmt.Sprintf("prompt-%02d", i)},
+				func(_ context.Context, _ *mcpsdk.GetPromptRequest) (*mcpsdk.GetPromptResult, error) {
+					return &mcpsdk.GetPromptResult{}, nil
+				})
+		}
+		return srv
+	}, nil)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if body, err := io.ReadAll(r.Body); err == nil {
+			r.Body = io.NopCloser(bytes.NewReader(body))
+			if bytes.Contains(body, []byte("tools/list")) {
+				time.Sleep(delay)
+			}
+		}
+		handler.ServeHTTP(w, r)
+	}))
+	t.Cleanup(ts.Close)
+	return ts.URL
+}
+
+// TestListTools_DoesNotMemoizeTruncatedCatalog: the tools cache lives for the
+// whole session, so a known-incomplete catalog must never be stored — otherwise
+// every later probe silently reuses the partial tool surface with no further
+// warning. Serve the truncated set to this caller, but leave the cache empty so
+// the next caller gets a fresh walk.
+func TestListTools_DoesNotMemoizeTruncatedCatalog(t *testing.T) {
+	t.Parallel()
+
+	const toolCount = 40
+	g := newGen(t, registry.Config{
+		"transport":       "http",
+		"endpoint":        newSlowToolsTarget(t, 100*time.Millisecond, toolCount),
+		"request_timeout": 0.2, // 200ms per page, 2s whole walk => 40 pages truncate
+	}).(*MCP)
+
+	tools, err := g.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	if len(tools) == 0 || len(tools) == toolCount {
+		t.Fatalf("expected a truncated walk, got %d of %d tools", len(tools), toolCount)
+	}
+
+	g.toolsMu.Lock()
+	cached := g.toolsCache
+	g.toolsMu.Unlock()
+	if cached != nil {
+		t.Errorf("a truncated catalog (%d of %d tools) was memoized for the session", len(cached), toolCount)
+	}
+}
+
+// TestMCPInventory_WalkBudgetIsPerCatalog: each catalog enumeration gets its own
+// walk budget. Sharing one across tools/resources/prompts would let a slow or
+// deliberately stalling tools/list exhaust it and force every later catalog to
+// come back EMPTY — hiding hostile resource and prompt definitions behind a slow
+// tool list, which is the opposite of what this bound is for.
+func TestMCPInventory_WalkBudgetIsPerCatalog(t *testing.T) {
+	t.Parallel()
+
+	const count = 40
+	rec := newGen(t, registry.Config{
+		"transport":       "http",
+		"endpoint":        newSlowToolsTarget(t, 100*time.Millisecond, count),
+		"request_timeout": 0.2, // tools/list will burn its 2s budget; the rest are instant
+	}).(types.MCPReconnaissance)
+
+	inv, err := rec.MCPInventory(context.Background())
+	if err != nil {
+		t.Fatalf("MCPInventory: %v", err)
+	}
+
+	if len(inv.Tools) == count {
+		t.Fatalf("tools catalog was not truncated (%d of %d); the test premise no longer holds", len(inv.Tools), count)
+	}
+	if len(inv.Resources) != count {
+		t.Errorf("resources = %d, want %d — a slow tools/list starved a later catalog", len(inv.Resources), count)
+	}
+	if len(inv.Prompts) != count {
+		t.Errorf("prompts = %d, want %d — a slow tools/list starved a later catalog", len(inv.Prompts), count)
+	}
+}
+
+// TestListTools_RawResponseCarriesEveryPage: LastRawResponse documents "the most
+// recent tool list", and runtime hooks write it to a file and inspect it. Storing
+// each page as it arrived would leave only the FINAL page visible, so a hook
+// scanning a paginated catalog would see one tool where the target advertised
+// several — a silent fidelity loss for anything reading the raw surface.
+func TestListTools_RawResponseCarriesEveryPage(t *testing.T) {
+	t.Parallel()
+
+	g := newGen(t, registry.Config{
+		"transport": "http",
+		"endpoint":  newPaginatedTarget(t),
+	}).(*MCP)
+
+	if _, err := g.ListTools(context.Background()); err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+
+	raw := string(g.LastRawResponse())
+	if raw == "" {
+		t.Fatal("LastRawResponse is empty after a tools/list walk")
+	}
+	for i := range paginatedToolCount {
+		if !strings.Contains(raw, toolPageName(i)) {
+			t.Errorf("LastRawResponse is missing %q; it holds only part of the catalog:\n%s",
+				toolPageName(i), raw)
+		}
 	}
 }
