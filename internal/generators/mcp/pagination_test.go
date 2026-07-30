@@ -789,3 +789,135 @@ func TestReconList_ListFailureStaysBestEffort(t *testing.T) {
 		t.Error("a failed enumeration must be marked incomplete, not reported as complete")
 	}
 }
+
+// TestErrListTruncated_IsRecognisableAcrossPackages: the internal sentinel must wrap
+// the exported one. Consumers in internal/recon and internal/probes cannot test an
+// unexported error, so if this chain breaks their fail-closed handling stops firing —
+// silently, with no compile error and no failing assertion anywhere else. That is the
+// worst shape of bug for this branch, so it gets its own guard.
+func TestErrListTruncated_IsRecognisableAcrossPackages(t *testing.T) {
+	t.Parallel()
+
+	if !errors.Is(errListTruncated, types.ErrCatalogTruncated) {
+		t.Error("errListTruncated no longer wraps types.ErrCatalogTruncated; cross-package truncation handling is now dead code")
+	}
+
+	// And through the wrapping ListTools actually performs.
+	wrapped := fmt.Errorf("mcp: refusing to report a partial tool catalog as complete (%d tools enumerated): %w", 3, errListTruncated)
+	if !errors.Is(wrapped, types.ErrCatalogTruncated) {
+		t.Error("ListTools' error does not surface types.ErrCatalogTruncated to callers")
+	}
+	if !errors.Is(wrapped, errListTruncated) {
+		t.Error("ListTools' error no longer matches the internal sentinel either")
+	}
+}
+
+// TestListAll_ChargesRateLimiterPerPage: withSession waits on the limiter once per
+// session, so before this a paginated walk could fire up to maxListPages requests
+// back-to-back and blow straight through a configured request rate — against a
+// customer's production MCP server, in a tool whose entire job is to be pointed at
+// infrastructure someone else owns.
+func TestListAll_ChargesRateLimiterPerPage(t *testing.T) {
+	t.Parallel()
+
+	const pages = 4
+	waits := 0
+	lim := walkLimits{
+		Walk: time.Minute, Page: 10 * time.Second,
+		BeforePage: func(context.Context) error { waits++; return nil },
+	}
+
+	n := 0
+	_, err := listAll(context.Background(), lim, func(_ context.Context, _ string) ([]int, string, error) {
+		n++
+		if n >= pages {
+			return []int{n}, "", nil // last page
+		}
+		return []int{n}, fmt.Sprintf("cursor-%d", n), nil
+	})
+	if err != nil {
+		t.Fatalf("listAll: %v", err)
+	}
+	if waits != pages {
+		t.Errorf("limiter charged %d times for %d pages; pagination is bursting past the configured rate", waits, pages)
+	}
+}
+
+// TestListAll_RateLimiterErrorPropagates: a limiter wait cut short by the caller must
+// not be laundered into truncation — same distinction the page path already makes.
+func TestListAll_RateLimiterErrorPropagates(t *testing.T) {
+	t.Parallel()
+
+	sentinel := errors.New("limiter cancelled")
+	_, err := listAll(context.Background(), walkLimits{
+		Walk: time.Minute, Page: time.Second,
+		BeforePage: func(context.Context) error { return sentinel },
+	}, func(_ context.Context, _ string) ([]int, string, error) {
+		t.Error("list should not be called when the limiter wait failed")
+		return nil, "", nil
+	})
+	if !errors.Is(err, sentinel) {
+		t.Errorf("err = %v, want the limiter error to propagate", err)
+	}
+	if errors.Is(err, errListTruncated) {
+		t.Error("a limiter failure was misreported as truncation")
+	}
+}
+
+// TestListAll_BoundsTotalItems: the page cap bounds the number of REQUESTS, not the
+// volume. A hostile server returning large pages can drive the scanner into memory
+// exhaustion well inside the page and wall-clock bounds, so an oversized catalog must
+// degrade to a marked-partial result rather than an OOM.
+func TestListAll_BoundsTotalItems(t *testing.T) {
+	t.Parallel()
+
+	// 600 items per page: the cap falls mid-page, so the check cannot rely on landing
+	// exactly on a page boundary. Fresh cursors each time, or cursor-repeat detection
+	// would stop the walk at two pages and the item bound would never be reached.
+	page := make([]int, 600)
+	n := 0
+	items, err := listAll(context.Background(), testLimits, func(_ context.Context, _ string) ([]int, string, error) {
+		n++
+		return page, fmt.Sprintf("cursor-%d", n), nil
+	})
+	if !errors.Is(err, errListTruncated) {
+		t.Fatalf("err = %v, want errListTruncated once the item bound is hit", err)
+	}
+	if len(items) < maxListItems {
+		t.Errorf("stopped at %d items, expected to collect at least the %d bound", len(items), maxListItems)
+	}
+	if len(items) > maxListItems+len(page) {
+		t.Errorf("collected %d items, more than one page past the %d bound", len(items), maxListItems)
+	}
+}
+
+// TestWalkLimits_WiresTheRateLimiter: TestListAll_ChargesRateLimiterPerPage proves
+// listAll CALLS BeforePage, but it supplies its own hook, so it cannot catch the
+// generator failing to wire the limiter in. This asserts the wiring itself — and that
+// the hook really throttles, not merely that it is non-nil.
+func TestWalkLimits_WiresTheRateLimiter(t *testing.T) {
+	t.Parallel()
+
+	g := newGen(t, registry.Config{
+		"transport":  "http",
+		"endpoint":   "http://example.invalid/mcp",
+		"rate_limit": 5.0, // 5/s, bucket capacity 5
+	}).(*MCP)
+
+	lim := g.walkLimits()
+	if lim.BeforePage == nil {
+		t.Fatal("walkLimits did not wire the rate limiter; pagination would burst past the configured rate")
+	}
+
+	// Capacity is 5, so the first 5 charges are free and the next 3 must wait ~3/5s.
+	// Asserting a floor, never a ceiling — a slow box can only make this slower.
+	start := time.Now()
+	for i := range 8 {
+		if err := lim.BeforePage(context.Background()); err != nil {
+			t.Fatalf("charge %d: %v", i, err)
+		}
+	}
+	if elapsed := time.Since(start); elapsed < 300*time.Millisecond {
+		t.Errorf("8 charges against a 5/s limit took only %v; the hook is not actually throttling", elapsed)
+	}
+}

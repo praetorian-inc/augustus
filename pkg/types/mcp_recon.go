@@ -3,6 +3,7 @@ package types
 import (
 	"context"
 	"encoding/json"
+	"slices"
 )
 
 // MCPReconnaissance is an OPTIONAL interface a Generator implements when its
@@ -61,6 +62,17 @@ type MCPInventory struct {
 	Incomplete []string `json:"incomplete,omitempty"`
 }
 
+// Catalog names recorded in MCPInventory.Incomplete. Declared here so the
+// producer (the MCP generator's enumeration) and consumers (probes checking
+// per-catalog completeness) cannot drift apart: a typo on either side would
+// silently disable a completeness guard rather than fail to compile.
+const (
+	MCPCatalogTools             = "tools"
+	MCPCatalogResources         = "resources"
+	MCPCatalogResourceTemplates = "resource_templates"
+	MCPCatalogPrompts           = "prompts"
+)
+
 // ToolMaps renders the inventory's tools in the same wire shape that
 // ToolInvoker.ListTools produces — a slice of {name, description, parameters,
 // annotations} maps — so probes can consume shared reconnaissance instead of
@@ -94,6 +106,14 @@ func (inv *MCPInventory) ToolMaps() []map[string]any {
 // consuming a shared inventory should prefer a complete one and fall back to a live
 // enumeration rather than scoring a known-partial attack surface.
 func (inv *MCPInventory) IsComplete() bool { return len(inv.Incomplete) == 0 }
+
+// IsCatalogComplete reports whether the named catalog (an MCPCatalog* constant)
+// was fully enumerated. Prefer this over IsComplete when a consumer depends on
+// only part of the inventory: a probe that needs the tool surface should not
+// discard a complete tool catalog because an unrelated prompts enumeration failed.
+func (inv *MCPInventory) IsCatalogComplete(catalog string) bool {
+	return !slices.Contains(inv.Incomplete, catalog)
+}
 
 // MCPIdentifiers is the mcp.identifiers observation payload: object identifiers
 // discovered for ONE identity, each already validated against the getter tool

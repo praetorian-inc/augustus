@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"sort"
 	"time"
@@ -57,7 +58,7 @@ func (m *MCP) MCPInventory(ctx context.Context) (*types.MCPInventory, error) {
 		}
 
 		if inv.Capabilities.Tools {
-			tools, truncated, err := reconList(ctx, lim, "tools", func(pctx context.Context, cursor string) ([]*mcpsdk.Tool, string, error) {
+			tools, truncated, err := reconList(ctx, lim, types.MCPCatalogTools, func(pctx context.Context, cursor string) ([]*mcpsdk.Tool, string, error) {
 				res, err := sess.ListTools(pctx, &mcpsdk.ListToolsParams{Cursor: cursor})
 				if err != nil {
 					return nil, "", err
@@ -68,10 +69,10 @@ func (m *MCP) MCPInventory(ctx context.Context) (*types.MCPInventory, error) {
 				return err
 			}
 			inv.Tools = mcpToolsFrom(tools)
-			markIncomplete("tools", truncated)
+			markIncomplete(types.MCPCatalogTools, truncated)
 		}
 		if inv.Capabilities.Resources {
-			resources, truncated, err := reconList(ctx, lim, "resources", func(pctx context.Context, cursor string) ([]*mcpsdk.Resource, string, error) {
+			resources, truncated, err := reconList(ctx, lim, types.MCPCatalogResources, func(pctx context.Context, cursor string) ([]*mcpsdk.Resource, string, error) {
 				r, err := sess.ListResources(pctx, &mcpsdk.ListResourcesParams{Cursor: cursor})
 				if err != nil {
 					return nil, "", err
@@ -82,9 +83,9 @@ func (m *MCP) MCPInventory(ctx context.Context) (*types.MCPInventory, error) {
 				return err
 			}
 			inv.Resources = mcpResourcesFrom(resources)
-			markIncomplete("resources", truncated)
+			markIncomplete(types.MCPCatalogResources, truncated)
 
-			templates, truncated, err := reconList(ctx, lim, "resource_templates", func(pctx context.Context, cursor string) ([]*mcpsdk.ResourceTemplate, string, error) {
+			templates, truncated, err := reconList(ctx, lim, types.MCPCatalogResourceTemplates, func(pctx context.Context, cursor string) ([]*mcpsdk.ResourceTemplate, string, error) {
 				r, err := sess.ListResourceTemplates(pctx, &mcpsdk.ListResourceTemplatesParams{Cursor: cursor})
 				if err != nil {
 					return nil, "", err
@@ -95,10 +96,10 @@ func (m *MCP) MCPInventory(ctx context.Context) (*types.MCPInventory, error) {
 				return err
 			}
 			inv.ResourceTemplates = mcpResourceTemplatesFrom(templates)
-			markIncomplete("resource_templates", truncated)
+			markIncomplete(types.MCPCatalogResourceTemplates, truncated)
 		}
 		if inv.Capabilities.Prompts {
-			prompts, truncated, err := reconList(ctx, lim, "prompts", func(pctx context.Context, cursor string) ([]*mcpsdk.Prompt, string, error) {
+			prompts, truncated, err := reconList(ctx, lim, types.MCPCatalogPrompts, func(pctx context.Context, cursor string) ([]*mcpsdk.Prompt, string, error) {
 				r, err := sess.ListPrompts(pctx, &mcpsdk.ListPromptsParams{Cursor: cursor})
 				if err != nil {
 					return nil, "", err
@@ -109,7 +110,7 @@ func (m *MCP) MCPInventory(ctx context.Context) (*types.MCPInventory, error) {
 				return err
 			}
 			inv.Prompts = mcpPromptsFrom(prompts)
-			markIncomplete("prompts", truncated)
+			markIncomplete(types.MCPCatalogPrompts, truncated)
 		}
 		return nil
 	})
@@ -264,6 +265,14 @@ func mcpPromptsFrom(prompts []*mcpsdk.Prompt) []types.MCPPrompt {
 type walkLimits struct {
 	Walk time.Duration // wall-clock bound for the whole enumeration
 	Page time.Duration // deadline for a single page
+
+	// BeforePage, when set, runs before every page request. It carries the
+	// generator's rate limiter: withSession waits once per session, so without a
+	// per-page wait a paginated walk could fire up to maxListPages requests
+	// back-to-back and blow straight through a configured request rate — against a
+	// customer's production MCP server, in a tool whose whole job is to be pointed
+	// at infrastructure someone else owns.
+	BeforePage func(context.Context) error
 }
 
 // walkLimits reports the enumeration deadlines for this generator. listAll derives
@@ -274,9 +283,22 @@ type walkLimits struct {
 // slow tools/list, the very failure this bound exists to prevent.
 func (m *MCP) walkLimits() walkLimits {
 	return walkLimits{
-		Walk: listWalkBudgetFactor * m.cfg.RequestTimeout,
-		Page: m.cfg.RequestTimeout,
+		Walk:       listWalkBudgetFactor * m.cfg.RequestTimeout,
+		Page:       m.cfg.RequestTimeout,
+		BeforePage: m.waitLimit,
 	}
+}
+
+// waitLimit charges one token to the configured rate limiter, or does nothing when
+// no limit is configured.
+func (m *MCP) waitLimit(ctx context.Context) error {
+	if m.limiter == nil {
+		return nil
+	}
+	if err := m.limiter.Wait(ctx); err != nil {
+		return fmt.Errorf("mcp: rate limit wait cancelled: %w", err)
+	}
+	return nil
 }
 
 const (
@@ -288,6 +310,14 @@ const (
 	// multiple of the per-page RequestTimeout (10 minutes at the 60s default) —
 	// ample for any legitimate catalog, while bounding a deliberate stall.
 	listWalkBudgetFactor = 10
+
+	// maxListItems bounds how many server-controlled entries one enumeration will
+	// accumulate. The page cap alone bounds the number of REQUESTS, not the volume:
+	// a hostile server can return large pages and, well inside the page and
+	// wall-clock bounds, drive the scanner into memory exhaustion. Overflow is
+	// reported as truncation, so an oversized catalog degrades to a marked-partial
+	// result rather than an OOM. Far above any real MCP catalog.
+	maxListItems = 50_000
 )
 
 // errListTruncated signals that pagination stopped early with a cursor still
@@ -295,7 +325,11 @@ const (
 // The catalog was NOT fully enumerated: callers keep the items gathered so far but
 // must not treat the enumeration as complete (a hostile catalog could hide content
 // on the pages that were never fetched).
-var errListTruncated = errors.New("mcp: catalog pagination stopped early; results may be incomplete")
+// It WRAPS types.ErrCatalogTruncated so the same failure is recognisable from
+// outside this package: consumers in internal/recon and internal/probes cannot test
+// an unexported sentinel, and a cross-package errors.Is that silently never matches
+// would disable their fail-closed handling without any signal.
+var errListTruncated = fmt.Errorf("mcp: catalog pagination stopped early; results may be incomplete: %w", types.ErrCatalogTruncated)
 
 // listAll follows an MCP list operation's nextCursor across all pages,
 // accumulating items. It owns both enumeration deadlines: a fresh whole-walk
@@ -328,6 +362,18 @@ func listAll[T any](ctx context.Context, lim walkLimits, list func(pctx context.
 			return out, errListTruncated
 		}
 
+		// Charge the rate limiter per page, not once per walk. Bounded by walkCtx so a
+		// long wait counts against the enumeration budget; a wait cut short by that
+		// budget is truncation, and a caller abort still propagates.
+		if lim.BeforePage != nil {
+			if err := lim.BeforePage(walkCtx); err != nil {
+				if ctx.Err() == nil && walkCtx.Err() != nil {
+					return out, errListTruncated
+				}
+				return out, err
+			}
+		}
+
 		// Page deadline derives from walkCtx, so it is min(Page, walk remaining): a
 		// page starting just before the budget expires cannot overrun it.
 		pctx, cancelPage := context.WithTimeout(walkCtx, lim.Page)
@@ -347,6 +393,11 @@ func listAll[T any](ctx context.Context, lim walkLimits, list func(pctx context.
 		out = append(out, items...)
 		if next == "" {
 			return out, nil
+		}
+		// Volume bound: pages remain, so this is truncation like every other early
+		// stop — never a complete catalog.
+		if len(out) >= maxListItems {
+			return out, errListTruncated
 		}
 		// A cursor we have already followed means the server is looping: we cannot
 		// make progress, and a cursor is still pending. That is truncation, not
