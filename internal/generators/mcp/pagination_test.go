@@ -386,14 +386,23 @@ func TestListAll_PropagatesCallerCancellation(t *testing.T) {
 // Our own walk budget expiring IS truncation — partial results plus a warning —
 // and must not be confused with the caller cancelling.
 func TestListAll_WalkBudgetIsTruncationNotCancellation(t *testing.T) {
-	spent := walkLimits{Walk: time.Nanosecond, Page: time.Second}
+	t.Parallel()
 
-	_, err := listAll(context.Background(), spent, func(_ context.Context, _ string) ([]int, string, error) {
-		t.Error("list should not be called once the walk budget is spent")
-		return nil, "", nil
+	// One page is served, then the budget is gone. It has to be spent AFTER a page:
+	// a budget exhausted before any request reaches the server is a configuration
+	// problem, reported separately (see TestListAll_StarvedWalkIsNotBlamedOnTheServer).
+	lim := walkLimits{Walk: 60 * time.Millisecond, Page: time.Second}
+	calls := 0
+	items, err := listAll(context.Background(), lim, func(_ context.Context, _ string) ([]int, string, error) {
+		calls++
+		time.Sleep(70 * time.Millisecond) // outlives the walk budget
+		return []int{calls}, fmt.Sprintf("cursor-%d", calls), nil
 	})
 	if !errors.Is(err, errListTruncated) {
 		t.Fatalf("listAll err = %v, want errListTruncated for a spent walk budget", err)
+	}
+	if len(items) == 0 {
+		t.Error("the page that was served before the budget expired must be kept")
 	}
 }
 
@@ -763,8 +772,8 @@ func TestReconList_PropagatesCallerCancellation(t *testing.T) {
 	if items != nil {
 		t.Errorf("items = %v, want nil on cancellation", items)
 	}
-	if !truncated {
-		t.Error("a cancelled enumeration must not be reported as a complete catalog")
+	if truncated {
+		t.Error("cancellation was reported as pagination truncation; they are distinct outcomes")
 	}
 }
 
@@ -838,8 +847,10 @@ func TestListAll_ChargesRateLimiterPerPage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listAll: %v", err)
 	}
-	if waits != pages {
-		t.Errorf("limiter charged %d times for %d pages; pagination is bursting past the configured rate", waits, pages)
+	// pages-1: page 0 rides on withSession's charge, so a one-page catalog costs one
+	// token. Anything less than this means later pages are bursting past the rate.
+	if waits != pages-1 {
+		t.Errorf("limiter charged %d times for %d pages; want %d (page 0 rides on withSession's token)", waits, pages, pages-1)
 	}
 }
 
@@ -849,12 +860,18 @@ func TestListAll_RateLimiterErrorPropagates(t *testing.T) {
 	t.Parallel()
 
 	sentinel := errors.New("limiter cancelled")
+	calls := 0
+	// Page 0 is not charged, so the walk must advance to page 1 for the limiter to be
+	// consulted at all — hence the fresh cursor.
 	_, err := listAll(context.Background(), walkLimits{
 		Walk: time.Minute, Page: time.Second,
 		BeforePage: func(context.Context) error { return sentinel },
 	}, func(_ context.Context, _ string) ([]int, string, error) {
-		t.Error("list should not be called when the limiter wait failed")
-		return nil, "", nil
+		calls++
+		if calls > 1 {
+			t.Error("list was called again after the limiter wait failed")
+		}
+		return []int{calls}, "cursor-1", nil
 	})
 	if !errors.Is(err, sentinel) {
 		t.Errorf("err = %v, want the limiter error to propagate", err)
@@ -990,5 +1007,56 @@ func TestListAll_ItemBoundHoldsAgainstOneHugePage(t *testing.T) {
 				t.Errorf("collected %d items, want exactly the %d bound", len(items), maxListItems)
 			}
 		})
+	}
+}
+
+// TestListTools_LowRateLimitDoesNotFabricateTruncation reproduces the round-5 Codex
+// scenario. A configured rate below one request per second floors the token bucket at
+// a single token; withSession spends it, so charging the first page again meant
+// waiting for a refill that outlasts the whole walk budget. The walk then died with
+// zero pages and was reported as truncation — a fail-closed error on a perfectly
+// healthy target, caused by our own accounting rather than anything the server did.
+//
+// The first page must ride on withSession's charge, so a single-page catalog needs no
+// refill at all.
+func TestListTools_LowRateLimitDoesNotFabricateTruncation(t *testing.T) {
+	t.Parallel()
+
+	// A SINGLE-page catalog: the whole point is that one page must cost one token.
+	// (A genuinely multi-page catalog under a rate this slow cannot be enumerated
+	// inside the budget at all, and truncating there is honest — see walkLimits.)
+	url, _ := newHTTPTarget(t)
+	inv := newGen(t, registry.Config{
+		"transport":       "http",
+		"endpoint":        url,
+		"request_timeout": 0.5,  // page 500ms, whole walk 5s
+		"rate_limit":      0.05, // one token per 20s, bucket capacity floored at 1
+	}).(types.ToolInvoker)
+
+	tools, err := inv.ListTools(context.Background())
+	if err != nil {
+		t.Fatalf("ListTools: %v — a low rate limit must not fabricate truncation on a healthy target", err)
+	}
+	if len(tools) == 0 {
+		t.Error("returned an empty catalog; the first page should ride on withSession's token")
+	}
+}
+
+// TestListAll_StarvedWalkIsNotBlamedOnTheServer: when the budget expires before a
+// single page is fetched, the cause is our own configuration, not the target. Saying
+// "truncated" there hands the operator a hostile-server verdict for a config problem.
+func TestListAll_StarvedWalkIsNotBlamedOnTheServer(t *testing.T) {
+	t.Parallel()
+
+	_, err := listAll(context.Background(), walkLimits{Walk: time.Nanosecond, Page: time.Second},
+		func(_ context.Context, _ string) ([]int, string, error) {
+			t.Error("list should not be called with the budget already spent")
+			return nil, "", nil
+		})
+	if errors.Is(err, errListTruncated) {
+		t.Error("a starved walk was reported as server truncation")
+	}
+	if err == nil || !strings.Contains(err.Error(), "before the first page was fetched") {
+		t.Errorf("err = %v, want it to name the configuration cause", err)
 	}
 }

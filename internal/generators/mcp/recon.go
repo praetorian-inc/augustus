@@ -273,12 +273,18 @@ type walkLimits struct {
 	// customer's production MCP server, in a tool whose whole job is to be pointed
 	// at infrastructure someone else owns.
 	//
-	// This does mean an N-page walk spends N+1 tokens: withSession's charge plus one
-	// per page. That off-by-one is deliberate. Over-throttling costs a little wall
-	// clock; under-throttling hammers someone's production service, and only one of
-	// those is recoverable. Charging exactly once per request would mean threading
-	// "the session already paid" through every paginating caller, which is more
-	// coupling than a single token is worth.
+	// The FIRST page is not charged here: withSession already charged one token for
+	// this call, so page 0 rides on it and a one-page catalog costs exactly one token.
+	// Charging it twice let the wait for a second token outlast the walk budget at low
+	// configured rates, fabricating a truncation with zero tools against a healthy
+	// target. For a multi-catalog inventory this under-charges by one token per extra
+	// catalog, which is bounded and harmless; a fabricated false negative is not.
+	//
+	// A genuinely multi-page catalog under a rate slow enough that its pages cannot
+	// fit inside Walk still truncates. That is honest rather than fabricated — the
+	// configured rate and deadlines really cannot enumerate that catalog — and the
+	// zero-page case is reported separately so a starved walk is never blamed on the
+	// server.
 	BeforePage func(context.Context) error
 }
 
@@ -356,7 +362,8 @@ func listAll[T any](ctx context.Context, lim walkLimits, list func(pctx context.
 	var out []T
 	seen := make(map[string]bool)
 	cursor := ""
-	for range maxListPages {
+	fetched := 0
+	for page := range maxListPages {
 		// The caller aborting — scan shutdown, --timeout, Ctrl-C — is NOT truncation.
 		// Reporting it as such would have the scan carry on against a partial catalog
 		// it was told to stop building, so propagate it and let the caller unwind.
@@ -366,13 +373,28 @@ func listAll[T any](ctx context.Context, lim walkLimits, list func(pctx context.
 			return out, err
 		}
 		if walkCtx.Err() != nil {
+			// Nothing was ever fetched, so this is not the server truncating us — the
+			// budget was spent before a single request went out, which in practice means
+			// the configured deadlines and rate limit cannot coexist. Say that instead of
+			// blaming the target, or the operator sees a "hostile server" verdict for
+			// what is a configuration problem.
+			if fetched == 0 {
+				return out, fmt.Errorf("mcp: catalog walk budget (%v) expired before the first page was fetched; check request_timeout against rate_limit: %w", lim.Walk, walkCtx.Err())
+			}
 			return out, errListTruncated
 		}
 
-		// Charge the rate limiter per page, not once per walk. Bounded by walkCtx so a
-		// long wait counts against the enumeration budget; a wait cut short by that
-		// budget is truncation, and a caller abort still propagates.
-		if lim.BeforePage != nil {
+		// Charge the rate limiter per page — but NOT for the first page, which rides on
+		// the charge withSession already made for this call. Charging twice for a
+		// one-page catalog is not merely impolite: a configured rate below one request
+		// per second floors the bucket at a single token, so the wait for the second
+		// token can outlast the whole walk budget and fabricate a truncation with zero
+		// tools against a perfectly healthy target — a false negative caused by our own
+		// accounting rather than by anything the server did.
+		//
+		// Bounded by walkCtx so a long wait still counts against the enumeration budget;
+		// a wait cut short by that budget is truncation, and a caller abort propagates.
+		if lim.BeforePage != nil && page > 0 {
 			if err := lim.BeforePage(walkCtx); err != nil {
 				if ctx.Err() == nil && walkCtx.Err() != nil {
 					return out, errListTruncated
@@ -386,6 +408,9 @@ func listAll[T any](ctx context.Context, lim walkLimits, list func(pctx context.
 		pctx, cancelPage := context.WithTimeout(walkCtx, lim.Page)
 		items, next, err := list(pctx, cursor)
 		cancelPage()
+		if err == nil {
+			fetched++
+		}
 		if err != nil {
 			// Classify by WHICH deadline fired, not by the error the SDK surfaced. A
 			// page cut short because the walk budget ran out is truncation — keep the
@@ -456,7 +481,10 @@ func reconList[T any](ctx context.Context, lim walkLimits, catalog string, list 
 			"catalog", catalog, "collected", len(items), "page_cap", maxListPages)
 		return items, true, nil
 	case ctx.Err() != nil:
-		return nil, true, err
+		// truncated stays FALSE: it reports pagination completeness, and a caller abort
+		// is a separate, fatal outcome. Conflating them would let a consumer that reads
+		// truncated before checking err mark a catalog incomplete on a cancelled scan.
+		return nil, false, err
 	default:
 		slog.Warn("recon.MCP: catalog enumeration failed; leaving it empty",
 			"catalog", catalog, "error", err)
