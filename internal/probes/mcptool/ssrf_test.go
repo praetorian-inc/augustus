@@ -6,8 +6,11 @@ import (
 	"net/http"
 	"testing"
 
+	_ "github.com/praetorian-inc/augustus/internal/detectors/mcptool"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/results"
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
@@ -165,4 +168,74 @@ func (stub) detect(a *attempt.Attempt) []float64 {
 		scores[i] = 1.0
 	}
 	return scores
+}
+
+// fetchThenFailInvoker fetches the injected URL — firing the collector callback —
+// and only then fails the call. This models the most common blind-SSRF shape: the
+// tool reaches a slow or unresponsive internal host, the outbound request has
+// already gone, and the call times out afterwards.
+type fetchThenFailInvoker struct{ tools []map[string]any }
+
+func (f *fetchThenFailInvoker) Generate(context.Context, *attempt.Conversation, int) ([]attempt.Message, error) {
+	return nil, nil
+}
+func (f *fetchThenFailInvoker) ClearHistory()       {}
+func (f *fetchThenFailInvoker) Name() string        { return "fetch-then-fail" }
+func (f *fetchThenFailInvoker) Description() string { return "fetch-then-fail" }
+
+func (f *fetchThenFailInvoker) ListTools(context.Context) ([]map[string]any, error) {
+	return f.tools, nil
+}
+
+func (f *fetchThenFailInvoker) CallTool(_ context.Context, _ string, args map[string]any) (types.ToolResult, error) {
+	if u, ok := args["url"].(string); ok {
+		if resp, err := http.Get(u); err == nil { //nolint:noctx,gosec // test helper hitting the local OOB collector
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+		}
+	}
+	return types.ToolResult{}, context.DeadlineExceeded
+}
+
+// TestSSRF_CallbackPromotesErroredAttempt: a confirmed callback must not be
+// reported as an error. results.Verdict returns "error" on an errored status
+// without ever consulting the score, so an attempt left in StatusError would file a
+// proven SSRF as a failed request — the finding would be invisible in the report.
+func TestSSRF_CallbackPromotesErroredAttempt(t *testing.T) {
+	target := &fetchThenFailInvoker{tools: []map[string]any{stringTool("fetch", "url")}}
+
+	attempts, err := newSSRFProbe(t).Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	a := attemptFor(attempts, "fetch")
+	if a == nil {
+		t.Fatal("no attempt recorded for the fetch tool")
+	}
+
+	if hit, _ := a.GetMetadata(attempt.MetadataKeySSRFCallback); hit != true {
+		t.Fatalf("callback metadata = %v, want true (the mock fetched the canary)", hit)
+	}
+	if a.Status == attempt.StatusError {
+		t.Error("attempt left in error status despite a confirmed callback")
+	}
+	// Score it with the SHIPPING detector and replay what the report would render,
+	// so the assertion covers the whole path rather than the status flag alone.
+	det, err := detectors.Create("mcptool.SSRF", registry.Config{})
+	if err != nil {
+		t.Fatalf("detectors.Create: %v", err)
+	}
+	scores, err := det.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	for _, sc := range scores {
+		a.AddScore(sc)
+	}
+	if got := results.Verdict(a); got != "vuln" {
+		t.Errorf("verdict = %q, want \"vuln\" — a confirmed SSRF must not report as an error", got)
+	}
+	if reason, ok := a.GetMetadata("mcptool.ssrf_oob_call_error"); !ok || reason == "" {
+		t.Error("original call error was not preserved for the reviewer")
+	}
 }

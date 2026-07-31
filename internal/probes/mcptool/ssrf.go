@@ -181,7 +181,24 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 	// Give the target time to make out-of-band callbacks, then record results.
 	mcpprobe.WaitForCallbacks(ctx, p.wait)
 	for _, item := range pend {
-		item.a.Metadata[attempt.MetadataKeySSRFCallback] = col.WasHit(item.token)
+		hit := col.WasHit(item.token)
+		item.a.Metadata[attempt.MetadataKeySSRFCallback] = hit
+		// A canary URL the target actually fetched (callback fired) is a confirmed
+		// finding even when the tool call itself then failed. Left as StatusError the
+		// attempt is classified "error", not "vuln" — results.Verdict returns early on
+		// an errored status and never reaches the score — which silently buries the
+		// blind SSRF this collector exists to catch. That combination is not exotic:
+		// a tool fetching a slow or unresponsive internal host times out AFTER the
+		// outbound request has gone, which is the most common shape of blind SSRF.
+		// Preserve the original error for the reviewer and revert to complete so the
+		// callback score produces a VULN verdict. Mirrors injection.go, which already
+		// reconciles its callbacks this way.
+		if hit && item.a.Status == attempt.StatusError {
+			if item.a.Error != "" {
+				item.a.Metadata["mcptool.ssrf_oob_call_error"] = item.a.Error
+			}
+			item.a.Complete()
+		}
 	}
 	return attempts, nil
 }
