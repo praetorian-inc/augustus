@@ -192,3 +192,46 @@ func TestRunMultimodalPrompts_DocumentUnsupported(t *testing.T) {
 	_, err := RunMultimodalPrompts(context.Background(), gen, prompts, "pdf.Test", "multimodal.Canary", true)
 	require.ErrorIs(t, err, ErrDocumentUnsupported)
 }
+
+// audioGen is an audio-capable fake generator that echoes a canned audio reply.
+type audioGen struct{}
+
+func (audioGen) Name() string        { return "fake.audio" }
+func (audioGen) Description() string { return "audio-capable fake generator" }
+func (audioGen) ClearHistory()       {}
+func (audioGen) SupportsAudio() bool { return true }
+func (audioGen) Generate(_ context.Context, _ *attempt.Conversation, _ int) ([]attempt.Message, error) {
+	reply := attempt.NewAssistantMessage("here is the transcript")
+	reply.Audio = []attempt.Audio{{MimeType: "audio/wav", Base64: "UklGRg=="}}
+	return []attempt.Message{reply}, nil
+}
+
+// textOnlyGen does not implement AudioCapable.
+type textOnlyGen struct{}
+
+func (textOnlyGen) Name() string        { return "fake.textonly" }
+func (textOnlyGen) Description() string { return "text-only fake generator" }
+func (textOnlyGen) ClearHistory()       {}
+func (textOnlyGen) Generate(_ context.Context, _ *attempt.Conversation, _ int) ([]attempt.Message, error) {
+	return []attempt.Message{attempt.NewAssistantMessage("ok")}, nil
+}
+
+func TestRunMultimodalPrompts_AudioUnsupported(t *testing.T) {
+	prompts := []MultimodalPrompt{{Text: "hi", Audio: []attempt.Audio{{MimeType: "audio/wav", Base64: "UklGRg=="}}}}
+	_, err := RunMultimodalPrompts(context.Background(), textOnlyGen{}, prompts, "audio.Test", "multimodal.AudioTranscribe", false)
+	if !errors.Is(err, ErrAudioUnsupported) {
+		t.Fatalf("err = %v, want ErrAudioUnsupported", err)
+	}
+}
+
+func TestRunMultimodalPrompts_AudioCaptured(t *testing.T) {
+	prompts := []MultimodalPrompt{{Text: "hi", Audio: []attempt.Audio{{MimeType: "audio/wav", Base64: "UklGRg=="}}}}
+	attempts, err := RunMultimodalPrompts(context.Background(), audioGen{}, prompts, "audio.Test", "multimodal.AudioTranscribe", false)
+	if err != nil {
+		t.Fatalf("unexpected err: %v", err)
+	}
+	got, ok := attempts[0].Metadata[attempt.MetaAudioOutput].([]attempt.Audio)
+	if !ok || len(got) != 1 || got[0].Base64 != "UklGRg==" {
+		t.Fatalf("output audio not captured: %#v", attempts[0].Metadata[attempt.MetaAudioOutput])
+	}
+}

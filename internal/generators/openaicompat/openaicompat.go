@@ -127,18 +127,9 @@ func ConversationToMessages(conv *attempt.Conversation) ([]goopenai.ChatCompleti
 						},
 					})
 				}
-				// NOTE: turn.Prompt.Audio is intentionally NOT emitted here.
-				// OpenAI's gpt-4o-audio-preview accepts {"type":"input_audio",
-				// "input_audio":{"data","format"}} content parts, and we already
-				// ship the spec-correct wire-format helpers in audio.go
-				// (AudioContentPart, InputAudioPayload, AudioFormatFromMime).
-				// However, the go-openai SDK (sashabaranov/go-openai v1.41.2)
-				// does not model input_audio in its typed ChatMessagePart struct
-				// (only Text + ImageURL slots), so emitting audio here would
-				// require a custom-HTTP path bypassing the SDK message builder.
-				// That integration is tracked under LAB-2367 (Audio probes);
-				// the helpers exist now so the probe ticket has correct
-				// scaffolding ready when it's picked up.
+				// Audio is emitted via the custom audio HTTP path
+				// (generateChatAudio + openaicompat.BuildAudioChatBody), not
+				// through the typed SDK builder used here.
 				messages = append(messages, goopenai.ChatCompletionMessage{
 					Role:         goopenai.ChatMessageRoleUser,
 					MultiContent: parts,
@@ -438,6 +429,12 @@ func (g *CompatGenerator) Description() string { return g.description }
 // mistral, nemo, nim). Whether the chosen model accepts images is the
 // operator's responsibility. See types.VisionCapable.
 func (g *CompatGenerator) SupportsVision() bool { return true }
+
+// SupportsAudio reports structural audio capability. The go-openai SDK path
+// (ConversationToMessages) emits text and image content only; audio content is
+// not supported, so structural audio capability is false until a compat audio
+// path exists.
+func (g *CompatGenerator) SupportsAudio() bool { return false }
 
 // Client returns the underlying OpenAI client for advanced usage.
 func (g *CompatGenerator) Client() *goopenai.Client { return g.client }

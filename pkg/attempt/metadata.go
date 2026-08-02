@@ -19,4 +19,9 @@ const (
 	// finding (covert) or merely informational (visible). (Consumed by a
 	// later change; defined here alongside the canary key.)
 	MetaMultimodalCovert = "multimodal_covert"
+
+	// MetaAudioOutput holds the model's returned audio attachments
+	// ([]Audio) captured from an audio-capable generator, so the
+	// multimodal.AudioTranscribe detector can transcribe and score them.
+	MetaAudioOutput = "audio_output"
 )

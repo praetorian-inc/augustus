@@ -125,3 +125,6 @@ benchmark-results/
 
 # graphify code knowledge graph (built locally / in CI; do not commit the 50k+ node graph)
 graphify-out/
+
+# Local Claude Code worktrees (superpowers) — never commit as gitlinks
+.claude/worktrees/

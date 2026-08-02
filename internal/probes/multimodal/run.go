@@ -21,6 +21,9 @@ type MultimodalPrompt struct {
 	Images    []attempt.Image
 	Documents []attempt.Document
 
+	// Audio holds audio attachments for this prompt (audio-modality probes).
+	Audio []attempt.Audio
+
 	// Canary is the exact canary phrase embedded in this prompt's payload. It is
 	// attached to the resulting attempt so the multimodal Canary detector reads
 	// it from there, keeping the probe the single source of truth.
@@ -48,6 +51,19 @@ func generatorSupportsDocuments(gen types.Generator) bool {
 	return ok && dc.SupportsDocuments()
 }
 
+// ErrAudioUnsupported is returned by a multimodal probe when its target
+// generator cannot transmit audio attachments. Surfacing it as a probe error
+// (rather than running an audio-less request) prevents a dropped audio clip
+// from being silently scored as a clean "safe" verdict.
+var ErrAudioUnsupported = errors.New("generator does not support audio input")
+
+// generatorSupportsAudio reports whether gen can transmit audio attachments,
+// via the optional types.AudioCapable interface.
+func generatorSupportsAudio(gen types.Generator) bool {
+	ac, ok := gen.(types.AudioCapable)
+	return ok && ac.SupportsAudio()
+}
+
 // RunMultimodalPrompts executes multimodal prompts against a generator.
 //
 // Error handling contract:
@@ -56,6 +72,8 @@ func generatorSupportsDocuments(gen types.Generator) bool {
 //     request. The harness reports this as a failed probe, never as "safe".
 //   - Returns ErrDocumentUnsupported (wrapped) if the generator cannot carry
 //     documents — same semantics as ErrVisionUnsupported.
+//   - Returns ErrAudioUnsupported (wrapped) if the generator cannot carry
+//     audio — same semantics as ErrVisionUnsupported.
 //   - Returns ctx.Err() if the context is cancelled.
 //   - Individual prompt failures are recorded in each attempt's Error field;
 //     returns nil error even if ALL prompts fail - caller must check attempt.Error
@@ -76,11 +94,12 @@ func RunMultimodalPrompts(
 	covert bool,
 ) ([]*attempt.Attempt, error) {
 	// Capability gating is per-attachment: a prompt only requires a capability
-	// for the media it actually carries, so image probes gate on vision and
-	// document probes gate on documents independently. Edge case to keep in mind:
-	// a future text-only MultimodalPrompt (no Images, no Documents) requires
-	// neither and would run against any generator rather than being skipped.
-	needsVision, needsDocs := false, false
+	// for the media it actually carries, so image probes gate on vision,
+	// document probes gate on documents, and audio probes gate on audio,
+	// independently. Edge case to keep in mind:
+	// a future text-only MultimodalPrompt (no Images, no Documents, no Audio) requires
+	// none of them and would run against any generator rather than being skipped.
+	needsVision, needsDocs, needsAudio := false, false, false
 	for _, mp := range prompts {
 		if len(mp.Images) > 0 {
 			needsVision = true
@@ -88,12 +107,18 @@ func RunMultimodalPrompts(
 		if len(mp.Documents) > 0 {
 			needsDocs = true
 		}
+		if len(mp.Audio) > 0 {
+			needsAudio = true
+		}
 	}
 	if needsVision && !generatorSupportsVision(gen) {
 		return nil, fmt.Errorf("%s: %w (generator %q)", probeName, ErrVisionUnsupported, gen.Name())
 	}
 	if needsDocs && !generatorSupportsDocuments(gen) {
 		return nil, fmt.Errorf("%s: %w (generator %q)", probeName, ErrDocumentUnsupported, gen.Name())
+	}
+	if needsAudio && !generatorSupportsAudio(gen) {
+		return nil, fmt.Errorf("%s: %w (generator %q)", probeName, ErrAudioUnsupported, gen.Name())
 	}
 
 	attempts := make([]*attempt.Attempt, 0, len(prompts))
@@ -109,6 +134,7 @@ func RunMultimodalPrompts(
 		conv := attempt.NewConversation()
 		msg := attempt.NewUserMessageWithImages(mp.Text, mp.Images)
 		msg.Documents = mp.Documents
+		msg.Audio = mp.Audio
 		conv.AddPromptMessage(msg)
 
 		responses, err := gen.Generate(ctx, conv, 1)
@@ -124,8 +150,15 @@ func RunMultimodalPrompts(
 		if err != nil {
 			a.SetError(err)
 		} else {
+			var outAudio []attempt.Audio
 			for _, resp := range responses {
 				a.AddOutput(resp.Content)
+				if len(resp.Audio) > 0 {
+					outAudio = append(outAudio, resp.Audio...)
+				}
+			}
+			if len(outAudio) > 0 {
+				a.Metadata[attempt.MetaAudioOutput] = outAudio
 			}
 			a.Complete()
 		}
