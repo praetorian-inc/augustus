@@ -262,3 +262,69 @@ func TestPromptArgs(t *testing.T) {
 		t.Error("optional argument should be omitted, not filled")
 	}
 }
+
+// TestBaselinePayloads_TargetDiversity: encoding diversity does not survive a
+// server-side filter that keys on the target FILENAME. If every payload named
+// passwd, one rule ("reject any URI containing passwd") would defeat the entire
+// baseline at once, so the set must span several target files.
+func TestBaselinePayloads_TargetDiversity(t *testing.T) {
+	base := baselineURIPayloads()
+
+	targets := map[string]bool{}
+	for _, p := range base {
+		switch {
+		case strings.Contains(p.uri, "passwd"):
+			targets["passwd"] = true
+		case strings.Contains(p.uri, "win.ini"):
+			targets["win.ini"] = true
+		case strings.Contains(p.uri, "proc/version"):
+			targets["proc/version"] = true
+		case strings.Contains(p.uri, "os-release"):
+			targets["os-release"] = true
+		case strings.Contains(p.uri, "hosts"):
+			targets["hosts"] = true
+		}
+		if len(p.signatures) == 0 {
+			t.Errorf("payload %q carries no signature, so nothing could confirm it", p.uri)
+		}
+	}
+	if len(targets) < 4 {
+		t.Errorf("baseline spans only %d target files (%v); a single filename filter would defeat too much of it", len(targets), targets)
+	}
+
+	// No single filename filter may remove everything.
+	for _, filter := range []string{"passwd", "win.ini", "proc", "os-release", "hosts"} {
+		surviving := 0
+		for _, p := range base {
+			if !strings.Contains(p.uri, filter) {
+				surviving++
+			}
+		}
+		if surviving == 0 {
+			t.Errorf("filtering %q defeats every baseline payload", filter)
+		}
+	}
+}
+
+// TestSignatures_NoLowEntropyMarkers guards the precision of the oracle: a
+// signature short or generic enough to occur in ordinary served content turns a
+// confirmed read into a guess. Bare "ID=" and "127.0.0.1 localhost" are the two
+// tempting-but-wrong markers for the files added here.
+func TestSignatures_NoLowEntropyMarkers(t *testing.T) {
+	// Six characters is the floor rather than a longer bound because structural
+	// markers can be short yet highly specific: "[fonts]" is a win.ini section
+	// header and will not appear in prose, whereas a three-character "ID=" will.
+	const minSignature = 6
+
+	all := [][]string{passwdSignatures, winIniSignatures, procVersionSignatures, osReleaseSignatures, hostsSignatures}
+	for _, set := range all {
+		for _, sig := range set {
+			if len(sig) < minSignature {
+				t.Errorf("signature %q is short enough to collide with benign content", sig)
+			}
+			if sig == "ID=" || strings.Contains(sig, "127.0.0.1 localhost") {
+				t.Errorf("signature %q occurs in ordinary documentation", sig)
+			}
+		}
+	}
+}
