@@ -4,8 +4,12 @@ package probewise
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/praetorian-inc/augustus/pkg/types"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1020,4 +1024,49 @@ func TestProbewise_Run_PerProbeOverrideRouting(t *testing.T) {
 		"probe A must have an entry in probeDetectorOverrides")
 	assert.NotContains(t, h.probeDetectorOverrides, "test.ProbeB",
 		"probe B must NOT have an entry in probeDetectorOverrides (uses shared detector)")
+}
+
+// TestReportScanErrors_PreservesSentinelChain: probes export sentinels so consumers
+// can classify a failure, and the harness's returned error is the only place that
+// classification survives to a caller like the Guard wrapper. Counting failures
+// without wrapping them strands every sentinel — errors.Is goes false at the
+// boundary, and "the tool surface could not be enumerated" becomes indistinguishable
+// from "the target was unreachable", which need opposite handling.
+func TestReportScanErrors_PreservesSentinelChain(t *testing.T) {
+	results := &scanner.Results{
+		Total:  2,
+		Failed: 1,
+		Errors: []error{
+			fmt.Errorf("probe mcptool.PathTraversal failed: %w",
+				fmt.Errorf("mcp: refusing to report a partial tool catalog as complete: %w", types.ErrCatalogTruncated)),
+		},
+	}
+
+	err := reportScanErrors(results, nil, nil)
+	if err == nil {
+		t.Fatal("expected an error for a failed probe")
+	}
+	if !errors.Is(err, types.ErrCatalogTruncated) {
+		t.Errorf("errors.Is(err, types.ErrCatalogTruncated) = false; the sentinel was dropped, so a consumer cannot tell a truncated catalog from an unreachable target.\ngot: %v", err)
+	}
+	// The human-readable summary must survive too.
+	if !strings.Contains(err.Error(), "1 of 2 probes failed") {
+		t.Errorf("err = %q, want it to retain the failure count", err)
+	}
+}
+
+// TestReportScanErrors_UnrelatedFailureIsNotTruncation: the classification has to
+// discriminate, not just match everything.
+func TestReportScanErrors_UnrelatedFailureIsNotTruncation(t *testing.T) {
+	results := &scanner.Results{
+		Total: 1, Failed: 1,
+		Errors: []error{errors.New("dial tcp: connection refused")},
+	}
+	err := reportScanErrors(results, nil, nil)
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if errors.Is(err, types.ErrCatalogTruncated) {
+		t.Error("an unreachable target was classified as a truncated catalog")
+	}
 }
