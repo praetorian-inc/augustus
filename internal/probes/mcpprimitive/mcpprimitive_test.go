@@ -235,9 +235,24 @@ func TestTraversalFrom(t *testing.T) {
 		}
 	}
 
+	// Prefix preservation still works wherever there IS a path to preserve.
+	for _, uri := range []string{"file:///notes.txt", "https://example.test/d/a.txt"} {
+		if got := traversalFrom(uri); len(got) == 0 {
+			t.Errorf("traversalFrom(%q) returned nothing; it has a path segment to preserve", uri)
+		}
+	}
+
 	// A URI with no path segment to replace yields nothing rather than a
-	// nonsensical payload.
-	for _, uri := range []string{"opaque", "file:///data/"} {
+	// nonsensical payload. The authority-only cases matter most: the last slash
+	// belongs to "://", so the base would be a bare scheme and every payload would
+	// come out host-relative (https://../../etc/passwd).
+	for _, uri := range []string{
+		"opaque",
+		"file:///data/",
+		"https://example.test",
+		"notes://readme",
+		"poisoned://onboarding",
+	} {
 		if got := traversalFrom(uri); got != nil {
 			t.Errorf("traversalFrom(%q) = %+v, want nil", uri, got)
 		}

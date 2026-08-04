@@ -164,6 +164,16 @@ func traversalFrom(advertised string) []uriPayload {
 	if idx <= 0 || idx == len(advertised)-1 {
 		return nil
 	}
+	// Reject a URI with no path component after its authority. The last slash then
+	// belongs to the "://" separator, so the "base" is a bare scheme and every
+	// payload comes out host-relative and meaningless — https://example.test yields
+	// https://../../etc/passwd. Those are wasted requests against a correct server,
+	// and against one that answers any URI on its own scheme they return content and
+	// inflate the report. There is nothing to prefix-preserve without a path, and the
+	// baseline set already covers scheme-absolute payloads for such targets.
+	if sep := strings.Index(advertised, "://"); sep >= 0 && idx <= sep+2 {
+		return nil
+	}
 	base := advertised[:idx+1]
 	return []uriPayload{
 		{uri: base + "../../../../../../etc/passwd", signatures: passwdSignatures, class: classTraversal},
