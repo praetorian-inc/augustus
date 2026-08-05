@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 // discoveryServer serves a configurable set of the spec-defined signals.
@@ -114,4 +115,66 @@ func TestDiscoverOAuthProtection_FalsePositiveGuards(t *testing.T) {
 			t.Error("empty endpoint produced a declaration")
 		}
 	})
+}
+
+// TestDiscoverOAuthProtection_StreamingEndpointDoesNotHang is the regression for a
+// hang found only by running the probe against a live legacy HTTP+SSE target.
+//
+// Discovery step 1 GETs the MCP endpoint to look for a WWW-Authenticate challenge.
+// On an SSE-transport server that GET does not return a document — it opens an
+// event stream that stays open for the life of the session. Draining that body to
+// a byte cap blocks until enough keepalive bytes arrive to fill the cap, so the
+// probe hung indefinitely and emitted nothing at all. A byte cap bounds SIZE, not
+// TIME; only a deadline bounds time.
+//
+// The server here models a real SSE MCP target exactly: an endless event stream at
+// the endpoint, 404 at the well-known paths. The assertion is a tight latency
+// bound, because that is what distinguishes "closes the body unread" from "waits
+// out a deadline it should never have reached".
+func TestDiscoverOAuthProtection_StreamingEndpointDoesNotHang(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/sse", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		flusher, _ := w.(http.Flusher)
+		for {
+			select {
+			case <-r.Context().Done():
+				return
+			case <-time.After(10 * time.Millisecond):
+				_, _ = w.Write([]byte(": keepalive\n\n"))
+				if flusher != nil {
+					flusher.Flush()
+				}
+			}
+		}
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	type result struct {
+		d       oauthDeclaration
+		elapsed time.Duration
+	}
+	done := make(chan result, 1)
+	go func() {
+		start := time.Now()
+		d := discoverOAuthProtection(context.Background(), srv.Client(), srv.URL+"/sse")
+		done <- result{d, time.Since(start)}
+	}()
+
+	select {
+	case got := <-done:
+		// A streaming server that publishes no metadata has declared nothing.
+		if got.d.declared() {
+			t.Error("a server that streams keepalives and publishes no metadata was read as authorization-gated")
+		}
+		// Well inside discoveryTimeout: reaching the deadline would mean the body
+		// is still being read rather than closed.
+		if got.elapsed > 2*time.Second {
+			t.Errorf("discovery took %v against a never-ending stream; the endpoint probe must close the body unread, not wait out its deadline", got.elapsed)
+		}
+	case <-time.After(2 * discoveryTimeout):
+		t.Fatal("discoverOAuthProtection never returned against a never-ending response stream; a byte cap bounds size, not time")
+	}
 }

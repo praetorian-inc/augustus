@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -34,6 +35,15 @@ const (
 // JSON objects by specification; the cap keeps a hostile or misconfigured host
 // from streaming indefinitely into a probe that only needs a couple of fields.
 const maxDiscoveryBody = 64 << 10
+
+// discoveryTimeout bounds EACH discovery request independently.
+//
+// A byte cap alone does not bound the work: a host that answers and then trickles
+// bytes (or never sends any) stalls a capped read just as effectively as an
+// unbounded one. Discovery is a preflight step whose whole output is "did the
+// target declare authorization?", so a slow or streaming host must yield "no
+// declaration" quickly rather than stall the scan behind it.
+const discoveryTimeout = 10 * time.Second
 
 // oauthDeclaration records the ways a target declared itself an authorization-
 // gated resource. Any one of them is the SERVER'S OWN statement that credentials
@@ -96,10 +106,19 @@ func discoverOAuthProtection(ctx context.Context, client *http.Client, endpoint 
 
 	// 1. Does the endpoint itself challenge an unauthenticated caller? A
 	//    WWW-Authenticate header is the server refusing and naming its scheme.
-	if req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil); reqErr == nil {
+	//
+	//    The body is CLOSED UNREAD. Only the status line and one header carry the
+	//    signal here, and draining the rest is not merely wasted work: on a legacy
+	//    HTTP+SSE target this GET opens an event stream that never ends, so a
+	//    read-to-cap blocks until enough keepalive bytes trickle in to fill the
+	//    cap — in practice, forever. Measured against a live SSE-transport server:
+	//    the probe hung indefinitely and emitted nothing at all, which in a hosted
+	//    capability is worse than any wrong verdict.
+	reqCtx, cancel := context.WithTimeout(ctx, discoveryTimeout)
+	defer cancel()
+	if req, reqErr := http.NewRequestWithContext(reqCtx, http.MethodGet, endpoint, nil); reqErr == nil {
 		if resp, doErr := client.Do(req); doErr == nil {
 			challenge := resp.Header.Get("WWW-Authenticate")
-			_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDiscoveryBody))
 			_ = resp.Body.Close()
 			if challenge != "" && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden) {
 				d.challenge = challenge
@@ -171,6 +190,11 @@ func (p *UnauthenticatedAccess) probeDeclaredOpen(ctx context.Context, end types
 // document. A required field must be present: a 200 alone is not enough, because
 // single-page apps and catch-all routers answer 200 for any path.
 func fetchDiscoveryDoc(ctx context.Context, client *http.Client, docURL string) bool {
+	// Bounded independently of the caller's context: the byte cap below limits how
+	// much is read, never how long the read waits, so a host that streams slowly
+	// or stalls mid-body would otherwise hold the scan open indefinitely.
+	ctx, cancel := context.WithTimeout(ctx, discoveryTimeout)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, docURL, nil)
 	if err != nil {
 		return false
