@@ -116,7 +116,17 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	// Common: api_key, timeouts, rate limit, persistence.
 	cfg.APIKey = registry.GetString(m, "api_key", "")
 	if timeout, ok := durationSeconds(m, "request_timeout"); ok {
-		cfg.RequestTimeout = timeout
+		// A non-positive value must not be taken literally. Elsewhere in Augustus
+		// 0 means "no timeout", but here it would be applied as an already-expired
+		// deadline: every request and every catalog page would fail instantly and the
+		// scan would report an empty tool surface rather than an error. Clamp to the
+		// default and say so, matching how a below-floor rate limit is clamped.
+		if timeout <= 0 {
+			slog.Warn("mcp: request_timeout must be positive; using the default",
+				"requested", timeout, "using", cfg.RequestTimeout)
+		} else {
+			cfg.RequestTimeout = timeout
+		}
 	}
 	cfg.Persistent = registry.GetBool(m, "persistent", cfg.Persistent)
 	if rl, err := parseRateLimit(m); err != nil {

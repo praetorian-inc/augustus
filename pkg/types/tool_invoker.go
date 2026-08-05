@@ -1,6 +1,9 @@
 package types
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // ToolInvoker is an OPTIONAL interface a Generator implements when its target
 // exposes a directly-invokable tool surface (e.g. an MCP server) rather than
@@ -22,6 +25,9 @@ type ToolInvoker interface {
 	// "description", and (when present) "parameters" (a JSON-schema object).
 	// Reusing this shape avoids a bespoke tool-schema type and lets a discovered
 	// catalog feed straight into a Conversation.
+	// A truncated enumeration returns the pages gathered so far together with an
+	// error wrapping ErrCatalogTruncated, so a caller that ignores the error cannot
+	// mistake a partial catalog for the target's whole tool surface.
 	ListTools(ctx context.Context) ([]map[string]any, error)
 
 	// CallTool invokes the named tool with the given arguments and returns its
@@ -29,6 +35,17 @@ type ToolInvoker interface {
 	// not as a Go error; only transport/protocol failures return an error.
 	CallTool(ctx context.Context, name string, args map[string]any) (ToolResult, error)
 }
+
+// ErrCatalogTruncated reports that a tool-catalog enumeration stopped early with
+// pages left unfetched — a repeated cursor, a page cap, a wall-clock budget, or a
+// volume bound. ListTools implementations wrap it; consumers test with errors.Is.
+//
+// It is deliberately distinct from an ordinary list failure. An unreachable target
+// yields no catalog and a consumer may reasonably skip it. A TRUNCATED catalog
+// yields a plausible-looking prefix, so treating it as either complete or empty
+// lets a server that halts enumeration after a benign prefix be scored as clean —
+// the partial-as-complete failure this sentinel exists to make impossible to miss.
+var ErrCatalogTruncated = errors.New("types: tool catalog enumeration truncated; results are incomplete")
 
 // ToolResult is the outcome of a single ToolInvoker.CallTool. It has no existing
 // equivalent (Message.ToolCalls represents a tool *call*, not its result).

@@ -16,6 +16,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 - **BREAKING:** The `judge:` section in YAML config is now required when using `judge.Judge`, `judge.Refusal`, or multi-turn probes (PAIR, TAP, Crescendo, GOAT, Hydra, Mischievous). The judge no longer silently falls back to the target model.
+- `mcp.MCP` `request_timeout` now applies per catalog page rather than to a whole paginated enumeration, with a separate wall-clock budget (10x `request_timeout`) bounding the enumeration as a whole (LAB-5094, PR #274)
 
 ### Deprecated
 - `judge_model` config key — set the model inside `judge.config` (YAML) or the `judge_config` map (per-component settings) instead.
@@ -24,6 +25,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 - Judge detector using target model instead of configured judge model when target and judge use different OpenAI-compatible APIs.
+- `mcp.MCP` `ListTools` now returns an error when a tool-catalog enumeration is truncated rather than a knowingly partial catalog with a nil error, so tool-surface probes skip an unenumerable target instead of scanning a prefix and reporting clean (LAB-5094, PR #274)
+- `types.MCPInventory` gained `Incomplete` (and `IsComplete()`), naming any catalog whose enumeration stopped early; `mcptool` probes ignore an incomplete shared inventory and re-enumerate rather than scoring a partial attack surface (LAB-5094, PR #274)
+- `mcp.MCP` charges its configured rate limit per catalog page rather than once per session, so a paginated enumeration can no longer burst past the operator's configured request rate (LAB-5094, PR #274)
+- `recon.MCPIdentifiers` refuses a truncated tool catalog on both the shared-inventory and live-enumeration paths, so a partial prefix cannot become the ownership ground truth `mcptool.BOLA` scores against (LAB-5094, PR #274)
+- `mcp.MCP` clamps a non-positive `request_timeout` to the default instead of applying an already-expired deadline that would report an empty tool surface (LAB-5094, PR #274)
+- MCP catalog enumeration read only the first page of `tools/list`, `resources/list`, `resources/templates/list`, and `prompts/list`, so an MCP server that paginates its catalog was silently under-scanned: the tool-surface probes (`mcptool.Injection`, `.SSRF`, `.PathTraversal`, `.BOLA`, `.ResponseLeak`) tested page one and reported the target clean, with the untested tools appearing nowhere in the output (LAB-5094, PR #274)
 
 ## [0.0.6] - 2026-02-09
 

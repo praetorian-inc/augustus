@@ -93,8 +93,16 @@ func reportScanErrors(results *scanner.Results, scanErr error, allAttempts []*at
 		for _, err := range results.Errors {
 			slog.Error("probe failed", "error", err)
 		}
-		// Return error indicating how many probes failed
-		return fmt.Errorf("%d of %d probes failed", results.Failed, results.Total)
+		// Wrap the underlying errors rather than only counting them. Probes export
+		// sentinels so a consumer can CLASSIFY a failure — most importantly
+		// types.ErrCatalogTruncated, which distinguishes "the tool surface could not be
+		// fully enumerated" from "the target was unreachable". Those need opposite
+		// handling downstream: one means rescan or report an incomplete surface, the
+		// other means the target is down. A count-only error strands every such
+		// sentinel here, leaving errors.Is false for callers (e.g. the Guard wrapper)
+		// that are the whole reason the probes fail closed in the first place.
+		return fmt.Errorf("%d of %d probes failed: %w", results.Failed, results.Total,
+			errors.Join(results.Errors...))
 	}
 
 	// Check for scan-level errors (e.g., timeout)
