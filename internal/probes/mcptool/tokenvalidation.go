@@ -320,9 +320,22 @@ func (p *TokenValidation) probeIssuanceSurfaces(ctx context.Context, inv types.T
 		if name == "" {
 			continue
 		}
-		if !issuerToolNameRE.MatchString(name) && !mcpprobe.IsReadOnlyTool(tool) {
+		// The name must suggest the tool ISSUES a credential. The previous condition
+		// also accepted any read-only tool, which inverted the intent: read-only says
+		// it is SAFE to call a tool twice, never that it hands out credentials.
+		//
+		// Measured: a `get_config` configuration reader was sampled twice, returned
+		// the same configuration value both times (correct, deterministic behaviour),
+		// and was reported as predictable credential issuance at 1.0. Generalised,
+		// the read-only path fires on every idempotent tool whose response happens to
+		// look credential-shaped -- config getters, version endpoints, status and
+		// health checks -- all of which are supposed to return the same value twice.
+		if !issuerToolNameRE.MatchString(name) {
 			continue
 		}
+		// Sampling means invoking twice, so the shared safety gate still applies:
+		// p.policy.Filter has already removed anything server-annotated destructive
+		// before this loop, and nothing further is needed here.
 		params := mcpprobe.ToolParams(tool)
 		args := mcpprobe.BenignArgs(params, nil)
 

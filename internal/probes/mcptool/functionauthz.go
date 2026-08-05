@@ -33,11 +33,12 @@ var (
 var privilegedToolNameRE = regexp.MustCompile(
 	`(?i)(^|[-_.])(admin|administrate|manage|management|grant|revoke|permission|permissions|privilege|privileges|role|roles|sudo|root|exec|execute|command|shell|remote|access|config|configure|configuration|setting|settings|secret|secrets|credential|credentials|token|user|users|account|accounts|delete|disable|enable|reset|override|impersonate|escalate|promote|assign|provision|deploy|restart|shutdown)($|[-_.])`)
 
-// discriminatorParamRE matches parameter names that conventionally SELECT an
-// authority level, identity, or target — the argument a server is most likely to
-// branch on when deciding what a caller may do.
-var discriminatorParamRE = regexp.MustCompile(
-	`(?i)(^|[_\- ])(role|roles|user|username|account|identity|actor|as_user|level|permission|permissions|privilege|scope|scopes|group|groups|mode|profile|system|target|env|environment|tenant|realm|domain|namespace|type|kind|category|action|operation|command)($|[_\- ])`)
+// Note on parameter selection: an earlier version also qualified a parameter by a
+// conventional NAME pattern (role, user, level, mode, system, ...). That was
+// removed because a name cannot supply a baseline — see the comment in
+// probeDiscriminator. Qualification is now solely "the target declares values for
+// this parameter", which is what makes the sweep a differential rather than a
+// comparison against a string the server has never seen.
 
 // maxDeclaredValues bounds how many target-declared values are exercised per
 // parameter, so a schema enumerating hundreds of values cannot turn one probe into
@@ -335,9 +336,27 @@ func (p *FunctionAuthorization) probeDiscriminator(ctx context.Context, inv type
 			continue
 		}
 		declared := mcpprobe.DeclaredValues(tool, param.Name)
-		// A parameter qualifies when the target declares values for it (so a
-		// baseline exists) or its name conventionally selects authority.
-		if len(declared) == 0 && !discriminatorParamRE.MatchString(param.Name) {
+		// The target MUST declare values for the parameter. Without them there is no
+		// such thing as "ordinary authority" on this target, and the differential
+		// degrades into something else entirely: the baseline becomes a synthesized
+		// string the server has never heard of, so every real value differs from it
+		// and the probe measures known-versus-unknown identifier rather than
+		// unprivileged-versus-privileged authority.
+		//
+		// Measured: on a tool `get_user_info(username)` — no declared values, but a
+		// name matching the old conventional-name pattern — `username=admin` returned that
+		// account's profile while both controls returned nothing, and the check
+		// scored 1.0. There IS something worth reporting there (an unauthenticated
+		// caller enumerating privileged accounts), but it is information disclosure,
+		// not function-level authorization: the tool is a lookup, not a privileged
+		// operation. Generalised, the name-only path fires on any tool that takes an
+		// identifier and returns information about it.
+		//
+		// A conventional-looking name is therefore necessary but not sufficient: it
+		// selects WHICH parameter to sweep, never whether a sweep is meaningful.
+		if len(declared) == 0 {
+			slog.Info("mcptool.FunctionAuthorization: parameter declares no values, so the target defines no ordinary authority to compare against; skipping the privileged-value sweep rather than measuring known-vs-unknown identifiers",
+				"tool", name, "param", param.Name)
 			continue
 		}
 		if len(declared) > maxDeclaredValues {
