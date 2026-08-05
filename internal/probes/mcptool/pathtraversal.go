@@ -158,7 +158,7 @@ func NewPathTraversal(cfg registry.Config) (probes.Prober, error) {
 	return &PathTraversal{
 		allParams:                 registry.GetBool(cfg, "pathtraversal_all_string_params", false),
 		requireReadOnlyAnnotation: registry.GetBool(cfg, "pathtraversal_require_readonly_annotation", false),
-		policy:    toolpolicy.New(cfg),
+		policy:                    toolpolicy.New(cfg),
 	}, nil
 }
 
