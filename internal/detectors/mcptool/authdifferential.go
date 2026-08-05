@@ -35,24 +35,42 @@ func responseClass(resp string, values ...string) string {
 
 // differentialVerdict adjudicates a probe-vs-control response differential. It is
 // shared by the TokenValidation and FunctionAuthorization detectors because both
-// answer the same question: did the probe value reach behaviour the control value
-// did not?
+// answer the same question: did the probe value reach behaviour an equivalent
+// unentitled value did not?
 //
 // It is deliberately SERVER-AGNOSTIC. It never searches for a success string,
 // never hashes a body, and assumes no value format. The verdict comes from
-// comparing recorded responses to each other:
+// comparing the target's own recorded responses to each other, in this order:
 //
-//	no control recorded                        → InconclusiveScore (nothing to compare)
-//	probe class == control class                → 0.0 (control value fared identically: safe)
-//	replica recorded but disagrees with probe   → InconclusiveScore (target not stable)
-//	probe reads as an acceptance, control as a
-//	  refusal                                   → 1.0 (confirmed differential)
-//	otherwise                                   → InconclusiveScore
+//	errored / empty attempt                     → 0.0  (no evidence)
+//	no control recorded                         → InconclusiveScore
+//	probe response READS AS A REFUSAL           → 0.0  (the probe gained nothing)
+//	probe class == control class                 → 0.0  (control fared identically)
+//	same-shape replica disagrees with probe      → InconclusiveScore (unstable target)
+//	second control present:
+//	  matches probe                              → 0.0
+//	  two controls disagree with each other      → InconclusiveScore (responses vary by value)
+//	  otherwise                                  → 1.0
+//	control READS AS A REFUSAL                   → 1.0  (refused there, served here)
+//	otherwise                                    → InconclusiveScore
 //
-// The last two branches are the false-positive guard. A correct server may word
-// two refusals differently ("bad format" vs "token not found"), which partitions
-// responses without being an acceptance; that lands on inconclusive, visible for
-// review but never asserted as a vulnerability.
+// Two branches carry most of the false-positive protection.
+//
+// First, a probe response that itself reads as a refusal is scored 0.0 outright,
+// whatever the control said. This is what makes a correct server safe rather than
+// merely inconclusive: a verifier that answers a malformed value "incorrect
+// format" and a well-formed-but-unissued one "token not found" has partitioned its
+// responses, but it REFUSED the never-issued value — which is exactly the desired
+// behaviour, not a weakness. Differing refusal wording is a better error message,
+// not an authorization flaw.
+//
+// Second, where the control is itself a successful lower-privilege call (so
+// "control was refused" cannot be the signal), a single differing response is
+// ambiguous — it could be the privilege or merely the value. A second, independent
+// unprivileged control resolves it: if both controls agree with each other and the
+// probe differs from both, the privilege is isolated as the cause. If the two
+// controls disagree, the target's responses vary by value and no conclusion is
+// drawn.
 func differentialVerdict(a *attempt.Attempt) float64 {
 	if a.Error != "" {
 		return 0.0
@@ -66,13 +84,20 @@ func differentialVerdict(a *attempt.Attempt) float64 {
 		return InconclusiveScore
 	}
 
+	// The probe value was refused: nothing was reached, so there is nothing to
+	// report regardless of how the control fared.
+	if denialVocabularyRE.MatchString(probeResp) {
+		return 0.0
+	}
+
 	probeValue := metaString(a, mcpprobe.MetaAuthProbeValue)
 	controlValue := metaString(a, mcpprobe.MetaAuthControlValue)
 	replicaValue := metaString(a, mcpprobe.MetaAuthReplicaValue)
+	control2Value := metaString(a, mcpprobe.MetaAuthControl2Value)
 
 	// Mask EVERY submitted value out of EVERY response, so an echoed value can
 	// never be the thing that makes two responses differ.
-	mask := []string{probeValue, controlValue, replicaValue}
+	mask := []string{probeValue, controlValue, replicaValue, control2Value}
 	probeClass := responseClass(probeResp, mask...)
 	controlClass := responseClass(controlResp, mask...)
 
@@ -91,9 +116,20 @@ func differentialVerdict(a *attempt.Attempt) float64 {
 		}
 	}
 
-	probeDenied := denialVocabularyRE.MatchString(probeResp)
-	controlDenied := denialVocabularyRE.MatchString(controlResp)
-	if !probeDenied && controlDenied {
+	// A second unprivileged control isolates privilege from response variation.
+	if control2Resp := metaString(a, mcpprobe.MetaAuthControl2Response); control2Resp != "" {
+		control2Class := responseClass(control2Resp, mask...)
+		if control2Class == probeClass {
+			return 0.0
+		}
+		if control2Class != controlClass {
+			return InconclusiveScore
+		}
+		return 1.0
+	}
+
+	// The control was refused where the probe was served: unambiguous.
+	if denialVocabularyRE.MatchString(controlResp) {
 		return 1.0
 	}
 	return InconclusiveScore

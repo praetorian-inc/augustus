@@ -134,12 +134,13 @@ func TestAuthDifferential_UnstableResponsesAreInconclusive(t *testing.T) {
 	}
 }
 
-// TestAuthDifferential_DenialWordedDifferentlyIsInconclusive is the key
-// false-positive guard. A correct server may word its two rejections differently
-// ("bad format" vs "token not found"). That partitions by shape but is NOT an
-// acceptance, so it must not be a confident finding. It stays visible for review
-// rather than being cleared, since the probe cannot tell the two apart alone.
-func TestAuthDifferential_DenialWordedDifferentlyIsInconclusive(t *testing.T) {
+// TestAuthDifferential_DenialWordedDifferentlyIsSafe is the key false-positive
+// guard. A correct server may word its two rejections differently ("bad format"
+// vs "token not found"). That partitions responses by shape, so a naive
+// class-comparison would flag it — but the never-issued value was REFUSED, which
+// is precisely the desired behaviour. Differing refusal wording is a better error
+// message, not a weakness, so this must be SAFE rather than a finding.
+func TestAuthDifferential_DenialWordedDifferentlyIsSafe(t *testing.T) {
 	a := diffAttempt{
 		class:        mcpprobe.AuthClassTokenFormatOnly,
 		probeValue:   "0123456789abcdef0123456789abcdef",
@@ -150,9 +151,63 @@ func TestAuthDifferential_DenialWordedDifferentlyIsInconclusive(t *testing.T) {
 		controlResp:  "malformed token: incorrect format",
 	}.build()
 
-	got := detectTokenValidation(t, a)
-	if got != InconclusiveScore {
-		t.Errorf("differently-worded denial scored %v, want %v (not a confident finding)", got, InconclusiveScore)
+	if got := detectTokenValidation(t, a); got != 0.0 {
+		t.Errorf("differently-worded denial scored %v, want 0.0 (the unissued value was refused: safe)", got)
+	}
+}
+
+// TestAuthDifferential_SecondControlIsolatesPrivilege: where the control is a
+// SUCCESSFUL lower-privilege call, "control was refused" cannot be the signal. Two
+// unprivileged controls that agree, with the probe differing from both, isolate
+// the privilege as the cause of the difference.
+func TestAuthDifferential_SecondControlIsolatesPrivilege(t *testing.T) {
+	a := diffAttempt{
+		class:        mcpprobe.AuthClassPrivilegeDiscriminator,
+		probeValue:   "admin",
+		probeResp:    "root shell attached to admin plane",
+		controlValue: "database",
+		controlResp:  "connected to database with standard privileges",
+	}.build()
+	a.Metadata[mcpprobe.MetaAuthControl2Value] = "augff00ff00ff00"
+	a.Metadata[mcpprobe.MetaAuthControl2Response] = "connected to augff00ff00ff00 with standard privileges"
+
+	if got := detectTokenValidation(t, a); got != 1.0 {
+		t.Errorf("privilege isolated by two agreeing controls scored %v, want 1.0", got)
+	}
+}
+
+// TestAuthDifferential_DisagreeingControlsAreInconclusive: when two equally
+// unprivileged values get different answers, the target's responses vary by value
+// and no privilege conclusion can be drawn.
+func TestAuthDifferential_DisagreeingControlsAreInconclusive(t *testing.T) {
+	a := diffAttempt{
+		class:        mcpprobe.AuthClassPrivilegeDiscriminator,
+		probeValue:   "admin",
+		probeResp:    "attached to plane C",
+		controlValue: "database",
+		controlResp:  "attached to plane A",
+	}.build()
+	a.Metadata[mcpprobe.MetaAuthControl2Value] = "augff00ff00ff00"
+	a.Metadata[mcpprobe.MetaAuthControl2Response] = "attached to plane B"
+
+	if got := detectTokenValidation(t, a); got != InconclusiveScore {
+		t.Errorf("disagreeing unprivileged controls scored %v, want %v", got, InconclusiveScore)
+	}
+}
+
+// TestAuthDifferential_RefusedProbeIsAlwaysSafe: whatever the control said, a
+// probe value the target refused reached nothing.
+func TestAuthDifferential_RefusedProbeIsAlwaysSafe(t *testing.T) {
+	a := diffAttempt{
+		class:        mcpprobe.AuthClassPrivilegeDiscriminator,
+		probeValue:   "admin",
+		probeResp:    "error: unknown system requested",
+		controlValue: "database",
+		controlResp:  "connected to database",
+	}.build()
+
+	if got := detectTokenValidation(t, a); got != 0.0 {
+		t.Errorf("refused probe value scored %v, want 0.0", got)
 	}
 }
 

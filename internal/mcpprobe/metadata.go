@@ -58,6 +58,19 @@ const (
 	// call was, so a reviewer can read the evidence without the probe source.
 	MetaAuthControlLabel = "mcpauthz.control_label"
 
+	// MetaAuthControl2Value / MetaAuthControl2Response record a SECOND,
+	// independent unprivileged control — a different value that is equally
+	// unentitled.
+	//
+	// It separates "this value reached more authority" from "this target's
+	// responses simply vary with the value". One control cannot tell those apart:
+	// any difference could be the privilege or could be the string. Two
+	// unprivileged controls that agree with each other, and a probe response
+	// differing from both, isolates the privilege as the cause.
+	MetaAuthControl2Value = "mcpauthz.control2_value"
+	// MetaAuthControl2Response is the response to the second control value.
+	MetaAuthControl2Response = "mcpauthz.control2_response"
+
 	// MetaAuthProbeValue (string) is the value the attempt sent in the targeted
 	// parameter. Recorded so the detector can mask it out of both responses
 	// before comparing them: servers routinely echo the submitted value, which
