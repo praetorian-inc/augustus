@@ -40,6 +40,20 @@ var privilegedToolNameRE = regexp.MustCompile(
 // this parameter", which is what makes the sweep a differential rather than a
 // comparison against a string the server has never seen.
 
+// contentParamRE matches parameters that carry a PAYLOAD rather than select an
+// authority: the thing to execute, render, query or process. They are excluded
+// from the privileged-value sweep because on such a parameter any novel value
+// produces novel behaviour, so a response differential proves nothing about
+// authorization.
+//
+// Measured on an independent lab: `execute_system_command(command)` scored 1.0
+// because the conventional name "sa" happened to be a runnable command while the
+// controls were not. That is real remote code execution -- and mcptool.Injection
+// reports it correctly, nine times -- but filing it as an authorization bypass is
+// the wrong finding under the wrong risk slug.
+var contentParamRE = regexp.MustCompile(
+	`(?i)(^|[_\- ])(command|cmd|script|code|exec|expression|expr|query|sql|statement|template|payload|body|content|text|data|input|prompt|message|message_body)($|[_\- ])`)
+
 // maxDeclaredValues bounds how many target-declared values are exercised per
 // parameter, so a schema enumerating hundreds of values cannot turn one probe into
 // a many-thousand-call scan.
@@ -380,6 +394,13 @@ func (p *FunctionAuthorization) probeDiscriminator(ctx context.Context, inv type
 		// selects WHICH parameter to sweep, never whether a sweep is meaningful.
 		if len(declared) == 0 {
 			slog.Info("mcptool.FunctionAuthorization: parameter declares no values, so the target defines no ordinary authority to compare against; skipping the privileged-value sweep rather than measuring known-vs-unknown identifiers",
+				"tool", name, "param", param.Name)
+			continue
+		}
+		// A payload parameter is not an authority selector. Sweeping it measures
+		// "is this a valid command" rather than "may this caller do this".
+		if contentParamRE.MatchString(param.Name) {
+			slog.Info("mcptool.FunctionAuthorization: parameter carries a payload rather than selecting authority; skipping the privileged-value sweep (an execution sink is mcptool.Injection's finding, not an authorization bypass)",
 				"tool", name, "param", param.Name)
 			continue
 		}

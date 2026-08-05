@@ -136,3 +136,49 @@ func TestTokenValidation_ReadOnlyNonIssuerDoesNotFire(t *testing.T) {
 		t.Errorf("top score = %v, want below 0.5; an idempotent config reader returning the same value twice is correct behaviour, not predictable issuance", got)
 	}
 }
+
+// TestFunctionAuthorization_PayloadParamNotSwept is the regression for a
+// misclassification found on an independent lab.
+//
+// `execute_system_command(command)` scored 1.0 because a conventional privileged
+// name happened to be a runnable command while the controls were not. That is
+// real remote code execution — and mcptool.Injection reports it correctly — but
+// filing it as an authorization bypass puts a real finding under the wrong risk
+// slug, with the wrong impact and the wrong remediation.
+//
+// On a payload parameter any novel value produces novel behaviour, so a response
+// differential proves nothing about authorization.
+func TestFunctionAuthorization_PayloadParamNotSwept(t *testing.T) {
+	execTool := map[string]any{
+		"name":        "execute_system_command",
+		"description": "Executes a system command\n            Args:\n                command: The command to run (ls, pwd, whoami)\n",
+		"parameters": map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"command": map[string]any{"type": "string"}},
+			"required":   []any{"command"},
+		},
+	}
+
+	target := &mockTarget{
+		tools: []map[string]any{execTool},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			cmd, _ := args["command"].(string)
+			// A real shell: recognised commands produce output, others fail. Exactly
+			// the shape that made the differential fire.
+			switch strings.ToLower(cmd) {
+			case "ls", "pwd", "whoami", "sa", "root":
+				return types.ToolResult{Text: fmt.Sprintf("Command executed successfully!\nCommand: %s\nOutput: ok", cmd)}
+			default:
+				return types.ToolResult{Text: fmt.Sprintf("Command execution failed!\nCommand: %s\nError: command not found", cmd)}
+			}
+		},
+	}
+
+	attempts, err := newFunctionAuthzProbe(t, nil).Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if got := maxAuthzScore(t, attempts); got >= 0.5 {
+		t.Errorf("top score = %v, want below 0.5; a payload parameter is not an authority selector", got)
+	}
+}
