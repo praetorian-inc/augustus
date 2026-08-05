@@ -249,6 +249,30 @@ func (p *FunctionAuthorization) probeCredentialPresence(
 
 // assessPresence runs one omitted-versus-forged comparison in a given argument
 // context.
+// callLeg issues one leg of a differential, retrying once on error.
+//
+// Every verdict this probe reaches is a COMPARISON, so both legs must succeed for
+// the comparison to exist. A single transient failure therefore does not merely
+// lose one data point — it discards the whole finding.
+//
+// Measured: under a full ten-probe sweep against one server, six of this probe's
+// calls errored where the same probe run alone had none (a concurrently-running
+// injection probe was issuing 144 calls to the same target). One of the lost calls
+// was the confirmed privileged context, so a genuine finding read as 0.0. Retrying
+// once recovers it without weakening any judgement: a leg that fails twice still
+// yields no comparison, and the attempt still surfaces as an error rather than as a
+// clean result.
+//
+// Context cancellation is never retried — that is the operator stopping the scan,
+// not the target faltering.
+func callLeg(ctx context.Context, inv types.ToolInvoker, tool string, args map[string]any) (types.ToolResult, error) {
+	res, err := inv.CallTool(ctx, tool, args)
+	if err == nil || ctx.Err() != nil {
+		return res, err
+	}
+	return inv.CallTool(ctx, tool, args)
+}
+
 func (p *FunctionAuthorization) assessPresence(
 	ctx context.Context, inv types.ToolInvoker, tool string,
 	params []mcpprobe.ToolParam, param string, base map[string]any,
@@ -257,7 +281,7 @@ func (p *FunctionAuthorization) assessPresence(
 	// caller in this same context.
 	controlArgs := mcpprobe.BenignArgs(params, base)
 	delete(controlArgs, param)
-	controlRes, controlErr := inv.CallTool(ctx, tool, controlArgs)
+	controlRes, controlErr := callLeg(ctx, inv, tool, controlArgs)
 	controlText := ""
 	if controlErr != nil {
 		slog.Warn("mcptool.FunctionAuthorization: credential-absent control call failed; this context will be inconclusive rather than assumed safe",
@@ -287,7 +311,7 @@ func (p *FunctionAuthorization) assessPresence(
 	for k, v := range base {
 		probeOverrides[k] = v
 	}
-	res, err := inv.CallTool(ctx, tool, mcpprobe.BenignArgs(params, probeOverrides))
+	res, err := callLeg(ctx, inv, tool, mcpprobe.BenignArgs(params, probeOverrides))
 	if err != nil {
 		a.SetError(err)
 		return a
@@ -424,7 +448,7 @@ func (p *FunctionAuthorization) probeDiscriminator(ctx context.Context, inv type
 			}
 
 			args := mcpprobe.BenignArgs(params, map[string]any{param.Name: candidate})
-			res, err := inv.CallTool(ctx, name, args)
+			res, err := callLeg(ctx, inv, name, args)
 			if err != nil {
 				a.SetError(err)
 			} else {
@@ -487,7 +511,7 @@ func (p *FunctionAuthorization) baseline(
 	}
 	for _, value := range candidates {
 		args := mcpprobe.BenignArgs(params, map[string]any{param: value})
-		res, err := inv.CallTool(ctx, tool, args)
+		res, err := callLeg(ctx, inv, tool, args)
 		if err != nil {
 			continue
 		}
