@@ -35,8 +35,9 @@ var (
 //  3. Prompt templates — prompts/get with benign arguments.
 //  4. Server instructions — the initialize response's instructions field, which
 //     reconnaissance already captures and nothing scored.
-//  5. Catalog metadata — the descriptions and titles the server declares for its
-//     tools, resources, resource templates and prompts.
+//  5. (excluded) Catalog descriptions and titles. See declaredAttempts for why:
+//     a docstring "name: description" line is indistinguishable from a leaked
+//     "key: value" pair to the credential detector.
 //
 // Nothing here is an attack. Every request is the server's own advertised URI,
 // name or template with an innocuous value; no traversal, no canary, no payload.
@@ -74,7 +75,7 @@ func NewContentLeak(cfg registry.Config) (probes.Prober, error) {
 func (p *ContentLeak) Name() string { return "mcpprimitive.ContentLeak" }
 
 func (p *ContentLeak) Description() string {
-	return "Reads every content-bearing non-tool MCP surface the way a legitimate client would — advertised resources, resource templates, prompt templates, the server instructions, and catalog descriptions and titles — and scores what comes back for exposed credentials"
+	return "Reads every content-bearing non-tool MCP surface the way a legitimate client would — advertised resources, resource templates, prompt templates and the server instructions — and scores what comes back for exposed credentials"
 }
 
 func (p *ContentLeak) Goal() string {
@@ -90,14 +91,14 @@ func (p *ContentLeak) GetPrompts() []string { return nil }
 // RiskInfo is the curated security write-up for this probe's finding.
 func (p *ContentLeak) RiskInfo() types.RiskInfo {
 	return types.RiskInfo{
-		Description:    "An MCP server exposes credentials on a surface any connected client can read without an exploit: the content of an advertised resource or resource template, a rendered prompt template, the instructions returned during initialization, or the descriptions and titles it publishes in its own catalog.",
+		Description:    "An MCP server exposes credentials on a surface any connected client can read without an exploit: the content of an advertised resource or resource template, a rendered prompt template, or the instructions returned during initialization.",
 		Impact:         "Any client that can reach the server collects the exposed API keys, passwords, tokens or connection strings and reuses them directly against the systems those credentials protect, reaching data and services well beyond the MCP server itself. No protocol abuse is required, so the exposure leaves none of the traces an attack would, and every client and host model that has read the surface has already received the secret.",
-		Recommendation: "Remove secrets from everything the server serves or declares: do not publish credential material as a resource, and redact credential-shaped values from resource content, rendered prompts, server instructions, and catalog descriptions and titles. Where a client genuinely needs a secret, require authentication and authorization on the read and return a scoped, short-lived credential rather than a durable one. Treat any credential that was reachable this way as compromised and rotate it.",
+		Recommendation: "Remove secrets from everything the server serves or declares: do not publish credential material as a resource, and redact credential-shaped values from resource content, rendered prompts and server instructions. Where a client genuinely needs a secret, require authentication and authorization on the read and return a scoped, short-lived credential rather than a durable one. Treat any credential that was reachable this way as compromised and rotate it.",
 		References:     "https://cwe.mitre.org/data/definitions/200.html\nhttps://cwe.mitre.org/data/definitions/522.html\nhttps://cwe.mitre.org/data/definitions/312.html\nhttps://modelcontextprotocol.io/specification/2025-06-18/server/resources\nhttps://owasp.org/www-project-top-10-for-large-language-model-applications/",
 		Taxonomies:     "- cwe: 200\n- cwe: 522\n- cwe: 312\n- cwe: 532",
 		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:N/VA:N/SC:H/SI:N/SA:N",
 		Verification: "## How this is confirmed\n\n" +
-			"Augustus reads each non-tool surface exactly as a legitimate client would and scores the returned content for credential patterns. Every request uses the server's own advertised URI, prompt name or template with an innocuous substituted value: there is no traversal, no canary and no injected payload, so a finding here shows the secret was served on request rather than extracted by abuse. The surfaces covered are advertised resources, resource templates, prompt templates rendered with benign arguments, the instructions returned during initialization, and the descriptions and titles published in the catalog.\n\n" +
+			"Augustus reads each non-tool surface exactly as a legitimate client would and scores the returned content for credential patterns. Every request uses the server's own advertised URI, prompt name or template with an innocuous substituted value: there is no traversal, no canary and no injected payload, so a finding here shows the secret was served on request rather than extracted by abuse. The surfaces covered are advertised resources, resource templates, prompt templates rendered with benign arguments, and the instructions returned during initialization. Catalog descriptions and titles are deliberately excluded: a docstring parameter line such as `password: The password for authentication` is shaped identically to a leaked `key: value` pair, so scoring them would false-positive on most real servers.\n\n" +
 			"Credential patterns are matched by the same detector used for MCP configuration files and tool responses, which rejects placeholders, endpoint URLs and pointer values such as a path to a key file, so a documentation example is not reported as a secret. A server that refuses a read returns a protocol error, recorded as the denial signal rather than as a finding.\n\n" +
 			"## Reproduce\n\n" +
 			"Re-run the `mcpprimitive.ContentLeak` probe against the affected endpoint via the `mcp.MCP` generator, with the `recon.MCP` reconnaissance module supplying the catalog. The flagged attempt records which surface was read, and its stored response contains the exposed credential. Treat the credential as compromised and rotate it before remediating.",
@@ -129,7 +130,7 @@ func (p *ContentLeak) Probe(ctx context.Context, gen types.Generator) ([]*attemp
 	attempts = append(attempts, p.renderPrompts(ctx, reader, invs)...)
 
 	if len(attempts) == 0 {
-		slog.Warn("mcpprimitive.ContentLeak: target advertises no resources, resource templates, prompt templates, instructions or catalog metadata; nothing to read",
+		slog.Warn("mcpprimitive.ContentLeak: target advertises no resources, resource templates or prompt templates and returned no instructions; nothing to read",
 			"probe", p.Name())
 		return nil, nil
 	}
@@ -277,30 +278,28 @@ func (p *ContentLeak) renderOne(ctx context.Context, reader types.MCPPrimitiveRe
 	return a
 }
 
-// declaredAttempts scores the surfaces the server DECLARES rather than serves on
-// request: its initialization instructions, and the descriptions and titles of
-// every catalog entry. Both reach a client (and its host model) without any call
-// being made, so a secret pasted into a description is exposed to everyone who
-// merely lists the catalog.
+// declaredAttempts scores the one surface the server DECLARES rather than serves
+// on request: its initialization instructions. Those reach a client and its host
+// model without any call being made, so a secret pasted there is exposed to
+// everyone who merely connects.
+//
+// Catalog descriptions and titles are deliberately NOT scored, despite reaching a
+// client the same way. `mcpsecrets.Credential` identifies a credential by a
+// credential-shaped KEY followed by a colon and a value, which is exactly right
+// for a config file (`"password": "hunter2"`) and exactly wrong for a docstring:
+// the `Args:` block of a tool description is also `name: description`. Measured
+// against DVMCP challenges 7 and 9, that collision scored 1.0 on nothing more
+// than parameter documentation ("password: The password for authentication",
+// "token: The session token to verify"). The shape is near-universal in MCP
+// descriptions, so the false-positive rate on real targets would exceed the
+// value of the surface.
+//
+// Restoring it needs a value-shaped guard in the detector — suppress when the
+// text after the key is prose rather than a secret-shaped token — which belongs
+// in mcpsecrets.Credential, where the config and tool-response surfaces would
+// benefit too.
 func (p *ContentLeak) declaredAttempts(invs []*types.MCPInventory) []*attempt.Attempt {
 	var attempts []*attempt.Attempt
-	entries := 0
-	truncated := false
-
-	add := func(target, text string) {
-		if strings.TrimSpace(text) == "" {
-			return
-		}
-		if entries >= p.maxTargets {
-			truncated = true
-			return
-		}
-		entries++
-		a := p.newAttempt("catalog metadata of "+target, target, classCatalogMetadata)
-		p.addBounded(a, text, nil)
-		a.Complete()
-		attempts = append(attempts, a)
-	}
 
 	for _, inv := range invs {
 		if inv == nil {
@@ -312,38 +311,8 @@ func (p *ContentLeak) declaredAttempts(invs []*types.MCPInventory) []*attempt.At
 			a.Complete()
 			attempts = append(attempts, a)
 		}
-		for _, t := range inv.Tools {
-			add("tool "+t.Name, joinMetadata(t.Title, t.Description))
-		}
-		for _, r := range inv.Resources {
-			add("resource "+r.URI, joinMetadata(r.Title, r.Description))
-		}
-		for _, tpl := range inv.ResourceTemplates {
-			add("resource template "+tpl.URITemplate, joinMetadata(tpl.Title, tpl.Description))
-		}
-		for _, pr := range inv.Prompts {
-			add("prompt "+pr.Name, joinMetadata(pr.Title, pr.Description))
-		}
-	}
-	if truncated {
-		slog.Warn("mcpprimitive.ContentLeak: catalog-metadata cap reached; later entries were not scored",
-			"probe", p.Name(), "cap", p.maxTargets)
 	}
 	return attempts
-}
-
-// joinMetadata concatenates the free-text metadata of one catalog entry. The
-// pieces are joined verbatim rather than labelled ("title: ..."), because a
-// synthesized "key: value" line would be indistinguishable from one the server
-// actually served and could change how the credential detector reads the text.
-func joinMetadata(parts ...string) string {
-	var kept []string
-	for _, s := range parts {
-		if strings.TrimSpace(s) != "" {
-			kept = append(kept, s)
-		}
-	}
-	return strings.Join(kept, "\n")
 }
 
 // newAttempt builds the attempt shell every surface shares.

@@ -125,7 +125,6 @@ const (
 	// cover the surfaces the injection probes never touch.
 	classTemplateContent = "resource-template-content"
 	classInstructions    = "server-instructions"
-	classCatalogMetadata = "catalog-metadata"
 )
 
 // baselineURIPayloads are tried against every target regardless of what the

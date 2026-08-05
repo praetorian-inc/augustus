@@ -209,13 +209,25 @@ func TestContentLeak_ServerInstructionsScored(t *testing.T) {
 	}
 }
 
-// TestContentLeak_CatalogMetadataScored covers tool/resource/prompt descriptions
-// and titles — declared metadata every client reads, which nothing scored before.
-func TestContentLeak_CatalogMetadataScored(t *testing.T) {
+// TestContentLeak_CatalogMetadataNotScored locks in a deliberate exclusion.
+//
+// Catalog descriptions and titles reach every client without a call, so scoring
+// them looks attractive — but mcpsecrets.Credential identifies a credential by a
+// credential-shaped KEY followed by a colon and a value, and the "Args:" block of
+// a docstring-derived description is also "name: description". Measured against
+// DVMCP challenges 7 and 9, that collision scored 1.0 on nothing but parameter
+// documentation ("password: The password for authentication"). The shape is
+// near-universal in MCP descriptions, so the surface is excluded until the
+// detector can require a credential-shaped VALUE rather than just a key.
+//
+// The tool below carries a real connection string in its description AND a
+// docstring parameter line. Neither may produce an attempt: the exclusion is
+// unconditional, so this test also documents the coverage we are giving up.
+func TestContentLeak_CatalogMetadataNotScored(t *testing.T) {
 	target := &mockTarget{inv: &types.MCPInventory{
 		Tools: []types.MCPTool{{
 			Name:        "run_query",
-			Description: "Runs a read-only query. Connects as postgres://reporting:Tr0ub4dor-3xample@db.internal:5432/analytics",
+			Description: "Runs a read-only query. Connects as postgres://reporting:Tr0ub4dor-3xample@db.internal:5432/analytics\n\nArgs:\n    password: The password for authentication\n",
 		}},
 	}}
 
@@ -223,17 +235,40 @@ func TestContentLeak_CatalogMetadataScored(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
 	}
-	if len(attempts) != 1 {
-		t.Fatalf("got %d attempts, want one for the tool's catalog metadata", len(attempts))
+	if len(attempts) != 0 {
+		t.Fatalf("got %d attempts, want none — catalog metadata is deliberately not scored", len(attempts))
 	}
-	if cls := metaString(t, attempts[0], attempt.MetadataKeyPrimitiveClass); cls != classCatalogMetadata {
-		t.Errorf("class = %q, want %q", cls, classCatalogMetadata)
+}
+
+// TestContentLeak_ParameterDocsDoNotFalsePositive is the regression for the two
+// real targets that exposed the collision. Both serve no resources and no
+// prompts; their tool descriptions document credential-NAMED parameters and
+// contain no secret at all. A finding here would fire on most real MCP servers.
+func TestContentLeak_ParameterDocsDoNotFalsePositive(t *testing.T) {
+	// Verbatim from DVMCP challenges 7 and 9.
+	target := &mockTarget{inv: &types.MCPInventory{
+		Tools: []types.MCPTool{
+			{
+				Name:        "authenticate",
+				Description: "Authenticate a user and return a session token\n            \n            Args:\n                username: The username to authenticate\n                password: The password for authentication\n            ",
+			},
+			{
+				Name:        "verify_token",
+				Description: "Verify if a session token is valid\n            \n            Args:\n                token: The session token to verify\n            ",
+			},
+			{
+				Name:        "remote_access",
+				Description: "Execute a command on a remote system\n            \n            Args:\n                auth_token: Optional authentication token for privileged operations\n            ",
+			},
+		},
+	}}
+
+	attempts, err := newContentLeakProbe(t, nil).Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
 	}
-	if tgt := metaString(t, attempts[0], attempt.MetadataKeyPrimitiveTarget); !strings.Contains(tgt, "run_query") {
-		t.Errorf("target = %q, want it to name the catalog entry", tgt)
-	}
-	if got := scoreCredentials(t, attempts); got != 1.0 {
-		t.Errorf("top score = %v, want 1.0; the tool description embeds a database connection string", got)
+	if got := scoreCredentials(t, attempts); got >= 0.5 {
+		t.Errorf("top score = %v, want below 0.5; parameter documentation is not a leaked credential", got)
 	}
 }
 
