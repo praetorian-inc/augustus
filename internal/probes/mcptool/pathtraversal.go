@@ -260,6 +260,19 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 			// Prefix-append variants — defeat `filename.startswith(prefix)`
 			// / `prefix in path` gates that the tool description disclosed.
 			for _, prefix := range hintedPrefixes {
+				// One accepted-but-absent control per prefix: a path that stays
+				// INSIDE the declared sandbox and names something that cannot
+				// exist. The guard must accept it, so whatever the tool returns is
+				// what "accepted, then failed at the filesystem" looks like on THIS
+				// target, in its own language and wording. That makes it the
+				// reference the escape attempt is compared against.
+				ctl := p.callOne(ctx, inv, name, param.name, params, pathTraversalPayload{
+					payload: joinHintedPath(prefix, "augctl-"+mcpprobe.RandToken()),
+					// No signatures: a control can never itself be a finding.
+				})
+				ctl.Metadata[attempt.MetadataKeyPathTraversalIsControl] = true
+				attempts = append(attempts, ctl)
+
 				for i, tp := range payloads {
 					prefixed := pathTraversalPayload{
 						payload:    joinHintedPath(prefix, tp.payload),
@@ -267,7 +280,7 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 						isWrite:    tp.isWrite,
 					}
 					a := p.callOne(ctx, inv, name, param.name, params, prefixed)
-					markGuardBypass(a, baselines[i])
+					markGuardBypass(a, baselines[i], ctl)
 					attempts = append(attempts, a)
 				}
 			}
@@ -315,48 +328,71 @@ func (p *PathTraversal) payloadsFor(tool map[string]any, params []paramInfo) []p
 	return buildWritePayloads()
 }
 
-// guardRefusalRE matches a tool REFUSING a path on its own authorization
-// grounds — the gate under test rejected the argument before touching the disk.
-var guardRefusalRE = regexp.MustCompile(`(?i)(not allowed|not permitted|access denied|permission is denied|forbidden|unauthorized|only files in|outside (the )?(allowed|permitted|safe)|restricted to|invalid path|illegal path)`)
-
-// fsErrorRE matches an error that could only come from the FILESYSTEM layer:
-// the path was accepted by the gate and handed to an open() call, which then
-// failed for a reason that has nothing to do with authorization. Deliberately
-// excludes "permission denied", which is ambiguous between the two layers.
-var fsErrorRE = regexp.MustCompile(`(?i)(no such file or directory|errno 2\b|enoent|cannot find the (file|path)|file not found|is a directory|errno 21\b|not a directory|errno 20\b)`)
-
-// markGuardBypass records whether a prefix-append attempt defeated the tool's
-// own path guard, by comparing it against the unprefixed baseline for the same
-// target file.
+// responseTemplate reduces a response to its invariant shape by removing the one
+// part that necessarily differs between attempts: the payload the tool echoed
+// back. What remains is the target's own wording for an outcome CLASS, whatever
+// language or framework produced it.
 //
-// The signal is the CHANGE between the two responses. A bare traversal payload
-// refused on authorization grounds, and the same payload behind the tool's own
-// disclosed prefix reaching a filesystem-level error, means the gate let the
-// escaped path through — the traversal worked, and only an unrelated fact about
-// the filesystem (the sandbox directory not existing on this host, say) stopped
-// content coming back. That is a real bypass on a target where the directory
-// does exist, so it must not be scored as clean.
+// This is what makes the guard-bypass oracle phrase-independent. An earlier
+// version matched error text against curated English regexes ("no such file or
+// directory", "not allowed"), which were derived from one corpus of Python
+// servers and would silently miss any target that words its errors differently,
+// returns structured errors, or is not in English.
+func responseTemplate(a *attempt.Attempt) string {
+	if a == nil || len(a.Outputs) == 0 {
+		return ""
+	}
+	s := strings.Join(a.Outputs, "\n")
+	if a.Prompt != "" {
+		s = strings.ReplaceAll(s, a.Prompt, " ")
+	}
+	// Quoting around the echoed payload is incidental to the class.
+	s = strings.NewReplacer("'", " ", `"`, " ", "`", " ").Replace(s)
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// markGuardBypass records whether a prefix-append attempt defeated the tool's own
+// path guard, using a three-way comparison that never inspects error wording.
 //
-// Neither half alone is evidence: a filesystem error on its own is the ordinary
-// result of asking for a file that is not there, which is why the detector
-// requires this paired verdict rather than the error text.
-func markGuardBypass(prefixed, baseline *attempt.Attempt) {
-	if prefixed == nil || baseline == nil {
+//	baseline — the bare traversal payload, which the guard is expected to refuse
+//	prefixed — the same payload behind the prefix the tool itself disclosed
+//	control  — a path inside the declared sandbox naming something that cannot
+//	           exist, so the guard MUST accept it and the filesystem MUST fail it
+//
+// The control is the key. It shows what "accepted by the guard, then failed on
+// disk" looks like on this specific target, in this target's own words. So when
+// the prefixed attempt lands in the SAME class as the control while the bare
+// attempt landed somewhere else, the guard admitted the escaped path — the
+// traversal worked, and only an unrelated fact about this host (the sandbox
+// directory not existing, say) kept content from coming back. On a deployment
+// where that directory exists, the same payload reads arbitrary files.
+//
+// Both conditions are required. Without "differs from baseline" a target that
+// refuses everything identically would look bypassed; without "matches control"
+// any unusual response would. A target that answers all three identically
+// produces no finding, which is the correct fail-closed outcome for a server too
+// terse to tell the classes apart.
+func markGuardBypass(prefixed, baseline, control *attempt.Attempt) {
+	if prefixed == nil || baseline == nil || control == nil {
 		return
 	}
-	baseText := strings.Join(baseline.Outputs, "\n")
-	prefixedText := strings.Join(prefixed.Outputs, "\n")
-	if baseText == "" || prefixedText == "" {
+	prefixedShape := responseTemplate(prefixed)
+	baselineShape := responseTemplate(baseline)
+	controlShape := responseTemplate(control)
+	if prefixedShape == "" || baselineShape == "" || controlShape == "" {
 		return
 	}
-	if !guardRefusalRE.MatchString(baseText) {
+	// The prefix has to have changed the outcome...
+	if prefixedShape == baselineShape {
 		return
 	}
-	if !fsErrorRE.MatchString(prefixedText) {
+	// ...and changed it into the one the guard demonstrably accepts.
+	if prefixedShape != controlShape {
 		return
 	}
 	prefixed.WithMetadata(attempt.MetadataKeyPathTraversalGuardBypass, true)
-	prefixed.WithMetadata(attempt.MetadataKeyPathTraversalBaselineResponse, baseText)
+	prefixed.WithMetadata(attempt.MetadataKeyPathTraversalBaselineResponse, strings.Join(baseline.Outputs, "\n"))
+	prefixed.WithMetadata(attempt.MetadataKeyPathTraversalControlResponse, strings.Join(control.Outputs, "\n"))
 }
 
 // readVerbRE matches tool names and descriptions that declare a read-only
