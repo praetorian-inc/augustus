@@ -3,6 +3,8 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"regexp"
 	"sort"
@@ -192,7 +194,10 @@ type toolSpec struct {
 // target yields no observations; a failing tool or victim session is skipped,
 // never fatal.
 func (m *MCPIdentifiers) Recon(ctx context.Context, gen types.Generator) ([]output.Observation, error) {
-	tools := m.toolCatalog(ctx, gen)
+	tools, err := m.toolCatalog(ctx, gen)
+	if err != nil {
+		return nil, err
+	}
 	if len(tools) == 0 {
 		return nil, nil
 	}
@@ -246,24 +251,48 @@ func (m *MCPIdentifiers) Recon(ctx context.Context, gen types.Generator) ([]outp
 
 // toolCatalog prefers a shared MCP inventory observation, falling back to a live
 // ListTools enumeration when none is available.
-func (m *MCPIdentifiers) toolCatalog(ctx context.Context, gen types.Generator) []map[string]any {
+// toolCatalog resolves the tool surface this module classifies, preferring a prior
+// recon.MCP inventory over a second live enumeration.
+//
+// A TRUNCATED tool catalog is refused on both paths, and that matters more here than
+// it looks. This module's output is the ownership ground truth mcptool.BOLA replays
+// against, and BOLA emits nothing when there are no identifiers. So a partial catalog
+// whose prefix happens to omit the real getter or enumerator makes this module
+// classify nothing, emit no identifiers, and leave BOLA reporting a clean no-op
+// against a surface that was never examined — the partial-as-empty failure this
+// branch exists to remove, laundered through two modules.
+//
+// Reconnaissance renders no verdict, so an unreachable target is still a skip; only a
+// truncated enumeration is escalated to an error.
+func (m *MCPIdentifiers) toolCatalog(ctx context.Context, gen types.Generator) ([]map[string]any, error) {
 	var tools []map[string]any
 	for _, inv := range InventoriesFrom(m.Store()) {
+		if !inv.IsCatalogComplete(types.MCPCatalogTools) {
+			slog.Warn("recon.MCPIdentifiers: ignoring an inventory with an incomplete tools catalog",
+				"incomplete_catalogs", inv.Incomplete, "tools_in_inventory", len(inv.Tools))
+			continue
+		}
 		tools = append(tools, inv.ToolMaps()...)
 	}
 	if len(tools) > 0 {
-		return tools
+		return tools, nil
 	}
 	if ti, ok := gen.(types.ToolInvoker); ok {
-		slog.Debug("recon.MCPIdentifiers: no prior mcp.inventory; enumerating live (run recon.MCP first to reuse)")
+		slog.Debug("recon.MCPIdentifiers: no complete prior mcp.inventory; enumerating live (run recon.MCP first to reuse)")
 		lt, err := ti.ListTools(ctx)
 		if err != nil {
+			// Truncation is not an ordinary list failure: swallowing it would emit no
+			// identifiers and hand BOLA a clean no-op. Surface it so the scan reports an
+			// unenumerable surface instead of an empty one.
+			if errors.Is(err, types.ErrCatalogTruncated) {
+				return nil, fmt.Errorf("recon.MCPIdentifiers: tool catalog incomplete, refusing to build a partial ownership map: %w", err)
+			}
 			slog.Warn("recon.MCPIdentifiers: list tools", "error", err)
-			return nil
+			return nil, nil
 		}
-		return lt
+		return lt, nil
 	}
-	return nil
+	return nil, nil
 }
 
 // classify splits the catalog into getters and enumerators. When use_navigator

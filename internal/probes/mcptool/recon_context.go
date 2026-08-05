@@ -2,6 +2,7 @@ package mcptool
 
 import (
 	"context"
+	"log/slog"
 
 	mcpx "github.com/praetorian-inc/augustus/internal/recon/mcp"
 	"github.com/praetorian-inc/augustus/pkg/recon"
@@ -24,10 +25,27 @@ func (r *reconContext) SetContext(pc recon.ProbeContext) { r.store = pc.Recon }
 // by the recon phase) so probes need not re-enumerate; only when no such
 // inventory is available does it fall back to a live ToolInvoker.ListTools call.
 // A non-ToolInvoker target with no recon yields (nil, nil).
+//
+// An inventory is reused only when its TOOLS catalog was fully enumerated. A
+// truncated tool catalog (see types.MCPInventory.Incomplete) is a lower bound on the
+// surface, so reusing it would let a server that halted recon after a benign prefix
+// have every probe score that prefix and report clean. Falling through to a live
+// enumeration gives the target a fresh full walk, and that call fails closed if it
+// truncates too — so an unscannable surface surfaces as an error, never as a pass.
+//
+// The check is per catalog rather than IsComplete(): these probes need only the tool
+// surface, and discarding a complete tool catalog because an unrelated prompts or
+// resources enumeration failed would force a redundant network walk that could then
+// fail closed and abort probes that had everything they needed.
 func (r *reconContext) resolveTools(ctx context.Context, gen types.Generator) ([]map[string]any, error) {
 	if r.store != nil {
 		var tools []map[string]any
 		for _, inv := range mcpx.InventoriesFrom(r.store) {
+			if !inv.IsCatalogComplete(types.MCPCatalogTools) {
+				slog.Warn("mcptool: ignoring an inventory with an incomplete tools catalog; re-enumerating the tool surface",
+					"incomplete_catalogs", inv.Incomplete, "tools_in_inventory", len(inv.Tools))
+				continue
+			}
 			tools = append(tools, inv.ToolMaps()...)
 		}
 		if len(tools) > 0 {

@@ -3,6 +3,7 @@ package types
 import (
 	"context"
 	"encoding/json"
+	"slices"
 )
 
 // MCPReconnaissance is an OPTIONAL interface a Generator implements when its
@@ -49,7 +50,28 @@ type MCPInventory struct {
 	Prompts           []MCPPrompt           `json:"prompts"`
 	// Counts is a convenience roll-up for reporting.
 	Counts MCPInventoryCounts `json:"counts"`
+	// Incomplete names the catalogs whose enumeration stopped early — a repeated
+	// cursor, the page cap, the wall-clock budget, or an outright list failure. It
+	// is empty when every declared catalog was fully enumerated.
+	//
+	// A non-empty value makes the inventory a LOWER BOUND on the target's surface,
+	// not a description of it. A hostile server can halt enumeration after a benign
+	// prefix, so a consumer that scores only what was collected would report clean
+	// on a surface it never saw. Reconnaissance renders no verdict, so this is
+	// recorded as a fact rather than acted on here; consumers decide.
+	Incomplete []string `json:"incomplete,omitempty"`
 }
+
+// Catalog names recorded in MCPInventory.Incomplete. Declared here so the
+// producer (the MCP generator's enumeration) and consumers (probes checking
+// per-catalog completeness) cannot drift apart: a typo on either side would
+// silently disable a completeness guard rather than fail to compile.
+const (
+	MCPCatalogTools             = "tools"
+	MCPCatalogResources         = "resources"
+	MCPCatalogResourceTemplates = "resource_templates"
+	MCPCatalogPrompts           = "prompts"
+)
 
 // ToolMaps renders the inventory's tools in the same wire shape that
 // ToolInvoker.ListTools produces — a slice of {name, description, parameters,
@@ -78,6 +100,19 @@ func (inv *MCPInventory) ToolMaps() []map[string]any {
 		out = append(out, tm)
 	}
 	return out
+}
+
+// IsComplete reports whether every declared catalog was fully enumerated. Probes
+// consuming a shared inventory should prefer a complete one and fall back to a live
+// enumeration rather than scoring a known-partial attack surface.
+func (inv *MCPInventory) IsComplete() bool { return len(inv.Incomplete) == 0 }
+
+// IsCatalogComplete reports whether the named catalog (an MCPCatalog* constant)
+// was fully enumerated. Prefer this over IsComplete when a consumer depends on
+// only part of the inventory: a probe that needs the tool surface should not
+// discard a complete tool catalog because an unrelated prompts enumeration failed.
+func (inv *MCPInventory) IsCatalogComplete(catalog string) bool {
+	return !slices.Contains(inv.Incomplete, catalog)
 }
 
 // MCPIdentifiers is the mcp.identifiers observation payload: object identifiers

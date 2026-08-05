@@ -135,3 +135,65 @@ func TestInjection_FallsBackToListTools(t *testing.T) {
 		t.Error("expected attempts from live enumeration")
 	}
 }
+
+// TestInjection_IgnoresIncompleteReconInventory: the mirror of
+// TestInjection_PrefersReconStore. Reusing a shared inventory is only sound when
+// that inventory is COMPLETE. One whose catalog enumeration stopped early is a lower
+// bound on the tool surface, so a server that halted recon after a benign prefix
+// would otherwise have every probe score the prefix and report the target clean.
+//
+// The probe must ignore it and re-enumerate live instead.
+func TestInjection_IgnoresIncompleteReconInventory(t *testing.T) {
+	p := newInjectionProbe(t)
+
+	// The stored inventory is marked incomplete and advertises only a benign tool.
+	// The live target exposes the real sink. Honouring the stale inventory would test
+	// "benign" and find nothing; re-enumerating finds "calc".
+	inv := types.MCPInventory{
+		Tools: []types.MCPTool{{
+			Name:        "benign",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"q":{"type":"string"}},"required":["q"]}`),
+		}},
+		Incomplete: []string{"tools"},
+	}
+	data, err := json.Marshal(inv)
+	if err != nil {
+		t.Fatalf("marshal inventory: %v", err)
+	}
+	store := recon.NewStore()
+	store.Observe(output.Observation{Type: mcpx.ObservationTypeInventory, Data: data})
+	p.SetContext(recon.ProbeContext{Recon: store})
+
+	listCalled := false
+	target := &mockTarget{
+		tools:    []map[string]any{stringTool("calc", "expression")},
+		listHook: func() { listCalled = true },
+		call: func(name string, args map[string]any) types.ToolResult {
+			expr, _ := args["expression"].(string)
+			if name == "calc" {
+				if product, ok := evalMul(expr); ok {
+					return types.ToolResult{Text: "Result: " + product}
+				}
+			}
+			return types.ToolResult{Text: "nope"}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if !listCalled {
+		t.Error("Probe reused an INCOMPLETE recon inventory instead of re-enumerating the tool surface")
+	}
+
+	sawCalc := false
+	for _, a := range attempts {
+		if tool, _ := a.GetMetadata("mcptool.tool"); tool == "calc" {
+			sawCalc = true
+		}
+	}
+	if !sawCalc {
+		t.Error("the live tool surface was never probed after the incomplete inventory was rejected")
+	}
+}

@@ -607,3 +607,74 @@ func TestHarvestAndValidate_GatesDestructiveAnnotatedToolAtCallSite(t *testing.T
 		t.Error("destructive-annotated enumerator must not be invoked at the call site")
 	}
 }
+
+// TestMCPIdentifiers_IgnoresIncompleteToolsCatalog: this module's output is the
+// ownership ground truth mcptool.BOLA replays against, and BOLA emits nothing when
+// there are no identifiers. So a truncated tools catalog whose prefix omits the real
+// getter or enumerator would make this module classify nothing, emit no identifiers,
+// and leave BOLA reporting a clean no-op against a surface never examined — the
+// partial-as-empty failure laundered through two modules.
+func TestMCPIdentifiers_IgnoresIncompleteToolsCatalog(t *testing.T) {
+	inv := types.MCPInventory{
+		Tools:      []types.MCPTool{{Name: "benign_prefix_tool"}},
+		Incomplete: []string{types.MCPCatalogTools},
+	}
+	data, err := json.Marshal(inv)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	store := recon.NewStore()
+	store.Observe(output.Observation{Type: ObservationTypeInventory, Data: data})
+
+	m := &MCPIdentifiers{}
+	m.SetContext(recon.ProbeContext{Recon: store})
+
+	// A generator that is NOT a ToolInvoker: with the stored inventory rejected there
+	// is no live fallback, so a correct implementation resolves no catalog rather than
+	// classifying the truncated prefix.
+	tools, err := m.toolCatalog(context.Background(), nonInvokerGen{})
+	if err != nil {
+		t.Fatalf("toolCatalog: %v", err)
+	}
+	if len(tools) != 0 {
+		t.Errorf("reused an incomplete tools catalog (%d tools); a partial prefix must not become the ownership ground truth", len(tools))
+	}
+}
+
+// TestMCPIdentifiers_ReusesCompleteInventoryDespiteOtherIncompleteCatalogs: the
+// completeness check must be per catalog. This module needs only the tool surface, so
+// a failed prompts or resources enumeration must not force a redundant live walk.
+func TestMCPIdentifiers_ReusesCompleteInventoryDespiteOtherIncompleteCatalogs(t *testing.T) {
+	inv := types.MCPInventory{
+		Tools:      []types.MCPTool{{Name: "get_order"}},
+		Incomplete: []string{types.MCPCatalogPrompts}, // unrelated catalog
+	}
+	data, err := json.Marshal(inv)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	store := recon.NewStore()
+	store.Observe(output.Observation{Type: ObservationTypeInventory, Data: data})
+
+	m := &MCPIdentifiers{}
+	m.SetContext(recon.ProbeContext{Recon: store})
+
+	tools, err := m.toolCatalog(context.Background(), nonInvokerGen{})
+	if err != nil {
+		t.Fatalf("toolCatalog: %v", err)
+	}
+	if len(tools) != 1 {
+		t.Errorf("got %d tools, want 1: a complete tools catalog must be reused even when a sibling catalog truncated", len(tools))
+	}
+}
+
+// nonInvokerGen is a generator with no tool surface, so toolCatalog has no live
+// fallback and the test observes only what it resolved from the store.
+type nonInvokerGen struct{}
+
+func (nonInvokerGen) Name() string        { return "test.NonInvoker" }
+func (nonInvokerGen) Description() string { return "generator with no tool surface" }
+func (nonInvokerGen) Generate(context.Context, *attempt.Conversation, int) ([]attempt.Message, error) {
+	return nil, nil
+}
+func (nonInvokerGen) ClearHistory() {}
