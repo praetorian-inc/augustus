@@ -119,6 +119,13 @@ const (
 	classPromptSSTI      = "prompt-template-injection"
 	classPromptOOBCmd    = "prompt-command-injection"
 	classPromptContent   = "prompt-content"
+	// Read-as-intended surfaces scored by ContentLeak. classResourceContent and
+	// classPromptContent above are reused for the concrete resource and prompt
+	// reads, which are the same act (fetch the surface unattacked); these three
+	// cover the surfaces the injection probes never touch.
+	classTemplateContent = "resource-template-content"
+	classInstructions    = "server-instructions"
+	classCatalogMetadata = "catalog-metadata"
 )
 
 // baselineURIPayloads are tried against every target regardless of what the
@@ -285,12 +292,22 @@ func expandExpression(expr, value string) string {
 // consult and every value is a string. That is why this cannot reuse the
 // tool-schema helpers in internal/probes/mcptool.
 func promptArgs(args []types.MCPPromptArgument, injectArg, payload string) map[string]string {
-	out := map[string]string{injectArg: payload}
+	out := benignPromptArgs(args)
+	out[injectArg] = payload
+	return out
+}
+
+// benignPromptArgs builds an argument map that carries no payload at all: a
+// benign placeholder for every REQUIRED argument and nothing else, so the render
+// satisfies argument validation while remaining a request a legitimate client
+// could make. ContentLeak uses it to read the prompt surface unattacked;
+// promptArgs builds on it by overwriting one argument with a payload.
+func benignPromptArgs(args []types.MCPPromptArgument) map[string]string {
+	out := map[string]string{}
 	for _, a := range args {
-		if a.Name == injectArg || !a.Required {
-			continue
+		if a.Required {
+			out[a.Name] = "test"
 		}
-		out[a.Name] = "test"
 	}
 	return out
 }

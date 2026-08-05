@@ -31,12 +31,20 @@ func newResourceProbe(t *testing.T, cfg registry.Config) *ResourceInjection {
 	return p.(*ResourceInjection)
 }
 
-// scoreAll runs the real primary detector over every attempt and reports the
-// highest score seen, so tests assert the verdict the scanner would actually
-// produce rather than a stub's.
+// scoreAll runs the real primary detector of the injection probes over every
+// attempt and reports the highest score seen, so tests assert the verdict the
+// scanner would actually produce rather than a stub's.
 func scoreAll(t *testing.T, attempts []*attempt.Attempt) float64 {
 	t.Helper()
-	det, err := detectors.Create("mcpprimitive.Injection", registry.Config{})
+	return scoreWith(t, "mcpprimitive.Injection", attempts)
+}
+
+// scoreWith is scoreAll parameterised by detector name: probes in this package
+// score with different primary detectors (the injection probes with
+// mcpprimitive.Injection, the leak probe with mcpsecrets.Credential).
+func scoreWith(t *testing.T, detector string, attempts []*attempt.Attempt) float64 {
+	t.Helper()
+	det, err := detectors.Create(detector, registry.Config{})
 	if err != nil {
 		t.Fatalf("detectors.Create: %v", err)
 	}
