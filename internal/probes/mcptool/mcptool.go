@@ -16,11 +16,24 @@
 // different interface (types.MCPEndpoint), different package.
 package mcptool
 
+import (
+	"regexp"
+	"strconv"
+	"strings"
+)
+
 // paramInfo describes one tool parameter parsed from its JSON-schema.
 type paramInfo struct {
 	name     string
 	typ      string
 	required bool
+	// candidates are plausible VALID values for this parameter, in preference
+	// order: JSON-schema "enum" first, then values mined from the tool
+	// description. They matter because a sink is often gated behind a
+	// discriminator argument ("action", "mode", "operation", "system"): filling
+	// it with a placeholder makes the server reject the call before the
+	// vulnerable code runs, so the probe reports SAFE on a vulnerable target.
+	candidates []string
 }
 
 // toolParams parses the parameters of a tool in the canonical Conversation.Tools
@@ -31,6 +44,7 @@ func toolParams(tool map[string]any) []paramInfo {
 		return nil
 	}
 	props, _ := schema["properties"].(map[string]any)
+	desc, _ := tool["description"].(string)
 
 	required := map[string]bool{}
 	switch req := schema["required"].(type) {
@@ -49,10 +63,131 @@ func toolParams(tool map[string]any) []paramInfo {
 	out := make([]paramInfo, 0, len(props))
 	for name, raw := range props {
 		typ := ""
+		var candidates []string
 		if p, ok := raw.(map[string]any); ok {
 			typ, _ = p["type"].(string)
+			candidates = schemaEnum(p)
 		}
-		out = append(out, paramInfo{name: name, typ: typ, required: required[name]})
+		// The schema is authoritative; only fall back to prose when it declares
+		// no enum. Most servers in the wild declare none (every DVMCP tool ships
+		// a bare {"title","type"} property), which is why mining exists at all.
+		if len(candidates) == 0 {
+			candidates = mineCandidateValues(paramDoc(desc, name))
+		}
+		out = append(out, paramInfo{name: name, typ: typ, required: required[name], candidates: candidates})
+	}
+	return out
+}
+
+// schemaEnum reads a JSON-schema "enum" as strings. Non-string members are
+// rendered where they are unambiguous so a mixed enum still yields a usable
+// value rather than none.
+func schemaEnum(prop map[string]any) []string {
+	raw, ok := prop["enum"].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		switch s := v.(type) {
+		case string:
+			if s != "" {
+				out = append(out, s)
+			}
+		case bool:
+			out = append(out, strconv.FormatBool(s))
+		case float64:
+			out = append(out, strconv.FormatFloat(s, 'f', -1, 64))
+		}
+	}
+	return out
+}
+
+// paramDoc returns the fragment of a tool description that documents one named
+// parameter. Docstring-derived descriptions (what FastMCP and most SDKs publish)
+// put one "name: text" line per parameter under an "Args:" heading. Scoping to
+// that line is what makes mining safe: mining the whole description would
+// attribute one parameter's allowed values to a different parameter.
+func paramDoc(desc, name string) string {
+	if desc == "" || name == "" {
+		return ""
+	}
+	prefix := name + ":"
+	for line := range strings.SplitSeq(desc, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, prefix) {
+			return strings.TrimSpace(trimmed[len(prefix):])
+		}
+	}
+	return ""
+}
+
+var (
+	// quoted values: (only 'ls', 'pwd', 'whoami', 'date' allowed)
+	quotedValueRE = regexp.MustCompile(`['"]([^'"\n]{1,32})['"]`)
+	// any parenthesised group, to be vetted by the two alternation forms below
+	parenGroupRE = regexp.MustCompile(`\(([^)\n]{1,160})\)`)
+	// The alternation forms are ANCHORED to the whole parenthetical on purpose.
+	// Matching loosely inside prose is how "(only files in /tmp/safe/ allowed)"
+	// yields "tmp" and "safe" -- tokens that pass a shape filter but are not
+	// values, and would be injected as a gating argument.
+	commaAltRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,31}(\s*,\s*[A-Za-z0-9][A-Za-z0-9_-]{0,31})+$`)
+	slashAltRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,31}(\s*[/|]\s*[A-Za-z0-9][A-Za-z0-9_-]{0,31})+$`)
+	// a candidate must look like a bare token, not prose or a path
+	valueTokenRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$`)
+)
+
+// nonValueTokens are words that appear in the same shapes as real values but
+// never are one, so a naive list split would otherwise pick them up.
+var nonValueTokens = map[string]bool{
+	"e": true, "eg": true, "ie": true, "etc": true, "optional": true,
+	"required": true, "default": true, "none": true, "null": true,
+	"or": true, "and": true, "only": true, "allowed": true,
+}
+
+// mineCandidateValues extracts plausible valid values from one parameter's
+// documentation fragment. Three shapes cover what servers actually write:
+//
+//	quoted     — "only 'ls', 'pwd', 'whoami' allowed"
+//	paren list — "The action to perform (read, write, delete)"
+//	slash alts — "The permission to grant or revoke (grant/revoke)"
+//
+// Quoted values win when present: a parenthesised "(e.g., \"database\", ...)"
+// would otherwise contribute the "e.g." prose as if it were a value.
+// Everything is filtered through valueTokenRE, so multi-word prose and paths
+// ("only files in /tmp/safe/ allowed") yield nothing rather than a bad guess —
+// a wrong value is no better than the placeholder it replaces.
+func mineCandidateValues(frag string) []string {
+	if frag == "" {
+		return nil
+	}
+	var raw []string
+	for _, m := range quotedValueRE.FindAllStringSubmatch(frag, -1) {
+		raw = append(raw, m[1])
+	}
+	if len(raw) == 0 {
+		for _, m := range parenGroupRE.FindAllStringSubmatch(frag, -1) {
+			group := strings.TrimSpace(m[1])
+			switch {
+			case commaAltRE.MatchString(group), slashAltRE.MatchString(group):
+				raw = append(raw, strings.FieldsFunc(group, func(r rune) bool {
+					return r == ',' || r == '/' || r == '|'
+				})...)
+			default:
+				// Prose, or a path -- contributes nothing rather than a guess.
+			}
+		}
+	}
+
+	seen := make(map[string]bool, len(raw))
+	out := make([]string, 0, len(raw))
+	for _, v := range raw {
+		v = strings.TrimSpace(v)
+		if !valueTokenRE.MatchString(v) || nonValueTokens[strings.ToLower(v)] || seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
 	}
 	return out
 }
@@ -72,13 +207,20 @@ func benignArgs(params []paramInfo, injectParam, payload string) map[string]any 
 		if p.name == injectParam || !p.required {
 			continue
 		}
-		args[p.name] = benignValue(p.typ)
+		args[p.name] = benignValue(p)
 	}
 	return args
 }
 
-func benignValue(typ string) any {
-	switch typ {
+// benignValue picks a filler for a parameter the probe is not injecting into.
+// A declared or documented value is preferred over the generic placeholder:
+// where the parameter gates which branch the server takes, the placeholder is
+// rejected up front and the call never reaches the sink under test.
+func benignValue(p paramInfo) any {
+	if v, ok := p.candidateValue(); ok {
+		return v
+	}
+	switch p.typ {
 	case "integer", "number":
 		return 1
 	case "boolean":
@@ -90,4 +232,15 @@ func benignValue(typ string) any {
 	default:
 		return "test"
 	}
+}
+
+// candidateValue returns the preferred valid value for this parameter, if one
+// was declared or could be mined. Restricted to string-shaped parameters: a
+// mined token is text, and coercing it into a numeric or structured parameter
+// would break argument validation rather than satisfy it.
+func (p paramInfo) candidateValue() (string, bool) {
+	if len(p.candidates) == 0 || !isStringParam(p.typ) {
+		return "", false
+	}
+	return p.candidates[0], true
 }
