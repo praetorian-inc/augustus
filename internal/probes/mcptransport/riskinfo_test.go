@@ -13,7 +13,7 @@ import (
 // suffice — no construction needed.
 func TestRiskInfo_Populated(t *testing.T) {
 	for _, p := range []probes.Prober{
-		&OriginValidation{}, &SSESessionHijack{},
+		&OriginValidation{}, &SSESessionHijack{}, &UnauthenticatedAccess{},
 	} {
 		rd, ok := p.(types.RiskDescriber)
 		if !ok {
