@@ -36,7 +36,7 @@ var (
 // snake_case first so `filePath`, `outputPath`, `targetFile` etc. also
 // match (fixes CodeRabbit #5). The regex itself only understands
 // underscore/hyphen/space separators.
-var pathParamRE = regexp.MustCompile(`(?i)(^|[_\- ])(file|filename|filepath|path|dir|directory|folder|template|resource|include|require|load|read|open|attachment|input|output|dest|destination|target|log|logfile|save|store|dump|report|uri)($|[_\- ])`)
+var pathParamRE = regexp.MustCompile(`(?i)(^|[_\- ])(file|filename|filepath|path|dir|directory|folder|template|resource|include|require|load|read|open|attachment|input|output|dest|destination|target|log|logfile|save|store|dump|report|uri|config|conf|settings|document|doc|source|src|location)($|[_\- ])`)
 
 // camelCaseBoundaryRE splits transitions from lowercase/digit → uppercase so
 // `outputPath` normalises to `output_Path` (which the case-insensitive
@@ -145,14 +145,19 @@ func buildWritePayloads() []pathTraversalPayload {
 type PathTraversal struct {
 	reconContext
 	allParams bool
-	policy    toolpolicy.Policy
+	// requireReadOnlyAnnotation restores the pre-LAB-5568 behaviour: read
+	// payloads only ever reach tools the server explicitly annotated ReadOnly,
+	// never tools whose read intent was inferred from name and description.
+	requireReadOnlyAnnotation bool
+	policy                    toolpolicy.Policy
 }
 
 // NewPathTraversal reads pathtraversal_all_string_params + the shared
 // tool-safety config keys (allow_destructive, tool_allowlist, tool_denylist).
 func NewPathTraversal(cfg registry.Config) (probes.Prober, error) {
 	return &PathTraversal{
-		allParams: registry.GetBool(cfg, "pathtraversal_all_string_params", false),
+		allParams:                 registry.GetBool(cfg, "pathtraversal_all_string_params", false),
+		requireReadOnlyAnnotation: registry.GetBool(cfg, "pathtraversal_require_readonly_annotation", false),
 		policy:    toolpolicy.New(cfg),
 	}, nil
 }
@@ -234,7 +239,7 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 		// else (destructive-annotated OR annotation-absent) uses the
 		// write-safe canary path so we never risk clobbering /etc/passwd
 		// on a write-capable sink.
-		payloads := p.payloadsFor(tool)
+		payloads := p.payloadsFor(tool, params)
 
 		for _, param := range params {
 			if !isStringParam(param.typ) {
@@ -275,7 +280,7 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 // server that ships zero annotations therefore never receives a payload
 // that could overwrite /etc/passwd, even if allow_destructive=true opened
 // the policy gate.
-func (p *PathTraversal) payloadsFor(tool map[string]any) []pathTraversalPayload {
+func (p *PathTraversal) payloadsFor(tool map[string]any, params []paramInfo) []pathTraversalPayload {
 	// Annotations are stored as a VALUE (types.MCPToolAnnotations) on the
 	// tool map by the recon layer's shared shape; see the sibling
 	// toolpolicy.Policy.Skip method for the same assertion pattern.
@@ -283,7 +288,69 @@ func (p *PathTraversal) payloadsFor(tool map[string]any) []pathTraversalPayload 
 	if ok && ann.ReadOnly {
 		return readPayloads
 	}
+	// No ReadOnly annotation. Annotations are optional in the MCP spec and most
+	// servers ship none at all (every DVMCP tool, for one), so treating absence
+	// as "might write" left the read oracle — a file-content signature, the
+	// strongest evidence this probe has — permanently dark on the majority of
+	// real targets. Measured: across all ten DVMCP challenges not one read
+	// payload was ever sent.
+	//
+	// Fall back to the tool's own declared read intent. This is a deliberate
+	// risk trade, and the risk is smaller than it first looks: the conservative
+	// path is not inert either, since write payloads CREATE files under /tmp.
+	// Sending a read payload to a tool that turns out to write would target a
+	// sensitive path, so readIntent demands positive evidence and bails on any
+	// hint of mutation. Operators who want the old behaviour unconditionally can
+	// set pathtraversal_require_readonly_annotation=true.
+	if !p.requireReadOnlyAnnotation && readIntent(tool, params) {
+		return readPayloads
+	}
 	return buildWritePayloads()
+}
+
+// readVerbRE matches tool names and descriptions that declare a read-only
+// operation. Anchored on word boundaries so "download" does not match "load".
+var readVerbRE = regexp.MustCompile(`(?i)\b(read|get|fetch|list|show|view|display|retrieve|download|cat|dump|inspect|describe|search|find|query|lookup)\b`)
+
+// mutationVerbRE matches any hint that a tool changes state. Presence of ONE of
+// these disqualifies a tool from read payloads even when read verbs also appear,
+// because the cost of being wrong is asymmetric: a misjudged writer handed a
+// read payload targets a sensitive path.
+var mutationVerbRE = regexp.MustCompile(`(?i)\b(write|delete|remove|create|update|modify|edit|put|post|upload|rename|move|copy|append|truncate|set|save|store|patch|destroy|drop|insert|execute|run|exec|chmod|chown|mkdir|unlink)\b`)
+
+// readIntentValues are discriminator values that make a call definitionally a
+// read, whatever the tool as a whole can do.
+var readIntentValues = map[string]bool{
+	"read": true, "get": true, "fetch": true, "list": true, "view": true,
+	"show": true, "display": true, "retrieve": true, "download": true, "cat": true,
+}
+
+// readIntent reports whether the tool's own metadata says THIS call only reads.
+//
+// Two independent signals, in order of strength:
+//
+//  1. A gating parameter whose selected value is read-oriented. This is the
+//     strongest signal available without annotations: a tool dispatching on
+//     action="read" performs a read on this call regardless of the write and
+//     delete branches it also carries. DVMCP challenge 3's file_manager is
+//     exactly this shape.
+//  2. The name and description carry a read verb and NO mutation verb. A tool
+//     called get_config whose description is "Get a configuration value" and
+//     which never mentions writing is a read. DVMCP challenge 10 is this shape.
+//
+// Signal 2 deliberately requires the ABSENCE of mutation vocabulary, so a
+// "read, write, and delete" file manager is not admitted on its name alone.
+func readIntent(tool map[string]any, params []paramInfo) bool {
+	for _, prm := range params {
+		if v, ok := prm.candidateValue(); ok && readIntentValues[strings.ToLower(v)] {
+			return true
+		}
+	}
+
+	name, _ := tool["name"].(string)
+	desc, _ := tool["description"].(string)
+	metadata := name + " " + desc
+	return readVerbRE.MatchString(metadata) && !mutationVerbRE.MatchString(metadata)
 }
 
 // extractHintedPrefixes pulls absolute filesystem paths from a tool
