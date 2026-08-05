@@ -36,6 +36,12 @@ const (
 	// with an error) and is scored inconclusive, not vulnerable.
 	MetaAuthAuthenticatedSucceeded = "mcpauthz.authenticated_succeeded"
 
+	// MetaAuthOAuthDeclaration (string) records how a target declared itself
+	// authorization-gated -- the WWW-Authenticate value it returned and/or the
+	// discovery documents it publishes. Verbatim server output, so a reviewer can
+	// re-fetch and confirm.
+	MetaAuthOAuthDeclaration = "mcpauthz.oauth_declaration"
+
 	// MetaAuthTargetClass (string) buckets the endpoint host by reachability:
 	// "loopback", "lan", "public", "unresolvable". A publicly reachable server
 	// with a decorative auth boundary is critical; a loopback development server
@@ -114,6 +120,18 @@ const (
 	// establishes that the target is reachable and answers the operator, and is
 	// never itself a finding.
 	AuthClassAuthBaseline = "auth-baseline"
+
+	// AuthClassOAuthDeclaredOpen is a credential-free session that SUCCEEDED
+	// against a target which publicly declares itself authorization-gated (an
+	// RFC 9728 / RFC 8414 discovery document, or a WWW-Authenticate challenge).
+	//
+	// It exists to close the one gap the credentials differential cannot: with no
+	// operator credentials, "the anonymous session worked" is uninterpretable,
+	// because public-by-design and catastrophically-open are identical on the
+	// wire. A server that publishes those documents has stated which it is, so
+	// its own declaration supplies the intent that operator credentials would
+	// otherwise have to.
+	AuthClassOAuthDeclaredOpen = "oauth-declared-open"
 
 	// AuthClassAnonEnumeration is catalog enumeration over a credential-free
 	// session. Serious: it discloses the target's whole attack surface to an

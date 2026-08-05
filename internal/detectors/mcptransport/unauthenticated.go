@@ -91,6 +91,24 @@ func (d *UnauthenticatedAccessDetector) Detect(_ context.Context, a *attempt.Att
 
 // score resolves the verdict for a non-baseline attempt.
 func (d *UnauthenticatedAccessDetector) score(a *attempt.Attempt, class string) float64 {
+	// The declared-open class carries its OWN evidence of intent and so bypasses
+	// the configured-credentials precondition below. The target published RFC 9728
+	// / RFC 8414 metadata, or answered a WWW-Authenticate challenge, stating that
+	// authorization is required — and then served a caller holding nothing. That
+	// is the server contradicting itself, which needs no operator credentials to
+	// interpret.
+	//
+	// Scored without the host-class softening the credentials path applies: a
+	// loopback server with no auth is unremarkable, but a loopback server that
+	// advertises OAuth protection and then ignores it is misconfigured wherever it
+	// runs.
+	if class == mcpprobe.AuthClassOAuthDeclaredOpen {
+		if !metaBool(a, mcpprobe.MetaAuthAnonymousSucceeded) {
+			return 0.0 // it declared authorization and enforced it
+		}
+		return 1.0
+	}
+
 	// THE precondition. Without configured credentials there is no boundary to
 	// have bypassed, so there is nothing to report — regardless of what the
 	// anonymous session achieved.

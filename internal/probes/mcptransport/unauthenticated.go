@@ -151,7 +151,21 @@ func (p *UnauthenticatedAccess) Probe(ctx context.Context, gen types.Generator) 
 	}
 	credHeaders := rep.ConfiguredCredentialHeaders()
 	if len(credHeaders) == 0 {
-		slog.Warn("mcptransport.UnauthenticatedAccess: skipping — no credentials are configured for this target, so there is no authentication boundary to test. Anonymous access will trivially succeed and proves nothing. Configure the target's credentials (e.g. headers: {Authorization: 'Bearer $KEY'} with api_key) to assess whether they are actually enforced. This is NOT a clean result.",
+		// No operator credentials, so the usual differential is unavailable. Before
+		// giving up, ask the TARGET whether it considers itself authorization-gated:
+		// a server publishing RFC 9728 / RFC 8414 discovery metadata, or answering a
+		// WWW-Authenticate challenge, has declared that credentials are required. Its
+		// own declaration then supplies the intent that operator credentials would
+		// otherwise have to, and a credential-free session that still succeeds is a
+		// finding on the server's own terms.
+		//
+		// This is the common real-world case — scanning a target nobody handed us a
+		// token for — so closing it converts the most frequent scan shape from an
+		// unusable skip into a verdict.
+		if oauth := discoverOAuthProtection(ctx, end.AnonymousHTTPClient(), endpoint); oauth.declared() {
+			return p.probeDeclaredOpen(ctx, end, endpoint, u, oauth)
+		}
+		slog.Warn("mcptransport.UnauthenticatedAccess: skipping — no credentials are configured for this target and it publishes no OAuth protected-resource metadata, so there is no authentication boundary to test. Anonymous access will trivially succeed and proves nothing. Configure the target's credentials (e.g. headers: {Authorization: 'Bearer $KEY'} with api_key) to assess whether they are actually enforced. This is NOT a clean result.",
 			"target", gen.Name(), "endpoint", endpoint)
 		return nil, nil
 	}
