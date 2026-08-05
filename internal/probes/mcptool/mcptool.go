@@ -234,6 +234,37 @@ func benignValue(p paramInfo) any {
 	}
 }
 
+// payloadPrefixes returns the leading text to place before a payload for one
+// parameter: always the empty prefix (the payload alone), plus a documented
+// valid value when one is known.
+//
+// Why: a common defence validates only the FIRST token of an argument against an
+// allowlist and then hands the whole string to a sink. A payload that begins
+// with a separator or an expression fails that check and never reaches the sink,
+// so a vulnerable target reports clean. Leading with a value the tool itself
+// documents as valid satisfies the check and the payload still lands. Measured
+// on DVMCP challenge 2, whose command tool allowlists the first token only.
+//
+// Gated on a derivable value on purpose: prefixing every parameter
+// unconditionally would double an attempt count that already reaches 108 on a
+// single challenge, buying nothing where no valid value is known.
+func payloadPrefixes(p paramInfo) []string {
+	if v, ok := p.candidateValue(); ok {
+		return []string{"", v + " "}
+	}
+	return []string{""}
+}
+
+// payloadVariants renders one payload under each prefix from payloadPrefixes.
+func payloadVariants(p paramInfo, payload string) []string {
+	prefixes := payloadPrefixes(p)
+	out := make([]string, 0, len(prefixes))
+	for _, pre := range prefixes {
+		out = append(out, pre+payload)
+	}
+	return out
+}
+
 // candidateValue returns the preferred valid value for this parameter, if one
 // was declared or could be mined. Restricted to string-shaped parameters: a
 // mined token is text, and coercing it into a numeric or structured parameter
