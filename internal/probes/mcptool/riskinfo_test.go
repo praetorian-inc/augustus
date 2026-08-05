@@ -13,7 +13,7 @@ import (
 // a literal, so zero-value structs are sufficient — no construction needed.
 func TestRiskInfo_Populated(t *testing.T) {
 	for _, p := range []probes.Prober{
-		&Injection{}, &SSRF{}, &BOLA{}, &PathTraversal{}, &ResponseLeak{},
+		&Injection{}, &SSRF{}, &BOLA{}, &PathTraversal{}, &ResponseLeak{}, &TokenValidation{},
 	} {
 		rd, ok := p.(types.RiskDescriber)
 		if !ok {

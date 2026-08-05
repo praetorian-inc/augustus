@@ -68,15 +68,24 @@ const (
 	// same parameter, masked for the same reason.
 	MetaAuthControlValue = "mcpauthz.control_value"
 
-	// MetaAuthReplicaMatched (bool) records whether a SECOND, independently
-	// generated value of the same shape produced the same response as the first.
+	// MetaAuthReplicaValue (string) is a SECOND, independently generated value of
+	// the same shape as MetaAuthProbeValue, and MetaAuthReplicaResponse is what
+	// the target answered for it.
 	//
-	// It is what separates "the target's answer depends on the value's SHAPE"
-	// from an unstable or randomly varying endpoint. Two independent random
-	// values were both certainly never issued, so a target performing a real
-	// issuance lookup must answer them the same way it answers any other
-	// unissued value.
-	MetaAuthReplicaMatched = "mcpauthz.replica_matched"
+	// The replica is what separates "the target's answer depends on the value's
+	// SHAPE" from an endpoint whose responses simply vary. Both random values were
+	// certainly never issued, so a target performing a real issuance lookup must
+	// answer them the same way it answers any other unissued value — including the
+	// malformed control. A target that answers the two alike but the control
+	// differently is discriminating on shape, not on issuance.
+	MetaAuthReplicaValue = "mcpauthz.replica_value"
+	// MetaAuthReplicaResponse (string) is the response to the replica value.
+	MetaAuthReplicaResponse = "mcpauthz.replica_response"
+
+	// MetaAuthShapeFamily (string) names the generic structural family the probe
+	// value was drawn from (hex, uuid, base64url, ...). Recorded for the reviewer;
+	// the verdict never depends on WHICH family hit, only on the differential.
+	MetaAuthShapeFamily = "mcpauthz.shape_family"
 
 	// MetaAuthDeclaredValues (string) lists the values the target itself declared
 	// for the parameter (JSON-schema enum, or values documented in its
