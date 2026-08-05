@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
@@ -53,7 +54,7 @@ func NewSSRF(cfg registry.Config) (probes.Prober, error) {
 		baseOverride: registry.GetString(cfg, "oob_base_url", ""),
 		wait:         time.Duration(registry.GetInt(cfg, "oob_wait_seconds", 3)) * time.Second,
 		allParams:    registry.GetBool(cfg, "ssrf_all_string_params", false),
-		marker:       "AUGOOB" + randToken(),
+		marker:       "AUGOOB" + mcpprobe.RandToken(),
 		policy:       toolpolicy.New(cfg),
 	}, nil
 }
@@ -117,11 +118,11 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 		return nil, nil
 	}
 
-	col, err := startCollector(p.listen, p.baseOverride, p.marker)
+	col, err := mcpprobe.StartCollector(p.listen, p.baseOverride, p.marker)
 	if err != nil {
 		return nil, err
 	}
-	defer col.close()
+	defer col.Close()
 
 	type pending struct {
 		a     *attempt.Attempt
@@ -146,8 +147,8 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 			if !p.allParams && !urlParamRE.MatchString(param.name) {
 				continue
 			}
-			token := randToken()
-			canaryURL := col.url(token)
+			token := mcpprobe.RandToken()
+			canaryURL := col.URL(token)
 
 			a := attempt.New(canaryURL)
 			a.Probe = p.Name()
@@ -178,22 +179,26 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 	}
 
 	// Give the target time to make out-of-band callbacks, then record results.
-	p.waitForCallbacks(ctx)
+	mcpprobe.WaitForCallbacks(ctx, p.wait)
 	for _, item := range pend {
-		item.a.Metadata[attempt.MetadataKeySSRFCallback] = col.wasHit(item.token)
+		hit := col.WasHit(item.token)
+		item.a.Metadata[attempt.MetadataKeySSRFCallback] = hit
+		// A canary URL the target actually fetched (callback fired) is a confirmed
+		// finding even when the tool call itself then failed. Left as StatusError the
+		// attempt is classified "error", not "vuln" — results.Verdict returns early on
+		// an errored status and never reaches the score — which silently buries the
+		// blind SSRF this collector exists to catch. That combination is not exotic:
+		// a tool fetching a slow or unresponsive internal host times out AFTER the
+		// outbound request has gone, which is the most common shape of blind SSRF.
+		// Preserve the original error for the reviewer and revert to complete so the
+		// callback score produces a VULN verdict. Mirrors injection.go, which already
+		// reconciles its callbacks this way.
+		if hit && item.a.Status == attempt.StatusError {
+			if item.a.Error != "" {
+				item.a.Metadata["mcptool.ssrf_oob_call_error"] = item.a.Error
+			}
+			item.a.Complete()
+		}
 	}
 	return attempts, nil
-}
-
-// waitForCallbacks sleeps for the grace period, honoring context cancellation.
-func (p *SSRF) waitForCallbacks(ctx context.Context) {
-	if p.wait <= 0 {
-		return
-	}
-	t := time.NewTimer(p.wait)
-	defer t.Stop()
-	select {
-	case <-t.C:
-	case <-ctx.Done():
-	}
 }

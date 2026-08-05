@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
@@ -16,34 +17,6 @@ import (
 
 func init() {
 	probes.Register("mcptool.ResponseLeak", NewResponseLeak)
-}
-
-// maxResponseBytes bounds how much of each tool response (Text and raw) is stored
-// per output. 10 MiB is far above where a real leaked credential appears in a
-// tool response, so it avoids the false-negative a small (1 MiB) cap caused —
-// where a secret past the boundary was hidden before scoring — while still
-// bounding report memory. It is deliberately larger than the previously-removed
-// 1 MiB cap for exactly that reason.
-const maxResponseBytes = 10 << 20 // 10 MiB
-
-// truncateResponse caps s to maxResponseBytes, appending a marker when it cuts so
-// a truncated output is distinguishable from one that happened to end there.
-func truncateResponse(s string) string {
-	if len(s) <= maxResponseBytes {
-		return s
-	}
-	return s[:maxResponseBytes] + "…[truncated]"
-}
-
-// truncateResponseBytes caps a raw byte payload to maxResponseBytes and only then
-// converts it to a string. Truncating before the []byte→string conversion avoids
-// materializing the entire (possibly huge/hostile) raw payload as a string first,
-// so the cap actually bounds the allocation rather than merely the stored output.
-func truncateResponseBytes(b []byte) string {
-	if len(b) <= maxResponseBytes {
-		return string(b)
-	}
-	return string(b[:maxResponseBytes]) + "…[truncated]"
 }
 
 // Compile-time assertions: ResponseLeak exposes probe metadata and consumes prior
@@ -185,13 +158,13 @@ func (p *ResponseLeak) callOne(ctx context.Context, inv types.ToolInvoker, tool 
 	// Store the response bounded to the generous maxResponseBytes cap (see its
 	// doc): far above where real leaked credentials appear, so it does not hide a
 	// secret the way a small cap would, while still bounding report memory.
-	a.AddOutput(truncateResponse(res.Text))
+	a.AddOutput(mcpprobe.TruncateResponse(res.Text))
 	// Score the structured/raw payload too: a credential may appear only in the
 	// raw result and never in the assembled Text. Cap the raw bytes BEFORE the
 	// string conversion so a huge raw payload cannot force an unbounded allocation,
 	// and dedupe against the (equally capped) Text form.
 	if len(res.Raw) > 0 {
-		if raw := truncateResponseBytes(res.Raw); raw != truncateResponse(res.Text) {
+		if raw := mcpprobe.TruncateResponseBytes(res.Raw); raw != mcpprobe.TruncateResponse(res.Text) {
 			a.AddOutput(raw)
 		}
 	}

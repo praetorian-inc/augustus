@@ -175,4 +175,53 @@ const (
 	// upstream defeats session-lifetime test" or "<2 SSE samples: cannot
 	// assess ID entropy".
 	MetadataKeyInconclusiveReason = "mcptool.inconclusive_reason"
+
+	// MetadataKeyPrimitiveCanaries holds the []string of computed-arithmetic
+	// canary markers a mcpprimitive probe expects to see in returned content if
+	// the server evaluated an injected payload (e.g. a prompt template rendered
+	// through an expression engine). The marker never appears in the payload
+	// text, so content that merely echoes the injected value cannot match.
+	MetadataKeyPrimitiveCanaries = "mcpprimitive.canaries"
+	// MetadataKeyPrimitiveSignatures holds the []string of well-known file
+	// signatures (e.g. "root:x:0:0:") a mcpprimitive probe expects in returned
+	// content if a resource URI resolved to that system file.
+	MetadataKeyPrimitiveSignatures = "mcpprimitive.signatures"
+	// MetadataKeyPrimitiveOOBCallback (bool) records whether the out-of-band
+	// collector received a callback for this attempt's canary URL — proof the
+	// server made the request (blind SSRF via resources/read, or blind command
+	// execution while rendering a prompt template).
+	MetadataKeyPrimitiveOOBCallback = "mcpprimitive.oob_callback"
+	// MetadataKeyPrimitiveOOBURL (string) is the canary URL this attempt planted.
+	MetadataKeyPrimitiveOOBURL = "mcpprimitive.oob_url"
+	// MetadataKeyPrimitiveReflected (bool) records whether the returned content
+	// carried the collector's body marker — the non-blind case, where the server
+	// fetched the canary URL and handed back its content.
+	MetadataKeyPrimitiveReflected = "mcpprimitive.reflected"
+	// MetadataKeyPrimitiveClass (string) categorises how the attempt attacked the
+	// primitive, for grouping in a finding report. Values are stable strings:
+	//
+	//	resource-traversal          resource URI escaped its intended scope (arbitrary file read)
+	//	resource-template-arg       a resource-template parameter was interpolated into a sink
+	//	resource-ssrf               resources/read fetched a caller-supplied URL
+	//	resource-content            an advertised resource read as-is (no payload), so
+	//	                            its served body can be scored for smuggled instructions
+	//	prompt-content              an argument-less prompt template rendered as-is, same purpose
+	//	prompt-template-injection   prompts/get evaluated an argument (SSTI/eval)
+	//	prompt-command-injection    prompts/get executed an OS command while rendering
+	MetadataKeyPrimitiveClass = "mcpprimitive.class"
+	// MetadataKeyPrimitiveTarget (string) is the primitive attacked — the resource
+	// URI requested, or the prompt-template name rendered.
+	MetadataKeyPrimitiveTarget = "mcpprimitive.target"
+	// MetadataKeyPrimitiveArg (string) is the prompt-template argument the payload
+	// was injected into. Absent for resource attempts, which carry no arguments.
+	MetadataKeyPrimitiveArg = "mcpprimitive.arg"
+	// MetadataKeyPrimitiveCallError (string) records the server's refusal for a
+	// call that returned a JSON-RPC error. resources/read and prompts/get have no
+	// application-level error flag (unlike tools/call), so a denial arrives as an
+	// error — preserving it keeps a refusal visible to a reviewer instead of
+	// collapsing it into a silent non-finding.
+	MetadataKeyPrimitiveCallError = "mcpprimitive.call_error"
+	// MetadataKeyPrimitiveMIMEType (string) is the MIME type the server declared for
+	// the first returned content block.
+	MetadataKeyPrimitiveMIMEType = "mcpprimitive.mime_type"
 )

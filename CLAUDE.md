@@ -54,6 +54,7 @@ Generators may also implement these **optional** interfaces (in `pkg/types/gener
   Catalog enumeration follows `nextCursor` across **all** pages of `tools/list`, `resources/list`, `resources/templates/list`, and `prompts/list`, because a server that paginates its catalog would otherwise be silently under-scanned (page one tested, later-page tools never touched, target reported clean). Each enumeration is bounded independently — per catalog, so a slow `tools/list` cannot starve the others — by a page cap, cursor-repeat detection, a wall-clock budget (10× `request_timeout`), and a total-item cap. `request_timeout` applies **per page**, not to a whole walk, and the configured rate limit is charged per page rather than once per session.
 
   Any enumeration that stops early is recorded in `MCPInventory.Incomplete` (the catalog names), queryable via `IsComplete()` and the per-catalog `IsCatalogComplete(types.MCPCatalog*)`. **A non-empty `Incomplete` makes the inventory a lower bound on the target's surface, not a description of it** — a hostile server can halt enumeration after a benign prefix, so a consumer that scores only what was collected would report clean on a surface it never saw. Prefer `IsCatalogComplete` over `IsComplete` when you depend on only part of the inventory: discarding a complete tool catalog because an unrelated prompts enumeration failed forces a redundant walk that can itself fail closed. Recon renders no verdict, so completeness is recorded as a fact here and acted on by consumers.
+- **MCPPrimitiveReader** (`pkg/types/mcp_primitives.go`): `ReadResource()` / `GetPrompt()` — declares that the target exposes the MCP content-bearing primitives BEYOND tools. `ToolInvoker` covers only tools/list + tools/call, and `MCPReconnaissance` enumerates the resource/prompt catalog but never fetches the CONTENT behind an entry; this interface adds that retrieval. Both calls are outbound (same direction as tools/call), so it introduces no new protocol direction — server-initiated callbacks (sampling/createMessage, elicitation/create) remain unimplemented. Note the denial contract: resources/read and prompts/get have no application-level error flag like `ToolResult.IsError`, so a refusal arrives as a Go error — probes treat an error as the denial signal and a returned body as acceptance. It is the basis for the `internal/probes/mcpprimitive/*` probes (`mcpprimitive.ResourceInjection`, `mcpprimitive.PromptTemplateInjection`).
 - **MCPEndpoint** (in `pkg/types/mcp_endpoint.go`): declares that the generator connects to an HTTP-based MCP target and exposes the plumbing transport-layer probes need — `EndpointURL()`, `Transport()` (kind: "http"/"sse"), `HTTPClient()` (with the generator's proxy / TLS / injected headers), `AnonymousHTTPClient()` (same transport but WITHOUT header injection, for probes that model an unauthenticated attacker), and `ProxyURL()`. Transport-layer probes (`mcptransport.OriginValidation`, `mcptransport.SSESessionHijack`) type-assert this so raw-HTTP checks still inherit proxy config and honour operator-configured credential boundaries.
 
 ### Reconnaissance (pkg/recon/)
@@ -103,6 +104,7 @@ internal/           Implementation details (not importable externally)
   detectors/        95+ detector implementations
   buffs/            7 buff transformations
   attackengine/     Iterative attack engine (PAIR/TAP)
+  mcpprobe/         Shared MCP probe kit: computed-arithmetic canaries, shell-command payload families, and the out-of-band callback collector (used by probes/mcptool and probes/mcpprimitive)
   recon/            Reconnaissance modules (recon/mcp — MCP attack-surface enumeration + per-identity identifier harvesting; recon/mcpconfig — MCP config-file collection; recon/llm — navigator-LLM base for LLM-driven recon)
 ```
 
@@ -179,6 +181,12 @@ augustus scan mcp.MCP --recon recon.MCP --probe mcptool.Injection --probe mcptoo
 
 # Composed recon (recon-consumes-recon) feeding the BOLA probe; per-module settings via a recon.settings config block
 augustus scan mcp.MCP --recon recon.MCP --recon recon.MCPIdentifiers --probe mcptool.BOLA --config-file bola.yaml
+
+# Non-tool primitive surfaces (resources/read + prompts/get). ResourceInjection needs no
+# catalog — it always sends its baseline URI payloads — but recon enriches both probes.
+augustus scan mcp.MCP --recon recon.MCP \
+  --probe mcpprimitive.ResourceInjection --probe mcpprimitive.PromptTemplateInjection \
+  --config '{"endpoint":"http://localhost:8000/mcp"}'
 ```
 
 ## Commit Convention

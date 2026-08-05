@@ -3,9 +3,9 @@ package mcptool
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
+	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
@@ -41,7 +41,7 @@ var (
 // The target must implement types.ToolInvoker; other targets are skipped.
 type Injection struct {
 	reconContext
-	canary       canary
+	canary       mcpprobe.Canary
 	policy       toolpolicy.Policy
 	listen       string        // OOB collector bind address
 	baseOverride string        // URL the target should use to reach the collector (optional)
@@ -55,12 +55,12 @@ type Injection struct {
 // zero config).
 func NewInjection(cfg registry.Config) (probes.Prober, error) {
 	return &Injection{
-		canary:       newCanary(),
+		canary:       mcpprobe.NewCanary(),
 		policy:       toolpolicy.New(cfg),
 		listen:       registry.GetString(cfg, "oob_listen", "127.0.0.1:0"),
 		baseOverride: registry.GetString(cfg, "oob_base_url", ""),
 		wait:         time.Duration(registry.GetInt(cfg, "oob_wait_seconds", 3)) * time.Second,
-		marker:       "AUGOOB" + randToken(),
+		marker:       "AUGOOB" + mcpprobe.RandToken(),
 	}, nil
 }
 
@@ -97,8 +97,8 @@ func (p *Injection) Goal() string {
 func (p *Injection) GetPrimaryDetector() string { return "mcptool.Injection" }
 
 func (p *Injection) GetPrompts() []string {
-	out := append([]string(nil), p.canary.payloads...)
-	for _, f := range oobCmdFormats {
+	out := append([]string(nil), p.canary.Payloads...)
+	for _, f := range mcpprobe.OOBCmdFormats {
 		out = append(out, fmt.Sprintf(f, "<oob-canary-url>"))
 	}
 	return out
@@ -133,11 +133,11 @@ func (p *Injection) Probe(ctx context.Context, gen types.Generator) ([]*attempt.
 
 	// The collector receives out-of-band callbacks from blind command-injection
 	// sinks. Kept alive until after the callback grace period below.
-	col, err := startCollector(p.listen, p.baseOverride, p.marker)
+	col, err := mcpprobe.StartCollector(p.listen, p.baseOverride, p.marker)
 	if err != nil {
 		return nil, fmt.Errorf("mcptool.Injection: start OOB collector: %w", err)
 	}
-	defer col.close()
+	defer col.Close()
 
 	type pending struct {
 		a     *attempt.Attempt
@@ -161,7 +161,7 @@ sending:
 				continue
 			}
 			// In-band computed-canary payloads (eval / SSTI / shell arithmetic).
-			for _, payload := range p.canary.payloads {
+			for _, payload := range p.canary.Payloads {
 				// Stop issuing new calls the moment the context is done; the attempts
 				// already sent are still recorded and their callbacks reconciled below.
 				// Checked per-call (not per-param) so cancellation doesn't emit a burst
@@ -172,12 +172,12 @@ sending:
 				attempts = append(attempts, p.callOne(ctx, inv, name, param.name, params, payload))
 			}
 			// Out-of-band OS-command payloads (blind + non-blind command injection).
-			for _, f := range oobCmdFormats {
+			for _, f := range mcpprobe.OOBCmdFormats {
 				if ctx.Err() != nil {
 					break sending
 				}
-				token := randToken()
-				proofURL := shellProofURL(col.url(token), token)
+				token := mcpprobe.RandToken()
+				proofURL := mcpprobe.ShellProofURL(col.URL(token), token)
 				a := p.callOOB(ctx, inv, name, param.name, params, f, proofURL)
 				pend = append(pend, pending{a: a, token: token})
 				attempts = append(attempts, a)
@@ -188,9 +188,9 @@ sending:
 	// Give the target time to make out-of-band callbacks, then reconcile each
 	// out-of-band attempt with what the collector saw.
 	if len(pend) > 0 {
-		p.waitForCallbacks(ctx)
+		mcpprobe.WaitForCallbacks(ctx, p.wait)
 		for _, item := range pend {
-			hit := col.wasHit(item.token)
+			hit := col.WasHit(item.token)
 			item.a.Metadata[attempt.MetadataKeyInjectionOOBCallback] = hit
 			// A payload that executed (callback fired) but then hung or errored the
 			// tool call is still a confirmed finding. Left as StatusError it would be
@@ -215,7 +215,7 @@ func (p *Injection) callOne(ctx context.Context, inv types.ToolInvoker, tool, pa
 	a := attempt.New(payload)
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
-	a.Metadata[attempt.MetadataKeyInjectionCanaries] = []string{p.canary.marker}
+	a.Metadata[attempt.MetadataKeyInjectionCanaries] = []string{p.canary.Marker}
 	a.Metadata["mcptool.tool"] = tool
 	a.Metadata["mcptool.param"] = param
 
@@ -237,7 +237,7 @@ func (p *Injection) callOne(ctx context.Context, inv types.ToolInvoker, tool, pa
 // marker, so a tool that merely extracts and fetches the URL from the argument
 // text (an SSRF / link-preview sink, not a command sink) would get that marker
 // back and be misclassified as command injection. The callback path avoids this:
-// the URL's token carries a shell-proof marker (see shellProofURL) that only a
+// the URL's token carries a shell-proof marker (see mcpprobe.ShellProofURL) that only a
 // real shell resolves to the tracked token, and the callback catches BOTH the
 // blind case (nothing returned) and the non-blind case (a shell ran curl and the
 // callback still fired), so dropping reflection loses no true positives.
@@ -259,36 +259,4 @@ func (p *Injection) callOOB(ctx context.Context, inv types.ToolInvoker, tool, pa
 	a.AddOutput(res.Text)
 	a.Complete()
 	return a
-}
-
-// shellProofURL rewrites a collector canary URL so that only actual shell
-// execution reproduces the tracked token. It splices an empty command
-// substitution ("$()") into the middle of the token: a POSIX shell evaluating the
-// argument collapses "$()" to nothing, requesting the real /oob/<token> path the
-// collector tracks — command-execution-specific proof a plain URL fetch cannot
-// forge. A tool that instead extracts and fetches the literal URL from the
-// argument text requests a "...$()..." path, whose token does not match the
-// tracked one, so an SSRF / link-fetch sink cannot masquerade as command
-// injection. (On Windows cmd.exe "$()" is not a no-op, so cmd-only sinks may be
-// missed — a false negative, the safe direction.)
-func shellProofURL(url, token string) string {
-	if len(token) < 2 {
-		return url
-	}
-	mid := len(token) / 2
-	obfuscated := token[:mid] + "$()" + token[mid:]
-	return strings.Replace(url, token, obfuscated, 1)
-}
-
-// waitForCallbacks sleeps for the grace period, honoring context cancellation.
-func (p *Injection) waitForCallbacks(ctx context.Context) {
-	if p.wait <= 0 {
-		return
-	}
-	t := time.NewTimer(p.wait)
-	defer t.Stop()
-	select {
-	case <-t.C:
-	case <-ctx.Done():
-	}
 }

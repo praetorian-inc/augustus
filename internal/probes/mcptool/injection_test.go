@@ -78,7 +78,7 @@ func newInjectionProbe(t *testing.T) *Injection {
 // canary marker, and the detector flags it.
 func TestInjection_DetectsEvalSink(t *testing.T) {
 	p := newInjectionProbe(t)
-	marker := p.canary.marker
+	marker := p.canary.Marker
 
 	target := &mockTarget{
 		tools: []map[string]any{stringTool("calc", "expression")},
@@ -168,7 +168,7 @@ func (plainGen) Description() string { return "plain" }
 
 // testURLRE extracts a URL from argument text the way a naive URL-fetching tool
 // would: a literal scan with no shell processing. It stops at the shell-proof
-// "$(" that shellProofURL splices into the token, so the extracted URL resolves
+// "$(" that mcpprobe.ShellProofURL splices into the token, so the extracted URL resolves
 // to a different path than the shell-collapsed one.
 var testURLRE = regexp.MustCompile("https?://[^\\s`)$\"']+")
 
