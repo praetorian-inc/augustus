@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/praetorian-inc/augustus/internal/mcpprobe"
@@ -164,8 +165,18 @@ func (p *FunctionAuthorization) Probe(ctx context.Context, gen types.Generator) 
 
 	var attempts []*attempt.Attempt
 	for _, tool := range targets {
-		attempts = append(attempts, p.probeCredentialPresence(ctx, inv, tool)...)
-		attempts = append(attempts, p.probeDiscriminator(ctx, inv, tool)...)
+		// Order matters. The discriminator sweep runs FIRST because it discovers
+		// which argument combinations the target refuses, and a refusal is exactly
+		// the context worth retrying with a credential attached.
+		//
+		// Without this, the credential check would only ever run with benign
+		// placeholder arguments and would never reach a privileged code path — so a
+		// tool that gates its privileged branch on the mere presence of a token
+		// would be reported clean, because the benign context never got as far as
+		// the gate.
+		discAttempts, refused := p.probeDiscriminator(ctx, inv, tool)
+		attempts = append(attempts, discAttempts...)
+		attempts = append(attempts, p.probeCredentialPresence(ctx, inv, tool, refused)...)
 	}
 	if len(attempts) == 0 {
 		slog.Warn("mcptool.FunctionAuthorization: privileged tools were found but none exposed an optional credential argument or an authority-selecting parameter, so nothing could be compared. This is NOT a clean result.",
@@ -190,14 +201,33 @@ func (p *FunctionAuthorization) privilegedTools(tools []map[string]any) []map[st
 	return out
 }
 
+// maxPresenceContexts bounds how many refused argument contexts are retried with a
+// credential, so a tool with a large value space cannot expand this check without
+// limit.
+const maxPresenceContexts = 6
+
 // probeCredentialPresence compares an OMITTED optional credential argument against
 // the same call carrying a random, certainly-invalid value.
 //
 // Only OPTIONAL credential parameters qualify: a required one cannot be omitted,
 // so there would be no control to compare against.
-func (p *FunctionAuthorization) probeCredentialPresence(ctx context.Context, inv types.ToolInvoker, tool map[string]any) []*attempt.Attempt {
+//
+// The check runs in several argument CONTEXTS: the plain benign one, plus each
+// context the discriminator sweep found refused. The extra contexts are essential
+// rather than thorough — a tool's privileged branch is usually only reachable with
+// a particular value in some OTHER argument, and with benign placeholders alone the
+// call never arrives at the credential gate, so a tool that trusts the mere
+// presence of a token would be reported clean.
+func (p *FunctionAuthorization) probeCredentialPresence(
+	ctx context.Context, inv types.ToolInvoker, tool map[string]any, refused []map[string]any,
+) []*attempt.Attempt {
 	name, _ := tool["name"].(string)
 	params := mcpprobe.ToolParams(tool)
+
+	contexts := append([]map[string]any{nil}, refused...)
+	if len(contexts) > maxPresenceContexts {
+		contexts = contexts[:maxPresenceContexts]
+	}
 
 	var attempts []*attempt.Attempt
 	for _, param := range params {
@@ -207,53 +237,99 @@ func (p *FunctionAuthorization) probeCredentialPresence(ctx context.Context, inv
 		if !credentialParamRE.MatchString(param.Name) {
 			continue
 		}
-
-		// CONTROL: the credential argument absent entirely — an openly
-		// unauthenticated caller.
-		controlArgs := mcpprobe.BenignArgs(params, nil)
-		delete(controlArgs, param.Name)
-		controlRes, controlErr := inv.CallTool(ctx, name, controlArgs)
-		controlText := ""
-		if controlErr != nil {
-			slog.Warn("mcptool.FunctionAuthorization: credential-absent control call failed; this parameter will be inconclusive rather than assumed safe",
-				"tool", name, "param", param.Name, "error", controlErr)
-		} else {
-			controlText = controlRes.Text
+		for _, base := range contexts {
+			if a := p.assessPresence(ctx, inv, name, params, param.Name, base); a != nil {
+				attempts = append(attempts, a)
+			}
 		}
-
-		forged := randHex(32)
-		a := attempt.New(fmt.Sprintf("%s with a forged %s", name, param.Name))
-		a.Probe = p.Name()
-		a.Detector = p.GetPrimaryDetector()
-		a.Metadata[mcpprobe.MetaAuthClass] = mcpprobe.AuthClassCredentialPresence
-		a.Metadata[mcpprobe.MetaAuthTool] = name
-		a.Metadata[mcpprobe.MetaAuthParam] = param.Name
-		a.Metadata[mcpprobe.MetaAuthProbeValue] = forged
-		a.Metadata[mcpprobe.MetaAuthControlValue] = ""
-		a.Metadata[mcpprobe.MetaAuthControl] = controlText
-		a.Metadata[mcpprobe.MetaAuthControlLabel] = "same call with the credential argument omitted entirely"
-
-		probeArgs := mcpprobe.BenignArgs(params, map[string]any{param.Name: forged})
-		res, err := inv.CallTool(ctx, name, probeArgs)
-		if err != nil {
-			a.SetError(err)
-		} else {
-			a.AddOutput(res.Text)
-			a.Complete()
-		}
-		attempts = append(attempts, a)
 	}
 	return attempts
+}
+
+// assessPresence runs one omitted-versus-forged comparison in a given argument
+// context.
+func (p *FunctionAuthorization) assessPresence(
+	ctx context.Context, inv types.ToolInvoker, tool string,
+	params []mcpprobe.ToolParam, param string, base map[string]any,
+) *attempt.Attempt {
+	// CONTROL: the credential argument absent entirely — an openly unauthenticated
+	// caller in this same context.
+	controlArgs := mcpprobe.BenignArgs(params, base)
+	delete(controlArgs, param)
+	controlRes, controlErr := inv.CallTool(ctx, tool, controlArgs)
+	controlText := ""
+	if controlErr != nil {
+		slog.Warn("mcptool.FunctionAuthorization: credential-absent control call failed; this context will be inconclusive rather than assumed safe",
+			"tool", tool, "param", param, "error", controlErr)
+	} else {
+		controlText = controlRes.Text
+	}
+
+	forged := randHex(32)
+	label := fmt.Sprintf("%s with a forged %s", tool, param)
+	if len(base) > 0 {
+		label += " (" + describeArgs(base) + ")"
+	}
+
+	a := attempt.New(label)
+	a.Probe = p.Name()
+	a.Detector = p.GetPrimaryDetector()
+	a.Metadata[mcpprobe.MetaAuthClass] = mcpprobe.AuthClassCredentialPresence
+	a.Metadata[mcpprobe.MetaAuthTool] = tool
+	a.Metadata[mcpprobe.MetaAuthParam] = param
+	a.Metadata[mcpprobe.MetaAuthProbeValue] = forged
+	a.Metadata[mcpprobe.MetaAuthControlValue] = ""
+	a.Metadata[mcpprobe.MetaAuthControl] = controlText
+	a.Metadata[mcpprobe.MetaAuthControlLabel] = "same call, same other arguments, with the credential argument omitted entirely"
+
+	probeOverrides := map[string]any{param: forged}
+	for k, v := range base {
+		probeOverrides[k] = v
+	}
+	res, err := inv.CallTool(ctx, tool, mcpprobe.BenignArgs(params, probeOverrides))
+	if err != nil {
+		a.SetError(err)
+		return a
+	}
+	a.AddOutput(res.Text)
+	a.Complete()
+	return a
+}
+
+// describeArgs renders an argument context compactly and deterministically for the
+// attempt label.
+func describeArgs(args map[string]any) string {
+	keys := make([]string, 0, len(args))
+	for k := range args {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		parts = append(parts, fmt.Sprintf("%s=%v", k, args[k]))
+	}
+	return strings.Join(parts, " ")
 }
 
 // probeDiscriminator exercises the target's DECLARED values for an
 // authority-selecting parameter to establish an ordinary-authority baseline, then
 // tries the conventional privileged names against it.
-func (p *FunctionAuthorization) probeDiscriminator(ctx context.Context, inv types.ToolInvoker, tool map[string]any) []*attempt.Attempt {
+// It returns the attempts plus the argument contexts the target REFUSED, which the
+// credential-presence check retries with a credential attached.
+func (p *FunctionAuthorization) probeDiscriminator(ctx context.Context, inv types.ToolInvoker, tool map[string]any) ([]*attempt.Attempt, []map[string]any) {
 	name, _ := tool["name"].(string)
 	params := mcpprobe.ToolParams(tool)
 
-	var attempts []*attempt.Attempt
+	var (
+		attempts []*attempt.Attempt
+		refused  []map[string]any
+	)
+	// One representative per DISTINCT refusal. A tool that answers every
+	// unrecognised value with the same "not found" message yields one context, not
+	// dozens of identical ones — which matters because an interesting refusal (an
+	// authentication demand, say) would otherwise be crowded out of the finite
+	// retry budget by a crowd of duplicates.
+	seenRefusal := map[string]bool{}
 	for _, param := range params {
 		if !isStringParam(param.Type) {
 			continue
@@ -286,7 +362,25 @@ func (p *FunctionAuthorization) probeDiscriminator(ctx context.Context, inv type
 		// isolates the privilege as the cause.
 		control2Value, control2Text, _ := p.baseline(ctx, inv, name, params, param.Name, []string{"aug" + randHex(12)})
 
-		for _, candidate := range mcpprobe.ConventionalPrivilegedNames() {
+		// Candidates: the conventional privileged names, plus any value the TARGET
+		// disclosed in its own responses. Servers routinely refuse an unrecognised
+		// value with a message enumerating the accepted ones, and that list is
+		// target-derived data — the most productive source there is, and the reason
+		// this check can reach a privileged value that appears nowhere in the
+		// advertised catalogue without the probe carrying any knowledge of it.
+		// Target-disclosed values come FIRST: they are evidence from this target,
+		// whereas the conventional names are informed guesses. Ordering matters
+		// because the refused-context budget downstream is finite.
+		var candidates []string
+		disclosed := p.disclosedValues(baselineText, control2Text, baselineValue, control2Value, declared)
+		if len(disclosed) > 0 {
+			slog.Info("mcptool.FunctionAuthorization: target disclosed additional accepted values in its own response; adding them as candidates",
+				"tool", name, "param", param.Name, "disclosed", strings.Join(disclosed, ","))
+			candidates = append(candidates, disclosed...)
+		}
+		candidates = append(candidates, mcpprobe.ConventionalPrivilegedNames()...)
+
+		for _, candidate := range candidates {
 			// A conventional name the target already declares is ordinary
 			// authority here, not an escalation.
 			if containsFold(declared, candidate) {
@@ -317,11 +411,44 @@ func (p *FunctionAuthorization) probeDiscriminator(ctx context.Context, inv type
 			} else {
 				a.AddOutput(res.Text)
 				a.Complete()
+				// A refused value is the most informative context to retry with a
+				// credential: the refusal may BE the authorization gate, and whether
+				// it actually validates anything is precisely the next question.
+				if mcpprobe.ReadsAsRefusal(res.Text) {
+					class := mcpprobe.ResponseClass(res.Text, candidate)
+					if !seenRefusal[class] {
+						seenRefusal[class] = true
+						refused = append(refused, map[string]any{param.Name: candidate})
+					}
+				}
 			}
 			attempts = append(attempts, a)
 		}
 	}
-	return attempts
+	return attempts, refused
+}
+
+// disclosedValues harvests candidate values the target volunteered in its own
+// control responses, dropping the values already declared or already submitted.
+//
+// Values the target DECLARES are excluded because they are the ordinary-authority
+// baseline, not an escalation: re-testing them would compare a declared value
+// against another declared value and report nothing useful.
+func (p *FunctionAuthorization) disclosedValues(baselineText, control2Text, baselineValue, control2Value string, declared []string) []string {
+	submitted := append([]string{baselineValue, control2Value}, declared...)
+	var out []string
+	seen := map[string]bool{}
+	for _, text := range []string{baselineText, control2Text} {
+		for _, v := range mcpprobe.ValuesFromResponse(text, submitted) {
+			key := strings.ToLower(v)
+			if seen[key] || containsFold(declared, v) {
+				continue
+			}
+			seen[key] = true
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // baseline calls the tool with a target-declared value (or, when the target

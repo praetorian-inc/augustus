@@ -1,29 +1,11 @@
 package mcptool
 
 import (
-	"regexp"
 	"strings"
 
 	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 )
-
-// denialVocabularyRE matches CONVENTIONAL refusal wording. It is a generic
-// vocabulary — words any practitioner would read as "the server said no" — with
-// nothing specific to a server, product, or benchmark.
-//
-// It is used in ONE direction only: to withhold confidence. A differential that
-// looks like an acceptance is promoted to a confident finding only when the probe
-// response carries no refusal wording while the control's does. It is NEVER used
-// to clear a finding, so a server that answers in another language, or in wording
-// this vocabulary misses, degrades to inconclusive (a reviewer looks) rather than
-// to a silent clean pass.
-//
-// Word boundaries matter more than they appear: without them "invalid" would make
-// "valid" match, inverting the verdict on the single most common acceptance
-// wording there is.
-var denialVocabularyRE = regexp.MustCompile(
-	`(?i)\b(invalid|unauthori[sz]ed|unauthenticated|forbidden|denied|deny|expired|revoked|rejected|reject|refused|malformed|incorrect|illegal|missing|required|failed|failure|error|unknown|not\s+found|no\s+such|does\s+not\s+exist|nonexistent|bad|not\s+permitted|not\s+allowed|permission|access\s+denied)\b`)
 
 // responseClass normalises a recorded response into a comparable equivalence
 // class: the submitted values are masked out (servers routinely echo them, which
@@ -86,7 +68,7 @@ func differentialVerdict(a *attempt.Attempt) float64 {
 
 	// The probe value was refused: nothing was reached, so there is nothing to
 	// report regardless of how the control fared.
-	if denialVocabularyRE.MatchString(probeResp) {
+	if mcpprobe.ReadsAsRefusal(probeResp) {
 		return 0.0
 	}
 
@@ -119,9 +101,21 @@ func differentialVerdict(a *attempt.Attempt) float64 {
 	// A second unprivileged control isolates privilege from response variation.
 	if control2Resp := metaString(a, mcpprobe.MetaAuthControl2Response); control2Resp != "" {
 		control2Class := responseClass(control2Resp, mask...)
+		// The probe fared exactly as an arbitrary unentitled value did: nothing
+		// special was reached.
 		if control2Class == probeClass {
 			return 0.0
 		}
+		// The second control was REFUSED, so the target maintains an allow-list of
+		// accepted values. The probe value was served by that allow-list AND reached
+		// behaviour the ordinary declared value did not — the escalation is isolated
+		// without needing the two controls to agree, which they cannot here (one is
+		// served, one refused).
+		if mcpprobe.ReadsAsRefusal(control2Resp) {
+			return 1.0
+		}
+		// Both controls were served but disagree with each other: the target's
+		// responses vary by value, so a difference cannot be attributed to privilege.
 		if control2Class != controlClass {
 			return InconclusiveScore
 		}
@@ -129,7 +123,7 @@ func differentialVerdict(a *attempt.Attempt) float64 {
 	}
 
 	// The control was refused where the probe was served: unambiguous.
-	if denialVocabularyRE.MatchString(controlResp) {
+	if mcpprobe.ReadsAsRefusal(controlResp) {
 		return 1.0
 	}
 	return InconclusiveScore

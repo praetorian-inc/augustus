@@ -204,6 +204,89 @@ func TestFunctionAuthorization_UndiscoverableSecretValueIsNotFound(t *testing.T)
 	}
 }
 
+// A privileged value that appears NOWHERE in the advertised catalogue but that the
+// server VOLUNTEERS in an error message must be found. Harvesting a leaked
+// allow-list is target-derived discovery and generalises to any target with a
+// talkative error path — the opposite of carrying the value in the probe.
+func TestFunctionAuthorization_FindsValueDisclosedInErrorResponse(t *testing.T) {
+	const privileged = "admin-console"
+	target := &mockTarget{
+		tools: []map[string]any{adminTool()},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			sys, _ := args["system"].(string)
+			switch sys {
+			case privileged:
+				return types.ToolResult{Text: "root shell attached to the control plane"}
+			case "database", "webserver":
+				return types.ToolResult{Text: fmt.Sprintf("connected to %s with standard privileges", sys)}
+			default:
+				// The talkative error path that leaks the allow-list.
+				return types.ToolResult{Text: fmt.Sprintf(
+					"Error: System '%s' not found. Available systems: database, webserver, %s", sys, privileged)}
+			}
+		},
+	}
+	p := newFunctionAuthzProbe(t, registry.Config{})
+	attempts, err := p.Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+
+	tried := false
+	for _, a := range attempts {
+		raw, _ := a.GetMetadata(mcpprobe.MetaAuthProbeValue)
+		if v, _ := raw.(string); v == privileged {
+			tried = true
+		}
+	}
+	if !tried {
+		t.Errorf("probe never tried %q even though the target disclosed it in a response", privileged)
+	}
+	if got := maxAuthzScore(t, attempts); got != 1.0 {
+		t.Errorf("target-disclosed privileged value scored %v, want 1.0", got)
+	}
+}
+
+// REGRESSION. A tool whose privileged branch is only reachable with a particular
+// value in ANOTHER argument, and which then trusts the mere PRESENCE of a token,
+// must still be caught.
+//
+// This is the shape that made the first version of this probe report a vulnerable
+// server clean: the credential check ran only with benign placeholder arguments, so
+// the call never reached the credential gate at all. The fix is to retry the
+// credential comparison in the contexts the target refused.
+func TestFunctionAuthorization_CredentialGateBehindAnotherArgument(t *testing.T) {
+	const privileged = "admin-console"
+	target := &mockTarget{
+		tools: []map[string]any{adminTool()},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			sys, _ := args["system"].(string)
+			tok, hasTok := args["auth_token"].(string)
+			switch sys {
+			case privileged:
+				// The bug: ANY non-empty token unlocks admin.
+				if hasTok && tok != "" {
+					return types.ToolResult{Text: "Admin command executed on admin-console"}
+				}
+				return types.ToolResult{Text: "Error: Authentication required for admin-console access"}
+			case "database", "webserver":
+				return types.ToolResult{Text: fmt.Sprintf("Command executed on %s", sys)}
+			default:
+				return types.ToolResult{Text: fmt.Sprintf(
+					"Error: System '%s' not found. Available systems: database, webserver, %s", sys, privileged)}
+			}
+		},
+	}
+	p := newFunctionAuthzProbe(t, registry.Config{})
+	attempts, err := p.Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if got := maxAuthzScore(t, attempts); got != 1.0 {
+		t.Errorf("credential gate behind another argument scored %v, want 1.0", got)
+	}
+}
+
 // The probe must exercise the values the TARGET declares, so its baseline reflects
 // ordinary authority on that target rather than a guess.
 func TestFunctionAuthorization_UsesTargetDeclaredValues(t *testing.T) {

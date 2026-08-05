@@ -195,6 +195,27 @@ func TestAuthDifferential_DisagreeingControlsAreInconclusive(t *testing.T) {
 	}
 }
 
+// TestAuthDifferential_RefusedSecondControlConfirmsAllowList: when the second
+// control is REFUSED the target maintains an allow-list. The probe value being
+// served by that allow-list AND reaching behaviour the ordinary declared value did
+// not isolates the escalation, even though the two controls cannot agree here (one
+// served, one refused).
+func TestAuthDifferential_RefusedSecondControlConfirmsAllowList(t *testing.T) {
+	a := diffAttempt{
+		class:        mcpprobe.AuthClassPrivilegeDiscriminator,
+		probeValue:   "admin-console",
+		probeResp:    "root shell attached to the control plane",
+		controlValue: "database",
+		controlResp:  "connected to database with standard privileges",
+	}.build()
+	a.Metadata[mcpprobe.MetaAuthControl2Value] = "aug0011223344"
+	a.Metadata[mcpprobe.MetaAuthControl2Response] = "Error: System 'aug0011223344' not found."
+
+	if got := detectTokenValidation(t, a); got != 1.0 {
+		t.Errorf("allow-list-confirmed escalation scored %v, want 1.0", got)
+	}
+}
+
 // TestAuthDifferential_RefusedProbeIsAlwaysSafe: whatever the control said, a
 // probe value the target refused reached nothing.
 func TestAuthDifferential_RefusedProbeIsAlwaysSafe(t *testing.T) {
