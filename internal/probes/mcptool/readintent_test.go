@@ -151,3 +151,45 @@ func TestPayloadPrefixes(t *testing.T) {
 		t.Errorf("payloadVariants(with candidate) = %v, want [\"; expr 1\" \"ls ; expr 1\"]", got)
 	}
 }
+
+// TestReadIntent_HandlesInflectedVerbs is the regression for a false negative
+// found only by testing against a non-DVMCP target.
+//
+// English tool descriptions are overwhelmingly third-person — "Reads file
+// contents", "Returns user information" — and a stem-only word-boundary pattern
+// matches none of them. Measured on an independent lab: `read_file` described as
+// "Reads file contents from the filesystem." failed readIntent, received
+// write-canary payloads instead of read payloads, and a documented path traversal
+// went undetected. DVMCP uses bare imperatives ("Read a file from the system"),
+// which matched — so the original corpus could not surface this at all.
+func TestReadIntent_HandlesInflectedVerbs(t *testing.T) {
+	readish := []string{
+		"Reads file contents from the filesystem. Supports relative and absolute paths.",
+		"Gets a configuration value",
+		"Retrieves the requested document",
+		"Fetching a remote record",
+		"Searches the user database for matching usernames.",
+	}
+	for _, desc := range readish {
+		tool := docTool("thing", desc, map[string]any{"path": strProp()}, "path")
+		if !readIntent(tool, toolParams(tool)) {
+			t.Errorf("readIntent = false for %q, want true", desc)
+		}
+	}
+
+	// The safety half must inflect too: missing "writes" or "deletes" where only
+	// the stem was matched would admit a write-capable tool to the read path.
+	writeish := []string{
+		"Writes the report to disk",
+		"Deletes the previous entry",
+		"Executes a system command",
+		"Updates the stored record",
+		"Reads a file and then removes it",
+	}
+	for _, desc := range writeish {
+		tool := docTool("thing", desc, map[string]any{"path": strProp()}, "path")
+		if readIntent(tool, toolParams(tool)) {
+			t.Errorf("readIntent = true for %q, want false; mutation vocabulary must disqualify", desc)
+		}
+	}
+}

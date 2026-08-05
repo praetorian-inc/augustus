@@ -398,13 +398,26 @@ func markGuardBypass(prefixed, baseline, control *attempt.Attempt) {
 
 // readVerbRE matches tool names and descriptions that declare a read-only
 // operation. Anchored on word boundaries so "download" does not match "load".
-var readVerbRE = regexp.MustCompile(`(?i)\b(read|get|fetch|list|show|view|display|retrieve|download|cat|dump|inspect|describe|search|find|query|lookup)\b`)
+// Inflections are matched because English tool descriptions are overwhelmingly
+// written in the third person -- "Reads file contents", "Returns user
+// information" -- and a stem-only pattern silently fails on all of them.
+//
+// Measured: `read_file` on an independent lab is described as "Reads file
+// contents from the filesystem." A bare `\bread\b` does not match "Reads", so
+// readIntent returned false, the tool received write-canary payloads instead of
+// read payloads, and a documented path traversal was missed. DVMCP happens to
+// use bare imperatives ("Read a file from the system"), which matched -- so the
+// corpus hid the defect entirely.
+var readVerbRE = regexp.MustCompile(`(?i)\b(read|get|fetch|list|show|view|display|retrieve|download|cat|dump|inspect|describe|search|find|query|lookup)(s|es|ing|ed)?\b`)
 
 // mutationVerbRE matches any hint that a tool changes state. Presence of ONE of
 // these disqualifies a tool from read payloads even when read verbs also appear,
 // because the cost of being wrong is asymmetric: a misjudged writer handed a
 // read payload targets a sensitive path.
-var mutationVerbRE = regexp.MustCompile(`(?i)\b(write|delete|remove|create|update|modify|edit|put|post|upload|rename|move|copy|append|truncate|set|save|store|patch|destroy|drop|insert|execute|run|exec|chmod|chown|mkdir|unlink)\b`)
+// Inflected for the same reason as readVerbRE, and it matters more here: the
+// mutation list is the safety half, so missing "writes" or "deletes" where the
+// stem was present would admit a write-capable tool to the read-payload path.
+var mutationVerbRE = regexp.MustCompile(`(?i)\b(write|delete|remove|create|update|modify|edit|put|post|upload|rename|move|copy|append|truncate|set|save|store|patch|destroy|drop|insert|execute|run|exec|chmod|chown|mkdir|unlink)(s|es|ing|ed)?\b`)
 
 // readIntentValues are discriminator values that make a call definitionally a
 // read, whatever the tool as a whole can do.
