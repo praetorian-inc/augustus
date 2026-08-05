@@ -249,19 +249,26 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 				continue
 			}
 			pathParamSeen = true
+			// Baselines are kept per payload so each prefix-append variant can be
+			// compared against the unprefixed attempt for the SAME target file.
+			baselines := make([]*attempt.Attempt, 0, len(payloads))
 			for _, tp := range payloads {
-				attempts = append(attempts, p.callOne(ctx, inv, name, param.name, params, tp))
+				a := p.callOne(ctx, inv, name, param.name, params, tp)
+				baselines = append(baselines, a)
+				attempts = append(attempts, a)
 			}
 			// Prefix-append variants — defeat `filename.startswith(prefix)`
 			// / `prefix in path` gates that the tool description disclosed.
 			for _, prefix := range hintedPrefixes {
-				for _, tp := range payloads {
+				for i, tp := range payloads {
 					prefixed := pathTraversalPayload{
 						payload:    joinHintedPath(prefix, tp.payload),
 						signatures: tp.signatures,
 						isWrite:    tp.isWrite,
 					}
-					attempts = append(attempts, p.callOne(ctx, inv, name, param.name, params, prefixed))
+					a := p.callOne(ctx, inv, name, param.name, params, prefixed)
+					markGuardBypass(a, baselines[i])
+					attempts = append(attempts, a)
 				}
 			}
 		}
@@ -306,6 +313,50 @@ func (p *PathTraversal) payloadsFor(tool map[string]any, params []paramInfo) []p
 		return readPayloads
 	}
 	return buildWritePayloads()
+}
+
+// guardRefusalRE matches a tool REFUSING a path on its own authorization
+// grounds — the gate under test rejected the argument before touching the disk.
+var guardRefusalRE = regexp.MustCompile(`(?i)(not allowed|not permitted|access denied|permission is denied|forbidden|unauthorized|only files in|outside (the )?(allowed|permitted|safe)|restricted to|invalid path|illegal path)`)
+
+// fsErrorRE matches an error that could only come from the FILESYSTEM layer:
+// the path was accepted by the gate and handed to an open() call, which then
+// failed for a reason that has nothing to do with authorization. Deliberately
+// excludes "permission denied", which is ambiguous between the two layers.
+var fsErrorRE = regexp.MustCompile(`(?i)(no such file or directory|errno 2\b|enoent|cannot find the (file|path)|file not found|is a directory|errno 21\b|not a directory|errno 20\b)`)
+
+// markGuardBypass records whether a prefix-append attempt defeated the tool's
+// own path guard, by comparing it against the unprefixed baseline for the same
+// target file.
+//
+// The signal is the CHANGE between the two responses. A bare traversal payload
+// refused on authorization grounds, and the same payload behind the tool's own
+// disclosed prefix reaching a filesystem-level error, means the gate let the
+// escaped path through — the traversal worked, and only an unrelated fact about
+// the filesystem (the sandbox directory not existing on this host, say) stopped
+// content coming back. That is a real bypass on a target where the directory
+// does exist, so it must not be scored as clean.
+//
+// Neither half alone is evidence: a filesystem error on its own is the ordinary
+// result of asking for a file that is not there, which is why the detector
+// requires this paired verdict rather than the error text.
+func markGuardBypass(prefixed, baseline *attempt.Attempt) {
+	if prefixed == nil || baseline == nil {
+		return
+	}
+	baseText := strings.Join(baseline.Outputs, "\n")
+	prefixedText := strings.Join(prefixed.Outputs, "\n")
+	if baseText == "" || prefixedText == "" {
+		return
+	}
+	if !guardRefusalRE.MatchString(baseText) {
+		return
+	}
+	if !fsErrorRE.MatchString(prefixedText) {
+		return
+	}
+	prefixed.WithMetadata(attempt.MetadataKeyPathTraversalGuardBypass, true)
+	prefixed.WithMetadata(attempt.MetadataKeyPathTraversalBaselineResponse, baseText)
 }
 
 // readVerbRE matches tool names and descriptions that declare a read-only
