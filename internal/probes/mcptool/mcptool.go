@@ -17,9 +17,12 @@
 package mcptool
 
 import (
+	"context"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 // paramInfo describes one tool parameter parsed from its JSON-schema.
@@ -127,6 +130,11 @@ var (
 	quotedValueRE = regexp.MustCompile(`['"]([^'"\n]{1,32})['"]`)
 	// any parenthesised group, to be vetted by the two alternation forms below
 	parenGroupRE = regexp.MustCompile(`\(([^)\n]{1,160})\)`)
+	// a colon-introduced list, which is how servers phrase this in prose and in
+	// rejection messages alike: "must be one of: read, write, delete".
+	// Anchored on an introducing phrase so an arbitrary "word: text" line (every
+	// line of a docstring Args: block) cannot be read as a value list.
+	colonListRE = regexp.MustCompile(`(?i)(?:must be|has to be|should be|is )?(?:one of|any of|either|from)[^:\n]{0,20}:\s*([^.\n]{1,160})`)
 	// The alternation forms are ANCHORED to the whole parenthetical on purpose.
 	// Matching loosely inside prose is how "(only files in /tmp/safe/ allowed)"
 	// yields "tmp" and "safe" -- tokens that pass a shape filter but are not
@@ -170,12 +178,19 @@ func mineCandidateValues(frag string) []string {
 			group := strings.TrimSpace(m[1])
 			switch {
 			case commaAltRE.MatchString(group), slashAltRE.MatchString(group):
-				raw = append(raw, strings.FieldsFunc(group, func(r rune) bool {
-					return r == ',' || r == '/' || r == '|'
-				})...)
+				raw = append(raw, splitAlternation(group)...)
 			default:
 				// Prose, or a path -- contributes nothing rather than a guess.
 			}
+		}
+	}
+	// Colon-introduced lists last: the loosest shape, so it only runs when the
+	// stricter ones found nothing. This is the form a server uses when it REJECTS
+	// a value ("must be one of: read, write, delete"), which makes the same
+	// function usable against a rejection message as against a description.
+	if len(raw) == 0 {
+		for _, m := range colonListRE.FindAllStringSubmatch(frag, -1) {
+			raw = append(raw, splitAlternation(m[1])...)
 		}
 	}
 
@@ -232,6 +247,86 @@ func benignValue(p paramInfo) any {
 	default:
 		return "test"
 	}
+}
+
+// splitAlternation breaks a list on its separators and drops the connective
+// words English puts before the final item ("a, b, and c").
+func splitAlternation(group string) []string {
+	parts := strings.FieldsFunc(group, func(r rune) bool {
+		return r == ',' || r == '/' || r == '|'
+	})
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		for _, lead := range []string{"and ", "or "} {
+			if len(p) > len(lead) && strings.EqualFold(p[:len(lead)], lead) {
+				p = strings.TrimSpace(p[len(lead):])
+			}
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// discoverToolValues fills in candidate values a tool never declared, by making
+// ONE deliberately-invalid call and reading what the server says back.
+//
+// This is the strongest and most portable source of valid values available,
+// because it needs no convention at all: a server that rejects an argument very
+// often names what it would have accepted ("Invalid action: test. Must be one of:
+// read, write, delete"). Schema `enum` and description mining both depend on the
+// author having documented the parameter in a shape we recognise; this depends
+// only on the server answering.
+//
+// Cost is one call per tool, made with placeholder arguments, and it runs only
+// for parameters that have no candidates already. Failure is silent and total:
+// params keep whatever they had, which is the pre-existing behaviour.
+func discoverToolValues(ctx context.Context, inv types.ToolInvoker, tool string, params []paramInfo) []paramInfo {
+	needed := false
+	for _, p := range params {
+		if isStringParam(p.typ) && len(p.candidates) == 0 {
+			needed = true
+			break
+		}
+	}
+	if !needed || inv == nil {
+		return params
+	}
+
+	args := map[string]any{}
+	for _, p := range params {
+		if p.required {
+			args[p.name] = benignValue(p)
+		}
+	}
+	res, err := inv.CallTool(ctx, tool, args)
+	if err != nil || res.Text == "" {
+		return params
+	}
+
+	// The response is not attributed per parameter, so a discovered value is only
+	// adopted where exactly one parameter is missing candidates. With several
+	// unknowns there is no way to tell which list belongs to which argument, and
+	// guessing wrong is worse than not guessing.
+	missing := -1
+	for i, p := range params {
+		if isStringParam(p.typ) && len(p.candidates) == 0 {
+			if missing >= 0 {
+				return params
+			}
+			missing = i
+		}
+	}
+	if missing < 0 {
+		return params
+	}
+	if found := mineCandidateValues(res.Text); len(found) > 0 {
+		out := make([]paramInfo, len(params))
+		copy(out, params)
+		out[missing].candidates = found
+		return out
+	}
+	return params
 }
 
 // payloadPrefixes returns the leading text to place before a payload for one

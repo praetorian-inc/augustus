@@ -233,6 +233,7 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 		desc, _ := tool["description"].(string)
 		hintedPrefixes := extractHintedPrefixes(desc)
 		params := toolParams(tool)
+		params = discoverToolValues(ctx, inv, name, params)
 
 		// Payload flavour selection. A ReadOnly annotation is the only
 		// unambiguous positive signal that the tool cannot write; anything

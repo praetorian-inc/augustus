@@ -156,6 +156,7 @@ sending:
 			continue
 		}
 		params := toolParams(tool)
+		params = discoverToolValues(ctx, inv, name, params)
 		for _, param := range params {
 			if !isStringParam(param.typ) {
 				continue
