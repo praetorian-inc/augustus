@@ -2,10 +2,12 @@ package mcptool
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/praetorian-inc/augustus/internal/mcpprobe"
+	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
@@ -148,7 +150,10 @@ func TestTokenValidation_SkipsGetterNamedIssuers(t *testing.T) {
 			if got := maxTokenScore(t, attempts); got >= 0.5 {
 				t.Errorf("top score = %v; returning the same current credential to two reads is correct behaviour, not derivable issuance", got)
 			}
-			if calls >= 2 {
+			// ZERO, not "fewer than two". A single call already retrieves a live
+			// credential from the target, and the point of the exclusion is that a
+			// getter is never sampled for predictability at all.
+			if calls != 0 {
 				t.Errorf("getter was sampled %d times; it should not be sampled for predictability at all", calls)
 			}
 		})
@@ -205,5 +210,79 @@ func TestTokenValidation_IssuedCredentialsAreNotStoredVerbatim(t *testing.T) {
 	}
 	if got := maxTokenScore(t, attempts); got != 1.0 {
 		t.Errorf("top score = %v, want 1.0; a surface handing every caller the same credential is predictable", got)
+	}
+}
+
+// TestTokenValidation_UnsampledIssuerIsVisible covers a false-clean path introduced
+// by the retry fix itself: on an exhausted retry the probe logged and moved on
+// WITHOUT appending an attempt, so an issuer we could not assess produced the same
+// result as one we assessed and found clean.
+//
+// Both legs are exercised — a failure on the first sample and a failure on the
+// second — because the second is the more dangerous shape: one credential was
+// already issued, so it looks like progress was made.
+func TestTokenValidation_UnsampledIssuerIsVisible(t *testing.T) {
+	const issued = "tok_live_2f8c4a9e1d7b350698af"
+
+	cases := []struct {
+		name string
+		// failAfter is how many successful calls precede the failure. callToolOnce
+		// retries once, so a leg needs two consecutive failures to be exhausted.
+		failAfter int
+	}{
+		{"first sample unobtainable", 0},
+		{"second sample unobtainable", 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			target := &mockTarget{
+				tools: []map[string]any{{
+					"name":        "issue_session",
+					"description": "issue_session",
+					"parameters":  map[string]any{"type": "object", "properties": map[string]any{}},
+				}},
+				call: func(string, map[string]any) types.ToolResult {
+					return types.ToolResult{Text: "session token: " + issued}
+				},
+				callErr: func(string, map[string]any) error {
+					calls++
+					if calls <= tc.failAfter {
+						return nil
+					}
+					// A TRANSPORT failure, not an application refusal: every
+					// subsequent call errors, so the single retry is exhausted.
+					return errors.New("connection reset by peer")
+				},
+			}
+			attempts, err := newTokenValidationProbe(t, registry.Config{}).Probe(context.Background(), target)
+			if err != nil {
+				t.Fatalf("Probe: %v", err)
+			}
+
+			var unsampled *attempt.Attempt
+			for _, a := range attempts {
+				if v, _ := a.Metadata[attempt.MetadataKeyInconclusive].(bool); v && a.Status == attempt.StatusError {
+					unsampled = a
+				}
+				// The partially-obtained credential must not survive into evidence.
+				for k, v := range a.Metadata {
+					if s, ok := v.(string); ok && strings.Contains(s, issued) {
+						t.Errorf("metadata %q carries the issued credential", k)
+					}
+				}
+				for _, out := range a.Outputs {
+					if strings.Contains(out, issued) {
+						t.Error("output carries the issued credential")
+					}
+				}
+			}
+			if unsampled == nil {
+				t.Fatal("no inconclusive attempt recorded; an issuer that could not be sampled is indistinguishable from a clean one")
+			}
+			if unsampled.Metadata[attempt.MetadataKeyInconclusiveReason] == "" {
+				t.Error("no reason recorded; a reviewer must be told what was not assessed")
+			}
+		})
 	}
 }

@@ -276,6 +276,32 @@ func (p *TokenValidation) probeVerificationSurfaces(ctx context.Context, inv typ
 	return attempts
 }
 
+// unsampledAttempt records an issuing surface whose samples could not be obtained,
+// even after a retry.
+//
+// Logging and moving on was not enough: with no attempt appended, an issuer we
+// could NOT assess is indistinguishable in the results from one we assessed and
+// found clean. That is the false-clean shape this branch has been removing
+// elsewhere, and the retry fix introduced a fresh instance of it.
+//
+// The failed sample's value is deliberately absent. Where one leg succeeded, that
+// value is a live credential the target issued, and an attempt recording an
+// unfinished comparison has no use for it.
+func (p *TokenValidation) unsampledAttempt(tool, which string, err error) *attempt.Attempt {
+	a := attempt.New(fmt.Sprintf("predictability sampling of %q could not be completed", tool))
+	a.Probe = p.Name()
+	a.Detector = p.GetPrimaryDetector()
+	a.Metadata[mcpprobe.MetaAuthClass] = mcpprobe.AuthClassTokenPredictable
+	a.Metadata[mcpprobe.MetaAuthTool] = tool
+	a.Metadata[attempt.MetadataKeyInconclusive] = true
+	a.Metadata[attempt.MetadataKeyInconclusiveReason] = fmt.Sprintf(
+		"the %s credential sample could not be obtained after a retry, so the two issued values were never compared: %v", which, err)
+	slog.Warn("mcptool.TokenValidation: could not complete the predictability sampling, so this issuing surface was NOT assessed; this is not a clean result",
+		"tool", tool, "sample", which, "error", err)
+	a.SetError(err)
+	return a
+}
+
 // callToolOnce invokes a tool, retrying once on error.
 //
 // A differential is destroyed by a single failed leg, so a transient error costs a
@@ -435,8 +461,7 @@ func (p *TokenValidation) probeIssuanceSurfaces(ctx context.Context, inv types.T
 		// benchmark corpus, contention alone accounted for lost findings.
 		firstRes, err1 := callToolOnce(ctx, inv, name, args)
 		if err1 != nil {
-			slog.Warn("mcptool.TokenValidation: could not sample the issuing surface, so predictability was NOT assessed for it; this is not a clean result",
-				"tool", name, "error", err1)
+			attempts = append(attempts, p.unsampledAttempt(name, "first", err1))
 			continue
 		}
 		firstTok := extractCredentialLike(firstRes.Text)
@@ -445,8 +470,7 @@ func (p *TokenValidation) probeIssuanceSurfaces(ctx context.Context, inv types.T
 		}
 		secondRes, err2 := callToolOnce(ctx, inv, name, args)
 		if err2 != nil {
-			slog.Warn("mcptool.TokenValidation: obtained one sample but not a second, so predictability was NOT assessed for it; this is not a clean result",
-				"tool", name, "error", err2)
+			attempts = append(attempts, p.unsampledAttempt(name, "second", err2))
 			continue
 		}
 		secondTok := extractCredentialLike(secondRes.Text)

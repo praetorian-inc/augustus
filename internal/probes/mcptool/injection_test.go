@@ -19,6 +19,11 @@ type mockTarget struct {
 	tools    []map[string]any
 	call     func(name string, args map[string]any) types.ToolResult
 	listHook func() // optional: invoked whenever ListTools is called
+	// callErr, when set, returns a TRANSPORT-level error for a call — a Go error
+	// rather than a ToolResult with IsError. The two are not interchangeable: an
+	// IsError result means the server answered and refused, while a Go error means
+	// no answer arrived, which is what the retry and inconclusive paths key off.
+	callErr func(name string, args map[string]any) error
 }
 
 func (m *mockTarget) Generate(context.Context, *attempt.Conversation, int) ([]attempt.Message, error) {
@@ -36,6 +41,11 @@ func (m *mockTarget) ListTools(context.Context) ([]map[string]any, error) {
 }
 
 func (m *mockTarget) CallTool(_ context.Context, name string, args map[string]any) (types.ToolResult, error) {
+	if m.callErr != nil {
+		if err := m.callErr(name, args); err != nil {
+			return types.ToolResult{}, err
+		}
+	}
 	return m.call(name, args), nil
 }
 
