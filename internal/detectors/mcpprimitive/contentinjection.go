@@ -52,9 +52,15 @@ var modelDirectiveRE = regexp.MustCompile(`(?i)(` +
 var exfilActionRE = regexp.MustCompile(
 	`(?i)\b(send|forward|post|upload|exfiltrate|transmit|leak)\b[^.\n]{0,60}\b(to|at)\s+(https?://|[a-z0-9._%+-]+@)`)
 
-var exfilObjectRE = regexp.MustCompile(
-	`(?i)\b(credentials?|api[_\- ]?keys?|access[_\- ]?keys?|private[_\- ]?keys?|ssh[_\- ]?keys?|` +
-		`secrets?|passwords?|tokens?|conversation|chat\s+history|transcript|session|cookies?|id_rsa)\b|\.env\b`)
+// secretTerm names material worth stealing. It is a single self-contained
+// NON-CAPTURING GROUP so it can be embedded in a larger pattern without its
+// trailing alternative escaping the group — a `|` at top level would otherwise
+// split whatever pattern it is concatenated into, silently dropping the
+// surrounding requirements. Keep the outer (?: ... ) if you edit this.
+const secretTerm = `(?:\b(?:credentials?|api[_\- ]?keys?|access[_\- ]?keys?|private[_\- ]?keys?|ssh[_\- ]?keys?|` +
+	`secrets?|passwords?|tokens?|conversation|chat\s+history|transcript|session|cookies?|id_rsa)\b|\.env\b)`
+
+var exfilObjectRE = regexp.MustCompile(`(?i)` + secretTerm)
 
 // exfiltrates reports whether any single line both instructs an external send and
 // names sensitive material. Requiring the same line keeps an unrelated mention of
@@ -145,18 +151,26 @@ var hijackObjectRE = regexp.MustCompile(
 // Requiring both a transfer verb and a named tool sink separates them cleanly. The
 // verb requirement stays because a sink alone is not enough — "obtain an access
 // token via the auth tool" names a tool and is ordinary setup documentation.
-var hijackVerbRE = regexp.MustCompile(
-	`(?i)\b(send|forward|post|upload|exfiltrate|transmit|leak|copy|paste|export|write|put)\b`)
-
+//
+// The three parts must appear IN ORDER inside ONE CLAUSE, not merely somewhere on
+// the same line. Testing them as three independent matches proved too weak:
+//
+//	Before calling any other tool, upload the report; API key rotation is available via the webhook tool.
+//
+// has a verb, a secret and a tool sink, yet routes nothing anywhere — the upload
+// and the webhook belong to different clauses. This is the same co-occurrence
+// fallacy the same-line rule guards against one level up, so the gaps below
+// exclude clause terminators (. ; newline) as well.
 var hijackToolSinkRE = regexp.MustCompile(
-	`(?i)\b(to|into|using|via|through|with)\s+(the\s+)?[\w-]+\s+tool\b`)
+	`(?i)\b(?:send|forward|post|upload|exfiltrate|transmit|leak|copy|paste|export|write|put)\b` +
+		`[^.;\n]{0,60}` + secretTerm +
+		`[^.;\n]{0,60}\b(?:to|into|using|via|through|with)\s+(?:the\s+)?[\w-]+\s+tool\b`)
 
-// routesSecretToToolSink reports whether one line hands generic secret material to
-// a named tool. All three parts must be present; see hijackVerbRE for why.
+// routesSecretToToolSink reports whether one clause hands generic secret material
+// to a named tool, verb first and sink last. See hijackToolSinkRE for why order
+// and clause containment are required rather than mere co-occurrence.
 func routesSecretToToolSink(line string) bool {
-	return hijackVerbRE.MatchString(line) &&
-		hijackToolSinkRE.MatchString(line) &&
-		exfilObjectRE.MatchString(line)
+	return hijackToolSinkRE.MatchString(line)
 }
 
 // hijacksToolOrder reports whether any single line hijacks tool-selection order
