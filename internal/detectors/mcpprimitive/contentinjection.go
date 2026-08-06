@@ -52,13 +52,9 @@ var modelDirectiveRE = regexp.MustCompile(`(?i)(` +
 var exfilActionRE = regexp.MustCompile(
 	`(?i)\b(send|forward|post|upload|exfiltrate|transmit|leak)\b[^.\n]{0,60}\b(to|at)\s+(https?://|[a-z0-9._%+-]+@)`)
 
-// sensitiveMaterial names what an attacker's injected step actually goes after.
-// Shared by the exfiltration and tool-ordering signals so the two agree on what
-// counts as worth stealing.
-const sensitiveMaterial = `\b(credentials?|api[_\- ]?keys?|access[_\- ]?keys?|private[_\- ]?keys?|ssh[_\- ]?keys?|` +
-	`secrets?|passwords?|tokens?|conversation|chat\s+history|transcript|session|cookies?|id_rsa)\b|\.env\b`
-
-var exfilObjectRE = regexp.MustCompile(`(?i)` + sensitiveMaterial)
+var exfilObjectRE = regexp.MustCompile(
+	`(?i)\b(credentials?|api[_\- ]?keys?|access[_\- ]?keys?|private[_\- ]?keys?|ssh[_\- ]?keys?|` +
+		`secrets?|passwords?|tokens?|conversation|chat\s+history|transcript|session|cookies?|id_rsa)\b|\.env\b`)
 
 // exfiltrates reports whether any single line both instructs an external send and
 // names sensitive material. Requiring the same line keeps an unrelated mention of
@@ -95,10 +91,29 @@ func exfiltrates(content string) bool {
 var orderingRE = regexp.MustCompile(
 	`(?i)\bbefore\s+(using|calling|invoking)\b[^.\n]{0,30}\b(any\s+other\s+)?tool`)
 
-// hijackObjectRE extends sensitiveMaterial with the sensitive filesystem
-// locations a hijacked first step commonly reads, which the exfiltration signal
-// does not need (it requires an explicit destination instead).
-var hijackObjectRE = regexp.MustCompile(`(?i)` + sensitiveMaterial + `|~/\.|/etc/|\.ssh\b`)
+// hijackObjectRE matches a concrete sensitive LOCATION or ARTIFACT — deliberately
+// NOT the generic security vocabulary that exfilObjectRE accepts.
+//
+// The two signals need different object strengths because their actions differ in
+// strength. "Send X to https://…" is already unambiguous, so exfilObjectRE can
+// afford generic nouns: "send the session token to <url>" is an attack whichever
+// way you read it. An ordering clause is far weaker — it is how auth-first
+// sequencing is normally documented — so the same nouns there produce ordinary
+// prose. Measured: with the generic list, all of these scored 1.0, and
+// auth-before-tools is MORE common in real server documentation than the ordering
+// advice that opened LAB-5579:
+//
+//	Before calling any other tool, obtain an access token via the auth tool.
+//	Before using any other tool, establish a session with the connect tool.
+//	Before invoking any other tool, verify your API key is configured.
+//	Before calling any other tool, load credentials from the environment.
+//
+// A concrete location or artifact has no such benign reading. A server telling the
+// host model to read ~/.ssh/id_rsa or /etc/shadow before doing anything else is
+// not describing correct sequencing, and this narrowing costs no coverage: every
+// file-directed hijack still fires, and none of them is caught by any other signal.
+var hijackObjectRE = regexp.MustCompile(
+	`(?i)~/\.|/etc/|\.ssh\b|\.env\b|\bid_rsa\b|private[_\- ]?keys?|\bcontents?\s+of\b`)
 
 // hijacksToolOrder reports whether any single line both hijacks tool-selection
 // order and names sensitive material for the hijacked step to reach.
