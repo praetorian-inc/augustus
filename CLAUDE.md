@@ -190,8 +190,10 @@ augustus scan mcp.MCP --recon recon.MCP \
 
 # Credential exposure across every non-tool surface. Unlike the two probes above,
 # ContentLeak derives ALL of its requests from the catalog, so recon (or a
-# recon-capable generator) is required — a failed enumeration is a hard error, never
-# a clean pass.
+# recon-capable generator) is REQUIRED: a target that cannot be enumerated is a hard
+# error, never a clean pass. Note the limit of that guarantee — recon folds a failed
+# list call into an empty inventory, so an enumeration that fails mid-walk arrives as
+# a catalog that merely looks empty rather than as an error.
 augustus scan mcp.MCP --recon recon.MCP --probe mcpprimitive.ContentLeak \
   --config '{"endpoint":"http://localhost:8000/mcp"}'
 ```

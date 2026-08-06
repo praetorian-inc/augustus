@@ -53,7 +53,9 @@ func (r *reconContext) SetContext(pc recon.ProbeContext) { r.store = pc.Recon }
 // prior recon phase already gathered and falling back to a live enumeration via
 // types.MCPReconnaissance. A target that is neither described by recon nor
 // capable of reconnaissance yields (nil, nil): the caller decides whether that is
-// a legitimate empty result or a hard error.
+// a legitimate empty result or a hard error. ContentLeak.canEnumerate makes that
+// call explicitly, because for the surfaces IT reads there is no way to proceed
+// without a catalog.
 //
 // Callers must NOT treat an empty catalog as proof the target serves no
 // resources. recon gates enumeration on the server's DECLARED capabilities and
@@ -61,24 +63,60 @@ func (r *reconContext) SetContext(pc recon.ProbeContext) { r.store = pc.Recon }
 // without advertising the capability enumerates to nothing. ResourceInjection
 // therefore always sends its baseline payload set regardless of what the catalog
 // contains.
+// A stored inventory whose enumeration stopped early is retried live before being
+// used. The sibling tool-surface probes do the same, for a reason worth restating:
+// a stored partial catalog is a snapshot of one earlier walk, and a fresh walk may
+// simply succeed. Retrying costs one enumeration; not retrying silently narrows
+// every surface downstream.
+//
+// If the live walk is ALSO incomplete, the stored inventory is used anyway rather
+// than discarded. That is where these probes diverge from mcptool.Injection /
+// recon.MCPIdentifiers, which refuse a truncated catalog outright — those emit
+// nothing when the catalog is short, so scoring a prefix would report a clean
+// no-op on a surface never examined. This package's probes report what they FIND
+// and never certify absence, so scoring a prefix still surfaces real findings in
+// it, and refusing would discard them to avoid an overclaim never made. The
+// truncation is recorded loudly by the caller instead.
 func (r *reconContext) resolveInventories(ctx context.Context, gen types.Generator) ([]*types.MCPInventory, error) {
+	var stored []*types.MCPInventory
 	if r.store != nil {
-		if invs := mcpx.InventoriesFrom(r.store); len(invs) > 0 {
-			return invs, nil
-		}
+		stored = mcpx.InventoriesFrom(r.store)
 	}
+	if len(stored) > 0 && inventoriesComplete(stored) {
+		return stored, nil
+	}
+
 	rec, ok := gen.(types.MCPReconnaissance)
 	if !ok {
-		return nil, nil
+		// No live path. A partial stored inventory still beats nothing.
+		return stored, nil
 	}
 	inv, err := rec.MCPInventory(ctx)
 	if err != nil {
+		if len(stored) > 0 {
+			return stored, nil
+		}
 		return nil, err
 	}
 	if inv == nil {
-		return nil, nil
+		return stored, nil
+	}
+	if len(stored) > 0 && !inv.IsComplete() {
+		// Neither is complete; keep the stored set so a prior, possibly wider walk
+		// is not traded for a narrower fresh one.
+		return stored, nil
 	}
 	return []*types.MCPInventory{inv}, nil
+}
+
+// inventoriesComplete reports whether every inventory enumerated fully.
+func inventoriesComplete(invs []*types.MCPInventory) bool {
+	for _, inv := range invs {
+		if inv == nil || !inv.IsComplete() {
+			return false
+		}
+	}
+	return true
 }
 
 // fileSignatures are the stable content markers only a real read of the

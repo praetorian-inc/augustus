@@ -2,11 +2,15 @@ package mcpprimitive
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"net"
 	"strings"
 
 	"github.com/praetorian-inc/augustus/internal/mcpprobe"
+	mcpx "github.com/praetorian-inc/augustus/internal/recon/mcp"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/recon"
@@ -60,16 +64,25 @@ var (
 type ContentLeak struct {
 	reconContext
 	// maxTargets caps how many entries each surface group contributes: resource
-	// reads (concrete plus template expansions), prompt renders, and catalog
-	// metadata entries are budgeted separately so a large tool catalog cannot
-	// starve the resource reads.
+	// reads (concrete plus template expansions) and prompt renders are budgeted
+	// separately, so a large resource catalog cannot starve the prompt renders.
 	maxTargets int
 }
 
 // NewContentLeak constructs the probe. Every setting defaults, so the probe works
 // against any MCP target with no configuration.
+//
+// A non-positive cap is rejected rather than accepted. Zero satisfies the
+// per-group budget check immediately, so every resource and prompt is skipped and
+// the probe returns no attempts — a scan that looks indistinguishable from a
+// target with nothing to read. An operator who typed 0 should be told, not handed
+// a silent no-op.
 func NewContentLeak(cfg registry.Config) (probes.Prober, error) {
-	return &ContentLeak{maxTargets: registry.GetInt(cfg, "content_max_targets", 25)}, nil
+	maxTargets := registry.GetInt(cfg, "content_max_targets", 25)
+	if maxTargets <= 0 {
+		return nil, fmt.Errorf("mcpprimitive.ContentLeak: content_max_targets must be positive, got %d; a non-positive cap skips every surface and reports nothing, which is indistinguishable from a clean result", maxTargets)
+	}
+	return &ContentLeak{maxTargets: maxTargets}, nil
 }
 
 func (p *ContentLeak) Name() string { return "mcpprimitive.ContentLeak" }
@@ -118,6 +131,15 @@ func (p *ContentLeak) Probe(ctx context.Context, gen types.Generator) ([]*attemp
 		return nil, fmt.Errorf("mcpprimitive.ContentLeak: target %q cannot read MCP primitives; this probe requires a primitive-reading generator such as mcp.MCP", gen.Name())
 	}
 
+	// The catalog is the only way to learn these surfaces, so being UNABLE to
+	// enumerate is a hard failure — the same treatment the primitive-reader gate
+	// above gets. Without this, a target that cannot be enumerated produced the
+	// byte-identical output of a target that advertises nothing: zero attempts and
+	// no error. "We could not ask" must never render as "there was nothing there".
+	if !p.canEnumerate(gen) {
+		return nil, fmt.Errorf("mcpprimitive.ContentLeak: target %q exposes no MCP catalog to enumerate (no stored reconnaissance and the generator does not implement types.MCPReconnaissance); the resource, prompt and instruction surfaces cannot be discovered, so this probe cannot assess them", gen.Name())
+	}
+
 	invs, err := p.resolveInventories(ctx, gen)
 	if err != nil {
 		return nil, fmt.Errorf("mcpprimitive.ContentLeak: enumerate non-tool catalog: %w", err)
@@ -135,6 +157,22 @@ func (p *ContentLeak) Probe(ctx context.Context, gen types.Generator) ([]*attemp
 		return nil, nil
 	}
 	return attempts, nil
+}
+
+// canEnumerate reports whether this target's catalog is discoverable at all,
+// from stored reconnaissance or by asking the generator directly.
+//
+// Note what this does NOT promise. Reconnaissance folds a failed list call into an
+// empty inventory rather than surfacing an error, so "enumeration failed" only
+// becomes a hard error here when MCPInventory itself returns one. A swallowed list
+// failure still arrives as an inventory that merely looks empty. That residual gap
+// belongs to the recon layer, not this probe.
+func (p *ContentLeak) canEnumerate(gen types.Generator) bool {
+	if p.store != nil && len(mcpx.InventoriesFrom(p.store)) > 0 {
+		return true
+	}
+	_, ok := gen.(types.MCPReconnaissance)
+	return ok
 }
 
 // warnIncomplete reports a catalog whose enumeration stopped early. Such an
@@ -206,18 +244,17 @@ func (p *ContentLeak) readResources(ctx context.Context, reader types.MCPPrimiti
 	return attempts
 }
 
-// readOne issues one resources/read and records the attempt. A protocol error is
-// the server's denial signal, not a probe failure (resources/read has no
+// readOne issues one resources/read and records the attempt. An APPLICATION error
+// is the server's denial signal, not a probe failure (resources/read has no
 // application-level error flag), so it is preserved in metadata and the attempt
 // completed — a refusal stays a visible non-finding instead of an error verdict.
+// A FAILURE TO COMMUNICATE is not a refusal: see classifyCallError.
 func (p *ContentLeak) readOne(ctx context.Context, reader types.MCPPrimitiveReader, uri, class string) *attempt.Attempt {
 	a := p.newAttempt("read resource "+uri, uri, class)
 
 	res, err := reader.ReadResource(ctx, uri)
 	if err != nil {
-		a.Metadata[attempt.MetadataKeyPrimitiveCallError] = err.Error()
-		a.AddOutput("")
-		a.Complete()
+		p.recordCallError(a, err, "read resource "+uri)
 		return a
 	}
 	if res.MIMEType != "" {
@@ -226,6 +263,80 @@ func (p *ContentLeak) readOne(ctx context.Context, reader types.MCPPrimitiveRead
 	p.addBounded(a, res.Text, res.Raw)
 	a.Complete()
 	return a
+}
+
+// recordCallError classifies a failed resources/read or prompts/get and records
+// the attempt accordingly.
+//
+// The denial contract for these two calls is real: neither has an
+// application-level error flag like ToolResult.IsError, so a server REFUSING a
+// request can only say so by returning a protocol error. Treating such an error
+// as a non-finding is therefore correct — the surface was reached and access was
+// denied.
+//
+// But that contract only covers answers. A deadline, a cancelled scan or a dead
+// connection is not a refusal: nothing was measured, and completing the attempt
+// would report an unexamined surface as clean. The distinction matters most under
+// exactly the conditions where these errors cluster — a busy or small target where
+// requests are dropped — which is when a green result is least trustworthy.
+//
+// So a failure to communicate is marked INCONCLUSIVE and errored: visible, and
+// never mistakable for "nothing here".
+func (p *ContentLeak) recordCallError(a *attempt.Attempt, err error, what string) {
+	a.Metadata[attempt.MetadataKeyPrimitiveCallError] = err.Error()
+
+	if reason, transport := classifyCallError(err); transport {
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = reason
+		slog.Warn("mcpprimitive.ContentLeak: could not complete a request, so this surface was NOT assessed; this is not a clean result",
+			"probe", p.Name(), "target", what, "reason", reason, "error", err)
+		a.SetError(err)
+		return
+	}
+
+	// An application-level refusal: the surface answered, and the answer was no.
+	a.AddOutput("")
+	a.Complete()
+}
+
+// classifyCallError reports whether an error means "we never got an answer"
+// rather than "the server said no", plus a short reason for the report.
+//
+// Context errors are unambiguous. Beyond them, net.Error covers dials, resets and
+// timeouts. The remaining check is textual and deliberately narrow: the MCP SDK
+// wraps transport failures without exporting a distinguishable type, so a
+// conservative substring set is the only available signal. Anything unrecognised
+// is treated as a refusal, which preserves the existing behaviour for genuine
+// application errors rather than reclassifying them wholesale.
+func classifyCallError(err error) (string, bool) {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "request deadline exceeded before the server answered", true
+	case errors.Is(err, context.Canceled):
+		return "scan cancelled before the server answered", true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		if netErr.Timeout() {
+			return "network timeout before the server answered", true
+		}
+		return "network failure before the server answered", true
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return "connection closed before the server answered", true
+	}
+	lowered := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"connection refused", "connection reset", "broken pipe",
+		"no such host", "network is unreachable", "tls handshake",
+		"client closed", "session closed", "transport closed",
+		"eof", "timeout", "deadline exceeded",
+	} {
+		if strings.Contains(lowered, marker) {
+			return "transport failure before the server answered: " + marker, true
+		}
+	}
+	return "", false
 }
 
 // renderPrompts fetches each advertised prompt template with benign arguments.
@@ -268,9 +379,7 @@ func (p *ContentLeak) renderOne(ctx context.Context, reader types.MCPPrimitiveRe
 
 	res, err := reader.GetPrompt(ctx, pr.Name, benignPromptArgs(pr.Arguments))
 	if err != nil {
-		a.Metadata[attempt.MetadataKeyPrimitiveCallError] = err.Error()
-		a.AddOutput("")
-		a.Complete()
+		p.recordCallError(a, err, "render prompt template "+pr.Name)
 		return a
 	}
 	p.addBounded(a, res.Text, res.Raw)
@@ -286,7 +395,8 @@ func (p *ContentLeak) renderOne(ctx context.Context, reader types.MCPPrimitiveRe
 // Catalog descriptions and titles are deliberately NOT scored, despite reaching a
 // client the same way. `mcpsecrets.Credential` identifies a credential by a
 // credential-shaped KEY followed by a colon and a value, which is exactly right
-// for a config file (`"password": "hunter2"`) and exactly wrong for a docstring:
+// for a config file (a `password` key holding a literal value) and exactly wrong
+// for a docstring:
 // the `Args:` block of a tool description is also `name: description`. Measured
 // against DVMCP challenges 7 and 9, that collision scored 1.0 on nothing more
 // than parameter documentation ("password: The password for authentication",

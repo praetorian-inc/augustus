@@ -2,18 +2,21 @@ package mcpprimitive
 
 import (
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/types"
+
+	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
 // TestRiskInfo_Populated verifies every mcpprimitive probe exposes a complete
 // RiskDescriber write-up (the finding definition Guard renders). RiskInfo returns a
 // literal, so zero-value structs are sufficient — no construction needed.
 func TestRiskInfo_Populated(t *testing.T) {
-	for _, p := range allProbes() {
+	for _, p := range allProbes(t) {
 		rd, ok := p.(types.RiskDescriber)
 		if !ok {
 			t.Errorf("%s does not implement types.RiskDescriber", p.Name())
@@ -38,11 +41,32 @@ func TestRiskInfo_Populated(t *testing.T) {
 	}
 }
 
-// allProbes lists every probe this package ships, so package-wide contracts
-// (RiskInfo, metadata) cannot silently skip a newly added probe. RiskInfo and the
-// metadata methods return literals, so zero-value structs are sufficient.
-func allProbes() []probes.Prober {
-	return []probes.Prober{&ResourceInjection{}, &PromptTemplateInjection{}, &ContentLeak{}}
+// allProbes returns every probe this package ships, so package-wide contracts
+// (RiskInfo, metadata) cannot silently skip a newly added probe.
+//
+// Derived from the registry rather than hand-listed. A hand-written list only
+// enforces the contract if the author who adds a probe also remembers to extend
+// the list — which is exactly the omission these tests exist to catch. Building
+// from probes.Registry means registering in init() is sufficient.
+func allProbes(t *testing.T) []probes.Prober {
+	t.Helper()
+	names := probes.Registry.List()
+	sort.Strings(names)
+	var out []probes.Prober
+	for _, name := range names {
+		if !strings.HasPrefix(name, "mcpprimitive.") {
+			continue
+		}
+		p, err := probes.Registry.Create(name, registry.Config{})
+		if err != nil {
+			t.Fatalf("construct %s: %v", name, err)
+		}
+		out = append(out, p)
+	}
+	if len(out) == 0 {
+		t.Fatal("no mcpprimitive probes found in the registry; the contract tests would pass vacuously")
+	}
+	return out
 }
 
 // TestProbeMetadata_Populated checks the introspection surface every probe in this
@@ -62,7 +86,7 @@ func TestProbeMetadata_Populated(t *testing.T) {
 		"mcpprimitive.ContentLeak":             nil,
 	}
 
-	for _, p := range allProbes() {
+	for _, p := range allProbes(t) {
 		md, ok := p.(types.ProbeMetadata)
 		if !ok {
 			t.Errorf("%s does not implement types.ProbeMetadata", p.Name())
