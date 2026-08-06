@@ -346,3 +346,78 @@ func TestToolParams_MinesPropertyDescription(t *testing.T) {
 		t.Errorf("safeCandidateValue = %q,%v; want \"read\",true", v, ok)
 	}
 }
+
+// TestDiscoverToolValues_SendsTheParameterItDiscoversFor covers a defect in the
+// same class as trusting an optional discriminator in readIntent: only REQUIRED
+// parameters were sent, so when the uncandidated parameter was optional the
+// discovery call carried no value for it at all. The tool then ran with its own
+// defaults, the response was an ordinary success rather than the rejection this
+// call exists to provoke, and candidates were mined from normal output.
+func TestDiscoverToolValues_SendsTheParameterItDiscoversFor(t *testing.T) {
+	var sawArgs map[string]any
+	inv := newCountingInvoker(func(_ string, args map[string]any) types.ToolResult {
+		sawArgs = args
+		if _, ok := args["mode"]; !ok {
+			// What the old behaviour produced: a normal call with defaults, whose
+			// output happens to contain tokens a miner would adopt.
+			return types.ToolResult{Text: "ok: listing files alpha, beta, gamma"}
+		}
+		return types.ToolResult{Text: "Invalid mode. Must be one of: read, write"}
+	})
+	params := []paramInfo{
+		{name: "path", typ: "string", required: true, candidates: []string{"readme"}},
+		{name: "mode", typ: "string", required: false}, // OPTIONAL and uncandidated
+	}
+
+	out := discoverToolValues(context.Background(), inv, "t", params)
+	if _, sent := sawArgs["mode"]; !sent {
+		t.Fatalf("the discovered-for parameter was not sent; args=%v", sawArgs)
+	}
+	got := strings.Join(out[1].candidates, ",")
+	if got != "read,write" {
+		t.Errorf("candidates = %q, want \"read,write\" mined from the rejection", got)
+	}
+}
+
+// TestReadIntent_TrustsEverySafeDiscriminatorValue covers two vocabularies that
+// contradicted each other. safeCandidateValue classified 37 values as read-only
+// while readIntent consulted a 10-entry map, so 27 values were "safe to send" but
+// not "read intent" — and the probe sent one, then refused to believe it.
+//
+// The failure mode is a missed finding, not a false positive: on a multi-action
+// tool the description names the destructive branch too, so the metadata fallback
+// is disqualified and write-canary payloads go out instead of the read payloads
+// that would prove an arbitrary read in the branch actually selected.
+func TestReadIntent_TrustsEverySafeDiscriminatorValue(t *testing.T) {
+	for _, verb := range []string{"inspect", "search", "describe", "preview", "find", "query", "stat", "head"} {
+		t.Run(verb, func(t *testing.T) {
+			tool := map[string]any{
+				"name":        "file_manager",
+				"description": "Manage files. Can " + verb + " or delete them.",
+				"parameters": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"action": map[string]any{"type": "string", "enum": []any{verb, "delete"}},
+						"path":   strProp(),
+					},
+					"required": []any{"action", "path"},
+				},
+			}
+			params := toolParams(tool)
+			if !readIntent(tool, params) {
+				t.Errorf("readIntent = false although %q is the value the call will carry and it is classified read-only", verb)
+			}
+			if !isReadPayloadSet((&PathTraversal{}).payloadsFor(tool, params)) {
+				t.Error("write-canary payloads selected for a read-only branch; an arbitrary read would be missed")
+			}
+		})
+	}
+
+	// The safety half must still hold: no safe discriminator value, mutation
+	// vocabulary present, so the tool stays on the write-safe path.
+	writer := docTool("save_report", "Writes a report and deletes the previous one\n",
+		map[string]any{"path": strProp()}, "path")
+	if isReadPayloadSet((&PathTraversal{}).payloadsFor(writer, toolParams(writer))) {
+		t.Error("a writer received read payloads; a sensitive path could be overwritten")
+	}
+}

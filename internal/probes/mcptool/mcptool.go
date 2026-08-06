@@ -376,15 +376,27 @@ func discoverToolValues(ctx context.Context, inv types.ToolInvoker, tool string,
 
 	args := map[string]any{}
 	sent := map[string]bool{}
-	for _, p := range params {
-		if !p.required {
-			continue
-		}
-		v := benignValue(p)
-		args[p.name] = v
+	record := func(name string, v any) {
+		args[name] = v
 		if s, ok := v.(string); ok {
 			sent[strings.ToLower(s)] = true
 		}
+	}
+	for _, p := range params {
+		if p.required {
+			record(p.name, benignValue(p))
+		}
+	}
+	// The parameter being discovered for is ALWAYS sent, required or not.
+	//
+	// Only required parameters were sent before, so when the uncandidated
+	// parameter was optional the call carried no value for it at all: the tool ran
+	// with its own defaults, the response was an ordinary success rather than the
+	// deliberately-invalid rejection this call exists to provoke, and candidates
+	// were then mined out of normal output. Same defect class as trusting an
+	// optional discriminator in readIntent.
+	if _, ok := args[params[missing].name]; !ok {
+		record(params[missing].name, benignValue(params[missing]))
 	}
 	res, err := inv.CallTool(ctx, tool, args)
 	if err != nil || res.Text == "" {

@@ -588,13 +588,6 @@ func normaliseIdentifiers(s string) string {
 	return identifierSeparatorRE.ReplaceAllString(s, " ")
 }
 
-// readIntentValues are discriminator values that make a call definitionally a
-// read, whatever the tool as a whole can do.
-var readIntentValues = map[string]bool{
-	"read": true, "get": true, "fetch": true, "list": true, "view": true,
-	"show": true, "display": true, "retrieve": true, "download": true, "cat": true,
-}
-
 // readIntent reports whether the tool's own metadata says THIS call only reads.
 //
 // Two independent signals, in order of strength:
@@ -620,7 +613,18 @@ func readIntent(tool map[string]any, params []paramInfo) bool {
 		if !prm.required {
 			continue
 		}
-		if v, ok := prm.safeCandidateValue(); ok && readIntentValues[strings.ToLower(v)] {
+		// Any value safeCandidateValue returns qualifies, because that function
+		// only returns values classified READ-ONLY — and it is the value the call
+		// will actually carry.
+		//
+		// A second, narrower vocabulary used to gate this, which contradicted the
+		// first: 27 values were "safe to send" but not "read intent", among them
+		// inspect, search, describe, preview, find, query, head, tail and stat. On
+		// `action: (inspect, delete)` the probe therefore SENT inspect, rejected it
+		// here, fell through to the metadata check, was disqualified by "delete" in
+		// the description, and shipped write-canary payloads — missing the
+		// arbitrary read in the read-only branch it had just selected.
+		if _, ok := prm.safeCandidateValue(); ok {
 			return true
 		}
 	}
