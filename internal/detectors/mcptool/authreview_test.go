@@ -2,6 +2,7 @@ package mcptool
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/praetorian-inc/augustus/internal/mcpprobe"
@@ -81,5 +82,49 @@ func TestIssuedRelation_ShortValuesAreNotRelated(t *testing.T) {
 	// And a genuinely long near-identical pair must still fire.
 	if got := mcpprobe.IssuedRelation("tok_2024_prod_useast_00000001", "tok_2024_prod_useast_00000002"); !mcpprobe.IssuedRelationIsDerivable(got) {
 		t.Errorf("long shared-prefix pair = %q, want a derivable relation", got)
+	}
+}
+
+// TestAuthDifferential_HonorsExplicitInconclusiveMark covers a FALSE POSITIVE with
+// the strongest possible verdict: 1.0 on an attempt the probe had already declared
+// unmeasurable.
+//
+// The probes mark an attempt inconclusive when a leg of the differential cannot be
+// obtained. This shared detector never read the flag, so a missing replica response
+// normalised to the same class as the probe response and the logic fell through to
+// the control-refusal branch. Adding inconclusive marking to the probes made the
+// path MORE reachable, so both halves have to agree.
+func TestAuthDifferential_HonorsExplicitInconclusiveMark(t *testing.T) {
+	a := diffAttempt{
+		class:        mcpprobe.AuthClassTokenFormatOnly,
+		probeValue:   "aaaa1111",
+		probeResp:    "accepted",
+		controlValue: "!!",
+		controlResp:  "invalid token",
+	}.build()
+	// The replica leg was never obtained.
+	a.Metadata[mcpprobe.MetaAuthReplicaValue] = ""
+	a.Metadata[mcpprobe.MetaAuthReplicaResponse] = ""
+	a.Metadata[attempt.MetadataKeyInconclusive] = true
+
+	if got := detectTokenValidation(t, a); got != InconclusiveScore {
+		t.Errorf("scored %v, want %v; an attempt the probe could not measure is not a finding", got, InconclusiveScore)
+	}
+}
+
+// TestMaskID_IsCaseInsensitive covers the second, unfixed copy of a defect. The
+// caller lowercases only AFTER masking, so a server that canonicalises what it
+// echoes — upper-casing a token, capitalising a role — left that text in the
+// compared class, and two responses differing only by the echoed value read as
+// different behaviour.
+func TestMaskID_IsCaseInsensitive(t *testing.T) {
+	const submitted = "Ab12-Cd34"
+	lower := maskID("value "+strings.ToLower(submitted)+" accepted", submitted)
+	upper := maskID("value "+strings.ToUpper(submitted)+" accepted", submitted)
+	if lower != upper {
+		t.Errorf("masking is case-sensitive:\n lower = %q\n upper = %q", lower, upper)
+	}
+	if !strings.Contains(lower, "<id>") {
+		t.Errorf("value was not masked at all: %q", lower)
 	}
 }

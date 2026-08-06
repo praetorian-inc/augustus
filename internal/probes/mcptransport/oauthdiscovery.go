@@ -126,28 +126,44 @@ func discoverOAuthProtection(ctx context.Context, client *http.Client, endpoint 
 		}
 	}
 
-	// 2. Does the target publish RFC 9728 protected-resource metadata that names
-	//    THIS resource?
+	// 2. Does the target publish RFC 9728 protected-resource metadata for THIS
+	//    resource?
 	//
-	//    The binding is the point. Presence of a metadata document at the origin
-	//    says only that SOMETHING there speaks OAuth — a co-hosted application, an
-	//    unrelated API, a shared reverse proxy. Accepting that as "this MCP endpoint
-	//    is authorization-gated" scores anonymous access 1.0 on a target that never
-	//    claimed to be protected, and this class bypasses both the
-	//    configured-credentials precondition and the loopback softening, so it is
-	//    the most aggressive verdict the probe can reach.
-	origin := u.Scheme + "://" + u.Host
-	if fetchProtectedResourceDoc(ctx, client, origin+protectedResourcePath, endpoint) {
-		d.documents = append(d.documents, origin+protectedResourcePath)
+	//    Both spec-defined locations are probed, and the document must name the
+	//    resource identifier that the location it was fetched from implies:
+	//
+	//      https://h/mcp -> https://h/.well-known/oauth-protected-resource/mcp
+	//                       (RFC 9728 sec 3.1 inserts the well-known segment
+	//                        between host and path) and must declare https://h/mcp
+	//      https://h     -> https://h/.well-known/oauth-protected-resource
+	//                       and must declare https://h
+	//
+	//    Probing only the origin-level document missed a server that correctly
+	//    publishes the path-scoped one, which read as "no declaration" and skipped
+	//    the check entirely. Accepting a resource value that merely PREFIXES the
+	//    endpoint was the opposite error: RFC 9728 sec 3.3 requires the value to be
+	//    the resource identifier itself, and a document describing the origin is
+	//    evidence about the origin, not about a path mounted beneath it. That
+	//    matters because this class scores 1.0 while bypassing both the
+	//    configured-credentials precondition and the loopback softening, so the
+	//    weakest evidence reaches the strongest verdict.
+	for _, cand := range protectedResourceLocations(u) {
+		if fetchProtectedResourceDoc(ctx, client, cand.url, cand.resource) {
+			d.documents = append(d.documents, cand.url)
+			break
+		}
 	}
 
 	// RFC 8414 authorization-server metadata is deliberately NOT accepted on its
 	// own. It describes an authorization SERVER, not the protection status of any
 	// particular resource: a host can run an AS and serve an entirely unguarded MCP
-	// endpoint beside it. It is recorded only as corroboration for a declaration
-	// already established above.
-	if len(d.documents) > 0 && fetchDiscoveryDoc(ctx, client, origin+authServerPath) {
-		d.documents = append(d.documents, origin+authServerPath)
+	// endpoint beside it. Recorded only as corroboration for a declaration already
+	// established above.
+	if len(d.documents) > 0 {
+		origin := u.Scheme + "://" + u.Host
+		if fetchDiscoveryDoc(ctx, client, origin+authServerPath) {
+			d.documents = append(d.documents, origin+authServerPath)
+		}
 	}
 	return d
 }
@@ -213,7 +229,7 @@ func (p *UnauthenticatedAccess) probeDeclaredOpen(ctx context.Context, end types
 // lets a document cover a resource and the paths beneath it — so an endpoint at
 // https://h/mcp is covered by a document naming https://h or https://h/mcp, but
 // not by one naming https://h/other.
-func fetchProtectedResourceDoc(ctx context.Context, client *http.Client, docURL, endpoint string) bool {
+func fetchProtectedResourceDoc(ctx context.Context, client *http.Client, docURL, expectedResource string) bool {
 	doc, ok := fetchJSONDoc(ctx, client, docURL)
 	if !ok {
 		return false
@@ -222,33 +238,56 @@ func fetchProtectedResourceDoc(ctx context.Context, client *http.Client, docURL,
 	if resource == "" {
 		return false
 	}
-	if !resourceCovers(resource, endpoint) {
+	if !sameResourceIdentifier(resource, expectedResource) {
 		slog.Info("mcptransport.UnauthenticatedAccess: protected-resource metadata names a different resource, so it is not a declaration about this endpoint",
-			"declared_resource", resource, "endpoint", endpoint)
+			"declared_resource", resource, "expected_resource", expectedResource, "document", docURL)
 		return false
 	}
 	return true
 }
 
-// resourceCovers reports whether an RFC 9728 resource identifier covers the
-// endpoint under test.
-func resourceCovers(resource, endpoint string) bool {
-	r, err := url.Parse(strings.TrimSuffix(resource, "/"))
-	if err != nil || r.Host == "" {
-		return false
+// resourceLocation pairs a spec-defined metadata URL with the resource identifier
+// a document served there must declare.
+type resourceLocation struct {
+	url      string
+	resource string
+}
+
+// protectedResourceLocations returns the RFC 9728 metadata locations for an
+// endpoint, most specific first.
+//
+// Section 3.1 forms the URL by inserting the well-known segment between the host
+// and the resource path, so an endpoint at /mcp has its own document distinct from
+// the origin's. Both are tried because either can be the correct one depending on
+// what the deployment treats as the resource, and each carries a different expected
+// identifier.
+func protectedResourceLocations(u *url.URL) []resourceLocation {
+	origin := u.Scheme + "://" + u.Host
+	out := make([]resourceLocation, 0, 2)
+	if p := strings.TrimSuffix(u.Path, "/"); p != "" {
+		out = append(out, resourceLocation{
+			url:      origin + protectedResourcePath + p,
+			resource: origin + p,
+		})
 	}
-	e, err := url.Parse(endpoint)
+	return append(out, resourceLocation{url: origin + protectedResourcePath, resource: origin})
+}
+
+// sameResourceIdentifier compares a declared resource value against the identifier
+// its location implies. RFC 9728 requires them to be the same resource, so the
+// comparison is exact apart from a trailing slash and case-insensitive scheme/host.
+func sameResourceIdentifier(declared, expected string) bool {
+	d, err := url.Parse(strings.TrimSuffix(declared, "/"))
 	if err != nil {
 		return false
 	}
-	if !strings.EqualFold(r.Host, e.Host) || !strings.EqualFold(r.Scheme, e.Scheme) {
+	e, err := url.Parse(strings.TrimSuffix(expected, "/"))
+	if err != nil {
 		return false
 	}
-	rPath := strings.TrimSuffix(r.Path, "/")
-	if rPath == "" {
-		return true // the whole origin is declared protected
-	}
-	return e.Path == rPath || strings.HasPrefix(e.Path, rPath+"/")
+	return strings.EqualFold(d.Scheme, e.Scheme) &&
+		strings.EqualFold(d.Host, e.Host) &&
+		strings.TrimSuffix(d.Path, "/") == strings.TrimSuffix(e.Path, "/")
 }
 
 // fetchJSONDoc retrieves a bounded JSON object from a discovery URL.

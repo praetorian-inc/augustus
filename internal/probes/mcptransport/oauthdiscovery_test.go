@@ -229,3 +229,57 @@ func TestDiscoverOAuthProtection_StreamingEndpointDoesNotHang(t *testing.T) {
 		t.Fatal("discoverOAuthProtection never returned against a never-ending response stream; a byte cap bounds size, not time")
 	}
 }
+
+// TestDiscoverOAuthProtection_PathScopedMetadata covers a FALSE NEGATIVE that two
+// reviewers found independently.
+//
+// RFC 9728 §3.1 forms the metadata URL by inserting the well-known segment between
+// the host and the resource path, so an endpoint at /mcp has its own document at
+// /.well-known/oauth-protected-resource/mcp. Probing only the origin-level document
+// meant a server that correctly publishes the path-scoped one read as having made no
+// declaration at all, and the no-credentials branch skipped instead of assessing it.
+func TestDiscoverOAuthProtection_PathScopedMetadata(t *testing.T) {
+	var srv *httptest.Server
+	mux := http.NewServeMux()
+	// ONLY the path-scoped document exists; the origin-level path is absent.
+	mux.HandleFunc(protectedResourcePath+"/mcp", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"resource":"%s/mcp","authorization_servers":["https://as.example.com"]}`, srv.URL)
+	})
+	srv = httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	if !discoverOAuthProtection(context.Background(), srv.Client(), srv.URL+"/mcp").declared() {
+		t.Error("a path-scoped protected-resource document was not found; RFC 9728 §3.1 places it below the well-known segment")
+	}
+}
+
+// TestDiscoverOAuthProtection_RequiresExactResourceIdentifier covers the opposite
+// error. RFC 9728 §3.3 requires the declared resource to BE the identifier, so a
+// document describing the origin is evidence about the origin — not about a path
+// mounted beneath it. Prefix acceptance let an unrelated co-hosted deployment reach
+// the strongest verdict this probe can produce.
+func TestDiscoverOAuthProtection_RequiresExactResourceIdentifier(t *testing.T) {
+	// The path-scoped document exists but names the ORIGIN rather than the endpoint.
+	var srv *httptest.Server
+	mux := http.NewServeMux()
+	mux.HandleFunc(protectedResourcePath+"/mcp", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = fmt.Fprintf(w, `{"resource":"%s"}`, srv.URL)
+	})
+	srv = httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	if discoverOAuthProtection(context.Background(), srv.Client(), srv.URL+"/mcp").declared() {
+		t.Error("a document naming a different resource identifier was accepted as a declaration about this endpoint")
+	}
+
+	// Direct unit coverage of the comparison, including the tolerated differences.
+	if !sameResourceIdentifier("https://H.example.com/mcp/", "https://h.example.com/mcp") {
+		t.Error("scheme/host case and a trailing slash must not defeat the comparison")
+	}
+	if sameResourceIdentifier("https://h.example.com", "https://h.example.com/mcp") {
+		t.Error("the origin must not satisfy an endpoint mounted beneath it")
+	}
+	if sameResourceIdentifier("https://other.example.com/mcp", "https://h.example.com/mcp") {
+		t.Error("a different host was accepted")
+	}
+}

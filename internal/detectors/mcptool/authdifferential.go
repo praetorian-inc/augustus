@@ -54,6 +54,18 @@ func responseClass(resp string, values ...string) string {
 // controls disagree, the target's responses vary by value and no conclusion is
 // drawn.
 func differentialVerdict(a *attempt.Attempt) float64 {
+	// An explicit inconclusive mark wins over every comparison below.
+	//
+	// The probes set this when a leg of the differential could not be obtained —
+	// a CSPRNG failure, an unsampled issuer, an exhausted retry. This detector
+	// never read it, so a missing replica response normalised to the same class as
+	// the probe response, the logic fell through to the control-refusal branch, and
+	// an attempt the probe had already declared unmeasurable scored 1.0. Adding
+	// inconclusive marking to the probes made that path more reachable, not less,
+	// so the two halves have to agree.
+	if metaBool(a, attempt.MetadataKeyInconclusive) {
+		return InconclusiveScore
+	}
 	if a.Error != "" {
 		return 0.0
 	}
