@@ -1,5 +1,10 @@
 package mcpprobe
 
+import (
+	"encoding/json"
+	"fmt"
+)
+
 // ToolParam describes one tool parameter parsed from its JSON schema.
 type ToolParam struct {
 	Name     string
@@ -64,8 +69,17 @@ func stringsFrom(raw any) []string {
 	case []any:
 		out := make([]string, 0, len(v))
 		for _, e := range v {
-			if s, ok := e.(string); ok && s != "" {
-				out = append(out, s)
+			switch m := e.(type) {
+			case string:
+				if m != "" {
+					out = append(out, m)
+				}
+			case bool, float64, int, int64, json.Number:
+				// Rendered, not dropped. The authorization probes REQUIRE declared
+				// values to run their authority sweep at all, so silently discarding a
+				// numeric or boolean enum removed that coverage rather than merely
+				// losing a value.
+				out = append(out, fmt.Sprint(m))
 			}
 		}
 		return out

@@ -127,10 +127,6 @@ func connectAnonTransport(ctx context.Context, transport mcpsdk.Transport, timeo
 
 	sessCtx, sessCancel := context.WithCancel(context.Background())
 
-	type result struct {
-		sess *mcpsdk.ClientSession
-		err  error
-	}
 	ch := make(chan result, 1)
 	go func() {
 		s, e := client.Connect(sessCtx, transport, nil)
@@ -149,13 +145,42 @@ func connectAnonTransport(ctx context.Context, transport mcpsdk.Transport, timeo
 		return r.sess, sessCancel, nil
 	case <-timer.C:
 		sessCancel()
-		<-ch // let the aborted Connect goroutine finish before returning
+		reapLateSession(ch)
 		return nil, nil, fmt.Errorf("handshake timed out after %s", timeout)
 	case <-ctx.Done():
 		sessCancel()
-		<-ch
+		reapLateSession(ch)
 		return nil, nil, ctx.Err()
 	}
+}
+
+// result carries the outcome of an anonymous handshake attempt.
+type result struct {
+	sess *mcpsdk.ClientSession
+	err  error
+}
+
+// reapLateSession cleans up a handshake that finished after we stopped waiting,
+// WITHOUT making the caller wait for it.
+//
+// Two failure modes have to be avoided at once, and the obvious fixes each cause
+// the other. Receiving from ch inline lets a Connect that ignores its cancelled
+// context block the caller forever, which defeats the very timeout that got us
+// here. Not receiving at all leaks a session that landed just before the deadline:
+// the cancelled context stops its read loop, but the SDK session is never closed,
+// so the server holds it open.
+//
+// Handing the receive to a goroutine does both jobs: the caller returns
+// immediately, and a session that does arrive is closed. ch is buffered, so the
+// Connect goroutine never blocks on the send even if nobody is listening yet. If
+// Connect never returns at all, this goroutine is parked for the process lifetime
+// — an acceptable price, and not something the caller can fix without SDK support.
+func reapLateSession(ch <-chan result) {
+	go func() {
+		if r := <-ch; r.sess != nil {
+			_ = r.sess.Close()
+		}
+	}()
 }
 
 // Transport reports the transport the anonymous session actually connected over.
@@ -174,7 +199,21 @@ func (s *AnonSession) ListTools(ctx context.Context) ([]map[string]any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return toolsToMaps(res.Tools), nil
+	tools := toolsToMaps(res.Tools)
+	if res.NextCursor != "" {
+		// Fails closed exactly as the generator's ToolInvoker.ListTools does: the
+		// pages gathered so far are returned WITH the truncation error, so a caller
+		// cannot mistake a partial catalog for the target's whole tool surface.
+		//
+		// For the unauthenticated differential a truncated anonymous enumeration is
+		// still a SUCCESSFUL one — the anonymous caller got tools — so the caller
+		// treats this like the authenticated control does and keeps the count as a
+		// lower bound. Without the signal here that case looked like a refusal, and
+		// an open server scored 0.0.
+		return tools, fmt.Errorf("mcpprobe: anonymous tools/list returned %d tool(s) and a nextCursor: %w",
+			len(tools), types.ErrCatalogTruncated)
+	}
+	return tools, nil
 }
 
 // CallTool invokes the named tool over the anonymous session. Matches

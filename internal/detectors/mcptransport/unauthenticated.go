@@ -102,6 +102,14 @@ func (d *UnauthenticatedAccessDetector) score(a *attempt.Attempt, class string) 
 	// loopback server with no auth is unremarkable, but a loopback server that
 	// advertises OAuth protection and then ignores it is misconfigured wherever it
 	// runs.
+	// Checked FIRST, for every class. An attempt the probe could not conclude on is
+	// not a finding and not a pass, and the declared-open branch below returns 1.0
+	// unconditionally — so evaluating the class first reported an unmeasured
+	// attempt as a confirmed vulnerability.
+	if metaBool(a, attempt.MetadataKeyInconclusive) {
+		return InconclusiveScore
+	}
+
 	if class == mcpprobe.AuthClassOAuthDeclaredOpen {
 		if !metaBool(a, mcpprobe.MetaAuthAnonymousSucceeded) {
 			return 0.0 // it declared authorization and enforced it
@@ -114,9 +122,6 @@ func (d *UnauthenticatedAccessDetector) score(a *attempt.Attempt, class string) 
 	// anonymous session achieved.
 	if !metaBool(a, mcpprobe.MetaAuthCredentialsConfigured) {
 		return 0.0
-	}
-	if metaBool(a, attempt.MetadataKeyInconclusive) {
-		return InconclusiveScore
 	}
 	if !metaBool(a, mcpprobe.MetaAuthAnonymousSucceeded) {
 		return 0.0 // the target refused the anonymous caller: boundary enforced

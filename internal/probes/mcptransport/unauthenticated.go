@@ -61,20 +61,24 @@ var (
 // the sibling OriginValidation probe applies, inverted: there loopback is the
 // exploitable case (browser DNS rebinding), here it is the benign one.
 type UnauthenticatedAccess struct {
-	endpointOverride string
-	timeout          time.Duration
-	policy           toolpolicy.Policy
+	timeout time.Duration
+	policy  toolpolicy.Policy
 }
 
-// NewUnauthenticatedAccess constructs the probe. The endpoint is resolved from
-// the target generator via types.MCPEndpoint; the "endpoint" config key overrides
-// that. Proxy and TLS settings are inherited from the generator — configure them
-// there, not here.
+// NewUnauthenticatedAccess constructs the probe. The endpoint always comes from the
+// target generator via types.MCPEndpoint, and proxy and TLS settings are inherited
+// from it — configure them there, not here.
+//
+// There is deliberately no probe-level "endpoint" override, unlike the sibling
+// transport probes. Those issue their own raw HTTP and can honour an override
+// coherently; this probe's authenticated control runs through the generator's
+// ToolInvoker and its anonymous session through mcpprobe.ConnectAnonymous, both
+// bound to the generator's endpoint. An override could therefore only ever change
+// which endpoint got CLASSIFIED and DISCOVERED, not which one got tested.
 func NewUnauthenticatedAccess(cfg registry.Config) (probes.Prober, error) {
 	return &UnauthenticatedAccess{
-		endpointOverride: registry.GetString(cfg, "endpoint", ""),
-		timeout:          time.Duration(registry.GetInt(cfg, "request_timeout", 30)) * time.Second,
-		policy:           toolpolicy.New(cfg),
+		timeout: time.Duration(registry.GetInt(cfg, "request_timeout", 30)) * time.Second,
+		policy:  toolpolicy.New(cfg),
 	}, nil
 }
 
@@ -124,10 +128,15 @@ func (p *UnauthenticatedAccess) Probe(ctx context.Context, gen types.Generator) 
 	if !ok {
 		return nil, fmt.Errorf("mcptransport.UnauthenticatedAccess: target %q exposes no HTTP endpoint surface; this probe requires an HTTP-based MCP generator such as mcp.MCP", gen.Name())
 	}
-	endpoint := p.endpointOverride
-	if endpoint == "" {
-		endpoint = end.EndpointURL()
-	}
+	// Always the generator's own endpoint. A probe-level override used to exist
+	// here, but it only reached host classification and OAuth discovery: the
+	// authenticated control goes through the generator's ToolInvoker and the
+	// anonymous session through mcpprobe.ConnectAnonymous, both of which use
+	// end.EndpointURL(). So a set override classified and discovered against one
+	// endpoint while TESTING another, which cannot produce a coherent verdict. The
+	// generator config already selects the endpoint, so the knob was redundant as
+	// well as wrong.
+	endpoint := end.EndpointURL()
 	if endpoint == "" {
 		return nil, fmt.Errorf("mcptransport.UnauthenticatedAccess: target %q reports no endpoint URL; cannot assess unauthenticated access", gen.Name())
 	}
@@ -235,9 +244,21 @@ func (p *UnauthenticatedAccess) Probe(ctx context.Context, gen types.Generator) 
 	defer sess.Close()
 
 	anonTools, listErr := sess.ListTools(ctx)
-	anonEnumOK := listErr == nil && len(anonTools) > 0
+	// Mirrors the authenticated control at authOK above: tools returned alongside a
+	// truncation error IS a successful enumeration. Treating truncation as a refusal
+	// scored an open server 0.0 — a false clean on the exact class this probe exists
+	// to catch.
+	anonTruncated := errors.Is(listErr, types.ErrCatalogTruncated)
+	anonEnumOK := len(anonTools) > 0 && (listErr == nil || anonTruncated)
 	if anonEnumOK {
-		enum.AddOutput(fmt.Sprintf("anonymous tools/list returned %d tool(s): %s", len(anonTools), toolNames(anonTools)))
+		count := fmt.Sprintf("%d", len(anonTools))
+		if anonTruncated {
+			// A lower bound, stated as one: enumeration stopped early, so the real
+			// surface exposed to the anonymous caller is at least this large.
+			count = "at least " + count
+			enum.Metadata[attempt.MetadataKeyInconclusiveReason] = "anonymous tool enumeration was truncated; the exposed surface is larger than reported"
+		}
+		enum.AddOutput(fmt.Sprintf("anonymous tools/list returned %s tool(s): %s", count, toolNames(anonTools)))
 	} else if listErr != nil {
 		enum.AddOutput("anonymous session established but tools/list was refused: " + listErr.Error())
 	} else {

@@ -3,7 +3,6 @@ package mcptool
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"testing"
 
@@ -210,9 +209,21 @@ func TestTokenValidation_CandidateValuesAreRandomisedAcrossRuns(t *testing.T) {
 	}
 }
 
-// When the target DECLARES its accepted values, the probe must use those rather
-// than sweep generic shapes: it should exercise the documented interface.
-func TestTokenValidation_PrefersTargetDeclaredValues(t *testing.T) {
+// TestTokenValidation_SkipsDeclaredEnumParameters covers a false positive on a
+// CORRECTLY implemented validator.
+//
+// The shape differential needs two independent values that were certainly never
+// issued, so that a surface doing a real issuance lookup must refuse them exactly
+// as it refuses the malformed control. A declared enum is the opposite of
+// never-issued: it is the closed set of values the target itself calls acceptable.
+//
+// An earlier version submitted the first declared value TWICE. A correct enum
+// validator accepted both and rejected the malformed control, and that differential
+// was read as "forged credentials accepted" — 1.0 on a server doing exactly the
+// right thing. Deduplicating and using two distinct members does not fix it:
+// submitting declared-VALID values and treating their acceptance as a weakness is
+// the error, not the reuse.
+func TestTokenValidation_SkipsDeclaredEnumParameters(t *testing.T) {
 	tool := map[string]any{
 		"name": "check_role_token",
 		"parameters": map[string]any{
@@ -229,15 +240,26 @@ func TestTokenValidation_PrefersTargetDeclaredValues(t *testing.T) {
 		call: func(_ string, args map[string]any) types.ToolResult {
 			tok, _ := args["token"].(string)
 			got = append(got, tok)
-			return types.ToolResult{Text: "checked"}
+			// A correct enum validator: declared values pass, anything else does not.
+			if tok == "alpha-declared" || tok == "beta-declared" {
+				return types.ToolResult{Text: "role confirmed for " + tok}
+			}
+			return types.ToolResult{Text: "invalid token", IsError: true}
 		},
 	}
 	p := newTokenValidationProbe(t, registry.Config{})
-	if _, err := p.Probe(context.Background(), target); err != nil {
+	attempts, err := p.Probe(context.Background(), target)
+	if err != nil {
 		t.Fatalf("Probe: %v", err)
 	}
-	if !contains(got, "alpha-declared") {
-		t.Errorf("probe did not submit the target's declared value; submitted %v", got)
+
+	for _, v := range got {
+		if v == "alpha-declared" || v == "beta-declared" {
+			t.Errorf("probe submitted the target's own declared value %q as a forged credential", v)
+		}
+	}
+	if maxTokenScore(t, attempts) >= 0.5 {
+		t.Error("a correct enum validator was reported vulnerable")
 	}
 }
 
@@ -298,7 +320,8 @@ func TestTokenValidation_RandomIssuanceDoesNotFire(t *testing.T) {
 	target := &mockTarget{
 		tools: []map[string]any{stringTool("authenticate", "username")},
 		call: func(string, map[string]any) types.ToolResult {
-			return types.ToolResult{Text: "session token: " + randHex(32)}
+			tok, _ := randHex(32)
+			return types.ToolResult{Text: "session token: " + tok}
 		},
 	}
 	p := newTokenValidationProbe(t, registry.Config{})
@@ -331,13 +354,4 @@ func TestTokenValidation_ProseIsNotMistakenForACredential(t *testing.T) {
 	if got := extractCredentialLike("session token: a1b2c3d4e5f60718293a4b5c6d7e8f90"); got != "a1b2c3d4e5f60718293a4b5c6d7e8f90" {
 		t.Errorf("extractCredentialLike = %q, want the hex credential", got)
 	}
-}
-
-func contains(haystack []string, needle string) bool {
-	for _, s := range haystack {
-		if strings.Contains(s, needle) {
-			return true
-		}
-	}
-	return false
 }

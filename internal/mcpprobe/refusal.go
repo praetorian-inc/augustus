@@ -14,7 +14,7 @@ import (
 // "valid" match, inverting the verdict on the single most common acceptance
 // wording there is.
 var refusalVocabularyRE = regexp.MustCompile(
-	`(?i)\b(invalid|unauthori[sz]ed|unauthenticated|forbidden|denied|deny|expired|revoked|rejected|reject|refused|malformed|incorrect|illegal|missing|required|failed|failure|error|unknown|not\s+found|no\s+such|does\s+not\s+exist|nonexistent|bad|not\s+permitted|not\s+allowed|permission|access\s+denied)\b`)
+	`(?i)\b(invalid|unauthori[sz]ed|unauthenticated|forbidden|denied|deny|expired|revoked|rejected|reject|refused|malformed|incorrect|illegal|missing|required|failed|failure|error|unknown|not\s+found|no\s+such|does\s+not\s+exist|nonexistent|not\s+permitted|not\s+allowed|access\s+denied|permission\s+denied)\b`)
 
 // ReadsAsRefusal reports whether a tool response reads as the server refusing the
 // request.
@@ -52,8 +52,14 @@ func ResponseClass(resp string, values ...string) string {
 		}
 	}
 	sort.Slice(present, func(i, j int) bool { return len(present[i]) > len(present[j]) })
+	// Lowercased BEFORE masking, and the masked values with it. A server is free to
+	// echo a submitted value in a different case than it was sent ("ALPHA-TOKEN" for
+	// "alpha-token"); a case-sensitive replace misses it, the value survives into the
+	// compared template, and two responses that differ only by the echoed value are
+	// then read as behaving differently.
+	resp = strings.ToLower(resp)
 	for _, v := range present {
-		resp = strings.ReplaceAll(resp, v, "<masked>")
+		resp = strings.ReplaceAll(resp, strings.ToLower(v), "<masked>")
 	}
-	return strings.ToLower(strings.Join(strings.Fields(resp), " "))
+	return strings.Join(strings.Fields(resp), " ")
 }

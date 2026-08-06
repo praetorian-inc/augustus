@@ -2,6 +2,7 @@ package mcptransport
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -33,22 +34,21 @@ func discoveryServer(t *testing.T, challenge string, docs map[string]string) *ht
 }
 
 func TestDiscoverOAuthProtection_SpecDefinedSignals(t *testing.T) {
-	t.Run("protected-resource metadata", func(t *testing.T) {
-		srv := discoveryServer(t, "", map[string]string{
-			protectedResourcePath: `{"resource":"https://mcp.example.com","authorization_servers":["https://as.example.com"]}`,
+	t.Run("protected-resource metadata naming this endpoint", func(t *testing.T) {
+		// The `resource` member must COVER the endpoint under test, so the document
+		// has to be built against the live server's own URL.
+		var srv *httptest.Server
+		mux := http.NewServeMux()
+		mux.HandleFunc(protectedResourcePath, func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"resource":%q,"authorization_servers":["https://as.example.com"]}`, srv.URL)
 		})
-		d := discoverOAuthProtection(context.Background(), srv.Client(), srv.URL+"/mcp")
-		if !d.declared() {
-			t.Fatal("published protected-resource metadata was not recognised as a declaration")
-		}
-	})
+		mux.HandleFunc("/mcp", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+		srv = httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
 
-	t.Run("authorization-server metadata", func(t *testing.T) {
-		srv := discoveryServer(t, "", map[string]string{
-			authServerPath: `{"issuer":"https://as.example.com","token_endpoint":"https://as.example.com/token"}`,
-		})
 		if !discoverOAuthProtection(context.Background(), srv.Client(), srv.URL+"/mcp").declared() {
-			t.Fatal("published authorization-server metadata was not recognised")
+			t.Fatal("protected-resource metadata naming this endpoint was not recognised as a declaration")
 		}
 	})
 
@@ -60,6 +60,51 @@ func TestDiscoverOAuthProtection_SpecDefinedSignals(t *testing.T) {
 		}
 		if d.challenge == "" {
 			t.Error("challenge value not captured for the report")
+		}
+	})
+}
+
+// TestDiscoverOAuthProtection_RequiresResourceBinding covers the false-positive path
+// that scores most aggressively: the declared-open class reaches 1.0 without
+// operator credentials and without the loopback softening every other class gets.
+//
+// Presence of an OAuth metadata document at an origin says only that SOMETHING
+// there speaks OAuth — a co-hosted application, an unrelated API, a shared reverse
+// proxy. It is not a statement that THIS MCP endpoint is protected.
+func TestDiscoverOAuthProtection_RequiresResourceBinding(t *testing.T) {
+	t.Run("protected-resource metadata naming a different resource", func(t *testing.T) {
+		srv := discoveryServer(t, "", map[string]string{
+			protectedResourcePath: `{"resource":"https://someone-elses-api.example.com","authorization_servers":["https://as.example.com"]}`,
+		})
+		if discoverOAuthProtection(context.Background(), srv.Client(), srv.URL+"/mcp").declared() {
+			t.Error("metadata about a DIFFERENT resource was read as a declaration about this endpoint")
+		}
+	})
+
+	t.Run("authorization-server metadata alone is not a declaration", func(t *testing.T) {
+		// An authorization server co-hosted with an unguarded MCP endpoint is a
+		// perfectly ordinary deployment. RFC 8414 metadata describes the AS, never
+		// the protection status of a particular resource.
+		srv := discoveryServer(t, "", map[string]string{
+			authServerPath: `{"issuer":"https://as.example.com","token_endpoint":"https://as.example.com/token"}`,
+		})
+		if discoverOAuthProtection(context.Background(), srv.Client(), srv.URL+"/mcp").declared() {
+			t.Error("authorization-server metadata alone was read as a declaration about this endpoint")
+		}
+	})
+
+	t.Run("resource covering the origin covers a path beneath it", func(t *testing.T) {
+		var srv *httptest.Server
+		mux := http.NewServeMux()
+		mux.HandleFunc(protectedResourcePath, func(w http.ResponseWriter, _ *http.Request) {
+			// Names the ORIGIN, so every path beneath it is declared protected.
+			_, _ = fmt.Fprintf(w, `{"resource":%q}`, srv.URL)
+		})
+		srv = httptest.NewServer(mux)
+		t.Cleanup(srv.Close)
+
+		if !discoverOAuthProtection(context.Background(), srv.Client(), srv.URL+"/deep/mcp").declared() {
+			t.Error("a resource naming the origin did not cover a path beneath it")
 		}
 	})
 }
@@ -137,9 +182,15 @@ func TestDiscoverOAuthProtection_StreamingEndpointDoesNotHang(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
 		flusher, _ := w.(http.Flusher)
+		// A wall-clock cap as well as the request context: if the assertion below
+		// fails, t.Fatal runs while this handler is still writing and srv.Close in
+		// the cleanup would wait on the outstanding request.
+		deadline := time.After(3 * discoveryTimeout)
 		for {
 			select {
 			case <-r.Context().Done():
+				return
+			case <-deadline:
 				return
 			case <-time.After(10 * time.Millisecond):
 				_, _ = w.Write([]byte(": keepalive\n\n"))

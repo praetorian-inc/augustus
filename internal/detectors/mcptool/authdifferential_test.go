@@ -46,13 +46,13 @@ func detectTokenValidation(t *testing.T, a *attempt.Attempt) float64 {
 	if err != nil {
 		t.Fatalf("Detect: %v", err)
 	}
-	max := 0.0
+	best := 0.0
 	for _, s := range scores {
-		if s > max {
-			max = s
+		if s > best {
+			best = s
 		}
 	}
-	return max
+	return best
 }
 
 // TestAuthDifferential_FormatOnlyValidationDetected is the DVMCP-challenge-7
@@ -271,8 +271,12 @@ func detectPredictable(t *testing.T, first, second string) float64 {
 	a.AddOutput(first)
 	a.Complete()
 	a.Metadata[mcpprobe.MetaAuthClass] = mcpprobe.AuthClassTokenPredictable
-	a.Metadata[mcpprobe.MetaAuthProbeValue] = first
-	a.Metadata[mcpprobe.MetaAuthReplicaValue] = second
+	// The PROBE classifies and the detector reads the verdict, so the two live
+	// credentials never enter metadata. Going through the real IssuedRelation keeps
+	// these cases exercising the classification rather than a hand-set answer.
+	a.Metadata[mcpprobe.MetaAuthIssuedRelation] = mcpprobe.IssuedRelation(first, second)
+	a.Metadata[mcpprobe.MetaAuthIssuedEvidence] = "first " + mcpprobe.RedactCredential(first) +
+		"; second " + mcpprobe.RedactCredential(second)
 	return detectTokenValidation(t, a)
 }
 

@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -207,7 +208,13 @@ func TestConnectAnonymous_AuthenticatedServerRefuses(t *testing.T) {
 // a correctly-hardened server accept us — because we are authenticated, not
 // because it is vulnerable — inverting the verdict.
 func TestConnectAnonymous_CarriesNoCredentials(t *testing.T) {
-	var sawAuth []string
+	// Guarded: the handler runs on the server's goroutines while the test body
+	// reads, so an unsynchronised slice is a data race — and `make test` runs with
+	// -race, so this fails the build the moment the timing lands.
+	var (
+		sawAuthMu sync.Mutex
+		sawAuth   []string
+	)
 	srv := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "stub", Version: "1"}, nil)
 	srv.AddTool(&mcpsdk.Tool{
 		Name:        "get_status",
@@ -217,7 +224,9 @@ func TestConnectAnonymous_CarriesNoCredentials(t *testing.T) {
 	})
 	h := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return srv }, nil)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sawAuthMu.Lock()
 		sawAuth = append(sawAuth, r.Header.Get("Authorization"))
+		sawAuthMu.Unlock()
 		h.ServeHTTP(w, r)
 	}))
 	defer ts.Close()
@@ -232,6 +241,8 @@ func TestConnectAnonymous_CarriesNoCredentials(t *testing.T) {
 		t.Fatalf("ListTools() error = %v", err)
 	}
 
+	sawAuthMu.Lock()
+	defer sawAuthMu.Unlock()
 	if len(sawAuth) == 0 {
 		t.Fatal("server saw no requests")
 	}

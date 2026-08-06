@@ -126,13 +126,28 @@ func discoverOAuthProtection(ctx context.Context, client *http.Client, endpoint 
 		}
 	}
 
-	// 2. Are the spec-defined discovery documents published? Checked at the
-	//    origin, which is where both RFCs place them.
+	// 2. Does the target publish RFC 9728 protected-resource metadata that names
+	//    THIS resource?
+	//
+	//    The binding is the point. Presence of a metadata document at the origin
+	//    says only that SOMETHING there speaks OAuth — a co-hosted application, an
+	//    unrelated API, a shared reverse proxy. Accepting that as "this MCP endpoint
+	//    is authorization-gated" scores anonymous access 1.0 on a target that never
+	//    claimed to be protected, and this class bypasses both the
+	//    configured-credentials precondition and the loopback softening, so it is
+	//    the most aggressive verdict the probe can reach.
 	origin := u.Scheme + "://" + u.Host
-	for _, path := range []string{protectedResourcePath, authServerPath} {
-		if fetchDiscoveryDoc(ctx, client, origin+path) {
-			d.documents = append(d.documents, origin+path)
-		}
+	if fetchProtectedResourceDoc(ctx, client, origin+protectedResourcePath, endpoint) {
+		d.documents = append(d.documents, origin+protectedResourcePath)
+	}
+
+	// RFC 8414 authorization-server metadata is deliberately NOT accepted on its
+	// own. It describes an authorization SERVER, not the protection status of any
+	// particular resource: a host can run an AS and serve an entirely unguarded MCP
+	// endpoint beside it. It is recorded only as corroboration for a declaration
+	// already established above.
+	if len(d.documents) > 0 && fetchDiscoveryDoc(ctx, client, origin+authServerPath) {
+		d.documents = append(d.documents, origin+authServerPath)
 	}
 	return d
 }
@@ -184,6 +199,83 @@ func (p *UnauthenticatedAccess) probeDeclaredOpen(ctx context.Context, end types
 		len(tools), oauth.evidence()))
 	a.Complete()
 	return []*attempt.Attempt{a}, nil
+}
+
+// fetchProtectedResourceDoc reports whether the URL serves RFC 9728
+// protected-resource metadata that covers the endpoint under test.
+//
+// RFC 9728 requires a "resource" member identifying the resource the document
+// describes. It is compared against the endpoint rather than merely required to
+// exist: a document naming a DIFFERENT resource is evidence about that other
+// resource, not this one.
+//
+// The comparison is a prefix match on the resource identifier, because the spec
+// lets a document cover a resource and the paths beneath it — so an endpoint at
+// https://h/mcp is covered by a document naming https://h or https://h/mcp, but
+// not by one naming https://h/other.
+func fetchProtectedResourceDoc(ctx context.Context, client *http.Client, docURL, endpoint string) bool {
+	doc, ok := fetchJSONDoc(ctx, client, docURL)
+	if !ok {
+		return false
+	}
+	resource, _ := doc["resource"].(string)
+	if resource == "" {
+		return false
+	}
+	if !resourceCovers(resource, endpoint) {
+		slog.Info("mcptransport.UnauthenticatedAccess: protected-resource metadata names a different resource, so it is not a declaration about this endpoint",
+			"declared_resource", resource, "endpoint", endpoint)
+		return false
+	}
+	return true
+}
+
+// resourceCovers reports whether an RFC 9728 resource identifier covers the
+// endpoint under test.
+func resourceCovers(resource, endpoint string) bool {
+	r, err := url.Parse(strings.TrimSuffix(resource, "/"))
+	if err != nil || r.Host == "" {
+		return false
+	}
+	e, err := url.Parse(endpoint)
+	if err != nil {
+		return false
+	}
+	if !strings.EqualFold(r.Host, e.Host) || !strings.EqualFold(r.Scheme, e.Scheme) {
+		return false
+	}
+	rPath := strings.TrimSuffix(r.Path, "/")
+	if rPath == "" {
+		return true // the whole origin is declared protected
+	}
+	return e.Path == rPath || strings.HasPrefix(e.Path, rPath+"/")
+}
+
+// fetchJSONDoc retrieves a bounded JSON object from a discovery URL.
+func fetchJSONDoc(ctx context.Context, client *http.Client, docURL string) (map[string]any, bool) {
+	ctx, cancel := context.WithTimeout(ctx, discoveryTimeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, docURL, nil)
+	if err != nil {
+		return nil, false
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, false
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, false
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxDiscoveryBody))
+	if err != nil {
+		return nil, false
+	}
+	var doc map[string]any
+	if json.Unmarshal(body, &doc) != nil {
+		return nil, false
+	}
+	return doc, true
 }
 
 // fetchDiscoveryDoc reports whether a URL serves a plausible OAuth metadata

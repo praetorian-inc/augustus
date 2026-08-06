@@ -98,21 +98,35 @@ const maxDeclaredValues = 5
 // The probe invokes privileged-LOOKING operations, which is inherent to the check
 // — an authorization boundary can only be tested by trying to cross it. It honours
 // internal/toolpolicy throughout (allow-list, deny-list, and the
-// server-annotated-destructive gate). Against production infrastructure, scope it
-// with tool_allowlist.
+// server-annotated-destructive gate).
+//
+// It additionally REFUSES, by default, to invoke a tool whose name denotes an
+// irreversible operation when the server supplies no annotation to the contrary.
+// toolpolicy deliberately keeps unannotated tools — "a scanner's worst outcome is a
+// silent false negative" — which is right for probes sending an inert payload and
+// wrong for one whose method IS performing the privileged operation. Most real
+// servers ship no annotations, so that is the common case, and the privileged-name
+// vocabulary above includes delete, shutdown, restart and revoke. Skipped tools are
+// reported loudly as unassessed. Set authz_allow_destructive=true to include them.
+//
+// Against production infrastructure, scope with tool_allowlist regardless.
 type FunctionAuthorization struct {
 	reconContext
 	policy toolpolicy.Policy
 	// allTools widens the sweep from conventionally-privileged tool names to every
 	// tool the policy permits.
 	allTools bool
+	// allowDestructive opts in to invoking irreversible-sounding unannotated
+	// tools. Off by default: see privilegedTools.
+	allowDestructive bool
 }
 
 // NewFunctionAuthorization constructs the probe.
 func NewFunctionAuthorization(cfg registry.Config) (probes.Prober, error) {
 	return &FunctionAuthorization{
-		policy:   toolpolicy.New(cfg),
-		allTools: registry.GetBool(cfg, "authz_all_tools", false),
+		policy:           toolpolicy.New(cfg),
+		allTools:         registry.GetBool(cfg, "authz_all_tools", false),
+		allowDestructive: registry.GetBool(cfg, "authz_allow_destructive", false),
 	}, nil
 }
 
@@ -208,10 +222,33 @@ func (p *FunctionAuthorization) privilegedTools(tools []map[string]any) []map[st
 		return tools
 	}
 	out := make([]map[string]any, 0, len(tools))
+	skipped := 0
 	for _, tm := range tools {
-		if name, _ := tm["name"].(string); name != "" && privilegedToolNameRE.MatchString(name) {
-			out = append(out, tm)
+		name, _ := tm["name"].(string)
+		if name == "" || !privilegedToolNameRE.MatchString(name) {
+			continue
 		}
+		// This probe PROVES a missing authorization boundary by performing the
+		// privileged operation, so for an irreversible-sounding operation the
+		// evidence-gathering is itself the damage. internal/toolpolicy keeps
+		// unannotated tools on purpose ("a scanner's worst outcome is a silent
+		// false negative"), which is the right trade for a probe sending an inert
+		// payload and the wrong one here — and the privileged-name vocabulary
+		// above deliberately includes delete, shutdown, restart and revoke.
+		//
+		// Measured: most real MCP servers ship no annotations at all, so this is
+		// the common case, not an edge case.
+		if !p.allowDestructive && mcpprobe.InvokesDestructiveOperation(tm) {
+			skipped++
+			slog.Warn("mcptool.FunctionAuthorization: skipping a privileged tool whose name denotes an irreversible operation and which carries no read-only annotation; proving the boundary here would mean performing that operation. Set authz_allow_destructive=true to include it.",
+				"tool", name)
+			continue
+		}
+		out = append(out, tm)
+	}
+	if skipped > 0 {
+		slog.Warn("mcptool.FunctionAuthorization: some privileged tools were NOT assessed because invoking them is destructive and they carry no annotation. This is NOT a clean result for those tools.",
+			"skipped", skipped)
 	}
 	return out
 }
@@ -261,6 +298,14 @@ func (p *FunctionAuthorization) probeCredentialPresence(
 	return attempts
 }
 
+func callLeg(ctx context.Context, inv types.ToolInvoker, tool string, args map[string]any) (types.ToolResult, error) {
+	res, err := inv.CallTool(ctx, tool, args)
+	if err == nil || ctx.Err() != nil {
+		return res, err
+	}
+	return inv.CallTool(ctx, tool, args)
+}
+
 // assessPresence runs one omitted-versus-forged comparison in a given argument
 // context.
 // callLeg issues one leg of a differential, retrying once on error.
@@ -279,14 +324,6 @@ func (p *FunctionAuthorization) probeCredentialPresence(
 //
 // Context cancellation is never retried — that is the operator stopping the scan,
 // not the target faltering.
-func callLeg(ctx context.Context, inv types.ToolInvoker, tool string, args map[string]any) (types.ToolResult, error) {
-	res, err := inv.CallTool(ctx, tool, args)
-	if err == nil || ctx.Err() != nil {
-		return res, err
-	}
-	return inv.CallTool(ctx, tool, args)
-}
-
 func (p *FunctionAuthorization) assessPresence(
 	ctx context.Context, inv types.ToolInvoker, tool string,
 	params []mcpprobe.ToolParam, param string, base map[string]any,
@@ -304,7 +341,7 @@ func (p *FunctionAuthorization) assessPresence(
 		controlText = controlRes.Text
 	}
 
-	forged := randHex(32)
+	forged, forgeErr := randHex(32)
 	label := fmt.Sprintf("%s with a forged %s", tool, param)
 	if len(base) > 0 {
 		label += " (" + describeArgs(base) + ")"
@@ -320,6 +357,18 @@ func (p *FunctionAuthorization) assessPresence(
 	a.Metadata[mcpprobe.MetaAuthControlValue] = ""
 	a.Metadata[mcpprobe.MetaAuthControl] = controlText
 	a.Metadata[mcpprobe.MetaAuthControlLabel] = "same call, same other arguments, with the credential argument omitted entirely"
+
+	if forgeErr != nil {
+		// The whole comparison is "omitted versus a value that was certainly never
+		// issued". A degraded, predictable value could collide with a real
+		// credential, which would make acceptance meaningless rather than damning.
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = "could not generate a never-issued credential value: " + forgeErr.Error()
+		slog.Warn("mcptool.FunctionAuthorization: could not generate the forged credential, so this parameter was NOT assessed; this is not a clean result",
+			"tool", tool, "param", param, "error", forgeErr)
+		a.SetError(forgeErr)
+		return a
+	}
 
 	probeOverrides := map[string]any{param: forged}
 	for k, v := range base {
@@ -424,7 +473,13 @@ func (p *FunctionAuthorization) probeDiscriminator(ctx context.Context, inv type
 		// answers could simply vary with whatever string it is given. Two
 		// unprivileged controls that agree, with the probe differing from both,
 		// isolates the privilege as the cause.
-		control2Value, control2Text, _ := p.baseline(ctx, inv, name, params, param.Name, []string{"aug" + randHex(12)})
+		randomControl, randErr := randHex(12)
+		if randErr != nil {
+			slog.Warn("mcptool.FunctionAuthorization: could not generate the second unprivileged control, so privilege cannot be isolated from response variation; skipping this parameter rather than reporting it",
+				"tool", name, "param", param.Name, "error", randErr)
+			continue
+		}
+		control2Value, control2Text, _ := p.baseline(ctx, inv, name, params, param.Name, []string{"aug" + randomControl})
 
 		// Candidates: the conventional privileged names, plus any value the TARGET
 		// disclosed in its own responses. Servers routinely refuse an unrecognised
@@ -515,22 +570,21 @@ func (p *FunctionAuthorization) disclosedValues(baselineText, control2Text, base
 	return out
 }
 
-// baseline calls the tool with a target-declared value (or, when the target
-// declares none, a random value that is certainly not a privileged name) and
-// returns that value with its response.
+// baseline calls the tool with each supplied unprivileged value in turn and returns
+// the first that produced a non-empty response, together with that response.
 //
-// The random fallback is what lets the check work on a parameter the target
-// documents nothing for: an arbitrary string is by construction unprivileged, so
-// it establishes the "ordinary caller" response just as a declared value would.
+// Callers supply either the values the TARGET declares or a single random value; a
+// random string is unprivileged by construction, which is what makes it usable as
+// the second control. There is deliberately no fallback for an empty list:
+// probeDiscriminator skips a parameter that declares no values, because a
+// synthesized string the server has never seen cannot establish what ordinary
+// authority looks like — that was a measured false positive, and a fallback here
+// would quietly reintroduce it.
 func (p *FunctionAuthorization) baseline(
 	ctx context.Context, inv types.ToolInvoker, tool string,
 	params []mcpprobe.ToolParam, param string, declared []string,
 ) (string, string, bool) {
-	candidates := declared
-	if len(candidates) == 0 {
-		candidates = []string{"aug" + randHex(12)}
-	}
-	for _, value := range candidates {
+	for _, value := range declared {
 		args := mcpprobe.BenignArgs(params, map[string]any{param: value})
 		res, err := callLeg(ctx, inv, tool, args)
 		if err != nil {

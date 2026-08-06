@@ -39,6 +39,13 @@ var credentialParamRE = regexp.MustCompile(
 var issuerToolNameRE = regexp.MustCompile(
 	`(?i)(^|[-_.])(authenticate|authorize|login|logon|signin|sign_in|token|session|issue|refresh|grant|register|enroll|provision|connect|start)($|[-_.])`)
 
+// readVerbToolNameRE matches a tool name that reads as a RETRIEVAL rather than an
+// issuance. Used to disqualify getters from the predictability sampling: an issuer
+// noun in a name ("token", "session") says what the tool deals in, not whether it
+// mints anything.
+var readVerbToolNameRE = regexp.MustCompile(
+	`(?i)(^|[-_.])(get|list|read|show|view|fetch|retrieve|describe|inspect|lookup|find|search|query|current|info|status|check|validate|verify|introspect)($|[-_.])`)
+
 // malformedControlValue is the negative control: a value structurally invalid for
 // any credential format whatsoever (punctuation only, two characters). It is the
 // one literal value the probe hardcodes, and it is deliberately NOT a credential
@@ -58,22 +65,33 @@ const malformedControlValue = "!!"
 // established by comparing responses to each other.
 type shapeFamily struct {
 	name string
-	gen  func() string
+	gen  func() (string, error)
 }
 
 // shapeFamilies are tried in turn. A target that declares its own shape (a schema
 // enum) takes precedence over all of them.
 func shapeFamilies() []shapeFamily {
 	return []shapeFamily{
-		{"hex32", func() string { return randHex(32) }},
-		{"hex64", func() string { return randHex(64) }},
+		{"hex32", func() (string, error) { return randHex(32) }},
+		{"hex64", func() (string, error) { return randHex(64) }},
 		{"uuid", randUUID},
-		{"base64url32", func() string { return randAlphabet(32, base64URLAlphabet) }},
-		{"jwt", func() string {
-			return randAlphabet(16, base64URLAlphabet) + "." + randAlphabet(24, base64URLAlphabet) + "." + randAlphabet(32, base64URLAlphabet)
+		{"base64url32", func() (string, error) { return randAlphabet(32, base64URLAlphabet) }},
+		{"jwt", func() (string, error) {
+			parts := make([]string, 3)
+			for i, n := range []int{16, 24, 32} {
+				p, err := randAlphabet(n, base64URLAlphabet)
+				if err != nil {
+					return "", err
+				}
+				parts[i] = p
+			}
+			return strings.Join(parts, "."), nil
 		}},
-		{"prefixed", func() string { return "tok_" + randAlphabet(24, alnumAlphabet) }},
-		{"digits10", func() string { return randAlphabet(10, "0123456789") }},
+		{"prefixed", func() (string, error) {
+			v, err := randAlphabet(24, alnumAlphabet)
+			return "tok_" + v, err
+		}},
+		{"digits10", func() (string, error) { return randAlphabet(10, "0123456789") }},
 	}
 }
 
@@ -83,29 +101,35 @@ const (
 	alnumAlphabet     = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 )
 
-func randHex(n int) string { return randAlphabet(n, hexAlphabet) }
+func randHex(n int) (string, error) { return randAlphabet(n, hexAlphabet) }
 
 // randAlphabet returns n characters drawn uniformly from alphabet using a CSPRNG,
 // so two values of the same family are independent and neither can collide with a
 // token the target actually issued.
-func randAlphabet(n int, alphabet string) string {
+func randAlphabet(n int, alphabet string) (string, error) {
 	b := make([]byte, n)
 	if _, err := rand.Read(b); err != nil {
-		// A CSPRNG failure must not silently degrade to a predictable value that
-		// could collide with a real token; surface it in the value itself.
-		return strings.Repeat("0", n)
+		// Propagated, never degraded. Returning a fixed fallback would submit a
+		// PREDICTABLE value while the check's entire premise is that the two values
+		// are independent and never-issued — so the verdict would be meaningless
+		// rather than merely unlucky. The caller reports the parameter as
+		// inconclusive instead.
+		return "", fmt.Errorf("mcptool.TokenValidation: CSPRNG unavailable, cannot generate an independent never-issued value: %w", err)
 	}
 	out := make([]byte, n)
 	for i := range b {
 		out[i] = alphabet[int(b[i])%len(alphabet)]
 	}
-	return string(out)
+	return string(out), nil
 }
 
 // randUUID renders a random RFC 4122 version-4-shaped identifier.
-func randUUID() string {
-	h := randHex(32)
-	return h[:8] + "-" + h[8:12] + "-4" + h[13:16] + "-a" + h[17:20] + "-" + h[20:32]
+func randUUID() (string, error) {
+	h, err := randHex(32)
+	if err != nil {
+		return "", err
+	}
+	return h[:8] + "-" + h[8:12] + "-4" + h[13:16] + "-a" + h[17:20] + "-" + h[20:32], nil
 }
 
 // TokenValidation tests a target's own credential-handling surfaces for two
@@ -142,13 +166,17 @@ type TokenValidation struct {
 	reconContext
 	policy    toolpolicy.Policy
 	allParams bool
+	// allowDestructive opts in to sampling irreversible-sounding unannotated
+	// issuer tools, which this probe calls TWICE.
+	allowDestructive bool
 }
 
 // NewTokenValidation constructs the probe.
 func NewTokenValidation(cfg registry.Config) (probes.Prober, error) {
 	return &TokenValidation{
-		policy:    toolpolicy.New(cfg),
-		allParams: registry.GetBool(cfg, "token_all_string_params", false),
+		policy:           toolpolicy.New(cfg),
+		allParams:        registry.GetBool(cfg, "token_all_string_params", false),
+		allowDestructive: registry.GetBool(cfg, "token_allow_destructive", false),
 	}, nil
 }
 
@@ -248,16 +276,42 @@ func (p *TokenValidation) probeVerificationSurfaces(ctx context.Context, inv typ
 	return attempts
 }
 
-// candidateShapes returns the shapes to submit for a parameter. A shape the
-// TARGET ITSELF declares wins outright: the probe is then exercising the
-// documented interface rather than sweeping generic forms.
+// callToolOnce invokes a tool, retrying once on error.
+//
+// A differential is destroyed by a single failed leg, so a transient error costs a
+// finding rather than producing a wrong verdict. One retry is the same remedy
+// mcptool.FunctionAuthorization's callLeg applies.
+func callToolOnce(ctx context.Context, inv types.ToolInvoker, name string, args map[string]any) (types.ToolResult, error) {
+	res, err := inv.CallTool(ctx, name, args)
+	if err == nil {
+		return res, nil
+	}
+	return inv.CallTool(ctx, name, args)
+}
+
+// candidateShapes returns the shapes to submit for a parameter.
+//
+// A parameter that declares an ENUM is deliberately skipped rather than swept.
+//
+// The check needs two INDEPENDENT values that were certainly never issued, so that
+// a surface performing a real issuance lookup must refuse them exactly as it
+// refuses the malformed control. A declared enum is the opposite of never-issued:
+// it is the closed set of values the target itself says are acceptable. An earlier
+// version submitted the first declared value TWICE, so a correctly-implemented
+// enum validator accepted both and rejected the malformed control — and that
+// differential was reported as accepting forged credentials. Correct behaviour
+// scored 1.0.
+//
+// Deduplicating and using two DISTINCT enum members does not fix it: submitting
+// declared-valid values and treating their acceptance as a weakness is the error,
+// not the reuse. (A credential literal sitting in a schema enum is a real finding,
+// but it is credential EXPOSURE — mcpsecrets.Credential's surface — not weak
+// validation.)
 func (p *TokenValidation) candidateShapes(param mcpprobe.ToolParam) []shapeFamily {
 	if len(param.Enum) > 0 {
-		declared := param.Enum
-		return []shapeFamily{{
-			name: "declared-enum",
-			gen:  func() string { return declared[0] },
-		}}
+		slog.Info("mcptool.TokenValidation: parameter declares an enum, so every acceptable value is target-declared and none is never-issued; skipping the shape differential for it",
+			"param", param.Name)
+		return nil
 	}
 	return shapeFamilies()
 }
@@ -269,7 +323,8 @@ func (p *TokenValidation) assessShape(
 	params []mcpprobe.ToolParam, param mcpprobe.ToolParam,
 	fam shapeFamily, controlText string,
 ) *attempt.Attempt {
-	first, second := fam.gen(), fam.gen()
+	first, err1 := fam.gen()
+	second, err2 := fam.gen()
 
 	a := attempt.New(first)
 	a.Probe = p.Name()
@@ -282,6 +337,20 @@ func (p *TokenValidation) assessShape(
 	a.Metadata[mcpprobe.MetaAuthReplicaValue] = second
 	a.Metadata[mcpprobe.MetaAuthControlValue] = malformedControlValue
 	a.Metadata[mcpprobe.MetaAuthControl] = controlText
+	if err1 != nil || err2 != nil {
+		// Without two independent never-issued values there is no differential to
+		// draw, so this is reported as unassessed rather than as a clean parameter.
+		err := err1
+		if err == nil {
+			err = err2
+		}
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = "could not generate independent never-issued values: " + err.Error()
+		slog.Warn("mcptool.TokenValidation: could not generate the probe values, so this parameter was NOT assessed; this is not a clean result",
+			"tool", tool, "param", param.Name, "shape", fam.name, "error", err)
+		a.SetError(err)
+		return a
+	}
 	a.Metadata[mcpprobe.MetaAuthControlLabel] = "same tool and parameter with a structurally malformed value"
 	if len(param.Enum) > 0 {
 		a.Metadata[mcpprobe.MetaAuthDeclaredValues] = strings.Join(param.Enum, ",")
@@ -333,22 +402,51 @@ func (p *TokenValidation) probeIssuanceSurfaces(ctx context.Context, inv types.T
 		if !issuerToolNameRE.MatchString(name) {
 			continue
 		}
-		// Sampling means invoking twice, so the shared safety gate still applies:
-		// p.policy.Filter has already removed anything server-annotated destructive
-		// before this loop, and nothing further is needed here.
+		// An issuer NOUN is not enough: the name must not also read as a READ.
+		//
+		// issuerToolNameRE matches `token` and `session` as segments, so
+		// `get_session_token` and `get_current_token` qualified as issuing surfaces.
+		// A getter that correctly returns the caller's stable current credential
+		// returns the SAME value to two reads, which is exactly the signal the
+		// predictability check treats as derivable issuance — so correct behaviour
+		// scored 1.0. This is the same false positive shape already measured on a
+		// configuration reader, arriving through the name vocabulary instead of the
+		// read-only gate.
+		if readVerbToolNameRE.MatchString(name) {
+			slog.Info("mcptool.TokenValidation: tool name reads as a getter rather than an issuer; skipping the predictability sampling (returning the same current credential to two reads is correct behaviour, not derivable issuance)",
+				"tool", name)
+			continue
+		}
+		// Sampling means invoking the tool TWICE, so an irreversible-sounding
+		// unannotated issuer would be performed twice for evidence: two accounts,
+		// two grants, two sessions. p.policy.Filter removes only tools the SERVER
+		// annotated destructive, and most servers ship no annotations at all.
+		if !p.allowDestructive && mcpprobe.InvokesDestructiveOperation(tool) {
+			slog.Warn("mcptool.TokenValidation: skipping predictability sampling for an irreversible-sounding unannotated tool, which this check would invoke twice. Set token_allow_destructive=true to include it. This is NOT a clean result for that tool.",
+				"tool", name)
+			continue
+		}
 		params := mcpprobe.ToolParams(tool)
 		args := mcpprobe.BenignArgs(params, nil)
 
-		firstRes, err1 := inv.CallTool(ctx, name, args)
+		// Each leg is retried once, for the same reason callLeg is: a transient
+		// failure under load destroys the comparison rather than producing a wrong
+		// answer, so a dropped request silently costs a finding. Measured on the
+		// benchmark corpus, contention alone accounted for lost findings.
+		firstRes, err1 := callToolOnce(ctx, inv, name, args)
 		if err1 != nil {
+			slog.Warn("mcptool.TokenValidation: could not sample the issuing surface, so predictability was NOT assessed for it; this is not a clean result",
+				"tool", name, "error", err1)
 			continue
 		}
 		firstTok := extractCredentialLike(firstRes.Text)
 		if firstTok == "" {
 			continue // this tool issues nothing credential-shaped
 		}
-		secondRes, err2 := inv.CallTool(ctx, name, args)
+		secondRes, err2 := callToolOnce(ctx, inv, name, args)
 		if err2 != nil {
+			slog.Warn("mcptool.TokenValidation: obtained one sample but not a second, so predictability was NOT assessed for it; this is not a clean result",
+				"tool", name, "error", err2)
 			continue
 		}
 		secondTok := extractCredentialLike(secondRes.Text)
@@ -356,14 +454,22 @@ func (p *TokenValidation) probeIssuanceSurfaces(ctx context.Context, inv types.T
 			continue
 		}
 
+		// Compared HERE, in memory, and only the verdict is recorded. Both values
+		// are live credentials the target just issued; storing them so the detector
+		// could compare them later would put working credentials in the attempt
+		// metadata, the JSONL report and every downstream consumer.
+		relation := mcpprobe.IssuedRelation(firstTok, secondTok)
+		evidence := fmt.Sprintf("first %s; second %s",
+			mcpprobe.RedactCredential(firstTok), mcpprobe.RedactCredential(secondTok))
+
 		a := attempt.New(fmt.Sprintf("two credentials issued in close succession by %q", name))
 		a.Probe = p.Name()
 		a.Detector = p.GetPrimaryDetector()
 		a.Metadata[mcpprobe.MetaAuthClass] = mcpprobe.AuthClassTokenPredictable
 		a.Metadata[mcpprobe.MetaAuthTool] = name
-		a.Metadata[mcpprobe.MetaAuthProbeValue] = firstTok
-		a.Metadata[mcpprobe.MetaAuthReplicaValue] = secondTok
-		a.AddOutput(fmt.Sprintf("first issued value: %s\nsecond issued value: %s", firstTok, secondTok))
+		a.Metadata[mcpprobe.MetaAuthIssuedRelation] = relation
+		a.Metadata[mcpprobe.MetaAuthIssuedEvidence] = evidence
+		a.AddOutput(fmt.Sprintf("two credentials issued in close succession relate as %q (%s)", relation, evidence))
 		a.Complete()
 		attempts = append(attempts, a)
 	}

@@ -98,6 +98,22 @@ const (
 	// malformed control. A target that answers the two alike but the control
 	// differently is discriminating on shape, not on issuance.
 	MetaAuthReplicaValue = "mcpauthz.replica_value"
+
+	// MetaAuthIssuedRelation (string) is the PROBE's verdict on how two
+	// independently issued credentials relate: identical, sequential,
+	// near-identical or unrelated (see IssuedRelation).
+	//
+	// The probe compares and the detector reads the answer, rather than the
+	// detector comparing the values itself, because both values are LIVE
+	// credentials the target just issued. Storing them for later comparison would
+	// put working credentials in the attempt metadata, the JSONL report and every
+	// downstream consumer, turning a scan artifact into a credential store.
+	MetaAuthIssuedRelation = "mcpauthz.issued_relation"
+	// MetaAuthIssuedEvidence (string) is the redacted rendering of the two issued
+	// credentials — lengths and short leading fragments — so a reviewer can tell
+	// them apart and match them against server logs without the report carrying
+	// the credentials themselves.
+	MetaAuthIssuedEvidence = "mcpauthz.issued_evidence"
 	// MetaAuthReplicaResponse (string) is the response to the replica value.
 	MetaAuthReplicaResponse = "mcpauthz.replica_response"
 
