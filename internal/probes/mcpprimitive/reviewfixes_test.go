@@ -179,11 +179,19 @@ func TestResolveInventories_RetriesIncompleteStoredInventory(t *testing.T) {
 		t.Errorf("incomplete stored inventory was reused instead of retried live; got %+v", got)
 	}
 
-	// A COMPLETE stored inventory is reused with no live call, which is the whole
+	// A COMPLETE stored inventory is reused with NO live call, which is the whole
 	// point of "scan once, reuse everywhere".
+	//
+	// Asserted on a call counter, not on a nil error. resolveInventories falls back
+	// to the stored inventory when a live walk fails and returns nil either way, so
+	// an error-based assertion passes in both the reuse case and the live-walk case
+	// and can never fail.
 	target2 := &mockTarget{invErr: errors.New("live enumeration must not be attempted")}
 	r2 := &reconContext{store: storeWithInventory(t, complete)}
 	if _, err := r2.resolveInventories(context.Background(), target2); err != nil {
-		t.Errorf("complete stored inventory triggered a live walk: %v", err)
+		t.Fatalf("resolveInventories: %v", err)
+	}
+	if target2.invCalls != 0 {
+		t.Errorf("complete stored inventory triggered %d live walk(s), want 0", target2.invCalls)
 	}
 }

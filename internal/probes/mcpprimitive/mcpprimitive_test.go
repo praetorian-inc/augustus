@@ -20,6 +20,10 @@ import (
 type mockTarget struct {
 	inv    *types.MCPInventory
 	invErr error
+	// invCalls counts live enumerations, so a test can assert that a stored
+	// inventory was REUSED rather than inferring it from a nil error — which
+	// resolveInventories also returns when it falls back to the stored one.
+	invCalls int
 
 	read   func(uri string) (types.MCPResourceResult, error)
 	prompt func(name string, args map[string]string) (types.MCPPromptResult, error)
@@ -41,6 +45,7 @@ func (m *mockTarget) Name() string        { return "mock" }
 func (m *mockTarget) Description() string { return "mock" }
 
 func (m *mockTarget) MCPInventory(context.Context) (*types.MCPInventory, error) {
+	m.invCalls++
 	if m.invErr != nil {
 		return nil, m.invErr
 	}
