@@ -18,12 +18,12 @@ const (
 	// target nobody gave credentials for is trivially true and worthless; the
 	// finding is that a configured boundary was bypassed. A detector must never
 	// score a differential as VULN when this is false.
-	MetaAuthCredentialsConfigured = "mcpauthz.credentials_configured"
+	MetaAuthCredentialsConfigured = "mcpauthz.credentials_configured" // #nosec G101 -- metadata key name, not a credential
 
 	// MetaAuthCredentialHeaders (string) names the credential-bearing headers the
 	// operator configured, comma-separated. Names only — never values — so the
 	// evidence explains WHICH boundary was bypassed without storing a secret.
-	MetaAuthCredentialHeaders = "mcpauthz.credential_headers"
+	MetaAuthCredentialHeaders = "mcpauthz.credential_headers" // #nosec G101 -- metadata key name; the VALUE it holds is header names only
 
 	// MetaAuthAnonymousSucceeded (bool) records whether the equivalent request
 	// succeeded over a session carrying no credentials.
@@ -172,7 +172,7 @@ const (
 	// AuthClassCredentialPresence is a privileged operation where the mere
 	// PRESENCE of a credential parameter changes the outcome, regardless of the
 	// value — the parameter is checked for existence, not validity.
-	AuthClassCredentialPresence = "credential-presence"
+	AuthClassCredentialPresence = "credential-presence" // #nosec G101 -- classification tag, not a credential
 
 	// AuthClassPrivilegeDiscriminator is a parameter that selects an authority
 	// level, where some value reaches behaviour the target's own declared values
