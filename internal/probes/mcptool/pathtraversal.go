@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/praetorian-inc/augustus/internal/mcpprobe"
@@ -43,6 +44,21 @@ var pathParamRE = regexp.MustCompile(`(?i)(^|[_\- ])(file|filename|filepath|path
 // pathParamRE then matches as `output` followed by a boundary followed by
 // `path`). Without this the default matcher would skip common schema names.
 var camelCaseBoundaryRE = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+
+// hasProbeableParam reports whether this tool exposes a parameter this probe
+// would actually inject into. Used to decide whether the tool is worth a
+// discovery invocation at all — see the call site.
+func (p *PathTraversal) hasProbeableParam(params []paramInfo) bool {
+	for _, param := range params {
+		if !isStringParam(param.typ) {
+			continue
+		}
+		if p.allParams || matchesPathParam(param.name) {
+			return true
+		}
+	}
+	return false
+}
 
 // matchesPathParam tests a parameter name against pathParamRE after camelCase
 // normalisation. See the regex-level comment above.
@@ -233,7 +249,15 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 		desc, _ := tool["description"].(string)
 		hintedPrefixes := extractHintedPrefixes(desc)
 		params := toolParams(tool)
-		params = discoverToolValues(ctx, inv, name, params)
+		// Discovery is a REAL invocation, so it only runs against a tool this
+		// probe is going to test anyway. Gating on the tool (does it expose a
+		// path-shaped parameter?) rather than on the parameter that needs
+		// candidates is deliberate: the parameter needing discovery is usually the
+		// DISCRIMINATOR, not the path — file_manager(action, path) needs a value
+		// for `action` in order to reach the sink through `path`.
+		if p.hasProbeableParam(params) {
+			params = discoverToolValues(ctx, inv, name, params)
+		}
 
 		// Payload flavour selection. A ReadOnly annotation is the only
 		// unambiguous positive signal that the tool cannot write; anything
@@ -408,16 +432,161 @@ func markGuardBypass(prefixed, baseline, control *attempt.Attempt) {
 // read payloads, and a documented path traversal was missed. DVMCP happens to
 // use bare imperatives ("Read a file from the system"), which matched -- so the
 // corpus hid the defect entirely.
-var readVerbRE = regexp.MustCompile(`(?i)\b(read|get|fetch|list|show|view|display|retrieve|download|cat|dump|inspect|describe|search|find|query|lookup)(s|es|ing|ed)?\b`)
+// Inflections are GENERATED rather than expressed as a suffix group, because a
+// suffix group cannot describe English. `(s|es|ing|ed)?` produces "geting" and
+// "runing" but never "getting" or "running", and Go's regexp is RE2 — it has no
+// backreferences, so "double the final consonant" is not expressible as a
+// pattern. Measured before this change: "Dropping the table", "Setting the
+// value" and "Putting the object" all failed mutationVerbRE, and "Running the
+// query" was classified read-only.
+var readVerbRE = verbRegexp([]string{
+	"read", "get", "fetch", "list", "show", "view", "display", "retrieve",
+	"download", "cat", "dump", "inspect", "describe", "search", "find",
+	"query", "lookup", "browse", "peek", "count", "preview", "print",
+})
 
 // mutationVerbRE matches any hint that a tool changes state. Presence of ONE of
 // these disqualifies a tool from read payloads even when read verbs also appear,
 // because the cost of being wrong is asymmetric: a misjudged writer handed a
 // read payload targets a sensitive path.
 // Inflected for the same reason as readVerbRE, and it matters more here: the
-// mutation list is the safety half, so missing "writes" or "deletes" where the
-// stem was present would admit a write-capable tool to the read-payload path.
-var mutationVerbRE = regexp.MustCompile(`(?i)\b(write|delete|remove|create|update|modify|edit|put|post|upload|rename|move|copy|append|truncate|set|save|store|patch|destroy|drop|insert|execute|run|exec|chmod|chown|mkdir|unlink)(s|es|ing|ed)?\b`)
+// mutation list is the safety half, so a verb this list misses admits a
+// write-capable tool to the read-payload path.
+//
+// The vocabulary deliberately includes verbs that are AMBIGUOUS in a tool
+// description — "format" usually means formatting output, not formatting a disk;
+// "clean" and "reset" often describe cache maintenance. They are listed anyway
+// because the two error directions are not symmetric. Treating a reader as a
+// mutator costs one missed finding: the tool falls back to write-canary payloads
+// under /tmp. Treating a mutator as a reader points a sensitive absolute path at
+// a tool that can destroy it. This list is a safety gate, so it fails toward
+// caution and accepts the coverage cost.
+var mutationVerbRE = verbRegexp([]string{
+	"write", "delete", "remove", "create", "update", "modify", "edit", "put",
+	"post", "upload", "rename", "move", "copy", "append", "truncate", "set",
+	"save", "store", "patch", "destroy", "drop", "insert", "execute", "run",
+	"exec", "chmod", "chown", "chgrp", "mkdir", "unlink", "touch",
+	// destructive verbs measured missing from the original list
+	"clear", "wipe", "reset", "clean", "flush", "format", "purge", "erase",
+	"empty", "overwrite", "prune", "revoke", "rotate", "restore", "replace",
+	"unset", "install", "deploy", "publish", "provision", "register",
+	"unregister", "migrate", "sync", "archive", "extract", "compress",
+	"mount", "unmount", "kill", "terminate", "disable", "enable",
+})
+
+// irregularVerbForms supplies the surface forms no suffix rule generates. Only
+// the verbs actually present in the two lists above are covered; a verb absent
+// from both needs no entry.
+var irregularVerbForms = map[string][]string{
+	"read":  {"read"}, // read/read/read — the base form covers the past
+	"get":   {"got", "gotten"},
+	"run":   {"ran"},
+	"write": {"wrote", "written"},
+	"put":   {"put"},
+	"set":   {"set"},
+	"find":  {"found"},
+	"cut":   {"cut"},
+	"make":  {"made"},
+	"show":  {"shown"},
+	"drop":  {"dropped"},
+}
+
+// vowels for the consonant-vowel-consonant test in verbForms.
+const vowels = "aeiou"
+
+// verbForms returns the surface forms of one regular English verb stem: the
+// stem, its third-person singular, its gerund and its past tense, following the
+// spelling rules that actually apply.
+//
+//	ends in s/x/z/ch/sh  → +es          (fetch → fetches)
+//	ends in e            → drop e, +ing; +d   (delete → deleting, deleted)
+//	ends in consonant+y  → drop y, +ies/+ied  (query → queries, queried)
+//	consonant-vowel-consonant → double the final consonant (drop → dropping)
+//	otherwise            → +ing, +ed
+//
+// The doubled and undoubled gerund/past are BOTH emitted for CVC stems. Only one
+// is correct English, but this is a matcher, not a generator: accepting the
+// misspelling costs nothing and guards against the rule being misapplied.
+func verbForms(stem string) []string {
+	forms := []string{stem}
+	add := func(f ...string) { forms = append(forms, f...) }
+
+	last := stem[len(stem)-1]
+	switch {
+	case strings.HasSuffix(stem, "s"), strings.HasSuffix(stem, "x"),
+		strings.HasSuffix(stem, "z"), strings.HasSuffix(stem, "ch"),
+		strings.HasSuffix(stem, "sh"):
+		add(stem + "es")
+	case last == 'y' && len(stem) > 1 && !strings.ContainsRune(vowels, rune(stem[len(stem)-2])):
+		base := stem[:len(stem)-1]
+		add(base+"ies", base+"ied")
+	default:
+		add(stem + "s")
+	}
+
+	switch {
+	case last == 'e':
+		add(stem[:len(stem)-1]+"ing", stem+"d")
+	case last == 'y' && len(stem) > 1 && !strings.ContainsRune(vowels, rune(stem[len(stem)-2])):
+		add(stem + "ing")
+	default:
+		add(stem+"ing", stem+"ed")
+		// Consonant-vowel-consonant, final consonant not w/x/y: the final
+		// consonant doubles. This is the rule `(s|es|ing|ed)?` could not express.
+		if n := len(stem); n >= 3 &&
+			!strings.ContainsRune(vowels, rune(last)) && !strings.ContainsRune("wxy", rune(last)) &&
+			strings.ContainsRune(vowels, rune(stem[n-2])) &&
+			!strings.ContainsRune(vowels, rune(stem[n-3])) {
+			doubled := stem + string(last)
+			add(doubled+"ing", doubled+"ed")
+		}
+	}
+	return forms
+}
+
+// verbRegexp builds a case-insensitive, word-boundary-anchored alternation over
+// every stem's inflected forms plus its irregulars. Longest-first so the
+// alternation cannot match a short prefix of a longer form.
+func verbRegexp(stems []string) *regexp.Regexp {
+	seen := map[string]bool{}
+	var forms []string
+	for _, stem := range stems {
+		all := append(verbForms(stem), irregularVerbForms[stem]...)
+		for _, f := range all {
+			if f != "" && !seen[f] {
+				seen[f] = true
+				forms = append(forms, f)
+			}
+		}
+	}
+	sort.Slice(forms, func(i, j int) bool {
+		if len(forms[i]) != len(forms[j]) {
+			return len(forms[i]) > len(forms[j])
+		}
+		return forms[i] < forms[j]
+	})
+	return regexp.MustCompile(`(?i)\b(` + strings.Join(forms, "|") + `)\b`)
+}
+
+// identifierSeparatorRE matches the characters that join words inside an
+// identifier. See normaliseIdentifiers.
+var identifierSeparatorRE = regexp.MustCompile(`[_\-./]+`)
+
+// normaliseIdentifiers rewrites identifier punctuation and camelCase transitions
+// into spaces so a verb buried in a symbol name becomes a standalone word.
+//
+// This is load-bearing, not cosmetic. A word boundary `\b` sits between a word
+// character and a non-word character, and `_` IS a word character — so `\bread\b`
+// does not match `read_file`, and `\bdelete\b` does not match `deleteUser` or
+// `delete_item`. Measured before this change: EVERY tool name tested contributed
+// nothing to the read/mutation decision. `delete_item` carried no mutation
+// signal at all, so a tool named for deletion and described with a read verb
+// ("Gets rid of the entry") was classified read-only and eligible for a
+// sensitive-path payload.
+func normaliseIdentifiers(s string) string {
+	s = camelCaseBoundaryRE.ReplaceAllString(s, "${1} ${2}")
+	return identifierSeparatorRE.ReplaceAllString(s, " ")
+}
 
 // readIntentValues are discriminator values that make a call definitionally a
 // read, whatever the tool as a whole can do.
@@ -443,14 +612,24 @@ var readIntentValues = map[string]bool{
 // "read, write, and delete" file manager is not admitted on its name alone.
 func readIntent(tool map[string]any, params []paramInfo) bool {
 	for _, prm := range params {
-		if v, ok := prm.candidateValue(); ok && readIntentValues[strings.ToLower(v)] {
+		// REQUIRED only. benignArgs sends required parameters and omits optional
+		// ones, so an optional discriminator's preferred value is not what the
+		// server acts on — it applies its own default, which may well be a write.
+		// Trusting it would select a sensitive-path read payload for a call that
+		// actually performs a write to that path.
+		if !prm.required {
+			continue
+		}
+		if v, ok := prm.safeCandidateValue(); ok && readIntentValues[strings.ToLower(v)] {
 			return true
 		}
 	}
 
 	name, _ := tool["name"].(string)
 	desc, _ := tool["description"].(string)
-	metadata := name + " " + desc
+	// Normalised so verbs inside identifiers are visible to the matchers; without
+	// it the tool NAME contributes nothing at all. See normaliseIdentifiers.
+	metadata := normaliseIdentifiers(name + " " + desc)
 	return readVerbRE.MatchString(metadata) && !mutationVerbRE.MatchString(metadata)
 }
 

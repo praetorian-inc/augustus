@@ -61,6 +61,21 @@ func NewSSRF(cfg registry.Config) (probes.Prober, error) {
 
 func (p *SSRF) Name() string { return "mcptool.SSRF" }
 
+// hasProbeableParam reports whether this tool exposes a parameter this probe
+// would actually inject into. Used to decide whether the tool is worth a
+// discovery invocation at all — see the call site in Probe.
+func (p *SSRF) hasProbeableParam(params []paramInfo) bool {
+	for _, param := range params {
+		if !isStringParam(param.typ) {
+			continue
+		}
+		if p.allParams || urlParamRE.MatchString(param.name) {
+			return true
+		}
+	}
+	return false
+}
+
 var _ types.RiskDescriber = (*SSRF)(nil)
 
 // RiskInfo is the curated security write-up for this probe's finding.
@@ -140,7 +155,13 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 			continue
 		}
 		params := toolParams(tool)
-		params = discoverToolValues(ctx, inv, name, params)
+		// Only worth a real invocation if this probe has something to send this
+		// tool. Gated on the TOOL, not on the parameter needing candidates: the
+		// uncandidated parameter is typically a discriminator that must be
+		// satisfied to reach the URL sink, not the URL parameter itself.
+		if p.hasProbeableParam(params) {
+			params = discoverToolValues(ctx, inv, name, params)
+		}
 		for _, param := range params {
 			if !isStringParam(param.typ) {
 				continue

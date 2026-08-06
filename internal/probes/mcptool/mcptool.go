@@ -67,13 +67,23 @@ func toolParams(tool map[string]any) []paramInfo {
 	for name, raw := range props {
 		typ := ""
 		var candidates []string
+		propDoc := ""
 		if p, ok := raw.(map[string]any); ok {
 			typ, _ = p["type"].(string)
 			candidates = schemaEnum(p)
+			propDoc, _ = p["description"].(string)
 		}
-		// The schema is authoritative; only fall back to prose when it declares
-		// no enum. Most servers in the wild declare none (every DVMCP tool ships
-		// a bare {"title","type"} property), which is why mining exists at all.
+		// Sources in descending authority. The schema's enum is definitive. Then
+		// the PROPERTY's own description, which is where most SDKs put per-argument
+		// docs and which needs no attribution guessing — it belongs to this
+		// parameter by construction. Only then the tool-level description's "Args:"
+		// block, where the parameter's line has to be located by name.
+		//
+		// Most servers in the wild declare no enum at all (every DVMCP tool ships a
+		// bare {"title","type"} property), which is why mining exists.
+		if len(candidates) == 0 {
+			candidates = mineCandidateValues(propDoc)
+		}
 		if len(candidates) == 0 {
 			candidates = mineCandidateValues(paramDoc(desc, name))
 		}
@@ -139,10 +149,19 @@ var (
 	// Matching loosely inside prose is how "(only files in /tmp/safe/ allowed)"
 	// yields "tmp" and "safe" -- tokens that pass a shape filter but are not
 	// values, and would be injected as a gating argument.
-	commaAltRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,31}(\s*,\s*[A-Za-z0-9][A-Za-z0-9_-]{0,31})+$`)
+	// The separator admits the connective an English list ends with, so
+	// "(read, write, or delete)" and "(grant or revoke)" are matched rather than
+	// rejected wholesale over the space in "or delete". The token shape and the
+	// whole-group anchor are UNCHANGED, which is what still rejects prose: in
+	// "(only files in /tmp/safe/ allowed)" the path member cannot match the token
+	// shape, so the anchored match fails and the group yields nothing.
+	commaAltRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,31}` +
+		`((\s*,\s*((or|and)\s+)?|\s+(or|and)\s+)[A-Za-z0-9][A-Za-z0-9_-]{0,31})+$`)
 	slashAltRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,31}(\s*[/|]\s*[A-Za-z0-9][A-Za-z0-9_-]{0,31})+$`)
 	// a candidate must look like a bare token, not prose or a path
 	valueTokenRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$`)
+	// the connective that separates the last two members of an English list
+	listConnectiveRE = regexp.MustCompile(`(?i)\s+(or|and)\s+`)
 )
 
 // nonValueTokens are words that appear in the same shapes as real values but
@@ -166,45 +185,78 @@ var nonValueTokens = map[string]bool{
 // ("only files in /tmp/safe/ allowed") yield nothing rather than a bad guess —
 // a wrong value is no better than the placeholder it replaces.
 func mineCandidateValues(frag string) []string {
+	return mineCandidateValuesExcluding(frag, nil)
+}
+
+// mineCandidateValuesExcluding is mineCandidateValues with a set of values to
+// discard, matched case-insensitively.
+//
+// The exclusion set exists for discovery against a REJECTION message. Servers
+// commonly quote the value they refused alongside the list they accept — "Invalid
+// action 'test'. Must be one of: read, write, delete". The quoted shape matches
+// first, so without exclusion the probe adopts `test`: the very placeholder it
+// just sent and the server just refused. Every subsequent call is rejected
+// identically and the gated sink stays unreached, which is precisely the failure
+// discovery exists to fix.
+func mineCandidateValuesExcluding(frag string, exclude map[string]bool) []string {
 	if frag == "" {
 		return nil
 	}
-	var raw []string
-	for _, m := range quotedValueRE.FindAllStringSubmatch(frag, -1) {
-		raw = append(raw, m[1])
-	}
-	if len(raw) == 0 {
-		for _, m := range parenGroupRE.FindAllStringSubmatch(frag, -1) {
-			group := strings.TrimSpace(m[1])
-			switch {
-			case commaAltRE.MatchString(group), slashAltRE.MatchString(group):
-				raw = append(raw, splitAlternation(group)...)
-			default:
-				// Prose, or a path -- contributes nothing rather than a guess.
-			}
-		}
-	}
-	// Colon-introduced lists last: the loosest shape, so it only runs when the
-	// stricter ones found nothing. This is the form a server uses when it REJECTS
-	// a value ("must be one of: read, write, delete"), which makes the same
-	// function usable against a rejection message as against a description.
-	if len(raw) == 0 {
-		for _, m := range colonListRE.FindAllStringSubmatch(frag, -1) {
-			raw = append(raw, splitAlternation(m[1])...)
-		}
+	excluded := func(v string) bool {
+		return exclude != nil && exclude[strings.ToLower(v)]
 	}
 
-	seen := make(map[string]bool, len(raw))
-	out := make([]string, 0, len(raw))
-	for _, v := range raw {
-		v = strings.TrimSpace(v)
-		if !valueTokenRE.MatchString(v) || nonValueTokens[strings.ToLower(v)] || seen[v] {
-			continue
-		}
-		seen[v] = true
-		out = append(out, v)
+	// Shapes are tried in order of how explicitly they announce a value list, and
+	// the first shape that yields anything usable wins.
+	//
+	// The colon-introduced list goes FIRST despite being the loosest matcher,
+	// because colonListRE requires an explicit introducing phrase ("one of",
+	// "any of", "either", "from") which is the strongest statement a server makes
+	// about its accepted values. A description that merely illustrates values
+	// parenthetically cannot match it, so it does not steal from the quoted shape.
+	shapes := []func() []string{
+		func() (raw []string) {
+			for _, m := range colonListRE.FindAllStringSubmatch(frag, -1) {
+				raw = append(raw, splitAlternation(m[1])...)
+			}
+			return raw
+		},
+		func() (raw []string) {
+			for _, m := range quotedValueRE.FindAllStringSubmatch(frag, -1) {
+				raw = append(raw, m[1])
+			}
+			return raw
+		},
+		func() (raw []string) {
+			for _, m := range parenGroupRE.FindAllStringSubmatch(frag, -1) {
+				group := strings.TrimSpace(m[1])
+				if commaAltRE.MatchString(group) || slashAltRE.MatchString(group) {
+					raw = append(raw, splitAlternation(group)...)
+				}
+				// Anything else is prose or a path: contributes nothing rather
+				// than a guess.
+			}
+			return raw
+		},
 	}
-	return out
+
+	for _, shape := range shapes {
+		seen := make(map[string]bool)
+		var out []string
+		for _, v := range shape() {
+			v = strings.TrimSpace(v)
+			if !valueTokenRE.MatchString(v) || nonValueTokens[strings.ToLower(v)] ||
+				excluded(v) || seen[v] {
+				continue
+			}
+			seen[v] = true
+			out = append(out, v)
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	return nil
 }
 
 // isStringParam reports whether a param is a viable injection target. An absent
@@ -228,11 +280,18 @@ func benignArgs(params []paramInfo, injectParam, payload string) map[string]any 
 }
 
 // benignValue picks a filler for a parameter the probe is not injecting into.
-// A declared or documented value is preferred over the generic placeholder:
-// where the parameter gates which branch the server takes, the placeholder is
-// rejected up front and the call never reaches the sink under test.
+// A declared value is preferred over the generic placeholder: where the
+// parameter gates which branch the server takes, the placeholder is rejected up
+// front and the call never reaches the sink under test.
+//
+// Only a RECOGNISABLY READ-ONLY declared value is used (safeCandidateValue).
+// Reaching for the first declared value instead would hand a tool whose enum is
+// ["delete", "read"] its destructive branch as a "benign" filler.
 func benignValue(p paramInfo) any {
-	if v, ok := p.candidateValue(); ok {
+	if v, ok := p.typedEnumValue(); ok {
+		return v
+	}
+	if v, ok := p.safeCandidateValue(); ok {
 		return v
 	}
 	switch p.typ {
@@ -245,6 +304,8 @@ func benignValue(p paramInfo) any {
 	case "object":
 		return map[string]any{}
 	default:
+		// Fail closed. An unrecognised operation name is likelier to be rejected
+		// than to be safe, and a rejection is the cheaper error.
 		return "test"
 	}
 }
@@ -252,6 +313,10 @@ func benignValue(p paramInfo) any {
 // splitAlternation breaks a list on its separators and drops the connective
 // words English puts before the final item ("a, b, and c").
 func splitAlternation(group string) []string {
+	// A trailing connective is a separator too: "read, write and delete" has
+	// three members, not two. Normalising it to a comma first means the member
+	// splitter below stays a simple rune scan.
+	group = listConnectiveRE.ReplaceAllString(group, ",")
 	parts := strings.FieldsFunc(group, func(r rune) bool {
 		return r == ',' || r == '/' || r == '|'
 	})
@@ -282,32 +347,20 @@ func splitAlternation(group string) []string {
 // for parameters that have no candidates already. Failure is silent and total:
 // params keep whatever they had, which is the pre-existing behaviour.
 func discoverToolValues(ctx context.Context, inv types.ToolInvoker, tool string, params []paramInfo) []paramInfo {
-	needed := false
-	for _, p := range params {
-		if isStringParam(p.typ) && len(p.candidates) == 0 {
-			needed = true
-			break
-		}
-	}
-	if !needed || inv == nil {
+	if inv == nil {
 		return params
 	}
 
-	args := map[string]any{}
-	for _, p := range params {
-		if p.required {
-			args[p.name] = benignValue(p)
-		}
-	}
-	res, err := inv.CallTool(ctx, tool, args)
-	if err != nil || res.Text == "" {
-		return params
-	}
-
-	// The response is not attributed per parameter, so a discovered value is only
-	// adopted where exactly one parameter is missing candidates. With several
+	// The adoption test runs BEFORE the call, not after it.
+	//
+	// A response is not attributed per parameter, so a discovered value can only
+	// be adopted where exactly one parameter is missing candidates; with several
 	// unknowns there is no way to tell which list belongs to which argument, and
-	// guessing wrong is worse than not guessing.
+	// guessing wrong is worse than not guessing. Deciding that first matters
+	// because the call is a REAL invocation of a customer's tool: performing it
+	// and then discarding the response — which is what happens whenever two or
+	// more parameters are uncandidated — is a side effect with no possible
+	// benefit.
 	missing := -1
 	for i, p := range params {
 		if isStringParam(p.typ) && len(p.candidates) == 0 {
@@ -320,7 +373,28 @@ func discoverToolValues(ctx context.Context, inv types.ToolInvoker, tool string,
 	if missing < 0 {
 		return params
 	}
-	if found := mineCandidateValues(res.Text); len(found) > 0 {
+
+	args := map[string]any{}
+	sent := map[string]bool{}
+	for _, p := range params {
+		if !p.required {
+			continue
+		}
+		v := benignValue(p)
+		args[p.name] = v
+		if s, ok := v.(string); ok {
+			sent[strings.ToLower(s)] = true
+		}
+	}
+	res, err := inv.CallTool(ctx, tool, args)
+	if err != nil || res.Text == "" {
+		return params
+	}
+
+	// Values we just sent are excluded: a rejection message routinely quotes the
+	// value it refused, and adopting it would pin the probe to the placeholder the
+	// server has already rejected.
+	if found := mineCandidateValuesExcluding(res.Text, sent); len(found) > 0 {
 		out := make([]paramInfo, len(params))
 		copy(out, params)
 		out[missing].candidates = found
@@ -343,8 +417,12 @@ func discoverToolValues(ctx context.Context, inv types.ToolInvoker, tool string,
 // Gated on a derivable value on purpose: prefixing every parameter
 // unconditionally would double an attempt count that already reaches 108 on a
 // single challenge, buying nothing where no valid value is known.
+// Restricted to a recognisably READ-ONLY value for the same reason benignValue
+// is: the prefix is transmitted and acted upon. Leading a payload with a
+// destructive branch name — "delete ; <payload>" — executes the deletion on the
+// way to testing the sink.
 func payloadPrefixes(p paramInfo) []string {
-	if v, ok := p.candidateValue(); ok {
+	if v, ok := p.safeCandidateValue(); ok {
 		return []string{"", v + " "}
 	}
 	return []string{""}
@@ -360,13 +438,80 @@ func payloadVariants(p paramInfo, payload string) []string {
 	return out
 }
 
-// candidateValue returns the preferred valid value for this parameter, if one
-// was declared or could be mined. Restricted to string-shaped parameters: a
-// mined token is text, and coercing it into a numeric or structured parameter
-// would break argument validation rather than satisfy it.
-func (p paramInfo) candidateValue() (string, bool) {
-	if len(p.candidates) == 0 || !isStringParam(p.typ) {
+// safeOperationValues are declared parameter values that name a READ-ONLY
+// operation, either as a dispatch keyword ("read", "list") or as a shell command
+// a target's allowlist commonly permits ("ls", "pwd").
+//
+// This set is a SAFETY control, not a coverage aid. A discriminator's declared
+// values are the branches a tool can take, and nothing about the order they are
+// declared in says which of them is safe: an enum of ["delete", "read"] leads
+// with the destructive branch. Since these values are sent as filler for
+// parameters the probe is not testing, and as a leading prefix on the parameter
+// it IS testing, picking the wrong one executes a destructive operation the
+// probe never intended to invoke.
+//
+// So selection is allowlist-based and fails closed: a parameter whose declared
+// values contain nothing recognisably read-only contributes no value at all, and
+// the caller falls back to a placeholder the server will reject. A rejected call
+// costs one missed finding. A wrong guess costs the customer data.
+var safeOperationValues = map[string]bool{
+	// dispatch keywords
+	"read": true, "get": true, "fetch": true, "list": true, "view": true,
+	"show": true, "display": true, "retrieve": true, "download": true,
+	"describe": true, "inspect": true, "search": true, "find": true,
+	"query": true, "lookup": true, "count": true, "exists": true,
+	"info": true, "status": true, "stat": true, "preview": true, "peek": true,
+	// read-only shell commands, the usual contents of a first-token allowlist
+	"cat": true, "head": true, "tail": true, "ls": true, "dir": true,
+	"pwd": true, "whoami": true, "date": true, "uname": true, "hostname": true,
+	"id": true, "echo": true, "true": true, "version": true, "help": true,
+}
+
+// safeCandidateValue returns the value the probe will actually SEND for this
+// parameter: the first declared or mined candidate recognised as a read-only
+// operation. It returns false when the parameter declares no candidate that is
+// recognisably safe, which is a deliberate fail-closed outcome — see
+// safeOperationValues.
+//
+// Restricted to string-shaped parameters: a mined token is text, and coercing it
+// into a structured parameter would break argument validation rather than
+// satisfy it. Numeric and boolean enums are handled by typedEnumValue.
+func (p paramInfo) safeCandidateValue() (string, bool) {
+	if !isStringParam(p.typ) {
 		return "", false
 	}
-	return p.candidates[0], true
+	for _, c := range p.candidates {
+		if safeOperationValues[strings.ToLower(c)] {
+			return c, true
+		}
+	}
+	return "", false
+}
+
+// typedEnumValue converts a declared candidate back to this parameter's native
+// type. schemaEnum renders every enum member as a string, so a numeric or
+// boolean enum would otherwise fall through to the generic 1/true placeholder
+// and be rejected by a server that validates against the declared set.
+//
+// No safety allowlist applies here: a number or a boolean does not name an
+// operation, so there is no destructive branch to select by accident.
+func (p paramInfo) typedEnumValue() (any, bool) {
+	if len(p.candidates) == 0 {
+		return nil, false
+	}
+	switch p.typ {
+	case "integer":
+		if n, err := strconv.Atoi(p.candidates[0]); err == nil {
+			return n, true
+		}
+	case "number":
+		if f, err := strconv.ParseFloat(p.candidates[0], 64); err == nil {
+			return f, true
+		}
+	case "boolean":
+		if b, err := strconv.ParseBool(p.candidates[0]); err == nil {
+			return b, true
+		}
+	}
+	return nil, false
 }
