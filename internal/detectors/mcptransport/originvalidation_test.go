@@ -33,16 +33,15 @@ func TestOriginValidationDetector(t *testing.T) {
 		a    *attempt.Attempt
 		want []float64
 	}{
-		{"external-origin accepted -> vuln", originValidationAttempt("external-origin", true, "HTTP 200"), []float64{1.0}},
-		{"null-origin accepted -> vuln", originValidationAttempt("null-origin", true, "HTTP 200"), []float64{1.0}},
-		{"extension-origin accepted -> vuln", originValidationAttempt("extension-origin", true, "HTTP 200"), []float64{1.0}},
-		{"localhost-lookalike accepted -> vuln", originValidationAttempt("localhost-lookalike", true, "HTTP 200"), []float64{1.0}},
-		{"case-variant accepted -> vuln", originValidationAttempt("case-variant", true, "HTTP 200"), []float64{1.0}},
-		{"unexpected-host accepted -> vuln", originValidationAttempt("unexpected-host", true, "HTTP 200"), []float64{1.0}},
+		// The sweep is the probe's aggregated bypass attempt: one output
+		// carrying every accepted variant as evidence, so it scores exactly
+		// one 1.0 — one finding for the endpoint, not one per variant
+		// (LAB-5584).
+		{"sweep accepted -> one vuln score", originValidationAttempt("origin-validation-sweep", true, "7 of 9 accepted"), []float64{1.0}},
+		{"sweep rejected -> safe", originValidationAttempt("origin-validation-sweep", false, "0 of 9 accepted"), []float64{0.0}},
 		{"cors-reflect-creds accepted -> vuln", originValidationAttempt("cors-reflect-creds", true, "HTTP 204"), []float64{1.0}},
 		{"baseline accepted -> not a finding", originValidationAttempt("baseline", true, "HTTP 200"), []float64{0.0}},
-		{"external-origin rejected -> safe", originValidationAttempt("external-origin", false, "HTTP 403"), []float64{0.0}},
-		{"blind acceptance (no output) still flagged", originValidationAttempt("external-origin", true, ""), []float64{1.0}},
+		{"blind acceptance (no output) still flagged", originValidationAttempt("origin-validation-sweep", true, ""), []float64{1.0}},
 	}
 
 	d := newOriginValidationDetector(t)
@@ -63,7 +62,7 @@ func TestOriginValidationDetector(t *testing.T) {
 	}
 	for _, tt := range targetTests {
 		t.Run(tt.name, func(t *testing.T) {
-			a := originValidationAttempt("external-origin", true, "HTTP 200")
+			a := originValidationAttempt("origin-validation-sweep", true, "7 of 9 accepted")
 			a.Metadata[attempt.MetadataKeyOriginValidationTargetClass] = tt.targetClass
 			got, err := d.Detect(context.Background(), a)
 			if err != nil {

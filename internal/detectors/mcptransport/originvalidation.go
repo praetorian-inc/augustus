@@ -15,10 +15,15 @@ func init() {
 // OriginValidationDetector flags an attempt as vulnerable when the
 // mcptransport.OriginValidation probe recorded that a request a spec-compliant,
 // allowlist-based MCP server would refuse was in fact accepted (or a CORS
-// preflight reflected the attacker Origin with credentials). The probe carries
-// a class label so the reviewer can group findings by concrete validator
-// weakness — an any-origin server (root cause) is a different finding than a
-// case-variant or localhost-lookalike bypass, even though both trip the detector.
+// preflight reflected the attacker Origin with credentials).
+//
+// The probe sends many crafted Origin/Host values but emits ONE scored attempt
+// for the whole sweep (class origin-validation-sweep), so an endpoint that
+// validates nothing produces one finding rather than one per variant. Which
+// variants got through travels as evidence on that attempt — see
+// attempt.MetadataKeyOriginValidationVariants — because an any-origin server
+// is a different remediation than a case-variant-only bypass, even though
+// both trip this detector identically.
 type OriginValidationDetector struct{}
 
 // NewOriginValidationDetector constructs the detector.

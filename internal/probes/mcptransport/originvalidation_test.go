@@ -136,8 +136,11 @@ func corsReflectServer(t *testing.T) *httptest.Server {
 	}))
 }
 
-// findingsByClass runs the detector-side check and returns which bypass
-// classes fired at least one 1.0 score.
+// findingsByClass runs the detector-side check and returns which attempt
+// classes fired at least one 1.0 score. Since LAB-5584 the bypass sweep is a
+// single attempt, so the only classes that can appear here are
+// origin-validation-sweep and cors-reflect-creds — the per-variant classes
+// live inside the sweep attempt's evidence (see acceptedVariantClasses).
 func findingsByClass(attempts []*attempt.Attempt) map[string]bool {
 	det := &originValidationDetectorStub{}
 	fired := map[string]bool{}
@@ -153,8 +156,46 @@ func findingsByClass(attempts []*attempt.Attempt) map[string]bool {
 	return fired
 }
 
-// TestOriginValidation_VulnerableServer: a server with no validation is caught on
-// every non-baseline class.
+// acceptedVariantClasses returns the per-variant classes the aggregated sweep
+// attempt recorded as accepted.
+func acceptedVariantClasses(t *testing.T, attempts []*attempt.Attempt) map[string]bool {
+	t.Helper()
+	sweep := findAttemptByClass(attempts, classSweep)
+	if sweep == nil {
+		t.Fatal("expected an aggregated origin-validation-sweep attempt")
+	}
+	raw, ok := sweep.GetMetadata(attempt.MetadataKeyOriginValidationAcceptedClasses)
+	if !ok {
+		t.Fatal("sweep attempt is missing the accepted-classes metadata")
+	}
+	classes, _ := raw.([]string)
+	got := map[string]bool{}
+	for _, c := range classes {
+		got[c] = true
+	}
+	return got
+}
+
+// sweepVariants returns the per-variant detail recorded on the aggregated
+// sweep attempt.
+func sweepVariants(t *testing.T, attempts []*attempt.Attempt) []map[string]any {
+	t.Helper()
+	sweep := findAttemptByClass(attempts, classSweep)
+	if sweep == nil {
+		t.Fatal("expected an aggregated origin-validation-sweep attempt")
+	}
+	raw, ok := sweep.GetMetadata(attempt.MetadataKeyOriginValidationVariants)
+	if !ok {
+		t.Fatal("sweep attempt is missing the variants metadata")
+	}
+	vs, _ := raw.([]map[string]any)
+	return vs
+}
+
+// TestOriginValidation_VulnerableServer: a server with no validation produces
+// exactly ONE bypass finding, not one per variant — the LAB-5584 fix. Every
+// variant class it accepted must still be recoverable from that one finding's
+// evidence, because "which checks are missing" is what a remediator acts on.
 func TestOriginValidation_VulnerableServer(t *testing.T) {
 	srv := vulnServer(t)
 	defer srv.Close()
@@ -164,11 +205,35 @@ func TestOriginValidation_VulnerableServer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
 	}
+
+	// Exactly one attempt scores as a bypass finding. Before LAB-5584 this
+	// was nine.
+	det := &originValidationDetectorStub{}
+	findings := 0
+	for _, a := range attempts {
+		for _, s := range det.detect(a) {
+			if s == 1.0 {
+				findings++
+				break
+			}
+		}
+	}
+	if findings != 1 {
+		t.Errorf("a server that validates nothing must produce 1 finding, got %d (attempts=%d)", findings, len(attempts))
+	}
+
 	fired := findingsByClass(attempts)
+	if !fired[string(classSweep)] {
+		t.Errorf("the aggregated sweep should fire on a fully-vulnerable server; fired=%v", fired)
+	}
+	if fired[string(classBaseline)] {
+		t.Errorf("baseline should never fire as a finding")
+	}
 
 	// httptest binds 127.0.0.1:PORT, so swapCase is a no-op on the host and
 	// the case-variant class is (correctly) skipped — see the
 	// TestOriginValidation_CaseVariantSkippedOnNumericHost test below.
+	acceptedClasses := acceptedVariantClasses(t, attempts)
 	wantClasses := []string{
 		string(classExternalOrigin),
 		string(classNullOrigin),
@@ -177,15 +242,115 @@ func TestOriginValidation_VulnerableServer(t *testing.T) {
 		string(classUnexpectedHost),
 	}
 	for _, c := range wantClasses {
-		if !fired[c] {
-			t.Errorf("class %q should have fired on the fully-vulnerable server (fired=%v)", c, fired)
+		if !acceptedClasses[c] {
+			t.Errorf("variant class %q should be listed as accepted in the sweep evidence (accepted=%v)", c, acceptedClasses)
 		}
 	}
-	if fired[string(classBaseline)] {
-		t.Errorf("baseline should never fire as a finding")
+	if acceptedClasses[string(classCaseVariant)] {
+		t.Errorf("case-variant must NOT be accepted on an all-numeric host (would be an FP)")
 	}
-	if fired[string(classCaseVariant)] {
-		t.Errorf("case-variant must NOT fire on an all-numeric host (would be an FP)")
+}
+
+// TestOriginValidation_SweepEvidenceRecordsEveryVariant: the aggregated
+// finding must account for every crafted value the probe sent, accepted or
+// not. Collapsing ten findings into one is only safe if no evidence is lost.
+func TestOriginValidation_SweepEvidenceRecordsEveryVariant(t *testing.T) {
+	srv := vulnServer(t)
+	defer srv.Close()
+
+	p := newOriginValidationProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	sweep := findAttemptByClass(attempts, classSweep)
+	if sweep == nil {
+		t.Fatal("expected an aggregated sweep attempt")
+	}
+
+	variants := sweepVariants(t, attempts)
+	// Numeric host ⇒ case-variant skipped, so 7 Origin payloads + 2 Host.
+	wantSent := len(p.buildOriginPayloads()) + len(p.buildHostPayloads())
+	if len(variants) != wantSent {
+		t.Errorf("sweep evidence lists %d variants, probe sent %d", len(variants), wantSent)
+	}
+	sent, _ := sweep.GetMetadata(attempt.MetadataKeyOriginValidationVariantsSent)
+	if n, _ := sent.(int); n != wantSent {
+		t.Errorf("variants_sent = %v, want %d", sent, wantSent)
+	}
+	acceptedCount, _ := sweep.GetMetadata(attempt.MetadataKeyOriginValidationVariantsAccepted)
+	if n, _ := acceptedCount.(int); n != wantSent {
+		t.Errorf("variants_accepted = %v, want %d (server validates nothing)", acceptedCount, wantSent)
+	}
+
+	// Every variant carries the header it sent and a response line, so the
+	// evidence stands on its own without the old per-variant attempts.
+	for i, v := range variants {
+		if _, hasOrigin := v["origin"]; !hasOrigin {
+			if _, hasHost := v["host"]; !hasHost {
+				t.Errorf("variant %d records neither origin nor host: %v", i, v)
+			}
+		}
+		if s, _ := v["result"].(string); s == "" {
+			t.Errorf("variant %d has no result line: %v", i, v)
+		}
+	}
+	if len(sweep.Outputs) != 1 {
+		t.Errorf("aggregated attempt should carry exactly one evidence output, got %d", len(sweep.Outputs))
+	}
+	if !strings.Contains(sweep.Outputs[0], "NO Origin/Host validation is enforced") {
+		t.Errorf("evidence should state the validator verdict for an any-origin server; got:\n%s", sweep.Outputs[0])
+	}
+}
+
+// TestOriginValidation_PartialValidationStillOneFinding: a server that refuses
+// some variants and accepts others is still ONE finding, and the evidence
+// distinguishes which checks are missing.
+func TestOriginValidation_PartialValidationStillOneFinding(t *testing.T) {
+	// Refuses anything containing "example.com" but happily accepts
+	// "example.net", "null", and extension origins — the shape of a
+	// half-finished allowlist.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.Header.Get("Origin"), "example.com") {
+			http.Error(w, "origin not allowed", http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(initializeOK))
+	}))
+	defer srv.Close()
+
+	p := newOriginValidationProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+
+	fired := findingsByClass(attempts)
+	if !fired[string(classSweep)] {
+		t.Fatalf("partial validation must still produce the aggregated finding; fired=%v", fired)
+	}
+
+	sweep := findAttemptByClass(attempts, classSweep)
+	sent, _ := sweep.GetMetadata(attempt.MetadataKeyOriginValidationVariantsSent)
+	got, _ := sweep.GetMetadata(attempt.MetadataKeyOriginValidationVariantsAccepted)
+	sentN, _ := sent.(int)
+	gotN, _ := got.(int)
+	if gotN == 0 || gotN >= sentN {
+		t.Errorf("expected a partial accept (0 < accepted < sent), got accepted=%d sent=%d", gotN, sentN)
+	}
+	if !strings.Contains(sweep.Outputs[0], "validation is PARTIAL") {
+		t.Errorf("evidence should call out partial validation; got:\n%s", sweep.Outputs[0])
+	}
+	// The rejected variants must be visible too — that is what tells a
+	// remediator the allowlist exists and is merely incomplete.
+	if !strings.Contains(sweep.Outputs[0], "REJECTED") {
+		t.Errorf("evidence should list the refused variants; got:\n%s", sweep.Outputs[0])
+	}
+
+	accepted := acceptedVariantClasses(t, attempts)
+	if !accepted[string(classNullOrigin)] {
+		t.Errorf("null-origin got through and should be listed as accepted; accepted=%v", accepted)
 	}
 }
 
@@ -203,14 +368,9 @@ func TestOriginValidation_CaseVariantSkippedOnNumericHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
 	}
-	// Look for any attempt whose class is case-variant.
-	for _, a := range attempts {
-		raw, ok := a.GetMetadata(attempt.MetadataKeyOriginValidationClass)
-		if !ok {
-			continue
-		}
-		if s, _ := raw.(string); s == string(classCaseVariant) {
-			t.Errorf("case-variant attempt should be skipped on numeric host; got attempt %v", a.Prompt)
+	for _, v := range sweepVariants(t, attempts) {
+		if s, _ := v["class"].(string); s == string(classCaseVariant) {
+			t.Errorf("case-variant should not be sent on a numeric host; got variant %v", v)
 		}
 	}
 }
@@ -255,17 +415,30 @@ func TestOriginValidation_DefeatsSubstringWAF(t *testing.T) {
 		t.Fatalf("Probe: %v", err)
 	}
 	fired := findingsByClass(attempts)
-	if !fired[string(classExternalOrigin)] {
-		t.Errorf("external-origin bypass should fire against a substring-blocklist server; fired=%v", fired)
+	if !fired[string(classSweep)] {
+		t.Errorf("the sweep should fire against a substring-blocklist server; fired=%v", fired)
+	}
+	if accepted := acceptedVariantClasses(t, attempts); !accepted[string(classExternalOrigin)] {
+		t.Errorf("external-origin should be among the accepted variants; accepted=%v", accepted)
 	}
 
 	// Confirm that none of the payloads we sent contained a blocklist token.
-	for _, a := range attempts {
-		raw, ok := a.GetMetadata(attempt.MetadataKeyOriginValidationOrigin)
-		if !ok {
-			continue
+	origins := []string{}
+	for _, v := range sweepVariants(t, attempts) {
+		if o, ok := v["origin"].(string); ok {
+			origins = append(origins, o)
 		}
-		o, _ := raw.(string)
+	}
+	for _, a := range attempts {
+		if raw, ok := a.GetMetadata(attempt.MetadataKeyOriginValidationOrigin); ok {
+			o, _ := raw.(string)
+			origins = append(origins, o)
+		}
+	}
+	if len(origins) == 0 {
+		t.Fatal("no Origin payloads recorded — the blocklist check would vacuously pass")
+	}
+	for _, o := range origins {
 		for _, tok := range []string{"evil", "attacker", "hack", "malicious"} {
 			if strings.Contains(strings.ToLower(o), tok) {
 				t.Errorf("payload %q contains blocklist token %q — defeats the point of the probe", o, tok)
@@ -288,6 +461,45 @@ func TestOriginValidation_CORSReflectionWithCredsFired(t *testing.T) {
 	fired := findingsByClass(attempts)
 	if !fired[string(classCORSReflectCreds)] {
 		t.Errorf("cors-reflect-creds should fire when the server reflects Origin + Allow-Credentials; fired=%v", fired)
+	}
+
+	// The reflection escalates the aggregated finding's stated impact: without
+	// it a rebound page drives the tool surface blind; with it, it can read the
+	// responses too.
+	sweep := findAttemptByClass(attempts, classSweep)
+	if sweep == nil {
+		t.Fatal("expected an aggregated sweep attempt")
+	}
+	if !metaBool(sweep, attempt.MetadataKeyOriginValidationCredentialedRead) {
+		t.Errorf("sweep attempt should record the credentialed-read escalation")
+	}
+	if !strings.Contains(sweep.Outputs[0], "Credentialed CORS reflection: PRESENT") ||
+		!strings.Contains(sweep.Outputs[0], "READ") {
+		t.Errorf("aggregated evidence should escalate the impact when the preflight reflects credentials; got:\n%s", sweep.Outputs[0])
+	}
+}
+
+// TestOriginValidation_NoCORSReflectionStatesLesserImpact: the escalation must
+// be conditional — a server without credentialed reflection gets the lesser
+// "blind" impact statement, so the escalated wording stays meaningful.
+func TestOriginValidation_NoCORSReflectionStatesLesserImpact(t *testing.T) {
+	srv := vulnServer(t)
+	defer srv.Close()
+
+	p := newOriginValidationProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	sweep := findAttemptByClass(attempts, classSweep)
+	if sweep == nil {
+		t.Fatal("expected an aggregated sweep attempt")
+	}
+	if metaBool(sweep, attempt.MetadataKeyOriginValidationCredentialedRead) {
+		t.Errorf("vulnServer sets no CORS headers; credentialed-read should be false")
+	}
+	if !strings.Contains(sweep.Outputs[0], "Credentialed CORS reflection: absent") {
+		t.Errorf("evidence should state the lesser impact without reflection; got:\n%s", sweep.Outputs[0])
 	}
 }
 
@@ -331,8 +543,45 @@ func TestOriginValidation_SSEStreamServed(t *testing.T) {
 		t.Fatalf("Probe: %v", err)
 	}
 	fired := findingsByClass(attempts)
-	if !fired[string(classExternalOrigin)] {
-		t.Errorf("external-origin should fire on an SSE endpoint serving any Origin; fired=%v", fired)
+	if !fired[string(classSweep)] {
+		t.Errorf("the sweep should fire on an SSE endpoint serving any Origin; fired=%v", fired)
+	}
+	if accepted := acceptedVariantClasses(t, attempts); !accepted[string(classExternalOrigin)] {
+		t.Errorf("external-origin should be among the accepted variants on SSE; accepted=%v", accepted)
+	}
+}
+
+// TestOriginValidation_AllVariantsFailedIsErrorNotSafe: when every request
+// dies in transit the endpoint was never actually tested. Aggregation must not
+// turn that into a green SAFE row — the whole point of one finding per
+// endpoint is that the one row is trustworthy.
+func TestOriginValidation_AllVariantsFailedIsErrorNotSafe(t *testing.T) {
+	srv := vulnServer(t)
+	url := srv.URL
+	srv.Close() // nothing is listening now; every request fails to connect
+
+	p := newOriginValidationProbe(t, registry.Config{"endpoint": url})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: url, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	sweep := findAttemptByClass(attempts, classSweep)
+	if sweep == nil {
+		t.Fatal("expected an aggregated sweep attempt even when every variant failed")
+	}
+	if sweep.Status != attempt.StatusError {
+		t.Errorf("sweep status = %q, want %q — a dead endpoint must not report as safe", sweep.Status, attempt.StatusError)
+	}
+	if sweep.Error == "" {
+		t.Errorf("sweep should carry the transport error")
+	}
+	if _, ok := sweep.GetMetadata(attempt.MetadataKeyOriginValidationAccepted); ok {
+		t.Errorf("sweep must not claim an accept/reject verdict when nothing was tested")
+	}
+	// The evidence still names every variant that could not be tested, so the
+	// operator can see the sweep was not silently truncated.
+	if !strings.Contains(sweep.Outputs[0], "NOT TESTED") {
+		t.Errorf("evidence should list the untested variants; got:\n%s", sweep.Outputs[0])
 	}
 }
 
@@ -402,11 +651,20 @@ func TestOriginValidation_UsesBorrowedHTTPClient(t *testing.T) {
 	if seenCount == 0 {
 		t.Fatalf("recording transport saw NO requests — probe built its own client and bypassed the generator")
 	}
-	// Strict one-to-one: every probe attempt corresponds to exactly one
-	// recorded request. Anything less proves the probe made a side-channel
-	// request bypassing the borrowed client. Fixes CodeRabbit #8.
-	if seenCount != len(attempts) {
-		t.Errorf("attempts=%d, seen=%d — not every request used the borrowed client (side-channel HTTP)", len(attempts), seenCount)
+	// Strict one-to-one against the requests the probe actually made. Since
+	// LAB-5584 that is no longer len(attempts) — the sweep's variants share a
+	// single attempt — so count them from the sweep's own record: baseline +
+	// every variant + the preflight. Anything less proves the probe made a
+	// side-channel request bypassing the borrowed client. Fixes CodeRabbit #8.
+	sweep := findAttemptByClass(attempts, classSweep)
+	if sweep == nil {
+		t.Fatal("expected an aggregated sweep attempt")
+	}
+	raw, _ := sweep.GetMetadata(attempt.MetadataKeyOriginValidationVariantsSent)
+	variantsSent, _ := raw.(int)
+	wantRequests := 1 + variantsSent + 1 // baseline + sweep variants + preflight
+	if seenCount != wantRequests {
+		t.Errorf("requests=%d, seen=%d — not every request used the borrowed client (side-channel HTTP)", wantRequests, seenCount)
 	}
 }
 
