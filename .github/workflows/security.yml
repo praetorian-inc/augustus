@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   security:
-    uses: praetorian-inc/public-workflows/.github/workflows/go-sec.yml@c5f6f98f1faf8f9ac6a870eced139b2509e08bfc  # v2.12.1
+    uses: praetorian-inc/public-workflows/.github/workflows/go-sec.yml@bcc4e1bef0ebb6768945d04601aa777eae6ab7c4  # v2.17.1
     permissions:
       contents: read
       security-events: write
