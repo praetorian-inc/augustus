@@ -74,6 +74,48 @@ func TestOriginValidationDetector(t *testing.T) {
 		})
 	}
 
+	// Baseline-served is what makes a refusal interpretable. A sweep that
+	// accepted nothing is only "safe" when the endpoint actually answered the
+	// unauthenticated baseline; if it refused that too, it refused the CALLER
+	// and the sweep assessed nothing. Scoring both 0.0 would report an
+	// untested endpoint as clean.
+	baselineTests := []struct {
+		name             string
+		baselineAccepted any
+		wantScore        float64
+	}{
+		{"baseline served → refusals are real, safe", true, 0.0},
+		{"baseline refused → nothing was assessed, inconclusive", false, InconclusiveScore},
+	}
+	for _, tt := range baselineTests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := originValidationAttempt("origin-validation-sweep", false, "0 of 9 accepted")
+			a.Metadata[attempt.MetadataKeyOriginValidationTargetClass] = "loopback"
+			a.Metadata[attempt.MetadataKeyOriginValidationBaselineAccepted] = tt.baselineAccepted
+			got, err := d.Detect(context.Background(), a)
+			if err != nil {
+				t.Fatalf("Detect: %v", err)
+			}
+			if len(got) != 1 || got[0] != tt.wantScore {
+				t.Errorf("Detect = %v, want [%v]", got, tt.wantScore)
+			}
+		})
+	}
+
+	// An attempt that does not carry the baseline fact (the CORS preflight, or
+	// a run predating it) keeps its previous scoring rather than being
+	// silently reclassified as inconclusive.
+	t.Run("no baseline fact → unchanged", func(t *testing.T) {
+		a := originValidationAttempt("cors-reflect-creds", false, "HTTP 204")
+		got, err := d.Detect(context.Background(), a)
+		if err != nil {
+			t.Fatalf("Detect: %v", err)
+		}
+		if len(got) != 1 || got[0] != 0.0 {
+			t.Errorf("Detect = %v, want [0]", got)
+		}
+	})
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := d.Detect(context.Background(), tt.a)

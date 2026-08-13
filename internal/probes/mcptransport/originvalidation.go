@@ -373,8 +373,9 @@ func (p *OriginValidation) Probe(ctx context.Context, gen types.Generator) ([]*a
 	// attempt either way.
 	base := stampClass(p.attemptFromVariant(p.sendVariant(ctx, client, endpoint, transport, "", "", classBaseline)))
 	attempts = append(attempts, base)
-	if !metaBool(base, attempt.MetadataKeyOriginValidationAccepted) {
-		slog.Info("mcptransport.OriginValidation: baseline (no Origin) not accepted; downstream bypass results may be inconclusive", "endpoint", endpoint, "transport", transport)
+	baselineAccepted := metaBool(base, attempt.MetadataKeyOriginValidationAccepted)
+	if !baselineAccepted {
+		slog.Info("mcptransport.OriginValidation: baseline (no Origin) not accepted; refusals are not attributable to Origin validation", "endpoint", endpoint, "transport", transport)
 	}
 
 	// 2-4. The bypass sweep. Every variant below asks the SAME question — does
@@ -418,7 +419,7 @@ func (p *OriginValidation) Probe(ctx context.Context, gen types.Generator) ([]*a
 	preflight := stampClass(p.probePreflight(ctx, client, endpoint, "https://"+p.nonce[:8]+".example.org", u.Host))
 
 	// 6. One finding for the endpoint, carrying every variant as evidence.
-	if agg := p.aggregateSweep(endpoint, transport, variants, corsResultFrom(preflight)); agg != nil {
+	if agg := p.aggregateSweep(endpoint, transport, variants, corsResultFrom(preflight), baselineAccepted); agg != nil {
 		attempts = append(attempts, stampClass(agg))
 	}
 	attempts = append(attempts, preflight)
@@ -501,7 +502,7 @@ func corsResultFrom(preflight *attempt.Attempt) corsReflection {
 // "baseline", and the accepted flag is true when ANY variant was accepted.
 // The target-class severity tiering is untouched — the caller stamps it on
 // this attempt exactly as it does on every other.
-func (p *OriginValidation) aggregateSweep(endpoint, transport string, variants []variantResult, cors corsReflection) *attempt.Attempt {
+func (p *OriginValidation) aggregateSweep(endpoint, transport string, variants []variantResult, cors corsReflection, baselineAccepted bool) *attempt.Attempt {
 	if len(variants) == 0 {
 		return nil
 	}
@@ -561,7 +562,12 @@ func (p *OriginValidation) aggregateSweep(endpoint, transport string, variants [
 		a.Metadata[attempt.MetadataKeyOriginValidationCredentialedRead] = cors == corsPresent
 	}
 	untested := untestedClasses(variants)
-	a.AddOutput(renderSweepEvidence(endpoint, transport, accepted, rejected, errored, cors, untested))
+	if untested == nil {
+		untested = []string{}
+	}
+	a.Metadata[attempt.MetadataKeyOriginValidationBaselineAccepted] = baselineAccepted
+	a.Metadata[attempt.MetadataKeyOriginValidationUntestedClasses] = untested
+	a.AddOutput(renderSweepEvidence(endpoint, transport, accepted, rejected, errored, cors, baselineAccepted))
 
 	// Every variant failed at the transport — the endpoint was never actually
 	// tested. Reporting that as SAFE would hide a broken scan behind a green
@@ -649,7 +655,7 @@ func describeSweep(accepted, total int) string {
 // Which variants pass is the actionable half for a remediator: an accepted
 // case-variant alone means the allowlist exists but compares case-sensitively,
 // which is a different fix from an endpoint that accepts any origin at all.
-func renderSweepEvidence(endpoint, transport string, accepted, rejected, errored []variantResult, cors corsReflection, untested []string) string {
+func renderSweepEvidence(endpoint, transport string, accepted, rejected, errored []variantResult, cors corsReflection, baselineAccepted bool) string {
 	var b strings.Builder
 	total := len(accepted) + len(rejected) + len(errored)
 
@@ -657,10 +663,18 @@ func renderSweepEvidence(endpoint, transport string, accepted, rejected, errored
 	fmt.Fprintf(&b, "%d of %d crafted Origin/Host values were accepted. A spec-compliant\n", len(accepted), total)
 	fmt.Fprintf(&b, "allowlist validator would have refused all %d.\n\n", total)
 
-	fmt.Fprintf(&b, "Validator verdict: %s\n\n", validatorVerdict(len(accepted), len(rejected), len(errored), untested))
+	// State the baseline as a fact. The caveat is added only where it is both
+	// true and load-bearing: the endpoint refused us AND there are refusals a
+	// reader might otherwise credit to Origin validation.
+	fmt.Fprintf(&b, "Baseline (no Origin header): %s\n", baselineServedWord(baselineAccepted))
+	if !baselineAccepted && len(rejected) > 0 {
+		b.WriteString("The endpoint refused an unauthenticated request carrying no Origin at all, so\n" +
+			"the refusals below are not attributable to Origin validation.\n")
+	}
+	b.WriteString("\n")
 
 	writeBucket(&b, "ACCEPTED — served a request it should have refused", accepted)
-	writeBucket(&b, "REJECTED — refused as a hardened server should", rejected)
+	writeBucket(&b, "REFUSED by the endpoint", rejected)
 	writeBucket(&b, "NOT TESTED — request failed in transit", errored)
 
 	switch cors {
@@ -686,32 +700,13 @@ func renderSweepEvidence(endpoint, transport string, accepted, rejected, errored
 	return b.String()
 }
 
-// validatorVerdict states what the accept/reject split means about the
-// server's validator, which is the thing a remediator acts on.
-//
-// A class with no completed variant is a check that never ran, so a verdict
-// drawn over one says so: "we refused every check we managed to run" is a
-// materially weaker claim than "we refused everything", and the verdict line
-// is the sentence a reader takes away. Losing some variants of an
-// otherwise-exercised class is ordinary sampling and only warrants a
-// parenthetical.
-func validatorVerdict(accepted, rejected, errored int, untested []string) string {
-	switch {
-	case accepted == 0 && rejected == 0:
-		return fmt.Sprintf("nothing was tested — all %d variants failed in transit", errored)
-	case accepted == 0 && len(untested) > 0:
-		return fmt.Sprintf("every check that ran was refused, but no %s variant completed — that check never ran, so validation cannot be called enforced", strings.Join(untested, " / "))
-	case accepted == 0 && errored > 0:
-		return fmt.Sprintf("every crafted value that landed was refused — Origin/Host validation is enforced (%d variants did not complete, but every check class was still exercised)", errored)
-	case accepted == 0:
-		return "every crafted value was refused — Origin/Host validation is enforced"
-	case rejected == 0 && errored == 0:
-		return "NO Origin/Host validation is enforced — every crafted value was accepted"
-	case errored > 0:
-		return fmt.Sprintf("validation is PARTIAL — the accepted classes below are the checks that are missing (%d variants did not complete)", errored)
-	default:
-		return "validation is PARTIAL — the accepted classes below are the checks that are missing"
+// baselineServedWord renders the baseline fact for the evidence header. The
+// probe states the fact; classifying what it means is the detector's job.
+func baselineServedWord(accepted bool) string {
+	if accepted {
+		return "SERVED"
 	}
+	return "REFUSED"
 }
 
 // writeBucket renders one accept/reject/error group, skipping empty ones.

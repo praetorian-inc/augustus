@@ -348,8 +348,13 @@ func TestOriginValidation_SweepEvidenceRecordsEveryVariant(t *testing.T) {
 	if len(sweep.Outputs) != 1 {
 		t.Errorf("aggregated attempt should carry exactly one evidence output, got %d", len(sweep.Outputs))
 	}
-	if !strings.Contains(sweepOutput(t, sweep), "NO Origin/Host validation is enforced") {
-		t.Errorf("evidence should state the validator verdict for an any-origin server; got:\n%s", sweepOutput(t, sweep))
+	if !strings.Contains(sweepOutput(t, sweep), "Baseline (no Origin header): SERVED") {
+		t.Errorf("evidence should state the baseline fact; got:\n%s", sweepOutput(t, sweep))
+	}
+	// Nothing was refused on this all-accepting server, so the evidence must
+	// not talk about refusals at all.
+	if strings.Contains(sweepOutput(t, sweep), "refusals below") {
+		t.Errorf("evidence should not reference refusals when there are none; got:\n%s", sweepOutput(t, sweep))
 	}
 }
 
@@ -389,13 +394,12 @@ func TestOriginValidation_PartialValidationStillOneFinding(t *testing.T) {
 	if gotN == 0 || gotN >= sentN {
 		t.Errorf("expected a partial accept (0 < accepted < sent), got accepted=%d sent=%d", gotN, sentN)
 	}
-	if !strings.Contains(sweepOutput(t, sweep), "validation is PARTIAL") {
-		t.Errorf("evidence should call out partial validation; got:\n%s", sweepOutput(t, sweep))
-	}
-	// The rejected variants must be visible too — that is what tells a
-	// remediator the allowlist exists and is merely incomplete.
-	if !strings.Contains(sweepOutput(t, sweep), "REJECTED") {
-		t.Errorf("evidence should list the refused variants; got:\n%s", sweepOutput(t, sweep))
+	// Both outcomes must be recorded as facts: what got through is the
+	// finding, what was refused is what tells a remediator the allowlist
+	// exists and is merely incomplete.
+	outcomes := variantOutcomes(t, attempts)
+	if outcomes[variantAccepted] == 0 || outcomes[variantRefused] == 0 {
+		t.Errorf("partial validation must record both accepted and refused variants; got %v", outcomes)
 	}
 
 	accepted := acceptedVariantClasses(t, attempts)
@@ -680,9 +684,29 @@ func TestOriginValidation_UntestedClassIsInconclusive(t *testing.T) {
 	if !strings.Contains(reasonStr, string(classUnexpectedHost)) {
 		t.Errorf("reason should name the class that never ran; got %q", reasonStr)
 	}
-	// The verdict a reader takes away must not claim enforcement outright.
-	if !strings.Contains(sweepOutput(t, sweep), "that check never ran, so validation cannot be called enforced") {
-		t.Errorf("verdict must not claim enforcement when a whole class went untested; got:\n%s", sweepOutput(t, sweep))
+	// The untested class is recorded as a fact for the detector and the report.
+	rawUntested, ok := sweep.GetMetadata(attempt.MetadataKeyOriginValidationUntestedClasses)
+	if !ok {
+		t.Fatal("sweep is missing the untested-classes metadata")
+	}
+	untested, ok := rawUntested.([]string)
+	if !ok {
+		t.Fatalf("untested-classes is %T, want []string", rawUntested)
+	}
+	found := false
+	for _, c := range untested {
+		if c == string(classUnexpectedHost) {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("untested-classes should name the class that never ran; got %v", untested)
+	}
+	// The probe must never assert enforcement in its evidence — that is a
+	// classification, and it belongs to the detector. Guard against anyone
+	// reintroducing a verdict sentence here.
+	if strings.Contains(sweepOutput(t, sweep), "is enforced") {
+		t.Errorf("probe evidence must not claim enforcement; got:\n%s", sweepOutput(t, sweep))
 	}
 
 	// The inconclusive flag alone renders as SAFE (0.5 is not > 0.5), so the
@@ -820,8 +844,11 @@ func TestOriginValidation_LostSampleIsNotInconclusive(t *testing.T) {
 	if metaBool(sweep, attempt.MetadataKeyInconclusive) {
 		t.Errorf("losing one sample of an exercised class must not mark the sweep inconclusive")
 	}
-	if !strings.Contains(sweepOutput(t, sweep), "every check class was still exercised") {
-		t.Errorf("verdict should note the lost sample without retracting the verdict; got:\n%s", sweepOutput(t, sweep))
+	// The lost sample must NOT be recorded as an untested class — its sibling
+	// covered the class, so coverage is intact.
+	rawUntested, _ := sweep.GetMetadata(attempt.MetadataKeyOriginValidationUntestedClasses)
+	if untested, _ := rawUntested.([]string); len(untested) != 0 {
+		t.Errorf("a lost sample from an exercised class must not appear as untested; got %v", untested)
 	}
 }
 
@@ -833,7 +860,7 @@ func TestOriginValidation_AcceptedClassesMarshalsAsArray(t *testing.T) {
 	p := newOriginValidationProbe(t, registry.Config{})
 	agg := p.aggregateSweep("http://example.invalid", "http", []variantResult{
 		{class: classExternalOrigin, result: "HTTP 403, text/plain"},
-	}, corsAbsent)
+	}, corsAbsent, true)
 	if agg == nil {
 		t.Fatal("expected an aggregated attempt")
 	}

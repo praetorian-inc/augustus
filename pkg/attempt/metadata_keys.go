@@ -178,6 +178,21 @@ const (
 	// the endpoint accepted. Equal to sent means no validation is enforced at
 	// all; between 1 and sent means partial validation.
 	MetadataKeyOriginValidationVariantsAccepted = "mcptool.originvalidation_variants_accepted"
+	// MetadataKeyOriginValidationBaselineAccepted (bool) records whether the
+	// endpoint served the plain no-Origin baseline request.
+	//
+	// This is the fact that makes every other refusal in the sweep
+	// interpretable. When it is false the endpoint is refusing the CALLER, not
+	// the Origin — an auth gate, an IP allowlist and a dead backend are
+	// indistinguishable from Origin enforcement to an outside observer — so
+	// refusals of the crafted values are NOT evidence that a validator exists.
+	// The detector reads this to score such a sweep inconclusive rather than
+	// clean.
+	MetadataKeyOriginValidationBaselineAccepted = "mcptool.originvalidation_baseline_accepted"
+	// MetadataKeyOriginValidationUntestedClasses ([]string) lists the bypass
+	// classes for which NOT ONE variant got a response — checks that never ran,
+	// as opposed to a class that was exercised and merely lost a sample.
+	MetadataKeyOriginValidationUntestedClasses = "mcptool.originvalidation_untested_classes"
 	// MetadataKeyOriginValidationCredentialedRead (bool) records whether the
 	// CORS preflight found credentialed reflection of the attacker Origin.
 	// Set on the aggregated sweep attempt because it escalates that finding's
