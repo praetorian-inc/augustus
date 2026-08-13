@@ -175,7 +175,7 @@ func (p *OriginValidation) RiskInfo() types.RiskInfo {
 		Taxonomies:     "- cwe: 346\n- cwe: 350\n- cwe: 942",
 		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:A/VC:L/VI:L/VA:N/SC:N/SI:N/SA:N",
 		Verification: "## How this is confirmed\n\n" +
-			"Augustus sends a sweep of requests carrying foreign `Origin` (and `Host`) header values that a specification-compliant MCP server must reject, and observes the endpoint accept them. The whole sweep is reported as a single finding for the endpoint — every crafted value it accepted is listed in the evidence, since which ones get through is what distinguishes an endpoint with no validation from one whose allowlist is merely weak. Because the endpoint binds a loopback or private-network address, this is the precondition for a browser DNS-rebinding attack (CVE-2025-49596 class). On a loopback / RFC1918 target the finding is scored full; on a public endpoint the same wire result is CSRF-class and scored inconclusive, since exploitability depends on cookie/auth context the probe cannot inspect.\n\n" +
+			"Augustus sends requests carrying a foreign `Origin` (and `Host`) header that a specification-compliant MCP server must reject, and observes the endpoint accept them. Because the endpoint binds a loopback or private-network address, this is the precondition for a browser DNS-rebinding attack (CVE-2025-49596 class). On a loopback / RFC1918 target the finding is scored full; on a public endpoint the same wire result is CSRF-class and scored inconclusive, since exploitability depends on cookie/auth context the probe cannot inspect.\n\n" +
 			"## Reproduce\n\n" +
 			"Re-run the `mcptransport.OriginValidation` probe against the affected endpoint via the `mcp.MCP` generator. The endpoint returns a success response to a request bearing a foreign Origin/Host it should have rejected.",
 	}
@@ -195,20 +195,12 @@ func (p *OriginValidation) GetPrompts() []string {
 	return []string{"Randomised MCP initialize + CORS preflight bearing Origin/Host values a rebinding-protected server should refuse"}
 }
 
-// originValidationClass is a stable classifier for a bypass. classBaseline,
-// classSweep and classCORSReflectCreds label whole attempts; the rest label
-// individual crafted values *inside* the sweep attempt's variant list.
-//
-// The per-variant classes were once attempt classes too, one attempt each.
-// That reported a single flaw as ten findings: a server that validates
-// nothing accepts every variant, so ten identical 1.0 rows drowned every
-// other result in an MCP scan (LAB-5584). They are ten proofs of one
-// property, and they now travel as evidence on one finding.
+// originValidationClass is a stable classifier for a bypass, so a report can group
+// findings by concrete validator weakness rather than one lumped verdict.
 type originValidationClass string
 
 const (
 	classBaseline           originValidationClass = "baseline"
-	classSweep              originValidationClass = "origin-validation-sweep"
 	classExternalOrigin     originValidationClass = "external-origin"
 	classNullOrigin         originValidationClass = "null-origin"
 	classExtensionOrigin    originValidationClass = "extension-origin"
@@ -371,22 +363,15 @@ func (p *OriginValidation) Probe(ctx context.Context, gen types.Generator) ([]*a
 	// we can't distinguish "server rejected our headers" from "server can't
 	// accept us at all," so the whole sweep is inconclusive. We record the
 	// attempt either way.
-	base := stampClass(p.attemptFromVariant(p.sendVariant(ctx, client, endpoint, transport, "", "", classBaseline)))
+	base := stampClass(p.probeAccess(ctx, client, endpoint, transport, "", "", classBaseline))
 	attempts = append(attempts, base)
-	baselineAccepted := metaBool(base, attempt.MetadataKeyOriginValidationAccepted)
-	if !baselineAccepted {
-		slog.Info("mcptransport.OriginValidation: baseline (no Origin) not accepted; refusals are not attributable to Origin validation", "endpoint", endpoint, "transport", transport)
+	if !metaBool(base, attempt.MetadataKeyOriginValidationAccepted) {
+		slog.Info("mcptransport.OriginValidation: baseline (no Origin) not accepted; downstream bypass results may be inconclusive", "endpoint", endpoint, "transport", transport)
 	}
-
-	// 2-4. The bypass sweep. Every variant below asks the SAME question — does
-	// this endpoint enforce the Origin/Host allowlist the spec requires — so
-	// the results are collected here and folded into a single finding after
-	// the preflight, rather than emitted one attempt per variant (LAB-5584).
-	var variants []variantResult
 
 	// 2. Origin bypass sweep.
 	for _, o := range p.buildOriginPayloads() {
-		variants = append(variants, p.sendVariant(ctx, client, endpoint, transport, o.value, "", o.class))
+		attempts = append(attempts, stampClass(p.probeAccess(ctx, client, endpoint, transport, o.value, "", o.class)))
 	}
 
 	// 3. Case-variant of the expected host — tests case-sensitive vs
@@ -401,301 +386,23 @@ func (p *OriginValidation) Probe(ctx context.Context, gen types.Generator) ([]*a
 	if u.Host != "" {
 		caseHost := swapCase(u.Host)
 		if caseHost != u.Host {
-			variants = append(variants, p.sendVariant(ctx, client, endpoint, transport, "http://"+caseHost, "", classCaseVariant))
+			attempts = append(attempts, stampClass(p.probeAccess(ctx, client, endpoint, transport, "http://"+caseHost, "", classCaseVariant)))
 		}
 	}
 
 	// 4. Host header sweep.
 	for _, h := range p.buildHostPayloads() {
-		variants = append(variants, p.sendVariant(ctx, client, endpoint, transport, "", h.value, h.class))
+		attempts = append(attempts, stampClass(p.probeAccess(ctx, client, endpoint, transport, "", h.value, h.class)))
 	}
 
 	// 5. CORS preflight — OPTIONS with an external Origin, inspect
 	// Access-Control-Allow-Origin echo + Allow-Credentials. A server that
 	// reflects the attacker Origin with credentials is exploitable regardless
 	// of whether the POST body succeeds, because a browser DNS-rebinding
-	// attacker can read the response. Sent before the sweep is aggregated so
-	// its outcome can escalate the aggregated finding's stated impact.
-	preflight := stampClass(p.probePreflight(ctx, client, endpoint, "https://"+p.nonce[:8]+".example.org", u.Host))
-
-	// 6. One finding for the endpoint, carrying every variant as evidence.
-	if agg := p.aggregateSweep(endpoint, transport, variants, corsResultFrom(preflight), baselineAccepted); agg != nil {
-		attempts = append(attempts, stampClass(agg))
-	}
-	attempts = append(attempts, preflight)
+	// attacker can read the response.
+	attempts = append(attempts, stampClass(p.probePreflight(ctx, client, endpoint, "https://"+p.nonce[:8]+".example.org", u.Host)))
 
 	return attempts, nil
-}
-
-// variantResult is the outcome of one crafted Origin/Host value. The sweep
-// collects these rather than emitting an attempt each, because ten variants
-// are ten proofs of one property and a server that validates nothing answers
-// all ten identically — see the originValidationClass doc comment.
-type variantResult struct {
-	class    originValidationClass
-	origin   string
-	host     string
-	accepted bool
-	// transcript is the full request/response record, including the response
-	// body (streamable-HTTP only). Carried on the baseline attempt as its
-	// output, and on the aggregate for one representative accepted variant.
-	transcript string
-	// result is the one-line response summary shown in the aggregated
-	// evidence table, or the transport error when the request never landed.
-	result string
-	err    error
-}
-
-// Variant outcomes carried in the aggregated finding's evidence. "accepted"
-// and "refused" are both observations the probe made; "not-tested" is the
-// absence of one. They must stay distinct for the same reason corsReflection
-// is a tri-state rather than a bool: a consumer reading accepted==false could
-// not tell "the server refused this value" from "we never found out", and the
-// second is not evidence of validation.
-const (
-	variantAccepted  = "accepted"
-	variantRefused   = "refused"
-	variantNotTested = "not-tested"
-)
-
-// outcome collapses the variant to the tri-state recorded in the evidence.
-func (v variantResult) outcome() string {
-	switch {
-	case v.err != nil:
-		return variantNotTested
-	case v.accepted:
-		return variantAccepted
-	default:
-		return variantRefused
-	}
-}
-
-// corsReflection is the tri-state outcome of the credentialed-CORS preflight.
-// "Not tested" must stay distinct from "absent": a preflight that never
-// completed tells us nothing about the endpoint, and reporting that as an
-// absence understates the aggregated finding's impact.
-type corsReflection int
-
-const (
-	corsNotTested corsReflection = iota
-	corsAbsent
-	corsPresent
-)
-
-// corsResultFrom derives the tri-state from the preflight attempt. An errored
-// preflight is "not tested", NOT "no reflection".
-func corsResultFrom(preflight *attempt.Attempt) corsReflection {
-	if preflight == nil || preflight.Status == attempt.StatusError {
-		return corsNotTested
-	}
-	if metaBool(preflight, attempt.MetadataKeyOriginValidationAccepted) {
-		return corsPresent
-	}
-	return corsAbsent
-}
-
-// aggregateSweep folds the whole bypass sweep into the single scored attempt
-// for this endpoint. Returns nil when the sweep sent nothing (no variants
-// were applicable), so callers don't emit an empty finding.
-//
-// The attempt scores through the ordinary detector path: class is not
-// "baseline", and the accepted flag is true when ANY variant was accepted.
-// The target-class severity tiering is untouched — the caller stamps it on
-// this attempt exactly as it does on every other.
-func (p *OriginValidation) aggregateSweep(endpoint, transport string, variants []variantResult, cors corsReflection, baselineAccepted bool) *attempt.Attempt {
-	if len(variants) == 0 {
-		return nil
-	}
-
-	var (
-		accepted []variantResult
-		rejected []variantResult
-		errored  []variantResult
-		// Empty, not nil: a server that refuses everything accepts no class,
-		// and that is the COMMON case on a healthy target. A nil slice
-		// marshals to JSON null, so a consumer iterating accepted_classes
-		// would blow up on exactly the endpoints that are fine.
-		acceptedClass  = make([]string, 0, len(variants))
-		seenClass      = map[originValidationClass]bool{}
-		variantDetails = make([]map[string]any, 0, len(variants))
-	)
-	for _, v := range variants {
-		detail := map[string]any{
-			"class":   string(v.class),
-			"outcome": v.outcome(),
-			"result":  v.result,
-		}
-		if v.origin != "" {
-			detail["origin"] = v.origin
-		}
-		if v.host != "" {
-			detail["host"] = v.host
-		}
-		variantDetails = append(variantDetails, detail)
-
-		switch v.outcome() {
-		case variantNotTested:
-			errored = append(errored, v)
-		case variantAccepted:
-			accepted = append(accepted, v)
-			if !seenClass[v.class] {
-				seenClass[v.class] = true
-				acceptedClass = append(acceptedClass, string(v.class))
-			}
-		default:
-			rejected = append(rejected, v)
-		}
-	}
-
-	a := attempt.New(describeSweep(len(accepted), len(variants)))
-	a.Probe = p.Name()
-	a.Detector = p.GetPrimaryDetector()
-	a.Metadata[attempt.MetadataKeyOriginValidationClass] = string(classSweep)
-	a.Metadata[attempt.MetadataKeyOriginValidationVariants] = variantDetails
-	a.Metadata[attempt.MetadataKeyOriginValidationAcceptedClasses] = acceptedClass
-	a.Metadata[attempt.MetadataKeyOriginValidationVariantsSent] = len(variants)
-	a.Metadata[attempt.MetadataKeyOriginValidationVariantsAccepted] = len(accepted)
-	// Only claim a credentialed-read verdict when the preflight actually ran.
-	// Recording false for an untested preflight would assert an absence we
-	// never observed.
-	if cors != corsNotTested {
-		a.Metadata[attempt.MetadataKeyOriginValidationCredentialedRead] = cors == corsPresent
-	}
-	untested := untestedClasses(variants)
-	if untested == nil {
-		untested = []string{}
-	}
-	a.Metadata[attempt.MetadataKeyOriginValidationBaselineAccepted] = baselineAccepted
-	a.Metadata[attempt.MetadataKeyOriginValidationUntestedClasses] = untested
-	a.AddOutput(renderSweepEvidence(endpoint, transport, accepted, rejected, errored, cors, baselineAccepted))
-
-	// Every variant failed at the transport — the endpoint was never actually
-	// tested. Reporting that as SAFE would hide a broken scan behind a green
-	// row, so it surfaces as an errored attempt with no accept/reject verdict.
-	if len(errored) == len(variants) {
-		a.SetError(fmt.Errorf("all %d Origin/Host variants failed in transit; first error: %w", len(variants), errored[0].err))
-		return a
-	}
-
-	a.Complete()
-	a.Metadata[attempt.MetadataKeyOriginValidationAccepted] = len(accepted) > 0
-
-	return a
-}
-
-// untestedClasses returns the bypass classes for which NOT ONE variant got a
-// response, in sweep order. Those are checks that never ran — distinct from a
-// class that was exercised and merely lost a sample to a flaky connection.
-func untestedClasses(variants []variantResult) []string {
-	total := map[originValidationClass]int{}
-	failed := map[originValidationClass]int{}
-	var order []originValidationClass
-	for _, v := range variants {
-		if total[v.class] == 0 {
-			order = append(order, v.class)
-		}
-		total[v.class]++
-		if v.err != nil {
-			failed[v.class]++
-		}
-	}
-	var out []string
-	for _, c := range order {
-		if failed[c] == total[c] {
-			out = append(out, string(c))
-		}
-	}
-	return out
-}
-
-// describeSweep renders the aggregated attempt's label.
-func describeSweep(accepted, total int) string {
-	return fmt.Sprintf("[%s] %d of %d crafted Origin/Host values accepted", classSweep, accepted, total)
-}
-
-// renderSweepEvidence builds the aggregated finding's evidence: the verdict on
-// the validator, which variants got through, and — when the preflight found
-// credentialed reflection — the escalation from "drive the tool surface blind"
-// to "also read the responses".
-//
-// Which variants pass is the actionable half for a remediator: an accepted
-// case-variant alone means the allowlist exists but compares case-sensitively,
-// which is a different fix from an endpoint that accepts any origin at all.
-func renderSweepEvidence(endpoint, transport string, accepted, rejected, errored []variantResult, cors corsReflection, baselineAccepted bool) string {
-	var b strings.Builder
-	total := len(accepted) + len(rejected) + len(errored)
-
-	fmt.Fprintf(&b, "MCP Origin/Host validation sweep against %s (%s transport)\n", endpoint, transport)
-	fmt.Fprintf(&b, "%d of %d crafted Origin/Host values were accepted. A spec-compliant\n", len(accepted), total)
-	fmt.Fprintf(&b, "allowlist validator would have refused all %d.\n\n", total)
-
-	// State the baseline as a fact. The caveat is added only where it is both
-	// true and load-bearing: the endpoint refused us AND there are refusals a
-	// reader might otherwise credit to Origin validation.
-	fmt.Fprintf(&b, "Baseline (no Origin header): %s\n", baselineServedWord(baselineAccepted))
-	if !baselineAccepted && len(rejected) > 0 {
-		b.WriteString("The endpoint refused an unauthenticated request carrying no Origin at all, so\n" +
-			"the refusals below are not attributable to Origin validation.\n")
-	}
-	b.WriteString("\n")
-
-	writeBucket(&b, "ACCEPTED — served a request it should have refused", accepted)
-	writeBucket(&b, "REFUSED by the endpoint", rejected)
-	writeBucket(&b, "NOT TESTED — request failed in transit", errored)
-
-	switch cors {
-	case corsPresent:
-		b.WriteString("Credentialed CORS reflection: PRESENT. The endpoint reflects the attacker's\n" +
-			"Origin into Access-Control-Allow-Origin alongside Access-Control-Allow-Credentials,\n" +
-			"so a rebound page does not merely drive the tool surface blind — it can also READ\n" +
-			"the responses, turning this into a cross-origin data-disclosure primitive.\n")
-	case corsAbsent:
-		b.WriteString("Credentialed CORS reflection: absent. A rebound page can drive the tool surface\n" +
-			"but cannot read the responses from its own origin.\n")
-	default:
-		b.WriteString("Credentialed CORS reflection: NOT TESTED — the preflight request did not\n" +
-			"complete. Whether a rebound page could also read the responses is unknown;\n" +
-			"re-run against a reachable endpoint before treating that as ruled out.\n")
-	}
-
-	// One full transcript as proof; the per-variant lines above already carry
-	// the discriminating detail, and ten 8 KB bodies would bury it.
-	if len(accepted) > 0 && accepted[0].transcript != "" {
-		fmt.Fprintf(&b, "\nRepresentative accepted exchange (%s):\n%s\n", variantLabel(accepted[0]), accepted[0].transcript)
-	}
-	return b.String()
-}
-
-// baselineServedWord renders the baseline fact for the evidence header. The
-// probe states the fact; classifying what it means is the detector's job.
-func baselineServedWord(accepted bool) string {
-	if accepted {
-		return "SERVED"
-	}
-	return "REFUSED"
-}
-
-// writeBucket renders one accept/reject/error group, skipping empty ones.
-func writeBucket(b *strings.Builder, heading string, vs []variantResult) {
-	if len(vs) == 0 {
-		return
-	}
-	b.WriteString(heading + "\n")
-	width := 0
-	for _, v := range vs {
-		if n := len(variantLabel(v)); n > width {
-			width = n
-		}
-	}
-	for _, v := range vs {
-		fmt.Fprintf(b, "  %-*s  -> %s\n", width, variantLabel(v), v.result)
-	}
-	b.WriteString("\n")
-}
-
-// variantLabel renders "[class] Origin=... Host=..." for the evidence table.
-func variantLabel(v variantResult) string {
-	return describeAttempt(v.origin, v.host, v.class)
 }
 
 // resolveEndpoint returns the endpoint URL from probe config (explicit
@@ -710,43 +417,25 @@ func (p *OriginValidation) resolveEndpoint(gen types.Generator) string {
 	return ""
 }
 
-// sendVariant sends the transport-appropriate request (POST initialize for
+// probeAccess sends the transport-appropriate request (POST initialize for
 // streamable HTTP; GET /sse for legacy SSE) bearing the crafted Origin/Host
-// headers and classifies the response. Empty origin / host means "leave unset"
-// (baseline shape). The security question — did the server serve this request
-// from an untrusted caller — is answered by the SAME defensive middleware
-// regardless of what payload follows: Origin/Host validation runs before
-// either handler.
-//
-// Returns a plain result rather than an attempt so the caller decides what
-// becomes a finding: the baseline gets its own attempt, while the bypass
-// variants are folded into one (see aggregateSweep).
-// A transport failure is retried once before the variant is recorded as
-// untested. That matters because a wholly untested class costs the sweep its
-// conclusion: the detector scores it inconclusive rather than safe, since a
-// value we could not send might have been the one the endpoint accepts. One
-// dropped connection should not cost a clean endpoint its verdict; two
-// consecutive failures to the same endpoint is a real signal.
-//
-// Note that only classes with a single payload (null-origin, and case-variant
-// where it applies) are one failure away from being untested at all — the
-// others have a sibling that covers the class.
-//
-// Not retried when the context is already done — the scan is being torn down
-// and a second attempt would only add latency.
-func (p *OriginValidation) sendVariant(ctx context.Context, client *http.Client, endpoint, transport, origin, host string, class originValidationClass) variantResult {
-	v := p.sendVariantOnce(ctx, client, endpoint, transport, origin, host, class)
-	if v.err == nil || ctx.Err() != nil {
-		return v
+// headers, classifies the response, and returns the attempt. Empty origin /
+// host means "leave unset" (baseline shape). The security question — did the
+// server serve this request from an untrusted caller — is answered by the
+// SAME defensive middleware regardless of what payload follows: Origin/Host
+// validation runs before either handler.
+func (p *OriginValidation) probeAccess(ctx context.Context, client *http.Client, endpoint, transport, origin, host string, class originValidationClass) *attempt.Attempt {
+	label := describeAttempt(origin, host, class)
+	a := attempt.New(label)
+	a.Probe = p.Name()
+	a.Detector = p.GetPrimaryDetector()
+	a.Metadata[attempt.MetadataKeyOriginValidationClass] = string(class)
+	if origin != "" {
+		a.Metadata[attempt.MetadataKeyOriginValidationOrigin] = origin
 	}
-	slog.Debug("mcptransport.OriginValidation: variant failed in transit, retrying once",
-		"class", string(class), "origin", origin, "host", host, "err", v.err)
-	return p.sendVariantOnce(ctx, client, endpoint, transport, origin, host, class)
-}
-
-// sendVariantOnce performs a single attempt; see sendVariant for the retry.
-func (p *OriginValidation) sendVariantOnce(ctx context.Context, client *http.Client, endpoint, transport, origin, host string, class originValidationClass) variantResult {
-	v := variantResult{class: class, origin: origin, host: host}
+	if host != "" {
+		a.Metadata[attempt.MetadataKeyOriginValidationHost] = host
+	}
 
 	var (
 		req    *http.Request
@@ -767,7 +456,8 @@ func (p *OriginValidation) sendVariantOnce(ctx context.Context, client *http.Cli
 		method = "POST"
 	}
 	if err != nil {
-		return v.fail(err)
+		a.SetError(err)
+		return a
 	}
 	// Set method-specific headers AFTER the nil check so both branches share
 	// the same guard (previously the SSE branch touched req before the check,
@@ -797,7 +487,8 @@ func (p *OriginValidation) sendVariantOnce(ctx context.Context, client *http.Cli
 		if transport == "sse" && resp != nil {
 			// Fall through to classify below.
 		} else {
-			return v.fail(fmt.Errorf("%s %s: %w", method, endpoint, err))
+			a.SetError(fmt.Errorf("%s %s: %w", method, endpoint, err))
+			return a
 		}
 	}
 	defer func() {
@@ -823,57 +514,16 @@ func (p *OriginValidation) sendVariantOnce(ctx context.Context, client *http.Cli
 			body, _ = io.ReadAll(io.LimitReader(resp.Body, 8*1024))
 		}
 	}
-	v.transcript = fmt.Sprintf("%s %s -> HTTP %d\nContent-Type: %s\n%s", method, endpoint, status, contentType, string(body))
-	v.result = fmt.Sprintf("HTTP %d, %s", status, contentTypeOrNone(contentType))
-
-	if transport == "sse" {
-		v.accepted = serverStartedSSEStream(status, contentType)
-	} else {
-		v.accepted = serverProcessedInitialize(status, contentType, body)
-	}
-	return v
-}
-
-// fail records a transport-level failure on the variant. The request never
-// reached the validator, so the variant is neither accepted nor rejected —
-// aggregateSweep reports it as NOT TESTED rather than folding it into either
-// verdict.
-func (v variantResult) fail(err error) variantResult {
-	v.err = err
-	v.result = err.Error()
-	return v
-}
-
-// contentTypeOrNone keeps the evidence table readable when a server answers
-// with no Content-Type at all.
-func contentTypeOrNone(ct string) string {
-	if ct == "" {
-		return "(no content-type)"
-	}
-	return ct
-}
-
-// attemptFromVariant renders a variant as a standalone scored attempt. Only
-// the baseline (no-Origin) probe takes this path; the bypass variants are
-// aggregated into one attempt instead — see aggregateSweep.
-func (p *OriginValidation) attemptFromVariant(v variantResult) *attempt.Attempt {
-	a := attempt.New(variantLabel(v))
-	a.Probe = p.Name()
-	a.Detector = p.GetPrimaryDetector()
-	a.Metadata[attempt.MetadataKeyOriginValidationClass] = string(v.class)
-	if v.origin != "" {
-		a.Metadata[attempt.MetadataKeyOriginValidationOrigin] = v.origin
-	}
-	if v.host != "" {
-		a.Metadata[attempt.MetadataKeyOriginValidationHost] = v.host
-	}
-	if v.err != nil {
-		a.SetError(v.err)
-		return a
-	}
-	a.AddOutput(v.transcript)
+	a.AddOutput(fmt.Sprintf("%s %s -> HTTP %d\nContent-Type: %s\n%s", method, endpoint, status, contentType, string(body)))
 	a.Complete()
-	a.Metadata[attempt.MetadataKeyOriginValidationAccepted] = v.accepted
+
+	var accepted bool
+	if transport == "sse" {
+		accepted = serverStartedSSEStream(status, contentType)
+	} else {
+		accepted = serverProcessedInitialize(status, contentType, body)
+	}
+	a.Metadata[attempt.MetadataKeyOriginValidationAccepted] = accepted
 	return a
 }
 

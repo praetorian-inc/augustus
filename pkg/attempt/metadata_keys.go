@@ -123,23 +123,14 @@ const (
 	// the expected Origin/Host validation. Values are stable strings suitable
 	// for grouping in a finding report:
 	//
-	//	origin-validation-sweep  the aggregated Origin/Host bypass finding for the
-	//	                         endpoint; carries every crafted value it accepted
-	//	                         as evidence (see MetadataKeyOriginValidationVariants)
-	//	cors-reflect-creds       server reflected the attacker Origin AND allow-credentials in an OPTIONS preflight
-	//	baseline                 spec-compliant baseline (missing Origin) — informational, not a finding
-	//
-	// The per-variant classes below are NOT attempt classes. They label the
-	// individual crafted values inside the aggregated attempt's variant list;
-	// a server that validates nothing accepts all of them, so emitting one
-	// attempt per variant reported a single flaw as ten findings (LAB-5584):
-	//
 	//	external-origin        server accepted a plausibly-external Origin (root cause)
 	//	null-origin            server accepted Origin: null (sandbox iframes, file://)
 	//	extension-origin       server accepted a chrome-extension://[uuid] Origin
 	//	localhost-lookalike    server accepted an Origin that spoofs "localhost" (weak substring/prefix validator)
 	//	case-variant           server accepted a case-shifted variant of the expected host
 	//	unexpected-host        server processed a request bearing a non-canonical Host header
+	//	cors-reflect-creds     server reflected the attacker Origin AND allow-credentials in an OPTIONS preflight
+	//	baseline               spec-compliant baseline (missing Origin) — informational, not a finding
 	MetadataKeyOriginValidationClass = "mcptool.originvalidation_class"
 	// MetadataKeyOriginValidationOrigin (string) is the Origin header value sent.
 	MetadataKeyOriginValidationOrigin = "mcptool.originvalidation_origin"
@@ -172,61 +163,6 @@ const (
 	// loopback/lan and InconclusiveScore (spec violation but
 	// exploitability depends on deployment) on public/unresolvable.
 	MetadataKeyOriginValidationTargetClass = "mcptool.originvalidation_target_class"
-	// MetadataKeyOriginValidationVariants ([]map[string]any) carries the
-	// per-variant detail of the aggregated Origin/Host sweep — one entry per
-	// crafted value the probe sent, each with:
-	//
-	//	class     the per-variant class (external-origin, null-origin, ...)
-	//	origin    the Origin header sent, when the variant set one
-	//	host      the Host header sent, when the variant set one
-	//	outcome   "accepted" (server served a request it should have refused),
-	//	          "refused" (server rejected it), or "not-tested" (the request
-	//	          never completed). A tri-state, not a bool: "refused" is
-	//	          evidence of validation and "not-tested" is the absence of
-	//	          evidence, and conflating them lets an untested variant read
-	//	          as a clean result.
-	//	result    one-line response summary ("HTTP 200, application/json") or
-	//	          the transport error when the request never completed
-	//
-	// Which variants pass is what tells a remediator whether validation is
-	// absent or merely weak — a case-variant-only bypass is a different bug
-	// from accepting any origin — so the detail is preserved even though the
-	// whole sweep scores as one finding.
-	MetadataKeyOriginValidationVariants = "mcptool.originvalidation_variants"
-	// MetadataKeyOriginValidationAcceptedClasses ([]string) lists the distinct
-	// per-variant classes the endpoint accepted, in sweep order. The fast
-	// grouping key for a report that doesn't want to walk the variant list.
-	MetadataKeyOriginValidationAcceptedClasses = "mcptool.originvalidation_accepted_classes"
-	// MetadataKeyOriginValidationVariantsSent (int) is how many crafted
-	// Origin/Host values the sweep sent.
-	MetadataKeyOriginValidationVariantsSent = "mcptool.originvalidation_variants_sent"
-	// MetadataKeyOriginValidationVariantsAccepted (int) is how many of those
-	// the endpoint accepted. Equal to sent means no validation is enforced at
-	// all; between 1 and sent means partial validation.
-	MetadataKeyOriginValidationVariantsAccepted = "mcptool.originvalidation_variants_accepted"
-	// MetadataKeyOriginValidationBaselineAccepted (bool) records whether the
-	// endpoint served the plain no-Origin baseline request.
-	//
-	// This is the fact that makes every other refusal in the sweep
-	// interpretable. When it is false the endpoint is refusing the CALLER, not
-	// the Origin — an auth gate, an IP allowlist and a dead backend are
-	// indistinguishable from Origin enforcement to an outside observer — so
-	// refusals of the crafted values are NOT evidence that a validator exists.
-	// The detector reads this to score such a sweep inconclusive rather than
-	// clean.
-	MetadataKeyOriginValidationBaselineAccepted = "mcptool.originvalidation_baseline_accepted"
-	// MetadataKeyOriginValidationUntestedClasses ([]string) lists the bypass
-	// classes for which NOT ONE variant got a response — checks that never ran,
-	// as opposed to a class that was exercised and merely lost a sample.
-	MetadataKeyOriginValidationUntestedClasses = "mcptool.originvalidation_untested_classes"
-	// MetadataKeyOriginValidationCredentialedRead (bool) records whether the
-	// CORS preflight found credentialed reflection of the attacker Origin.
-	// Set on the aggregated sweep attempt because it escalates that finding's
-	// impact: without it a rebound page drives the tool surface blind; with it
-	// the page can also read the responses.
-	// Omitted entirely when the preflight did not complete — recording false
-	// there would assert an absence the probe never observed.
-	MetadataKeyOriginValidationCredentialedRead = "mcptool.originvalidation_credentialed_read" // #nosec G101 -- metadata key name, not a credential
 
 	// MetadataKeySSESessionAccepted (bool) records whether an SSE session-
 	// hijack probe attempt succeeded (weakness confirmed). Read by the

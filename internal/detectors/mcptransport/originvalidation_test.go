@@ -33,15 +33,16 @@ func TestOriginValidationDetector(t *testing.T) {
 		a    *attempt.Attempt
 		want []float64
 	}{
-		// The sweep is the probe's aggregated bypass attempt: one output
-		// carrying every accepted variant as evidence, so it scores exactly
-		// one 1.0 — one finding for the endpoint, not one per variant
-		// (LAB-5584).
-		{"sweep accepted -> one vuln score", originValidationAttempt("origin-validation-sweep", true, "7 of 9 accepted"), []float64{1.0}},
-		{"sweep rejected -> safe", originValidationAttempt("origin-validation-sweep", false, "0 of 9 accepted"), []float64{0.0}},
+		{"external-origin accepted -> vuln", originValidationAttempt("external-origin", true, "HTTP 200"), []float64{1.0}},
+		{"null-origin accepted -> vuln", originValidationAttempt("null-origin", true, "HTTP 200"), []float64{1.0}},
+		{"extension-origin accepted -> vuln", originValidationAttempt("extension-origin", true, "HTTP 200"), []float64{1.0}},
+		{"localhost-lookalike accepted -> vuln", originValidationAttempt("localhost-lookalike", true, "HTTP 200"), []float64{1.0}},
+		{"case-variant accepted -> vuln", originValidationAttempt("case-variant", true, "HTTP 200"), []float64{1.0}},
+		{"unexpected-host accepted -> vuln", originValidationAttempt("unexpected-host", true, "HTTP 200"), []float64{1.0}},
 		{"cors-reflect-creds accepted -> vuln", originValidationAttempt("cors-reflect-creds", true, "HTTP 204"), []float64{1.0}},
 		{"baseline accepted -> not a finding", originValidationAttempt("baseline", true, "HTTP 200"), []float64{0.0}},
-		{"blind acceptance (no output) still flagged", originValidationAttempt("origin-validation-sweep", true, ""), []float64{1.0}},
+		{"external-origin rejected -> safe", originValidationAttempt("external-origin", false, "HTTP 403"), []float64{0.0}},
+		{"blind acceptance (no output) still flagged", originValidationAttempt("external-origin", true, ""), []float64{1.0}},
 	}
 
 	d := newOriginValidationDetector(t)
@@ -62,7 +63,7 @@ func TestOriginValidationDetector(t *testing.T) {
 	}
 	for _, tt := range targetTests {
 		t.Run(tt.name, func(t *testing.T) {
-			a := originValidationAttempt("origin-validation-sweep", true, "7 of 9 accepted")
+			a := originValidationAttempt("external-origin", true, "HTTP 200")
 			a.Metadata[attempt.MetadataKeyOriginValidationTargetClass] = tt.targetClass
 			got, err := d.Detect(context.Background(), a)
 			if err != nil {
@@ -73,78 +74,6 @@ func TestOriginValidationDetector(t *testing.T) {
 			}
 		})
 	}
-
-	// Baseline-served is what makes a refusal interpretable. A sweep that
-	// accepted nothing is only "safe" when the endpoint actually answered the
-	// unauthenticated baseline; if it refused that too, it refused the CALLER
-	// and the sweep assessed nothing. Scoring both 0.0 would report an
-	// untested endpoint as clean.
-	baselineTests := []struct {
-		name             string
-		baselineAccepted any
-		wantScore        float64
-	}{
-		{"baseline served → refusals are real, safe", true, 0.0},
-		{"baseline refused → nothing was assessed, inconclusive", false, InconclusiveScore},
-	}
-	for _, tt := range baselineTests {
-		t.Run(tt.name, func(t *testing.T) {
-			a := originValidationAttempt("origin-validation-sweep", false, "0 of 9 accepted")
-			a.Metadata[attempt.MetadataKeyOriginValidationTargetClass] = "loopback"
-			a.Metadata[attempt.MetadataKeyOriginValidationBaselineAccepted] = tt.baselineAccepted
-			got, err := d.Detect(context.Background(), a)
-			if err != nil {
-				t.Fatalf("Detect: %v", err)
-			}
-			if len(got) != 1 || got[0] != tt.wantScore {
-				t.Errorf("Detect = %v, want [%v]", got, tt.wantScore)
-			}
-		})
-	}
-
-	// A wholly untested bypass class means that check never ran, so a sweep
-	// that accepted nothing has not established enforcement. This scoring
-	// moved here from the probe, which used to force an error status to make
-	// the row non-passing — the probe now reports the fact and the detector
-	// classifies it.
-	untestedTests := []struct {
-		name      string
-		untested  any
-		wantScore float64
-	}{
-		{"no untested class → safe", []string{}, 0.0},
-		{"a class never ran → inconclusive", []string{"unexpected-host"}, InconclusiveScore},
-		{"JSON round-tripped []any → inconclusive", []any{"null-origin"}, InconclusiveScore},
-	}
-	for _, tt := range untestedTests {
-		t.Run(tt.name, func(t *testing.T) {
-			a := originValidationAttempt("origin-validation-sweep", false, "0 of 9 accepted")
-			a.Metadata[attempt.MetadataKeyOriginValidationTargetClass] = "loopback"
-			a.Metadata[attempt.MetadataKeyOriginValidationBaselineAccepted] = true
-			a.Metadata[attempt.MetadataKeyOriginValidationUntestedClasses] = tt.untested
-			got, err := d.Detect(context.Background(), a)
-			if err != nil {
-				t.Fatalf("Detect: %v", err)
-			}
-			if len(got) != 1 || got[0] != tt.wantScore {
-				t.Errorf("Detect = %v, want [%v]", got, tt.wantScore)
-			}
-		})
-	}
-
-	// An attempt that does not carry the baseline fact (the CORS preflight, or
-	// a run predating it) keeps its previous scoring rather than being
-	// silently reclassified as inconclusive.
-	t.Run("no baseline fact → unchanged", func(t *testing.T) {
-		a := originValidationAttempt("cors-reflect-creds", false, "HTTP 204")
-		got, err := d.Detect(context.Background(), a)
-		if err != nil {
-			t.Fatalf("Detect: %v", err)
-		}
-		if len(got) != 1 || got[0] != 0.0 {
-			t.Errorf("Detect = %v, want [0]", got)
-		}
-	})
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
