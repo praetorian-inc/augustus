@@ -56,6 +56,13 @@ func (d *TokenValidationDetector) Detect(_ context.Context, a *attempt.Attempt) 
 // metadata for the detector to compare would make every scan artifact a credential
 // store. See mcpprobe.IssuedRelation.
 func predictabilityVerdict(a *attempt.Attempt) float64 {
+	// An explicit inconclusive mark wins over the error/relation checks below — the
+	// same contract differentialVerdict honors. The probe's unsampledAttempt sets it
+	// (together with SetError) when an issuance sample could not be obtained; without
+	// this check the a.Error branch scored an unassessable issuer a clean 0.0.
+	if metaBool(a, attempt.MetadataKeyInconclusive) {
+		return InconclusiveScore
+	}
 	if a.Error != "" {
 		return 0.0
 	}

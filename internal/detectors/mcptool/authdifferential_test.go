@@ -319,3 +319,18 @@ func TestAuthDifferential_SharedPrefixWithTinyDeltaIsPredictable(t *testing.T) {
 		t.Errorf("shared-prefix tokens scored %v, want 1.0", got)
 	}
 }
+
+// TestAuthDifferential_UnsampledPredictabilityIsInconclusive: when an issuance
+// sample cannot be obtained the probe marks the attempt inconclusive AND errors it.
+// predictabilityVerdict must honor the inconclusive mark; before this it hit the
+// a.Error branch and scored a clean 0.0, hiding an issuer that could not be assessed.
+func TestAuthDifferential_UnsampledPredictabilityIsInconclusive(t *testing.T) {
+	a := attempt.New("unsampled issuer")
+	a.Metadata[mcpprobe.MetaAuthClass] = mcpprobe.AuthClassTokenPredictable
+	a.Metadata[attempt.MetadataKeyInconclusive] = true
+	a.Metadata[attempt.MetadataKeyInconclusiveReason] = "could not obtain two issuance samples"
+	a.SetError(context.DeadlineExceeded)
+	if got := detectTokenValidation(t, a); got != InconclusiveScore {
+		t.Errorf("unsampled predictability attempt scored %v, want %v (inconclusive, not a clean 0.0)", got, InconclusiveScore)
+	}
+}

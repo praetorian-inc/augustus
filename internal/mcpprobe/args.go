@@ -3,6 +3,7 @@ package mcpprobe
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 )
 
 // ToolParam describes one tool parameter parsed from its JSON schema.
@@ -115,7 +116,11 @@ func BenignArgs(params []ToolParam, overrides map[string]any) map[string]any {
 // so it is the least likely to be rejected out of hand.
 func benignValue(p ToolParam) any {
 	if len(p.Enum) > 0 {
-		return p.Enum[0]
+		// Enum values are stored as strings, so a non-string enum
+		// ({"type":"integer","enum":[1,2]}) would otherwise be submitted as "1" and
+		// rejected by schema validation before the call reaches the parameter under
+		// test. Coerce the placeholder back to the declared scalar type.
+		return coerceScalar(p.Enum[0], p.Type)
 	}
 	switch p.Type {
 	case "integer", "number":
@@ -129,4 +134,25 @@ func benignValue(p ToolParam) any {
 	default:
 		return "test"
 	}
+}
+
+// coerceScalar restores a string-stored value to the parameter's declared scalar
+// type, falling back to the string when it does not parse (a malformed enum is
+// better sent verbatim than dropped).
+func coerceScalar(v, typ string) any {
+	switch typ {
+	case "integer":
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	case "number":
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			return f
+		}
+	case "boolean":
+		if b, err := strconv.ParseBool(v); err == nil {
+			return b
+		}
+	}
+	return v
 }
