@@ -120,38 +120,6 @@ func TestPayloadsFor_ExplicitAnnotationsStillWin(t *testing.T) {
 	}
 }
 
-func TestMatchesPathParam_CoversConfigStyleNames(t *testing.T) {
-	// config_name matched nothing before, so DVMCP challenge 10's vulnerable
-	// get_config tool was never probed while a harmless sibling was.
-	for _, name := range []string{"config_name", "conf_file", "document", "source", "src_path", "location"} {
-		if !matchesPathParam(name) {
-			t.Errorf("matchesPathParam(%q) = false, want true", name)
-		}
-	}
-	// Still must not match arbitrary names, or every tool gets path payloads.
-	for _, name := range []string{"username", "query", "temperature", "count"} {
-		if matchesPathParam(name) {
-			t.Errorf("matchesPathParam(%q) = true, want false", name)
-		}
-	}
-}
-
-func TestPayloadPrefixes(t *testing.T) {
-	// No derivable value: bare payload only, so the attempt count is unchanged.
-	plain := paramInfo{name: "q", typ: "string"}
-	if got := payloadVariants(plain, "PAYLOAD"); len(got) != 1 || got[0] != "PAYLOAD" {
-		t.Errorf("payloadVariants(no candidate) = %v, want [PAYLOAD]", got)
-	}
-
-	// Derivable value: bare plus prefixed, so a first-token allowlist is defeated
-	// without losing the bare form for targets that have no such gate.
-	withValue := paramInfo{name: "command", typ: "string", candidates: []string{"ls", "pwd"}}
-	got := payloadVariants(withValue, "; expr 1")
-	if len(got) != 2 || got[0] != "; expr 1" || got[1] != "ls ; expr 1" {
-		t.Errorf("payloadVariants(with candidate) = %v, want [\"; expr 1\" \"ls ; expr 1\"]", got)
-	}
-}
-
 // TestReadIntent_HandlesInflectedVerbs is the regression for a false negative
 // found only by testing against a non-DVMCP target.
 //

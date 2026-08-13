@@ -189,3 +189,19 @@ func TestBenignArgs_FillsGatingParamWithDocumentedValue(t *testing.T) {
 		t.Errorf("gating param = %v, want read", args["action"])
 	}
 }
+
+func TestPayloadPrefixes(t *testing.T) {
+	// No derivable value: bare payload only, so the attempt count is unchanged.
+	plain := paramInfo{name: "q", typ: "string"}
+	if got := payloadVariants(plain, "PAYLOAD"); len(got) != 1 || got[0] != "PAYLOAD" {
+		t.Errorf("payloadVariants(no candidate) = %v, want [PAYLOAD]", got)
+	}
+
+	// Derivable value: bare plus prefixed, so a first-token allowlist is defeated
+	// without losing the bare form for targets that have no such gate.
+	withValue := paramInfo{name: "command", typ: "string", candidates: []string{"ls", "pwd"}}
+	got := payloadVariants(withValue, "; expr 1")
+	if len(got) != 2 || got[0] != "; expr 1" || got[1] != "ls ; expr 1" {
+		t.Errorf("payloadVariants(with candidate) = %v, want [\"; expr 1\" \"ls ; expr 1\"]", got)
+	}
+}

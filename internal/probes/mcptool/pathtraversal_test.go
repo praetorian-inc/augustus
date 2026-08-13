@@ -763,3 +763,19 @@ func TestResponseTemplate_StripsOnlyTheEchoedPayload(t *testing.T) {
 		t.Error("nil attempt should reduce to empty")
 	}
 }
+
+func TestMatchesPathParam_CoversConfigStyleNames(t *testing.T) {
+	// config_name matched nothing before, so DVMCP challenge 10's vulnerable
+	// get_config tool was never probed while a harmless sibling was.
+	for _, name := range []string{"config_name", "conf_file", "document", "source", "src_path", "location"} {
+		if !matchesPathParam(name) {
+			t.Errorf("matchesPathParam(%q) = false, want true", name)
+		}
+	}
+	// Still must not match arbitrary names, or every tool gets path payloads.
+	for _, name := range []string{"username", "query", "temperature", "count"} {
+		if matchesPathParam(name) {
+			t.Errorf("matchesPathParam(%q) = true, want false", name)
+		}
+	}
+}
