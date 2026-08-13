@@ -80,6 +80,12 @@ func differentialVerdict(a *attempt.Attempt) float64 {
 
 	// The probe value was refused: nothing was reached, so there is nothing to
 	// report regardless of how the control fared.
+	//
+	// This is a TEXT match, so a served success whose body merely contains a
+	// refusal word (`"error": null`) can be misread as a refusal and clear a real
+	// finding. The structural fix — key off ToolResult.IsError instead — is tracked
+	// in LAB-5841; the vocabulary cannot simply be narrowed, because those same
+	// words carry real meaning in a genuine refusal.
 	if mcpprobe.ReadsAsRefusal(probeResp) {
 		return 0.0
 	}

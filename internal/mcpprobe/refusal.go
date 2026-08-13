@@ -21,10 +21,19 @@ var refusalVocabularyRE = regexp.MustCompile(
 //
 // It has two distinct uses, and the distinction matters:
 //
-//   - A detector uses it to WITHHOLD confidence, never to clear a finding. A
-//     response this vocabulary does not recognise degrades to inconclusive (a
-//     reviewer looks) rather than to a silent clean pass, so a server answering in
-//     another language cannot be wrongly reported safe.
+//   - A detector uses it to ADJUDICATE: a probe response that reads as a refusal
+//     scores 0.0 (the probe reached nothing), and a control that reads as a refusal
+//     where the probe was served scores 1.0. In the UNRECOGNISED direction it only
+//     withholds confidence — a control refusal it cannot read degrades to
+//     inconclusive rather than to a silent clean pass, so a server refusing in
+//     another language is not wrongly cleared. But the RECOGNISED direction is a
+//     text match on a shared vocabulary, so it is only as good as that vocabulary: a
+//     SERVED response that merely contains a refusal word (a success envelope with
+//     `"error": null`, a `"0 failed"` count) can be misread as a refusal, in either
+//     the 0.0 or the 1.0 direction. Replacing this text sniff with the structural
+//     signal the transport already carries (ToolResult.IsError) is tracked in
+//     LAB-5841; the vocabulary cannot be safely narrowed instead, because the same
+//     words carry real refusal meaning in a genuine refusal.
 //   - A probe uses it to TARGET further calls — a refusal is exactly the response
 //     worth retrying with a credential attached, to find out whether the refusal
 //     enforces anything. That is a targeting heuristic, not a verdict, in the same
