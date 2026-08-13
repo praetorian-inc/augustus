@@ -67,6 +67,21 @@ func TestUnauthDetector_AnonymousRefusedIsSafe(t *testing.T) {
 	}
 }
 
+// TestUnauthDetector_AnonRefusedWithFailedAuthBaselineIsInconclusive: an anonymous
+// refusal only means "boundary enforced" if we know the target was reachable in the
+// first place. When the operator's own authenticated control ALSO failed, the target
+// may simply be down/unreachable and refusing every caller identically — nothing was
+// measured, so this must be inconclusive rather than a clean 0.0. The paired
+// TestUnauthDetector_AnonymousRefusedIsSafe above keeps the authOK=true case at 0.0.
+func TestUnauthDetector_AnonRefusedWithFailedAuthBaselineIsInconclusive(t *testing.T) {
+	for _, tc := range []string{"public", "lan", "loopback", "unresolvable"} {
+		a := unauthAttempt(mcpprobe.AuthClassAnonEnumeration, tc, true, false /* anon refused */, false /* auth also failed */)
+		if got := detectUnauth(t, a); got != InconclusiveScore {
+			t.Errorf("target=%s anon refused AND auth baseline failed scored %v, want %v (unassessable, not a clean SAFE)", tc, got, InconclusiveScore)
+		}
+	}
+}
+
 // TestUnauthDetector_SeverityTiering: anonymous enumeration is serious,
 // anonymous invocation is the critical proof. They must not score the same —
 // enumeration discloses the surface, invocation proves the server ACTS for an

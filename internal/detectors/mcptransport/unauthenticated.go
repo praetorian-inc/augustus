@@ -57,9 +57,11 @@ func (d *UnauthenticatedAccessDetector) Description() string {
 //	auth-baseline class                  → 0.0 (informational control)
 //	credentials NOT configured           → 0.0 (differential impossible; probe skips)
 //	explicit inconclusive flag           → InconclusiveScore
+//	authenticated baseline failed        → InconclusiveScore (nothing reliably
+//	                                       measured — checked before the anonymous
+//	                                       outcome so a refused-but-unassessable
+//	                                       target is not scored a clean 0.0)
 //	anonymous path refused               → 0.0 (boundary enforced)
-//	anonymous OK, authenticated baseline
-//	  failed                             → InconclusiveScore (unreliable comparison)
 //	anonymous OK + credentials configured:
 //	  loopback / unresolvable / unknown  → InconclusiveScore
 //	  lan / public, enumeration          → EnumerationScore
@@ -123,14 +125,18 @@ func (d *UnauthenticatedAccessDetector) score(a *attempt.Attempt, class string) 
 	if !metaBool(a, mcpprobe.MetaAuthCredentialsConfigured) {
 		return 0.0
 	}
-	if !metaBool(a, mcpprobe.MetaAuthAnonymousSucceeded) {
-		return 0.0 // the target refused the anonymous caller: boundary enforced
-	}
-	// The operator's own session must have worked for the comparison to mean
-	// anything. If it didn't, the endpoint may be answering every request the
-	// same way and the "anonymous success" is not trustworthy evidence.
+	// The operator's own session must have worked for ANY comparison to mean
+	// anything, so this is checked BEFORE the anonymous outcome below. If the
+	// control failed, the target may simply be unreachable and refusing every
+	// caller identically — a refused anonymous session then proves nothing, and
+	// the "boundary enforced" 0.0 below would report an unassessable target as a
+	// clean SAFE. Checked first, this failure mode degrades to inconclusive
+	// whether the anonymous session was served or refused.
 	if !metaBool(a, mcpprobe.MetaAuthAuthenticatedSucceeded) {
 		return InconclusiveScore
+	}
+	if !metaBool(a, mcpprobe.MetaAuthAnonymousSucceeded) {
+		return 0.0 // the target refused the anonymous caller: boundary enforced
 	}
 
 	targetClass, _ := stringMeta(a, mcpprobe.MetaAuthTargetClass)
