@@ -2,6 +2,7 @@ package mcptransport
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -750,6 +751,40 @@ func TestOriginValidation_LostSampleIsNotInconclusive(t *testing.T) {
 	}
 }
 
+// TestOriginValidation_AcceptedClassesMarshalsAsArray: a server that refuses
+// everything accepts no class, which is the COMMON case on a healthy target.
+// A nil slice marshals to JSON null, so a consumer iterating accepted_classes
+// would break on exactly the endpoints that are fine. Must be [] not null.
+func TestOriginValidation_AcceptedClassesMarshalsAsArray(t *testing.T) {
+	p := newOriginValidationProbe(t, registry.Config{})
+	agg := p.aggregateSweep("http://example.invalid", "http", []variantResult{
+		{class: classExternalOrigin, result: "HTTP 403, text/plain"},
+	}, corsAbsent)
+	if agg == nil {
+		t.Fatal("expected an aggregated attempt")
+	}
+
+	raw, ok := agg.GetMetadata(attempt.MetadataKeyOriginValidationAcceptedClasses)
+	if !ok {
+		t.Fatal("missing accepted-classes metadata")
+	}
+	classes, ok := raw.([]string)
+	if !ok {
+		t.Fatalf("accepted-classes is %T, want []string", raw)
+	}
+	if classes == nil {
+		t.Error("accepted-classes is a nil slice; it must be empty-but-non-nil so it marshals as []")
+	}
+
+	blob, err := json.Marshal(map[string]any{"accepted_classes": classes})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(blob), `"accepted_classes":[]`) {
+		t.Errorf("accepted_classes must serialise as [], got %s", blob)
+	}
+}
+
 // TestUntestedClasses covers the class-coverage helper directly: a class is
 // "untested" only when NOT ONE of its variants got a response.
 func TestUntestedClasses(t *testing.T) {
@@ -938,20 +973,41 @@ func TestOriginValidation_UsesBorrowedHTTPClient(t *testing.T) {
 	if seenCount == 0 {
 		t.Fatalf("recording transport saw NO requests — probe built its own client and bypassed the generator")
 	}
-	// Strict one-to-one against the requests the probe actually made. Since
-	// LAB-5584 that is no longer len(attempts) — the sweep's variants share a
-	// single attempt — so count them from the sweep's own record: baseline +
-	// every variant + the preflight. Anything less proves the probe made a
-	// side-channel request bypassing the borrowed client. Fixes CodeRabbit #8.
-	sweep := findAttemptByClass(attempts, classSweep)
-	if sweep == nil {
-		t.Fatal("expected an aggregated sweep attempt")
-	}
-	raw, _ := sweep.GetMetadata(attempt.MetadataKeyOriginValidationVariantsSent)
-	variantsSent, _ := raw.(int)
-	wantRequests := 1 + variantsSent + 1 // baseline + sweep variants + preflight
+	// Strict one-to-one against an expectation derived from the payload
+	// builders, NOT from the sweep's own variants_sent counter. Deriving it
+	// from metadata the aggregation writes would be circular: a probe that
+	// both skipped a request and under-counted it would still pass.
+	//
+	// httptest binds an all-numeric host, so swapCase is a no-op and the
+	// case-variant is (correctly) not sent — hence no term for it here.
+	wantRequests := 1 + // baseline
+		len(p.buildOriginPayloads()) +
+		len(p.buildHostPayloads()) +
+		1 // CORS preflight
 	if seenCount != wantRequests {
-		t.Errorf("requests=%d, seen=%d — not every request used the borrowed client (side-channel HTTP)", wantRequests, seenCount)
+		t.Errorf("want %d requests, transport saw %d — a request bypassed the borrowed client, or one was never sent", wantRequests, seenCount)
+	}
+
+	// Cross-check the evidence against the wire: every Origin the aggregated
+	// finding claims it sent must actually appear on a recorded request. This
+	// catches the aggregation inventing or dropping variants independently of
+	// the count above.
+	rec.mu.Lock()
+	onWire := map[string]bool{}
+	for _, r := range rec.reqs {
+		if o := r.Header.Get("Origin"); o != "" {
+			onWire[o] = true
+		}
+	}
+	rec.mu.Unlock()
+	for _, v := range sweepVariants(t, attempts) {
+		o, ok := v["origin"].(string)
+		if !ok {
+			continue // Host-only variant; no Origin header to match
+		}
+		if !onWire[o] {
+			t.Errorf("evidence reports Origin %q but no request carrying it reached the transport", o)
+		}
 	}
 }
 

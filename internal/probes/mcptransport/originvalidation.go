@@ -507,10 +507,14 @@ func (p *OriginValidation) aggregateSweep(endpoint, transport string, variants [
 	}
 
 	var (
-		accepted       []variantResult
-		rejected       []variantResult
-		errored        []variantResult
-		acceptedClass  []string
+		accepted []variantResult
+		rejected []variantResult
+		errored  []variantResult
+		// Empty, not nil: a server that refuses everything accepts no class,
+		// and that is the COMMON case on a healthy target. A nil slice
+		// marshals to JSON null, so a consumer iterating accepted_classes
+		// would blow up on exactly the endpoints that are fine.
+		acceptedClass  = make([]string, 0, len(variants))
 		seenClass      = map[originValidationClass]bool{}
 		variantDetails = make([]map[string]any, 0, len(variants))
 	)
