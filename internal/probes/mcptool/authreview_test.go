@@ -297,3 +297,81 @@ func TestTokenValidation_UnsampledIssuerIsVisible(t *testing.T) {
 		})
 	}
 }
+
+// TestTokenValidation_FailedVerificationLegIsInconclusive locks the fix for the
+// format-only probe leg. Previously the first verification call did a bare
+// SetError with no inconclusive mark, so the detector's `a.Error != "" -> 0.0`
+// read a transient transport failure as a clean 0.0. It must be inconclusive.
+func TestTokenValidation_FailedVerificationLegIsInconclusive(t *testing.T) {
+	target := &mockTarget{
+		tools: []map[string]any{tokenTool("verify_token", "token")},
+		call:  func(string, map[string]any) types.ToolResult { return types.ToolResult{Text: "unreachable"} },
+		// Every call errors, so callToolOnce's single retry is exhausted.
+		callErr: func(string, map[string]any) error { return errors.New("connection reset by peer") },
+	}
+	attempts, err := newTokenValidationProbe(t, registry.Config{}).Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if len(attempts) == 0 {
+		t.Fatal("no attempts; an unassessable parameter must still surface")
+	}
+	// The sweep completed no leg, so nothing may read as a clean 0.0.
+	if got := maxTokenScore(t, attempts); got != 0.5 {
+		t.Errorf("all verification calls failed but the parameter scored %v, want 0.5 (inconclusive, not a clean pass)", got)
+	}
+	assertNoSilentErrorLeg(t, attempts)
+}
+
+// TestFunctionAuthorization_FailedProbeLegIsInconclusive locks the fix for the two
+// silent SetError legs in FunctionAuthorization — the forged-credential presence
+// leg and the privilege-discriminator candidate leg. A failed call must surface as
+// inconclusive, never as a clean 0.0.
+func TestFunctionAuthorization_FailedProbeLegIsInconclusive(t *testing.T) {
+	// adminTool is privileged and exposes an OPTIONAL credential arg, so the
+	// presence path runs. The setup legs (credential-absent control, discriminator
+	// candidates) succeed; only the forged-credential probe leg fails — a forged
+	// value is a random 32-hex token in auth_token — isolating the fixed path.
+	target := &mockTarget{
+		tools: []map[string]any{adminTool()},
+		call:  func(string, map[string]any) types.ToolResult { return types.ToolResult{Text: "ok"} },
+		callErr: func(_ string, args map[string]any) error {
+			if tok, ok := args["auth_token"].(string); ok && len(tok) == 32 && isAllHex(tok) {
+				return errors.New("connection reset by peer")
+			}
+			return nil
+		},
+	}
+	attempts, err := newFunctionAuthzProbe(t, registry.Config{}).Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if len(attempts) == 0 {
+		t.Fatal("no attempts; an unassessable tool must still surface")
+	}
+	sawInconclusive := false
+	for _, a := range attempts {
+		if v, _ := a.Metadata[attempt.MetadataKeyInconclusive].(bool); v {
+			sawInconclusive = true
+		}
+	}
+	if !sawInconclusive {
+		t.Error("no inconclusive attempt recorded; a tool whose legs all failed must not read as clean")
+	}
+	assertNoSilentErrorLeg(t, attempts)
+}
+
+// assertNoSilentErrorLeg is THE contract of the fix: an attempt left in
+// StatusError must always carry the inconclusive mark, so a failed leg cannot be
+// scored a clean 0.0 by the detector's `a.Error != "" -> 0.0` branch.
+func assertNoSilentErrorLeg(t *testing.T, attempts []*attempt.Attempt) {
+	t.Helper()
+	for _, a := range attempts {
+		if a.Status != attempt.StatusError {
+			continue
+		}
+		if v, _ := a.Metadata[attempt.MetadataKeyInconclusive].(bool); !v {
+			t.Errorf("attempt %q errored WITHOUT the inconclusive mark; a failed leg must not read as clean", a.Prompt)
+		}
+	}
+}

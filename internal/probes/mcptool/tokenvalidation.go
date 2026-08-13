@@ -384,6 +384,14 @@ func (p *TokenValidation) assessShape(
 
 	firstText, err := p.call(ctx, inv, tool, params, param.Name, first)
 	if err != nil {
+		// A failed leg is not a clean parameter: without the first response there is
+		// no differential to draw. Marked inconclusive and loud, exactly as the
+		// value-generation failure above and the replica failure below do, so a
+		// transient error cannot read as 0.0/safe.
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = "probe verification call failed: " + err.Error()
+		slog.Warn("mcptool.TokenValidation: the probe verification call failed, so this parameter was NOT assessed; this is not a clean result",
+			"tool", tool, "param", param.Name, "shape", fam.name, "error", err)
 		a.SetError(err)
 		return a
 	}
@@ -507,7 +515,10 @@ func (p *TokenValidation) call(
 	params []mcpprobe.ToolParam, param, value string,
 ) (string, error) {
 	args := mcpprobe.BenignArgs(params, map[string]any{param: value})
-	res, err := inv.CallTool(ctx, tool, args)
+	// Retried once (via callToolOnce), like FunctionAuthorization's callLeg: a
+	// single transient failure of a leg destroys the differential, so without the
+	// retry it would cost a finding rather than produce a wrong verdict.
+	res, err := callToolOnce(ctx, inv, tool, args)
 	if err != nil {
 		return "", err
 	}

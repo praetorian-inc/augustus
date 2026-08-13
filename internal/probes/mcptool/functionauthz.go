@@ -376,6 +376,14 @@ func (p *FunctionAuthorization) assessPresence(
 	}
 	res, err := callLeg(ctx, inv, tool, mcpprobe.BenignArgs(params, probeOverrides))
 	if err != nil {
+		// The forged-credential leg is the finding's evidence; without it there is
+		// nothing to compare against the omitted-credential control. Marked
+		// inconclusive and loud, like the control-absent failure above, so a
+		// transient error cannot read as 0.0/safe.
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = "forged-credential call failed: " + err.Error()
+		slog.Warn("mcptool.FunctionAuthorization: the forged-credential call failed, so this context was NOT assessed; this is not a clean result",
+			"tool", tool, "param", param, "error", err)
 		a.SetError(err)
 		return a
 	}
@@ -526,6 +534,13 @@ func (p *FunctionAuthorization) probeDiscriminator(ctx context.Context, inv type
 			args := mcpprobe.BenignArgs(params, map[string]any{param.Name: candidate})
 			res, err := callLeg(ctx, inv, name, args)
 			if err != nil {
+				// A candidate that would have revealed an escalation but errored must
+				// not read as 0.0/safe: mark it inconclusive and loud, like the other
+				// failed legs, so a transient error surfaces for a reviewer.
+				a.Metadata[attempt.MetadataKeyInconclusive] = true
+				a.Metadata[attempt.MetadataKeyInconclusiveReason] = "privilege-discriminator call failed: " + err.Error()
+				slog.Warn("mcptool.FunctionAuthorization: a privilege-discriminator candidate call failed, so that candidate was NOT assessed; this is not a clean result",
+					"tool", name, "param", param.Name, "candidate", candidate, "error", err)
 				a.SetError(err)
 			} else {
 				a.AddOutput(res.Text)
