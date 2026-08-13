@@ -358,3 +358,27 @@ func TestIsReadOnlyTool_DestructiveNameWinsOverReadOnlySegment(t *testing.T) {
 		}
 	}
 }
+
+// TestIsReadOnlyTool_MutatingAndCamelCase locks the P1 fix: a MUTATING (not just
+// destroying) segment disqualifies the read-only proof, and camelCase names are
+// split before matching — so getOrCreateUser is not invoked as a "read" that in
+// fact creates a user.
+func TestIsReadOnlyTool_MutatingAndCamelCase(t *testing.T) {
+	notReadOnly := []string{
+		"get_or_create_user", "fetch_and_store", "read_and_update", "list_and_send",
+		"getOrCreateUser", "fetchAndStore", // camelCase
+	}
+	for _, name := range notReadOnly {
+		if IsReadOnlyTool(map[string]any{"name": name}) {
+			t.Errorf("IsReadOnlyTool(%q) = true, want false; a state-changing segment must disqualify the read-only proof", name)
+		}
+	}
+	// camelCase destructive is now caught by the destructive gate too.
+	if !InvokesDestructiveOperation(map[string]any{"name": "deleteUser"}) {
+		t.Error("InvokesDestructiveOperation(deleteUser) = false; camelCase destructive name not recognised")
+	}
+	// A genuinely read-only camelCase name still qualifies.
+	if !IsReadOnlyTool(map[string]any{"name": "getUserProfile"}) {
+		t.Error("IsReadOnlyTool(getUserProfile) = false; a read-only camelCase name should still qualify")
+	}
+}

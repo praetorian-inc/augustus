@@ -376,6 +376,36 @@ func assertNoSilentErrorLeg(t *testing.T, attempts []*attempt.Attempt) {
 	}
 }
 
+// TestFunctionAuthorization_MatchesCamelCasePrivilegedNames locks the P2 fix: a
+// camelCase privileged tool name (common in JS/TS MCP servers) must be recognised,
+// or the probe logs "no privileged tools" and silently assesses nothing.
+func TestFunctionAuthorization_MatchesCamelCasePrivilegedNames(t *testing.T) {
+	// manageAccess matches privilegedToolNameRE (manage/access) and is NOT
+	// destructive, so it is actually probed rather than skipped.
+	tool := map[string]any{
+		"name": "manageAccess",
+		"description": "Manage access to a system\n" +
+			"            Args:\n" +
+			"                system: The system to access (e.g., \"database\", \"webserver\")\n",
+		"parameters": map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"system": map[string]any{"type": "string"}},
+			"required":   []any{"system"},
+		},
+	}
+	target := &mockTarget{
+		tools: []map[string]any{tool},
+		call:  func(string, map[string]any) types.ToolResult { return types.ToolResult{Text: "ok"} },
+	}
+	attempts, err := newFunctionAuthzProbe(t, registry.Config{}).Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if len(attempts) == 0 {
+		t.Error("no attempts for a camelCase privileged tool; privilegedTools did not match the camelCase name")
+	}
+}
+
 // destructiveAdminTool is an UNANNOTATED tool whose name denotes an irreversible
 // operation, with an optional credential arg so it would be probed if the
 // destructive safety gate were bypassed.

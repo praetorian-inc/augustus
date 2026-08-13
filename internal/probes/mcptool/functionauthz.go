@@ -236,7 +236,7 @@ func (p *FunctionAuthorization) privilegedTools(tools []map[string]any) []map[st
 		// behaviour) handed an unannotated delete_user / reset_password to the probe
 		// with authz_allow_destructive still false, so proving the boundary would
 		// perform the irreversible operation.
-		if !p.allTools && !privilegedToolNameRE.MatchString(name) {
+		if !p.allTools && !privilegedToolNameRE.MatchString(mcpprobe.SplitCamelCase(name)) {
 			continue
 		}
 		// This probe PROVES a missing authorization boundary by performing the
@@ -299,7 +299,7 @@ func (p *FunctionAuthorization) probeCredentialPresence(
 		if param.Required || !isStringParam(param.Type) {
 			continue
 		}
-		if !credentialParamRE.MatchString(param.Name) {
+		if !credentialParamRE.MatchString(mcpprobe.SplitCamelCase(param.Name)) {
 			continue
 		}
 		for _, base := range contexts {
@@ -469,7 +469,7 @@ func (p *FunctionAuthorization) probeDiscriminator(ctx context.Context, inv type
 		}
 		// A payload parameter is not an authority selector. Sweeping it measures
 		// "is this a valid command" rather than "may this caller do this".
-		if contentParamRE.MatchString(param.Name) {
+		if contentParamRE.MatchString(mcpprobe.SplitCamelCase(param.Name)) {
 			slog.Info("mcptool.FunctionAuthorization: parameter carries a payload rather than selecting authority; skipping the privileged-value sweep (an execution sink is mcptool.Injection's finding, not an authorization bypass)",
 				"tool", name, "param", param.Name)
 			continue

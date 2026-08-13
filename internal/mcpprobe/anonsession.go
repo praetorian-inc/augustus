@@ -329,13 +329,15 @@ func IsReadOnlyTool(tm map[string]any) bool {
 	if name == "" {
 		return false
 	}
-	// A destructive name segment wins over a read-only one. A compound name like
-	// reset_status or clear_cache matches BOTH vocabularies, and invoking it as the
-	// "read-only proof" would perform the destructive half. InvokesDestructiveOperation
-	// is the mirror matcher, so consulting it here means no caller can green-light a
-	// destructive-named tool through this gate alone.
-	if InvokesDestructiveOperation(tm) {
+	// A state-changing name segment wins over a read-only one. A compound name like
+	// reset_status, clear_cache or getOrCreateUser matches a read-only vocabulary in
+	// one segment while another segment mutates or destroys — and invoking it as the
+	// "read-only proof" would perform that write. ChangesStateByName covers both the
+	// destructive and the broader mutating verbs (and camelCase), so no caller can
+	// green-light a state-changing tool through this gate alone.
+	norm := SplitCamelCase(name)
+	if ChangesStateByName(name) {
 		return false
 	}
-	return readOnlyToolNameRE.MatchString(name)
+	return readOnlyToolNameRE.MatchString(norm)
 }

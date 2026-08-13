@@ -269,7 +269,7 @@ func (p *TokenValidation) probeVerificationSurfaces(ctx context.Context, inv typ
 			if !isStringParam(param.Type) {
 				continue
 			}
-			if !p.allParams && !credentialParamRE.MatchString(param.Name) {
+			if !p.allParams && !credentialParamRE.MatchString(mcpprobe.SplitCamelCase(param.Name)) {
 				continue
 			}
 
@@ -448,7 +448,7 @@ func (p *TokenValidation) probeIssuanceSurfaces(ctx context.Context, inv types.T
 		// the read-only path fires on every idempotent tool whose response happens to
 		// look credential-shaped -- config getters, version endpoints, status and
 		// health checks -- all of which are supposed to return the same value twice.
-		if !issuerToolNameRE.MatchString(name) {
+		if !issuerToolNameRE.MatchString(mcpprobe.SplitCamelCase(name)) {
 			continue
 		}
 		// An issuer NOUN is not enough: the name must not also read as a READ.
@@ -461,7 +461,7 @@ func (p *TokenValidation) probeIssuanceSurfaces(ctx context.Context, inv types.T
 		// scored 1.0. This is the same false positive shape already measured on a
 		// configuration reader, arriving through the name vocabulary instead of the
 		// read-only gate.
-		if readVerbToolNameRE.MatchString(name) {
+		if readVerbToolNameRE.MatchString(mcpprobe.SplitCamelCase(name)) {
 			slog.Info("mcptool.TokenValidation: tool name reads as a getter rather than an issuer; skipping the predictability sampling (returning the same current credential to two reads is correct behaviour, not derivable issuance)",
 				"tool", name)
 			continue
