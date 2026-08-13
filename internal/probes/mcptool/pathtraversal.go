@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/praetorian-inc/augustus/internal/mcpprobe"
+	"github.com/praetorian-inc/augustus/internal/toolargs"
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
@@ -165,6 +166,9 @@ type PathTraversal struct {
 	// never tools whose read intent was inferred from name and description.
 	requireReadOnlyAnnotation bool
 	policy                    toolpolicy.Policy
+	// args carries the operator\'s per-tool argument hints (tool_args /
+	// tool_id_paths). Empty by default, leaving synthesized arguments unchanged.
+	args toolargs.Builder
 }
 
 // NewPathTraversal reads pathtraversal_all_string_params + the shared
@@ -174,6 +178,7 @@ func NewPathTraversal(cfg registry.Config) (probes.Prober, error) {
 		allParams:                 registry.GetBool(cfg, "pathtraversal_all_string_params", false),
 		requireReadOnlyAnnotation: registry.GetBool(cfg, "pathtraversal_require_readonly_annotation", false),
 		policy:                    toolpolicy.New(cfg),
+		args:                      toolargs.New(cfg),
 	}, nil
 }
 
@@ -510,7 +515,7 @@ func (p *PathTraversal) callOne(ctx context.Context, inv types.ToolInvoker, tool
 		a.Metadata[attempt.MetadataKeyPathTraversalIsWrite] = true
 	}
 
-	res, err := inv.CallTool(ctx, tool, benignArgs(params, param, tp.payload))
+	res, err := inv.CallTool(ctx, tool, buildArgs(p.args, tool, params, param, tp.payload))
 	if err != nil {
 		a.SetError(err)
 		return a

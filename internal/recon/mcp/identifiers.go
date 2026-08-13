@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/praetorian-inc/augustus/internal/recon/llm"
+	"github.com/praetorian-inc/augustus/internal/toolargs"
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/output"
@@ -74,6 +75,14 @@ type MCPIdentifiers struct {
 	// benign/id args. Replaces the old destructive-NAME regex heuristic.
 	policy toolpolicy.Policy
 
+	// args carries the operator's per-tool argument hints (tool_args /
+	// tool_id_paths). Empty by default, in which case call arguments are
+	// synthesized from the schema exactly as before. It exists for servers that
+	// wrap every tool behind a uniform envelope, where a required top-level
+	// parameter (a tenant id) cannot be inferred from the schema and the object
+	// identifier belongs inside a nested object rather than at the top level.
+	args toolargs.Builder
+
 	// Compiled from the (operator-extendable) keyword vocabularies.
 	idParamRE *regexp.Regexp
 	getterRE  *regexp.Regexp
@@ -104,6 +113,7 @@ func NewIdentifiers(cfg registry.Config) (recon.Recon, error) {
 		useNavigator:     registry.GetBool(cfg, "use_navigator", true),
 		maxIDsPerTool:    registry.GetInt(cfg, "max_ids_per_tool", 5),
 		policy:           toolpolicy.New(cfg),
+		args:             toolargs.New(cfg),
 		idParamRE:        wordBoundaryRE(resolvePatterns(cfg, "id_param_patterns", "id_param_extra_patterns", defaultIDParamWords)),
 		getterRE:         wordBoundaryRE(resolvePatterns(cfg, "getter_name_patterns", "getter_name_extra_patterns", defaultGetterWords)),
 		enumRE:           wordBoundaryRE(resolvePatterns(cfg, "enum_name_patterns", "enum_name_extra_patterns", defaultEnumWords)),
@@ -467,7 +477,7 @@ func (m *MCPIdentifiers) harvestAndValidate(ctx context.Context, s identitySessi
 			slog.Warn("recon.MCPIdentifiers: not invoking classified enumerator (call-site policy gate)", "tool", en.name, "reason", reason)
 			continue
 		}
-		res, err := s.inv.CallTool(ctx, en.name, requiredBenignArgs(en.params))
+		res, err := s.inv.CallTool(ctx, en.name, m.args.Apply(en.name, requiredBenignArgs(en.params)))
 		if err != nil || res.IsError {
 			continue
 		}
@@ -497,7 +507,7 @@ func (m *MCPIdentifiers) harvestAndValidate(ctx context.Context, s identitySessi
 			if confirmed[key] {
 				continue
 			}
-			args := benignArgs(g.params, g.idParam, cand.id)
+			args := m.buildGetterArgs(g, cand.id)
 			res, err := s.inv.CallTool(ctx, g.name, args)
 			if err != nil || res.IsError || strings.TrimSpace(res.Text) == "" {
 				continue
@@ -585,6 +595,20 @@ func paramRequired(params []toolParam, name string) bool {
 		}
 	}
 	return false
+}
+
+// buildGetterArgs assembles the arguments for one getter call: the schema-derived
+// baseline (identifier in idParam, benign fillers elsewhere), then the operator's
+// per-tool hints applied on top — the identifier relocated to a nested path when
+// tool_id_paths names one, and static values merged over fillers the schema
+// cannot supply. With no hints configured this is exactly benignArgs.
+//
+// The result is stored verbatim on the emitted MCPObjectRef.Args, so a
+// downstream BOLA replay reuses the same validated envelope.
+func (m *MCPIdentifiers) buildGetterArgs(g toolSpec, id string) map[string]any {
+	args := benignArgs(g.params, g.idParam, id)
+	args = m.args.Place(g.name, g.idParam, id, args)
+	return m.args.Apply(g.name, args)
 }
 
 // benignArgs builds a call argument map: the identifier in idParam plus benign

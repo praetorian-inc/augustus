@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/praetorian-inc/augustus/internal/mcpprobe"
+	"github.com/praetorian-inc/augustus/internal/toolargs"
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
@@ -44,6 +45,9 @@ type SSRF struct {
 	allParams    bool              // inject into every string param, not just URL-like ones
 	marker       string            // collector body marker (reflection signal)
 	policy       toolpolicy.Policy // destructive-tool safety gate
+	// args carries the operator\'s per-tool argument hints (tool_args /
+	// tool_id_paths). Empty by default, leaving synthesized arguments unchanged.
+	args toolargs.Builder
 }
 
 // NewSSRF constructs the probe. All OOB settings default so a localhost target
@@ -56,6 +60,7 @@ func NewSSRF(cfg registry.Config) (probes.Prober, error) {
 		allParams:    registry.GetBool(cfg, "ssrf_all_string_params", false),
 		marker:       "AUGOOB" + mcpprobe.RandToken(),
 		policy:       toolpolicy.New(cfg),
+		args:         toolargs.New(cfg),
 	}, nil
 }
 
@@ -188,7 +193,7 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 				a.Metadata[attempt.MetadataKeySSRFOOBURL] = canaryURL
 
 				reflected := false
-				res, callErr := inv.CallTool(ctx, name, benignArgs(params, param.name, payload))
+				res, callErr := inv.CallTool(ctx, name, buildArgs(p.args, name, params, param.name, payload))
 				if callErr != nil {
 					a.SetError(callErr)
 				} else {

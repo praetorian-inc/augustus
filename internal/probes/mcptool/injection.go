@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/praetorian-inc/augustus/internal/mcpprobe"
+	"github.com/praetorian-inc/augustus/internal/toolargs"
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
@@ -41,8 +42,11 @@ var (
 // The target must implement types.ToolInvoker; other targets are skipped.
 type Injection struct {
 	reconContext
-	canary       mcpprobe.Canary
-	policy       toolpolicy.Policy
+	canary mcpprobe.Canary
+	policy toolpolicy.Policy
+	// args carries the operator\'s per-tool argument hints (tool_args /
+	// tool_id_paths). Empty by default, leaving synthesized arguments unchanged.
+	args         toolargs.Builder
 	listen       string        // OOB collector bind address
 	baseOverride string        // URL the target should use to reach the collector (optional)
 	wait         time.Duration // grace period for callbacks after sending
@@ -57,6 +61,7 @@ func NewInjection(cfg registry.Config) (probes.Prober, error) {
 	return &Injection{
 		canary:       mcpprobe.NewCanary(),
 		policy:       toolpolicy.New(cfg),
+		args:         toolargs.New(cfg),
 		listen:       registry.GetString(cfg, "oob_listen", "127.0.0.1:0"),
 		baseOverride: registry.GetString(cfg, "oob_base_url", ""),
 		wait:         time.Duration(registry.GetInt(cfg, "oob_wait_seconds", 3)) * time.Second,
@@ -224,7 +229,7 @@ func (p *Injection) callOne(ctx context.Context, inv types.ToolInvoker, tool, pa
 	a.Metadata["mcptool.tool"] = tool
 	a.Metadata["mcptool.param"] = param
 
-	res, err := inv.CallTool(ctx, tool, benignArgs(params, param, payload))
+	res, err := inv.CallTool(ctx, tool, buildArgs(p.args, tool, params, param, payload))
 	if err != nil {
 		a.SetError(err)
 		return a
@@ -256,7 +261,7 @@ func (p *Injection) callOOB(ctx context.Context, inv types.ToolInvoker, tool, pa
 	a.Metadata["mcptool.tool"] = tool
 	a.Metadata["mcptool.param"] = param
 
-	res, err := inv.CallTool(ctx, tool, benignArgs(params, param, payload))
+	res, err := inv.CallTool(ctx, tool, buildArgs(p.args, tool, params, param, payload))
 	if err != nil {
 		a.SetError(err)
 		return a

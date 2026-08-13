@@ -22,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/praetorian-inc/augustus/internal/toolargs"
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
@@ -263,6 +264,21 @@ func mineCandidateValuesExcluding(frag string, exclude map[string]bool) []string
 // type is treated as string-injectable (schemas in the wild often omit it).
 func isStringParam(typ string) bool {
 	return typ == "" || typ == "string"
+}
+
+// buildArgs assembles the arguments for one probe call: the schema-derived
+// baseline from benignArgs, then the operator's per-tool hints applied on top —
+// the payload relocated to a nested path when tool_id_paths names one, and static
+// values merged over fillers the schema cannot supply (a tenant id, an account
+// uid). With no hints configured this is exactly benignArgs.
+//
+// It exists for servers that wrap every tool behind a uniform envelope, where a
+// synthesized flat call is rejected by argument validation before the sink under
+// test is ever reached — which would otherwise be reported as a SAFE target.
+func buildArgs(b toolargs.Builder, tool string, params []paramInfo, injectParam, payload string) map[string]any {
+	args := benignArgs(params, injectParam, payload)
+	args = b.Place(tool, injectParam, payload, args)
+	return b.Apply(tool, args)
 }
 
 // benignArgs builds a call argument map: the injected payload in injectParam, and
