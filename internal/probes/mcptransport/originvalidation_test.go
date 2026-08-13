@@ -168,7 +168,10 @@ func acceptedVariantClasses(t *testing.T, attempts []*attempt.Attempt) map[strin
 	if !ok {
 		t.Fatal("sweep attempt is missing the accepted-classes metadata")
 	}
-	classes, _ := raw.([]string)
+	classes, ok := raw.([]string)
+	if !ok {
+		t.Fatalf("accepted-classes metadata is %T, want []string — the evidence contract changed", raw)
+	}
 	got := map[string]bool{}
 	for _, c := range classes {
 		got[c] = true
@@ -188,7 +191,10 @@ func sweepVariants(t *testing.T, attempts []*attempt.Attempt) []map[string]any {
 	if !ok {
 		t.Fatal("sweep attempt is missing the variants metadata")
 	}
-	vs, _ := raw.([]map[string]any)
+	vs, ok := raw.([]map[string]any)
+	if !ok {
+		t.Fatalf("variants metadata is %T, want []map[string]any — the evidence contract changed", raw)
+	}
 	return vs
 }
 
@@ -582,6 +588,271 @@ func TestOriginValidation_AllVariantsFailedIsErrorNotSafe(t *testing.T) {
 	// operator can see the sweep was not silently truncated.
 	if !strings.Contains(sweep.Outputs[0], "NOT TESTED") {
 		t.Errorf("evidence should list the untested variants; got:\n%s", sweep.Outputs[0])
+	}
+}
+
+// TestOriginValidation_UntestedClassIsInconclusive: when EVERY variant of a
+// bypass class dies in transit, that check never ran. With nothing accepted,
+// "the endpoint refused everything" is not a conclusion the sweep earned — the
+// untested class might well have got through. Must not score a clean SAFE.
+// Regression guard for Codex/Claude review on PR #288.
+func TestOriginValidation_UntestedClassIsInconclusive(t *testing.T) {
+	// Refuses every Origin it sees, but kills the connection outright for the
+	// Host-header variants — so the whole unexpected-host class goes untested.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.Host, "example.") {
+			hj, ok := w.(http.Hijacker)
+			if !ok {
+				t.Errorf("test server cannot hijack; cannot simulate transport failure")
+				return
+			}
+			conn, _, err := hj.Hijack()
+			if err == nil {
+				_ = conn.Close()
+			}
+			return
+		}
+		if r.Header.Get("Origin") != "" {
+			http.Error(w, "origin not allowed", http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(initializeOK))
+	}))
+	defer srv.Close()
+
+	p := newOriginValidationProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	sweep := findAttemptByClass(attempts, classSweep)
+	if sweep == nil {
+		t.Fatal("expected an aggregated sweep attempt")
+	}
+
+	variants := sweepVariants(t, attempts)
+	errored := 0
+	for _, v := range variants {
+		if s, _ := v["result"].(string); strings.Contains(s, "HTTP ") {
+			continue
+		}
+		errored++
+	}
+	if errored == 0 {
+		t.Fatal("expected some variants to fail in transit; test server did not misbehave as intended")
+	}
+
+	if !metaBool(sweep, attempt.MetadataKeyInconclusive) {
+		t.Errorf("a sweep with nothing accepted and a wholly untested class (%d failed variants) must be inconclusive, not safe", errored)
+	}
+	reason, _ := sweep.GetMetadata(attempt.MetadataKeyInconclusiveReason)
+	reasonStr, _ := reason.(string)
+	if !strings.Contains(reasonStr, string(classUnexpectedHost)) {
+		t.Errorf("reason should name the class that never ran; got %q", reasonStr)
+	}
+	// The verdict a reader takes away must not claim enforcement outright.
+	if !strings.Contains(sweep.Outputs[0], "that check never ran, so validation cannot be called enforced") {
+		t.Errorf("verdict must not claim enforcement when a whole class went untested; got:\n%s", sweep.Outputs[0])
+	}
+}
+
+// TestOriginValidation_LostSampleIsNotInconclusive: losing SOME variants of a
+// class that was otherwise exercised is ordinary sampling, not a coverage
+// hole — the payload list is already an arbitrary sample of an infinite space
+// of bypass origins. Marking that inconclusive would fire on every flaky
+// connection and drain the signal from the flag. This is the discriminating
+// case against the broader "any errored variant" rule.
+func TestOriginValidation_LostSampleIsNotInconclusive(t *testing.T) {
+	// Refuses every Origin, and kills the connection for exactly ONE of the
+	// two external-origin payloads (the "cdn-" one). external-origin is still
+	// exercised by its sibling, and every other class completes.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.Header.Get("Origin"), "cdn-") {
+			if hj, ok := w.(http.Hijacker); ok {
+				if conn, _, err := hj.Hijack(); err == nil {
+					_ = conn.Close()
+				}
+			}
+			return
+		}
+		// Refuse both crafted Origins AND crafted Hosts, so nothing is
+		// accepted — otherwise the accepted>0 guard would short-circuit the
+		// inconclusive check and the test would prove nothing.
+		if r.Header.Get("Origin") != "" || strings.Contains(r.Host, "example.") {
+			http.Error(w, "not allowed", http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(initializeOK))
+	}))
+	defer srv.Close()
+
+	p := newOriginValidationProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	sweep := findAttemptByClass(attempts, classSweep)
+	if sweep == nil {
+		t.Fatal("expected an aggregated sweep attempt")
+	}
+
+	// Non-vacuity: exactly one variant must have failed, and it must be an
+	// external-origin one whose sibling still landed.
+	failed := 0
+	for _, v := range sweepVariants(t, attempts) {
+		if s, _ := v["result"].(string); !strings.Contains(s, "HTTP ") {
+			failed++
+			if c, _ := v["class"].(string); c != string(classExternalOrigin) {
+				t.Errorf("expected only an external-origin variant to fail, got class %q", c)
+			}
+		}
+	}
+	if failed != 1 {
+		t.Fatalf("expected exactly 1 failed variant, got %d — test server did not misbehave as intended", failed)
+	}
+	// Non-vacuity: nothing accepted, so the inconclusive check below is
+	// actually reached rather than short-circuited by the accepted>0 guard.
+	if metaBool(sweep, attempt.MetadataKeyOriginValidationAccepted) {
+		t.Fatal("test server accepted a variant; the inconclusive path would be short-circuited")
+	}
+
+	if metaBool(sweep, attempt.MetadataKeyInconclusive) {
+		t.Errorf("losing one sample of an exercised class must not mark the sweep inconclusive")
+	}
+	if !strings.Contains(sweep.Outputs[0], "every check class was still exercised") {
+		t.Errorf("verdict should note the lost sample without retracting the verdict; got:\n%s", sweep.Outputs[0])
+	}
+}
+
+// TestUntestedClasses covers the class-coverage helper directly: a class is
+// "untested" only when NOT ONE of its variants got a response.
+func TestUntestedClasses(t *testing.T) {
+	boom := context.DeadlineExceeded
+	got := untestedClasses([]variantResult{
+		{class: classExternalOrigin, err: boom},
+		{class: classExternalOrigin}, // sibling landed → class IS exercised
+		{class: classNullOrigin, err: boom},
+		{class: classUnexpectedHost, err: boom},
+		{class: classUnexpectedHost, err: boom},
+		{class: classLocalhostLookalike},
+	})
+	want := []string{string(classNullOrigin), string(classUnexpectedHost)}
+	if len(got) != len(want) {
+		t.Fatalf("untestedClasses = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("untestedClasses[%d] = %q, want %q (order should follow sweep order)", i, got[i], want[i])
+		}
+	}
+	if len(untestedClasses(nil)) != 0 {
+		t.Errorf("no variants → no untested classes")
+	}
+}
+
+// TestOriginValidation_ConfirmedFindingNotDowngradedByFailures: the inconclusive
+// marking above must NOT fire when a variant was accepted — the flaw is proven
+// on the wire, and downgrading it because an unrelated variant timed out would
+// lose a real vulnerability.
+func TestOriginValidation_ConfirmedFindingNotDowngradedByFailures(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.Host, "example.") {
+			if hj, ok := w.(http.Hijacker); ok {
+				if conn, _, err := hj.Hijack(); err == nil {
+					_ = conn.Close()
+				}
+			}
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(initializeOK))
+	}))
+	defer srv.Close()
+
+	p := newOriginValidationProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	sweep := findAttemptByClass(attempts, classSweep)
+	if sweep == nil {
+		t.Fatal("expected an aggregated sweep attempt")
+	}
+	if !metaBool(sweep, attempt.MetadataKeyOriginValidationAccepted) {
+		t.Fatal("expected the Origin variants to be accepted by this server")
+	}
+	if metaBool(sweep, attempt.MetadataKeyInconclusive) {
+		t.Errorf("a confirmed bypass must not be downgraded to inconclusive by unrelated transport failures")
+	}
+}
+
+// TestOriginValidation_UntestedPreflightIsNotAbsence: an errored CORS preflight
+// must report as NOT TESTED, never as "reflection absent" — asserting an
+// absence the probe never observed understates the finding's impact.
+// Regression guard for Codex review on PR #288.
+func TestOriginValidation_UntestedPreflightIsNotAbsence(t *testing.T) {
+	// Serves POST/GET normally but drops the OPTIONS preflight connection.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			if hj, ok := w.(http.Hijacker); ok {
+				if conn, _, err := hj.Hijack(); err == nil {
+					_ = conn.Close()
+				}
+			}
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(initializeOK))
+	}))
+	defer srv.Close()
+
+	p := newOriginValidationProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	sweep := findAttemptByClass(attempts, classSweep)
+	if sweep == nil {
+		t.Fatal("expected an aggregated sweep attempt")
+	}
+	if _, ok := sweep.GetMetadata(attempt.MetadataKeyOriginValidationCredentialedRead); ok {
+		t.Errorf("credentialed-read metadata must be omitted when the preflight never completed")
+	}
+	if strings.Contains(sweep.Outputs[0], "Credentialed CORS reflection: absent") {
+		t.Errorf("an untested preflight must not be reported as absence; got:\n%s", sweep.Outputs[0])
+	}
+	if !strings.Contains(sweep.Outputs[0], "Credentialed CORS reflection: NOT TESTED") {
+		t.Errorf("evidence should say the preflight was not tested; got:\n%s", sweep.Outputs[0])
+	}
+}
+
+// TestCorsResultFrom covers the tri-state directly: an errored preflight is
+// "not tested", which is a different claim from "no reflection".
+func TestCorsResultFrom(t *testing.T) {
+	errored := attempt.New("preflight")
+	errored.SetError(context.DeadlineExceeded)
+	if got := corsResultFrom(errored); got != corsNotTested {
+		t.Errorf("errored preflight = %v, want corsNotTested", got)
+	}
+
+	absent := attempt.New("preflight")
+	absent.Complete()
+	absent.Metadata[attempt.MetadataKeyOriginValidationAccepted] = false
+	if got := corsResultFrom(absent); got != corsAbsent {
+		t.Errorf("completed non-reflecting preflight = %v, want corsAbsent", got)
+	}
+
+	present := attempt.New("preflight")
+	present.Complete()
+	present.Metadata[attempt.MetadataKeyOriginValidationAccepted] = true
+	if got := corsResultFrom(present); got != corsPresent {
+		t.Errorf("reflecting preflight = %v, want corsPresent", got)
+	}
+
+	if got := corsResultFrom(nil); got != corsNotTested {
+		t.Errorf("nil preflight = %v, want corsNotTested", got)
 	}
 }
 

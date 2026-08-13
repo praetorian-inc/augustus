@@ -416,10 +416,9 @@ func (p *OriginValidation) Probe(ctx context.Context, gen types.Generator) ([]*a
 	// attacker can read the response. Sent before the sweep is aggregated so
 	// its outcome can escalate the aggregated finding's stated impact.
 	preflight := stampClass(p.probePreflight(ctx, client, endpoint, "https://"+p.nonce[:8]+".example.org", u.Host))
-	credentialedRead := metaBool(preflight, attempt.MetadataKeyOriginValidationAccepted)
 
 	// 6. One finding for the endpoint, carrying every variant as evidence.
-	if agg := p.aggregateSweep(endpoint, transport, variants, credentialedRead); agg != nil {
+	if agg := p.aggregateSweep(endpoint, transport, variants, corsResultFrom(preflight)); agg != nil {
 		attempts = append(attempts, stampClass(agg))
 	}
 	attempts = append(attempts, preflight)
@@ -446,6 +445,30 @@ type variantResult struct {
 	err    error
 }
 
+// corsReflection is the tri-state outcome of the credentialed-CORS preflight.
+// "Not tested" must stay distinct from "absent": a preflight that never
+// completed tells us nothing about the endpoint, and reporting that as an
+// absence understates the aggregated finding's impact.
+type corsReflection int
+
+const (
+	corsNotTested corsReflection = iota
+	corsAbsent
+	corsPresent
+)
+
+// corsResultFrom derives the tri-state from the preflight attempt. An errored
+// preflight is "not tested", NOT "no reflection".
+func corsResultFrom(preflight *attempt.Attempt) corsReflection {
+	if preflight == nil || preflight.Status == attempt.StatusError {
+		return corsNotTested
+	}
+	if metaBool(preflight, attempt.MetadataKeyOriginValidationAccepted) {
+		return corsPresent
+	}
+	return corsAbsent
+}
+
 // aggregateSweep folds the whole bypass sweep into the single scored attempt
 // for this endpoint. Returns nil when the sweep sent nothing (no variants
 // were applicable), so callers don't emit an empty finding.
@@ -454,7 +477,7 @@ type variantResult struct {
 // "baseline", and the accepted flag is true when ANY variant was accepted.
 // The target-class severity tiering is untouched — the caller stamps it on
 // this attempt exactly as it does on every other.
-func (p *OriginValidation) aggregateSweep(endpoint, transport string, variants []variantResult, credentialedRead bool) *attempt.Attempt {
+func (p *OriginValidation) aggregateSweep(endpoint, transport string, variants []variantResult, cors corsReflection) *attempt.Attempt {
 	if len(variants) == 0 {
 		return nil
 	}
@@ -503,8 +526,14 @@ func (p *OriginValidation) aggregateSweep(endpoint, transport string, variants [
 	a.Metadata[attempt.MetadataKeyOriginValidationAcceptedClasses] = acceptedClass
 	a.Metadata[attempt.MetadataKeyOriginValidationVariantsSent] = len(variants)
 	a.Metadata[attempt.MetadataKeyOriginValidationVariantsAccepted] = len(accepted)
-	a.Metadata[attempt.MetadataKeyOriginValidationCredentialedRead] = credentialedRead
-	a.AddOutput(renderSweepEvidence(endpoint, transport, accepted, rejected, errored, credentialedRead))
+	// Only claim a credentialed-read verdict when the preflight actually ran.
+	// Recording false for an untested preflight would assert an absence we
+	// never observed.
+	if cors != corsNotTested {
+		a.Metadata[attempt.MetadataKeyOriginValidationCredentialedRead] = cors == corsPresent
+	}
+	untested := untestedClasses(variants)
+	a.AddOutput(renderSweepEvidence(endpoint, transport, accepted, rejected, errored, cors, untested))
 
 	// Every variant failed at the transport — the endpoint was never actually
 	// tested. Reporting that as SAFE would hide a broken scan behind a green
@@ -516,7 +545,54 @@ func (p *OriginValidation) aggregateSweep(endpoint, transport string, variants [
 
 	a.Complete()
 	a.Metadata[attempt.MetadataKeyOriginValidationAccepted] = len(accepted) > 0
+
+	// A whole bypass class went untested — every variant of it died in
+	// transit — and nothing else was accepted. That is a check this sweep
+	// never ran, not merely a lost sample, so "the endpoint refused
+	// everything" is a conclusion it did not earn. Mark it inconclusive,
+	// matching how the sibling SSESessionHijack probe flags a determination
+	// it could not make.
+	//
+	// Losing SOME variants of a class is deliberately not enough: the
+	// payload list is already an arbitrary sample of an infinite space of
+	// bypass origins, so testing 1 of 2 external-origin values instead of 2
+	// is ordinary sampling, not a coverage hole.
+	//
+	// Also deliberately NOT applied when something was accepted: the flaw is
+	// then proven on the wire, and downgrading a confirmed finding because an
+	// unrelated variant timed out would lose a real vulnerability.
+	if len(accepted) == 0 && len(untested) > 0 {
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = fmt.Sprintf(
+			"no %s variant completed, so that check never ran; every class that did run was refused",
+			strings.Join(untested, ", "))
+	}
 	return a
+}
+
+// untestedClasses returns the bypass classes for which NOT ONE variant got a
+// response, in sweep order. Those are checks that never ran — distinct from a
+// class that was exercised and merely lost a sample to a flaky connection.
+func untestedClasses(variants []variantResult) []string {
+	total := map[originValidationClass]int{}
+	failed := map[originValidationClass]int{}
+	var order []originValidationClass
+	for _, v := range variants {
+		if total[v.class] == 0 {
+			order = append(order, v.class)
+		}
+		total[v.class]++
+		if v.err != nil {
+			failed[v.class]++
+		}
+	}
+	var out []string
+	for _, c := range order {
+		if failed[c] == total[c] {
+			out = append(out, string(c))
+		}
+	}
+	return out
 }
 
 // describeSweep renders the aggregated attempt's label.
@@ -532,7 +608,7 @@ func describeSweep(accepted, total int) string {
 // Which variants pass is the actionable half for a remediator: an accepted
 // case-variant alone means the allowlist exists but compares case-sensitively,
 // which is a different fix from an endpoint that accepts any origin at all.
-func renderSweepEvidence(endpoint, transport string, accepted, rejected, errored []variantResult, credentialedRead bool) string {
+func renderSweepEvidence(endpoint, transport string, accepted, rejected, errored []variantResult, cors corsReflection, untested []string) string {
 	var b strings.Builder
 	total := len(accepted) + len(rejected) + len(errored)
 
@@ -540,20 +616,25 @@ func renderSweepEvidence(endpoint, transport string, accepted, rejected, errored
 	fmt.Fprintf(&b, "%d of %d crafted Origin/Host values were accepted. A spec-compliant\n", len(accepted), total)
 	fmt.Fprintf(&b, "allowlist validator would have refused all %d.\n\n", total)
 
-	fmt.Fprintf(&b, "Validator verdict: %s\n\n", validatorVerdict(len(accepted), len(rejected), len(errored)))
+	fmt.Fprintf(&b, "Validator verdict: %s\n\n", validatorVerdict(len(accepted), len(rejected), len(errored), untested))
 
 	writeBucket(&b, "ACCEPTED — served a request it should have refused", accepted)
 	writeBucket(&b, "REJECTED — refused as a hardened server should", rejected)
 	writeBucket(&b, "NOT TESTED — request failed in transit", errored)
 
-	if credentialedRead {
+	switch cors {
+	case corsPresent:
 		b.WriteString("Credentialed CORS reflection: PRESENT. The endpoint reflects the attacker's\n" +
 			"Origin into Access-Control-Allow-Origin alongside Access-Control-Allow-Credentials,\n" +
 			"so a rebound page does not merely drive the tool surface blind — it can also READ\n" +
 			"the responses, turning this into a cross-origin data-disclosure primitive.\n")
-	} else {
+	case corsAbsent:
 		b.WriteString("Credentialed CORS reflection: absent. A rebound page can drive the tool surface\n" +
 			"but cannot read the responses from its own origin.\n")
+	default:
+		b.WriteString("Credentialed CORS reflection: NOT TESTED — the preflight request did not\n" +
+			"complete. Whether a rebound page could also read the responses is unknown;\n" +
+			"re-run against a reachable endpoint before treating that as ruled out.\n")
 	}
 
 	// One full transcript as proof; the per-variant lines above already carry
@@ -566,14 +647,27 @@ func renderSweepEvidence(endpoint, transport string, accepted, rejected, errored
 
 // validatorVerdict states what the accept/reject split means about the
 // server's validator, which is the thing a remediator acts on.
-func validatorVerdict(accepted, rejected, errored int) string {
+//
+// A class with no completed variant is a check that never ran, so a verdict
+// drawn over one says so: "we refused every check we managed to run" is a
+// materially weaker claim than "we refused everything", and the verdict line
+// is the sentence a reader takes away. Losing some variants of an
+// otherwise-exercised class is ordinary sampling and only warrants a
+// parenthetical.
+func validatorVerdict(accepted, rejected, errored int, untested []string) string {
 	switch {
-	case accepted == 0 && rejected > 0:
-		return "every crafted value was refused — Origin/Host validation is enforced"
+	case accepted == 0 && rejected == 0:
+		return fmt.Sprintf("nothing was tested — all %d variants failed in transit", errored)
+	case accepted == 0 && len(untested) > 0:
+		return fmt.Sprintf("every check that ran was refused, but no %s variant completed — that check never ran, so validation cannot be called enforced", strings.Join(untested, " / "))
+	case accepted == 0 && errored > 0:
+		return fmt.Sprintf("every crafted value that landed was refused — Origin/Host validation is enforced (%d variants did not complete, but every check class was still exercised)", errored)
 	case accepted == 0:
-		return "no variant was accepted, but none completed cleanly either — inconclusive"
+		return "every crafted value was refused — Origin/Host validation is enforced"
 	case rejected == 0 && errored == 0:
 		return "NO Origin/Host validation is enforced — every crafted value was accepted"
+	case errored > 0:
+		return fmt.Sprintf("validation is PARTIAL — the accepted classes below are the checks that are missing (%d variants did not complete)", errored)
 	default:
 		return "validation is PARTIAL — the accepted classes below are the checks that are missing"
 	}

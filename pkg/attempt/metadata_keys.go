@@ -178,7 +178,9 @@ const (
 	// Set on the aggregated sweep attempt because it escalates that finding's
 	// impact: without it a rebound page drives the tool surface blind; with it
 	// the page can also read the responses.
-	MetadataKeyOriginValidationCredentialedRead = "mcptool.originvalidation_credentialed_read"
+	// Omitted entirely when the preflight did not complete — recording false
+	// there would assert an absence the probe never observed.
+	MetadataKeyOriginValidationCredentialedRead = "mcptool.originvalidation_credentialed_read" // #nosec G101 -- metadata key name, not a credential
 
 	// MetadataKeySSESessionAccepted (bool) records whether an SSE session-
 	// hijack probe attempt succeeded (weakness confirmed). Read by the
