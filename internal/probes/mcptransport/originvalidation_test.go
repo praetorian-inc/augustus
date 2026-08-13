@@ -179,6 +179,49 @@ func acceptedVariantClasses(t *testing.T, attempts []*attempt.Attempt) map[strin
 	return got
 }
 
+// killConn hijacks and closes the connection so the client sees a transport
+// failure rather than any HTTP response — how the tests simulate a variant
+// that never reaches the validator.
+func killConn(t *testing.T, w http.ResponseWriter) {
+	t.Helper()
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		t.Errorf("test server cannot hijack; cannot simulate a transport failure")
+		return
+	}
+	conn, _, err := hj.Hijack()
+	if err != nil {
+		t.Errorf("hijack: %v", err)
+		return
+	}
+	_ = conn.Close()
+}
+
+// sweepOutput returns the aggregated attempt's single evidence output, failing
+// with a clear message rather than panicking if the attempt carries none.
+func sweepOutput(t *testing.T, a *attempt.Attempt) string {
+	t.Helper()
+	if len(a.Outputs) == 0 {
+		t.Fatal("sweep attempt carries no evidence output")
+	}
+	return a.Outputs[0]
+}
+
+// variantOutcomes counts the recorded per-variant outcomes by their explicit
+// tri-state, rather than inferring failure from the rendered result text.
+func variantOutcomes(t *testing.T, attempts []*attempt.Attempt) map[string]int {
+	t.Helper()
+	counts := map[string]int{}
+	for _, v := range sweepVariants(t, attempts) {
+		o, ok := v["outcome"].(string)
+		if !ok {
+			t.Fatalf("variant %v has no string outcome — the evidence contract changed", v)
+		}
+		counts[o]++
+	}
+	return counts
+}
+
 // sweepVariants returns the per-variant detail recorded on the aggregated
 // sweep attempt.
 func sweepVariants(t *testing.T, attempts []*attempt.Attempt) []map[string]any {
@@ -304,8 +347,8 @@ func TestOriginValidation_SweepEvidenceRecordsEveryVariant(t *testing.T) {
 	if len(sweep.Outputs) != 1 {
 		t.Errorf("aggregated attempt should carry exactly one evidence output, got %d", len(sweep.Outputs))
 	}
-	if !strings.Contains(sweep.Outputs[0], "NO Origin/Host validation is enforced") {
-		t.Errorf("evidence should state the validator verdict for an any-origin server; got:\n%s", sweep.Outputs[0])
+	if !strings.Contains(sweepOutput(t, sweep), "NO Origin/Host validation is enforced") {
+		t.Errorf("evidence should state the validator verdict for an any-origin server; got:\n%s", sweepOutput(t, sweep))
 	}
 }
 
@@ -345,13 +388,13 @@ func TestOriginValidation_PartialValidationStillOneFinding(t *testing.T) {
 	if gotN == 0 || gotN >= sentN {
 		t.Errorf("expected a partial accept (0 < accepted < sent), got accepted=%d sent=%d", gotN, sentN)
 	}
-	if !strings.Contains(sweep.Outputs[0], "validation is PARTIAL") {
-		t.Errorf("evidence should call out partial validation; got:\n%s", sweep.Outputs[0])
+	if !strings.Contains(sweepOutput(t, sweep), "validation is PARTIAL") {
+		t.Errorf("evidence should call out partial validation; got:\n%s", sweepOutput(t, sweep))
 	}
 	// The rejected variants must be visible too — that is what tells a
 	// remediator the allowlist exists and is merely incomplete.
-	if !strings.Contains(sweep.Outputs[0], "REJECTED") {
-		t.Errorf("evidence should list the refused variants; got:\n%s", sweep.Outputs[0])
+	if !strings.Contains(sweepOutput(t, sweep), "REJECTED") {
+		t.Errorf("evidence should list the refused variants; got:\n%s", sweepOutput(t, sweep))
 	}
 
 	accepted := acceptedVariantClasses(t, attempts)
@@ -479,9 +522,9 @@ func TestOriginValidation_CORSReflectionWithCredsFired(t *testing.T) {
 	if !metaBool(sweep, attempt.MetadataKeyOriginValidationCredentialedRead) {
 		t.Errorf("sweep attempt should record the credentialed-read escalation")
 	}
-	if !strings.Contains(sweep.Outputs[0], "Credentialed CORS reflection: PRESENT") ||
-		!strings.Contains(sweep.Outputs[0], "READ") {
-		t.Errorf("aggregated evidence should escalate the impact when the preflight reflects credentials; got:\n%s", sweep.Outputs[0])
+	if !strings.Contains(sweepOutput(t, sweep), "Credentialed CORS reflection: PRESENT") ||
+		!strings.Contains(sweepOutput(t, sweep), "READ") {
+		t.Errorf("aggregated evidence should escalate the impact when the preflight reflects credentials; got:\n%s", sweepOutput(t, sweep))
 	}
 }
 
@@ -504,8 +547,8 @@ func TestOriginValidation_NoCORSReflectionStatesLesserImpact(t *testing.T) {
 	if metaBool(sweep, attempt.MetadataKeyOriginValidationCredentialedRead) {
 		t.Errorf("vulnServer sets no CORS headers; credentialed-read should be false")
 	}
-	if !strings.Contains(sweep.Outputs[0], "Credentialed CORS reflection: absent") {
-		t.Errorf("evidence should state the lesser impact without reflection; got:\n%s", sweep.Outputs[0])
+	if !strings.Contains(sweepOutput(t, sweep), "Credentialed CORS reflection: absent") {
+		t.Errorf("evidence should state the lesser impact without reflection; got:\n%s", sweepOutput(t, sweep))
 	}
 }
 
@@ -586,8 +629,8 @@ func TestOriginValidation_AllVariantsFailedIsErrorNotSafe(t *testing.T) {
 	}
 	// The evidence still names every variant that could not be tested, so the
 	// operator can see the sweep was not silently truncated.
-	if !strings.Contains(sweep.Outputs[0], "NOT TESTED") {
-		t.Errorf("evidence should list the untested variants; got:\n%s", sweep.Outputs[0])
+	if !strings.Contains(sweepOutput(t, sweep), "NOT TESTED") {
+		t.Errorf("evidence should list the untested variants; got:\n%s", sweepOutput(t, sweep))
 	}
 }
 
@@ -601,15 +644,7 @@ func TestOriginValidation_UntestedClassIsInconclusive(t *testing.T) {
 	// Host-header variants — so the whole unexpected-host class goes untested.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.Host, "example.") {
-			hj, ok := w.(http.Hijacker)
-			if !ok {
-				t.Errorf("test server cannot hijack; cannot simulate transport failure")
-				return
-			}
-			conn, _, err := hj.Hijack()
-			if err == nil {
-				_ = conn.Close()
-			}
+			killConn(t, w)
 			return
 		}
 		if r.Header.Get("Origin") != "" {
@@ -631,14 +666,7 @@ func TestOriginValidation_UntestedClassIsInconclusive(t *testing.T) {
 		t.Fatal("expected an aggregated sweep attempt")
 	}
 
-	variants := sweepVariants(t, attempts)
-	errored := 0
-	for _, v := range variants {
-		if s, _ := v["result"].(string); strings.Contains(s, "HTTP ") {
-			continue
-		}
-		errored++
-	}
+	errored := variantOutcomes(t, attempts)[variantNotTested]
 	if errored == 0 {
 		t.Fatal("expected some variants to fail in transit; test server did not misbehave as intended")
 	}
@@ -652,8 +680,8 @@ func TestOriginValidation_UntestedClassIsInconclusive(t *testing.T) {
 		t.Errorf("reason should name the class that never ran; got %q", reasonStr)
 	}
 	// The verdict a reader takes away must not claim enforcement outright.
-	if !strings.Contains(sweep.Outputs[0], "that check never ran, so validation cannot be called enforced") {
-		t.Errorf("verdict must not claim enforcement when a whole class went untested; got:\n%s", sweep.Outputs[0])
+	if !strings.Contains(sweepOutput(t, sweep), "that check never ran, so validation cannot be called enforced") {
+		t.Errorf("verdict must not claim enforcement when a whole class went untested; got:\n%s", sweepOutput(t, sweep))
 	}
 }
 
@@ -669,11 +697,7 @@ func TestOriginValidation_LostSampleIsNotInconclusive(t *testing.T) {
 	// exercised by its sibling, and every other class completes.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.Header.Get("Origin"), "cdn-") {
-			if hj, ok := w.(http.Hijacker); ok {
-				if conn, _, err := hj.Hijack(); err == nil {
-					_ = conn.Close()
-				}
-			}
+			killConn(t, w)
 			return
 		}
 		// Refuse both crafted Origins AND crafted Hosts, so nothing is
@@ -702,7 +726,7 @@ func TestOriginValidation_LostSampleIsNotInconclusive(t *testing.T) {
 	// external-origin one whose sibling still landed.
 	failed := 0
 	for _, v := range sweepVariants(t, attempts) {
-		if s, _ := v["result"].(string); !strings.Contains(s, "HTTP ") {
+		if o, _ := v["outcome"].(string); o == variantNotTested {
 			failed++
 			if c, _ := v["class"].(string); c != string(classExternalOrigin) {
 				t.Errorf("expected only an external-origin variant to fail, got class %q", c)
@@ -721,8 +745,8 @@ func TestOriginValidation_LostSampleIsNotInconclusive(t *testing.T) {
 	if metaBool(sweep, attempt.MetadataKeyInconclusive) {
 		t.Errorf("losing one sample of an exercised class must not mark the sweep inconclusive")
 	}
-	if !strings.Contains(sweep.Outputs[0], "every check class was still exercised") {
-		t.Errorf("verdict should note the lost sample without retracting the verdict; got:\n%s", sweep.Outputs[0])
+	if !strings.Contains(sweepOutput(t, sweep), "every check class was still exercised") {
+		t.Errorf("verdict should note the lost sample without retracting the verdict; got:\n%s", sweepOutput(t, sweep))
 	}
 }
 
@@ -759,11 +783,7 @@ func TestUntestedClasses(t *testing.T) {
 func TestOriginValidation_ConfirmedFindingNotDowngradedByFailures(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.Host, "example.") {
-			if hj, ok := w.(http.Hijacker); ok {
-				if conn, _, err := hj.Hijack(); err == nil {
-					_ = conn.Close()
-				}
-			}
+			killConn(t, w)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -796,11 +816,7 @@ func TestOriginValidation_UntestedPreflightIsNotAbsence(t *testing.T) {
 	// Serves POST/GET normally but drops the OPTIONS preflight connection.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodOptions {
-			if hj, ok := w.(http.Hijacker); ok {
-				if conn, _, err := hj.Hijack(); err == nil {
-					_ = conn.Close()
-				}
-			}
+			killConn(t, w)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -820,11 +836,11 @@ func TestOriginValidation_UntestedPreflightIsNotAbsence(t *testing.T) {
 	if _, ok := sweep.GetMetadata(attempt.MetadataKeyOriginValidationCredentialedRead); ok {
 		t.Errorf("credentialed-read metadata must be omitted when the preflight never completed")
 	}
-	if strings.Contains(sweep.Outputs[0], "Credentialed CORS reflection: absent") {
-		t.Errorf("an untested preflight must not be reported as absence; got:\n%s", sweep.Outputs[0])
+	if strings.Contains(sweepOutput(t, sweep), "Credentialed CORS reflection: absent") {
+		t.Errorf("an untested preflight must not be reported as absence; got:\n%s", sweepOutput(t, sweep))
 	}
-	if !strings.Contains(sweep.Outputs[0], "Credentialed CORS reflection: NOT TESTED") {
-		t.Errorf("evidence should say the preflight was not tested; got:\n%s", sweep.Outputs[0])
+	if !strings.Contains(sweepOutput(t, sweep), "Credentialed CORS reflection: NOT TESTED") {
+		t.Errorf("evidence should say the preflight was not tested; got:\n%s", sweepOutput(t, sweep))
 	}
 }
 

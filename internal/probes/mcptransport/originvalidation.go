@@ -445,6 +445,30 @@ type variantResult struct {
 	err    error
 }
 
+// Variant outcomes carried in the aggregated finding's evidence. "accepted"
+// and "refused" are both observations the probe made; "not-tested" is the
+// absence of one. They must stay distinct for the same reason corsReflection
+// is a tri-state rather than a bool: a consumer reading accepted==false could
+// not tell "the server refused this value" from "we never found out", and the
+// second is not evidence of validation.
+const (
+	variantAccepted  = "accepted"
+	variantRefused   = "refused"
+	variantNotTested = "not-tested"
+)
+
+// outcome collapses the variant to the tri-state recorded in the evidence.
+func (v variantResult) outcome() string {
+	switch {
+	case v.err != nil:
+		return variantNotTested
+	case v.accepted:
+		return variantAccepted
+	default:
+		return variantRefused
+	}
+}
+
 // corsReflection is the tri-state outcome of the credentialed-CORS preflight.
 // "Not tested" must stay distinct from "absent": a preflight that never
 // completed tells us nothing about the endpoint, and reporting that as an
@@ -492,9 +516,9 @@ func (p *OriginValidation) aggregateSweep(endpoint, transport string, variants [
 	)
 	for _, v := range variants {
 		detail := map[string]any{
-			"class":    string(v.class),
-			"accepted": v.accepted,
-			"result":   v.result,
+			"class":   string(v.class),
+			"outcome": v.outcome(),
+			"result":  v.result,
 		}
 		if v.origin != "" {
 			detail["origin"] = v.origin
@@ -504,10 +528,10 @@ func (p *OriginValidation) aggregateSweep(endpoint, transport string, variants [
 		}
 		variantDetails = append(variantDetails, detail)
 
-		switch {
-		case v.err != nil:
+		switch v.outcome() {
+		case variantNotTested:
 			errored = append(errored, v)
-		case v.accepted:
+		case variantAccepted:
 			accepted = append(accepted, v)
 			if !seenClass[v.class] {
 				seenClass[v.class] = true

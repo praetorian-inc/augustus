@@ -153,7 +153,12 @@ const (
 	//	class     the per-variant class (external-origin, null-origin, ...)
 	//	origin    the Origin header sent, when the variant set one
 	//	host      the Host header sent, when the variant set one
-	//	accepted  whether the server served the request it should have refused
+	//	outcome   "accepted" (server served a request it should have refused),
+	//	          "refused" (server rejected it), or "not-tested" (the request
+	//	          never completed). A tri-state, not a bool: "refused" is
+	//	          evidence of validation and "not-tested" is the absence of
+	//	          evidence, and conflating them lets an untested variant read
+	//	          as a clean result.
 	//	result    one-line response summary ("HTTP 200, application/json") or
 	//	          the transport error when the request never completed
 	//
