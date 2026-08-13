@@ -81,6 +81,32 @@ const (
 	// the detector so a write finding is scored only when accompanied by a
 	// tool-side success signal (not a mere echo of the path in an error).
 	MetadataKeyPathTraversalIsWrite = "mcptool.pathtraversal_is_write"
+	// MetadataKeyPathTraversalGuardBypass (bool) marks a prefix-append attempt
+	// whose paired baseline attempt was refused by the tool's own path guard
+	// while the prefixed payload got through to a filesystem call. The pair is
+	// the evidence: an authorization refusal on the bare payload plus a
+	// filesystem-level error on the escaped one means the guard was defeated
+	// even though no file content came back. Detectors score a single attempt
+	// and get no cross-attempt context, so the probe performs the comparison
+	// and records the verdict here — the same division of labour as the
+	// MetadataKeyBOLA* controls.
+	MetadataKeyPathTraversalGuardBypass = "mcptool.pathtraversal_guard_bypass"
+	// MetadataKeyPathTraversalBaselineResponse (string) carries the paired
+	// baseline response that MetadataKeyPathTraversalGuardBypass was derived
+	// from, so a reviewer can see both halves of the differential.
+	MetadataKeyPathTraversalBaselineResponse = "mcptool.pathtraversal_baseline_response"
+	// MetadataKeyPathTraversalControlResponse (string) carries the third leg of
+	// the guard-bypass comparison: the response to a path that stayed INSIDE the
+	// tool's declared sandbox while naming something that cannot exist. The guard
+	// must accept it, so it shows what "accepted, then failed on disk" looks like
+	// on this specific target, in that target's own wording. Recorded so a
+	// reviewer can see all three legs of the differential.
+	MetadataKeyPathTraversalControlResponse = "mcptool.pathtraversal_control_response"
+	// MetadataKeyPathTraversalIsControl (bool) marks an attempt that exists only
+	// as a reference point for the guard-bypass comparison. Control attempts carry
+	// no signatures and can never themselves be a finding; the flag keeps them
+	// legible in a report rather than looking like a payload that did nothing.
+	MetadataKeyPathTraversalIsControl = "mcptool.pathtraversal_is_control"
 	// MetadataKeyPathTraversalToolIsError (bool) is the value of
 	// types.ToolResult.IsError from the target's response. When true on a
 	// write attempt, the tool refused; the detector suppresses the

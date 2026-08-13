@@ -70,6 +70,14 @@ func (d *PathTraversalDetector) Detect(_ context.Context, a *attempt.Attempt) ([
 	if isWrite && toolErrored {
 		return scores, nil
 	}
+	// A prefix-append attempt that defeated the tool's own path guard is a
+	// finding even with no file content, and the probe has already done the
+	// paired comparison that proves it (see markGuardBypass). Scored
+	// inconclusive rather than confirmed: the guard is demonstrably bypassable,
+	// but on this host the escaped path resolved to nothing, so arbitrary read
+	// is proven reachable rather than proven. Strictly below a content hit, and
+	// never inferred from the error text alone.
+	guardBypassed := metaBool(a, attempt.MetadataKeyPathTraversalGuardBypass)
 	for i, out := range a.Outputs {
 		matched := false
 		for _, s := range sigs {
@@ -79,6 +87,9 @@ func (d *PathTraversalDetector) Detect(_ context.Context, a *attempt.Attempt) ([
 			}
 		}
 		if !matched {
+			if guardBypassed {
+				scores[i] = InconclusiveScore
+			}
 			continue
 		}
 		if isWrite && !writeSuccessRE.MatchString(out) {

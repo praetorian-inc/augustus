@@ -61,6 +61,21 @@ func NewSSRF(cfg registry.Config) (probes.Prober, error) {
 
 func (p *SSRF) Name() string { return "mcptool.SSRF" }
 
+// hasProbeableParam reports whether this tool exposes a parameter this probe
+// would actually inject into. Used to decide whether the tool is worth a
+// discovery invocation at all — see the call site in Probe.
+func (p *SSRF) hasProbeableParam(params []paramInfo) bool {
+	for _, param := range params {
+		if !isStringParam(param.typ) {
+			continue
+		}
+		if p.allParams || urlParamRE.MatchString(param.name) {
+			return true
+		}
+	}
+	return false
+}
+
 var _ types.RiskDescriber = (*SSRF)(nil)
 
 // RiskInfo is the curated security write-up for this probe's finding.
@@ -140,6 +155,13 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 			continue
 		}
 		params := toolParams(tool)
+		// Only worth a real invocation if this probe has something to send this
+		// tool. Gated on the TOOL, not on the parameter needing candidates: the
+		// uncandidated parameter is typically a discriminator that must be
+		// satisfied to reach the URL sink, not the URL parameter itself.
+		if p.hasProbeableParam(params) {
+			params = discoverToolValues(ctx, inv, name, params)
+		}
 		for _, param := range params {
 			if !isStringParam(param.typ) {
 				continue
@@ -147,29 +169,38 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 			if !p.allParams && !urlParamRE.MatchString(param.name) {
 				continue
 			}
-			token := mcpprobe.RandToken()
-			canaryURL := col.URL(token)
+			// Same placement matrix as mcptool.Injection: the bare canary URL
+			// always, plus one led by a value the target declares valid. A URL
+			// argument can sit behind the same first-token allowlist a command
+			// argument does, and a bare canary would be refused before the fetch.
+			for _, prefix := range payloadPrefixes(param) {
+				token := mcpprobe.RandToken()
+				canaryURL := col.URL(token)
+				payload := prefix + canaryURL
 
-			a := attempt.New(canaryURL)
-			a.Probe = p.Name()
-			a.Detector = p.GetPrimaryDetector()
-			a.Metadata["mcptool.tool"] = name
-			a.Metadata["mcptool.param"] = param.name
-			a.Metadata[attempt.MetadataKeySSRFOOBURL] = canaryURL
+				a := attempt.New(payload)
+				a.Probe = p.Name()
+				a.Detector = p.GetPrimaryDetector()
+				a.Metadata["mcptool.tool"] = name
+				a.Metadata["mcptool.param"] = param.name
+				// The OOB URL, not the payload: with a prefix the two differ, and
+				// the collector is keyed on the URL.
+				a.Metadata[attempt.MetadataKeySSRFOOBURL] = canaryURL
 
-			reflected := false
-			res, callErr := inv.CallTool(ctx, name, benignArgs(params, param.name, canaryURL))
-			if callErr != nil {
-				a.SetError(callErr)
-			} else {
-				a.AddOutput(res.Text)
-				reflected = strings.Contains(res.Text, p.marker)
-				a.Complete()
+				reflected := false
+				res, callErr := inv.CallTool(ctx, name, benignArgs(params, param.name, payload))
+				if callErr != nil {
+					a.SetError(callErr)
+				} else {
+					a.AddOutput(res.Text)
+					reflected = strings.Contains(res.Text, p.marker)
+					a.Complete()
+				}
+				a.Metadata[attempt.MetadataKeySSRFReflected] = reflected
+
+				pend = append(pend, pending{a: a, token: token})
+				attempts = append(attempts, a)
 			}
-			a.Metadata[attempt.MetadataKeySSRFReflected] = reflected
-
-			pend = append(pend, pending{a: a, token: token})
-			attempts = append(attempts, a)
 		}
 	}
 

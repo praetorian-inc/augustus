@@ -237,13 +237,16 @@ func argCases(params []paramInfo) []argCase {
 	return cases
 }
 
-// requiredArgs fills every required parameter with a benign placeholder value so
-// the call reaches normal tool output instead of failing argument validation.
+// requiredArgs fills every required parameter with a benign value so the call
+// reaches normal tool output instead of failing argument validation. Values
+// declared in the schema or documented in the description are preferred over the
+// generic placeholder, so a tool whose behaviour is gated on a discriminator
+// argument still returns real output to scan for credentials.
 func requiredArgs(params []paramInfo) map[string]any {
 	args := map[string]any{}
 	for _, p := range params {
 		if p.required {
-			args[p.name] = benignValue(p.typ)
+			args[p.name] = benignValue(p)
 		}
 	}
 	return args
