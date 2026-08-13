@@ -188,8 +188,15 @@ func maskID(text string, ids ...string) string {
 		}
 	}
 	sort.Slice(sorted, func(i, j int) bool { return len(sorted[i]) > len(sorted[j]) })
+	// Case-insensitive, because the caller lowercases only AFTERWARDS and a server
+	// is free to canonicalise what it echoes — upper-casing a UUID, capitalising
+	// "Admin". A case-sensitive replace leaves that text in the compared class, so
+	// two responses differing ONLY by the echoed value read as different behaviour.
+	// The same defect was fixed in mcpprobe.ResponseClass; this is the second
+	// implementation, and the one the auth differential actually uses.
+	text = strings.ToLower(text)
 	for _, id := range sorted {
-		text = strings.ReplaceAll(text, id, "<id>")
+		text = strings.ReplaceAll(text, strings.ToLower(id), "<id>")
 	}
 	return text
 }
