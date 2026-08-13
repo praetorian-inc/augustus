@@ -319,7 +319,8 @@ func IsReadOnlyTool(tm map[string]any) bool {
 			return true
 		}
 		// An explicit non-destructive hint on a non-read-only tool still means it
-		// writes something; only ReadOnly clears a tool for invocation.
+		// writes something, so among ANNOTATION signals only ReadOnly clears a tool.
+		// (Absent any annotation, the name heuristic below can also clear it.)
 		if ann.IsDestructive() {
 			return false
 		}

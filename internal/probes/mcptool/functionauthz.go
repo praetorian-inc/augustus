@@ -278,6 +278,8 @@ func (p *FunctionAuthorization) probeCredentialPresence(
 
 	contexts := append([]map[string]any{nil}, refused...)
 	if len(contexts) > maxPresenceContexts {
+		slog.Warn("mcptool.FunctionAuthorization: more refused argument contexts than the cap; retrying the credential in only the first maxPresenceContexts, so a gate reachable only in a dropped context is not assessed. This is NOT a clean result for those contexts.",
+			"tool", name, "contexts", len(contexts), "cap", maxPresenceContexts)
 		contexts = contexts[:maxPresenceContexts]
 	}
 
@@ -462,6 +464,8 @@ func (p *FunctionAuthorization) probeDiscriminator(ctx context.Context, inv type
 			continue
 		}
 		if len(declared) > maxDeclaredValues {
+			slog.Warn("mcptool.FunctionAuthorization: more declared authority values than the cap; the baseline uses only the first maxDeclaredValues, so this sweep is a lower bound. This is NOT a clean result for the dropped values.",
+				"tool", name, "param", param.Name, "declared", len(declared), "cap", maxDeclaredValues)
 			declared = declared[:maxDeclaredValues]
 		}
 

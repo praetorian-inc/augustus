@@ -225,10 +225,13 @@ func (p *UnauthenticatedAccess) probeDeclaredOpen(ctx context.Context, end types
 // exist: a document naming a DIFFERENT resource is evidence about that other
 // resource, not this one.
 //
-// The comparison is a prefix match on the resource identifier, because the spec
-// lets a document cover a resource and the paths beneath it — so an endpoint at
-// https://h/mcp is covered by a document naming https://h or https://h/mcp, but
-// not by one naming https://h/other.
+// The comparison is an EXACT match on the resource identifier (scheme + host +
+// path, modulo a trailing slash and case; see sameResourceIdentifier), because
+// RFC 9728 requires the document to name the SAME resource. So an endpoint at
+// https://h/mcp is covered only by a document naming https://h/mcp — not by one
+// naming https://h or https://h/other. (An earlier prefix match accepted any
+// protected-resource document on the same origin, a false positive; do not
+// restore it.)
 func fetchProtectedResourceDoc(ctx context.Context, client *http.Client, docURL, expectedResource string) bool {
 	doc, ok := fetchJSONDoc(ctx, client, docURL)
 	if !ok {

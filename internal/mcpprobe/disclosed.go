@@ -1,6 +1,7 @@
 package mcpprobe
 
 import (
+	"log/slog"
 	"regexp"
 	"strings"
 )
@@ -46,30 +47,38 @@ func ValuesFromResponse(resp string, submitted []string) []string {
 
 	var out []string
 	seen := map[string]bool{}
-	add := func(v string) bool {
+	truncated := false
+	// add records a distinct, non-echoed value until the cap is reached; a further
+	// distinct value past the cap is DROPPED and flagged, so the truncation is
+	// reported rather than silent. Set only when a real value is dropped, so a
+	// response holding exactly the cap does not warn.
+	add := func(v string) {
 		v = strings.TrimSpace(v)
 		key := strings.ToLower(v)
 		if v == "" || seen[key] || skip[key] {
-			return true
+			return
 		}
 		seen[key] = true
+		if len(out) >= maxDisclosedValues {
+			truncated = true
+			return
+		}
 		out = append(out, v)
-		return len(out) < maxDisclosedValues
 	}
 
 	for _, m := range listAfterColonRE.FindAllStringSubmatch(resp, -1) {
 		for _, v := range strings.Split(m[1], ",") {
-			if !add(v) {
-				return out
-			}
+			add(v)
 		}
 	}
 	// Quoted alternatives ("Use 'grant' or 'revoke'") are the same declaration in
 	// a different shape.
 	for _, m := range quotedValueRE.FindAllStringSubmatch(resp, -1) {
-		if !add(m[1]) {
-			return out
-		}
+		add(m[1])
+	}
+	if truncated {
+		slog.Warn("mcpprobe: disclosed-value cap reached; values the target volunteered beyond the cap were not harvested, so candidate discovery is a lower bound",
+			"cap", maxDisclosedValues)
 	}
 	return out
 }
