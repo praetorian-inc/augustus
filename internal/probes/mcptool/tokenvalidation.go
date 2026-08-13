@@ -249,6 +249,16 @@ func (p *TokenValidation) probeVerificationSurfaces(ctx context.Context, inv typ
 		if name == "" {
 			continue
 		}
+		// Verification submits values to the REAL tool, so an irreversible-sounding
+		// unannotated tool (delete_account(api_key, id)) would have random tokens sent
+		// to it — and if it trusts a token's presence, the call performs the operation.
+		// toolpolicy.Filter removes only server-annotated destructive tools, so gate
+		// here as the issuance path does. Opt in with token_allow_destructive.
+		if !p.allowDestructive && mcpprobe.InvokesDestructiveOperation(tool) {
+			slog.Warn("mcptool.TokenValidation: skipping token verification against an irreversible-sounding unannotated tool; submitting values to it could perform the operation. Set token_allow_destructive=true to include it. This is NOT a clean result for that tool.",
+				"tool", name)
+			continue
+		}
 		params := mcpprobe.ToolParams(tool)
 		for _, param := range params {
 			if !isStringParam(param.Type) {

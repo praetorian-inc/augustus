@@ -375,3 +375,109 @@ func assertNoSilentErrorLeg(t *testing.T, attempts []*attempt.Attempt) {
 		}
 	}
 }
+
+// destructiveAdminTool is an UNANNOTATED tool whose name denotes an irreversible
+// operation, with an optional credential arg so it would be probed if the
+// destructive safety gate were bypassed.
+func destructiveAdminTool() map[string]any {
+	return map[string]any{
+		"name": "delete_user",
+		"description": "Delete a user\n" +
+			"            Args:\n" +
+			"                user_id: The user to delete\n" +
+			"                auth_token: Optional authentication token for privileged operations\n",
+		"parameters": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"user_id":    map[string]any{"type": "string"},
+				"auth_token": map[string]any{"type": "string"},
+			},
+			"required": []any{"user_id"},
+		},
+	}
+}
+
+// TestFunctionAuthorization_AllToolsStillGatesDestructive locks the P1 fix: with
+// authz_all_tools=true the probe must STILL skip an irreversible-sounding
+// unannotated tool unless authz_allow_destructive is also set. The previous early
+// return in privilegedTools handed every tool to the probe, invoking delete_user.
+func TestFunctionAuthorization_AllToolsStillGatesDestructive(t *testing.T) {
+	newTarget := func(called *[]string) *mockTarget {
+		return &mockTarget{
+			tools: []map[string]any{destructiveAdminTool()},
+			call: func(name string, _ map[string]any) types.ToolResult {
+				*called = append(*called, name)
+				return types.ToolResult{Text: "ok"}
+			},
+		}
+	}
+
+	var gated []string
+	if _, err := newFunctionAuthzProbe(t, registry.Config{"authz_all_tools": true}).
+		Probe(context.Background(), newTarget(&gated)); err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	for _, n := range gated {
+		if n == "delete_user" {
+			t.Error("delete_user was invoked with authz_all_tools=true and authz_allow_destructive=false; the destructive safety gate was bypassed")
+		}
+	}
+
+	// Positive control: opting in invokes it, so the assertion above is not vacuous.
+	var optedIn []string
+	if _, err := newFunctionAuthzProbe(t, registry.Config{"authz_all_tools": true, "authz_allow_destructive": true}).
+		Probe(context.Background(), newTarget(&optedIn)); err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	found := false
+	for _, n := range optedIn {
+		if n == "delete_user" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("delete_user was not invoked even with authz_allow_destructive=true; the test no longer exercises the gate")
+	}
+}
+
+// TestTokenValidation_VerificationGatesDestructive locks the P1 fix: the format-only
+// verification path submits values to the REAL tool, so it must skip an
+// irreversible-sounding unannotated tool unless token_allow_destructive is set.
+func TestTokenValidation_VerificationGatesDestructive(t *testing.T) {
+	newTarget := func(called *[]string) *mockTarget {
+		return &mockTarget{
+			tools: []map[string]any{tokenTool("delete_account", "api_key")},
+			call: func(name string, _ map[string]any) types.ToolResult {
+				*called = append(*called, name)
+				return types.ToolResult{Text: "ok"}
+			},
+		}
+	}
+
+	var gated []string
+	if _, err := newTokenValidationProbe(t, registry.Config{}).
+		Probe(context.Background(), newTarget(&gated)); err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	for _, n := range gated {
+		if n == "delete_account" {
+			t.Error("delete_account was invoked by the verification path with token_allow_destructive=false; the destructive gate was bypassed")
+		}
+	}
+
+	// Positive control: opting in invokes it.
+	var optedIn []string
+	if _, err := newTokenValidationProbe(t, registry.Config{"token_allow_destructive": true}).
+		Probe(context.Background(), newTarget(&optedIn)); err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	found := false
+	for _, n := range optedIn {
+		if n == "delete_account" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("delete_account was not invoked even with token_allow_destructive=true; the test no longer exercises the gate")
+	}
+}

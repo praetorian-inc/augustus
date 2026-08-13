@@ -218,14 +218,20 @@ func (p *FunctionAuthorization) Probe(ctx context.Context, gen types.Generator) 
 // privilegedTools selects the tools whose names conventionally denote a privileged
 // operation (or every permitted tool when authz_all_tools is set).
 func (p *FunctionAuthorization) privilegedTools(tools []map[string]any) []map[string]any {
-	if p.allTools {
-		return tools
-	}
 	out := make([]map[string]any, 0, len(tools))
 	skipped := 0
 	for _, tm := range tools {
 		name, _ := tm["name"].(string)
-		if name == "" || !privilegedToolNameRE.MatchString(name) {
+		if name == "" {
+			continue
+		}
+		// allTools widens the sweep from conventionally-privileged names to every
+		// permitted tool, but it bypasses ONLY the name filter — never the
+		// destructive safety gate below. Returning every tool here (the previous
+		// behaviour) handed an unannotated delete_user / reset_password to the probe
+		// with authz_allow_destructive still false, so proving the boundary would
+		// perform the irreversible operation.
+		if !p.allTools && !privilegedToolNameRE.MatchString(name) {
 			continue
 		}
 		// This probe PROVES a missing authorization boundary by performing the
