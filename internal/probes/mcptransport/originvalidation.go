@@ -590,10 +590,23 @@ func (p *OriginValidation) aggregateSweep(endpoint, transport string, variants [
 	// then proven on the wire, and downgrading a confirmed finding because an
 	// unrelated variant timed out would lose a real vulnerability.
 	if len(accepted) == 0 && len(untested) > 0 {
-		a.Metadata[attempt.MetadataKeyInconclusive] = true
-		a.Metadata[attempt.MetadataKeyInconclusiveReason] = fmt.Sprintf(
+		reason := fmt.Sprintf(
 			"no %s variant completed, so that check never ran; every class that did run was refused",
 			strings.Join(untested, ", "))
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = reason
+
+		// The inconclusive flag alone is not enough to be seen. It maps to
+		// InconclusiveScore (0.5), and both results.Verdict and
+		// Attempt.IsVulnerable treat only scores STRICTLY above 0.5 as
+		// non-safe — so the row still renders SAFE, which is the very thing
+		// the flag exists to prevent. Erroring the attempt is the only way to
+		// render non-passing without inventing a finding: a score above the
+		// threshold would make Guard emit a risk we have no evidence for.
+		//
+		// Each variant was already retried once, so reaching here means a
+		// whole check failed twice over — worth surfacing loudly.
+		a.SetError(fmt.Errorf("mcptransport.OriginValidation: %s", reason))
 	}
 	return a
 }
@@ -747,7 +760,26 @@ func (p *OriginValidation) resolveEndpoint(gen types.Generator) string {
 // Returns a plain result rather than an attempt so the caller decides what
 // becomes a finding: the baseline gets its own attempt, while the bypass
 // variants are folded into one (see aggregateSweep).
+// A transport failure is retried once before the variant is recorded as
+// untested. That matters because an untested CLASS now errors the whole sweep
+// (see aggregateSweep), and in Guard a scan that produces no findings but does
+// produce probe errors fails the job outright. One dropped connection should
+// not do that; two consecutive failures to the same endpoint is a real signal.
+//
+// Not retried when the context is already done — the scan is being torn down
+// and a second attempt would only add latency.
 func (p *OriginValidation) sendVariant(ctx context.Context, client *http.Client, endpoint, transport, origin, host string, class originValidationClass) variantResult {
+	v := p.sendVariantOnce(ctx, client, endpoint, transport, origin, host, class)
+	if v.err == nil || ctx.Err() != nil {
+		return v
+	}
+	slog.Debug("mcptransport.OriginValidation: variant failed in transit, retrying once",
+		"class", string(class), "origin", origin, "host", host, "err", v.err)
+	return p.sendVariantOnce(ctx, client, endpoint, transport, origin, host, class)
+}
+
+// sendVariantOnce performs a single attempt; see sendVariant for the retry.
+func (p *OriginValidation) sendVariantOnce(ctx context.Context, client *http.Client, endpoint, transport, origin, host string, class originValidationClass) variantResult {
 	v := variantResult{class: class, origin: origin, host: host}
 
 	var (

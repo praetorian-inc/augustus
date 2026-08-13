@@ -684,6 +684,80 @@ func TestOriginValidation_UntestedClassIsInconclusive(t *testing.T) {
 	if !strings.Contains(sweepOutput(t, sweep), "that check never ran, so validation cannot be called enforced") {
 		t.Errorf("verdict must not claim enforcement when a whole class went untested; got:\n%s", sweepOutput(t, sweep))
 	}
+
+	// The inconclusive flag alone renders as SAFE (0.5 is not > 0.5), so the
+	// attempt must also be errored to be visibly non-passing. Without this the
+	// metadata says "could not assess" while the row says "safe".
+	if sweep.Status != attempt.StatusError {
+		t.Errorf("sweep status = %q, want %q — an unassessable check must not render as a pass", sweep.Status, attempt.StatusError)
+	}
+	if !strings.Contains(sweep.Error, string(classUnexpectedHost)) {
+		t.Errorf("sweep error should name the untested class; got %q", sweep.Error)
+	}
+}
+
+// TestOriginValidation_TransientFailureIsRetried: a single dropped connection
+// must not be reported as an untested check. It would error the whole sweep,
+// and in Guard a scan with no findings but with probe errors fails the job —
+// so one flake would fail an otherwise-clean scan. Two consecutive failures is
+// the real signal; one is not.
+func TestOriginValidation_TransientFailureIsRetried(t *testing.T) {
+	var mu sync.Mutex
+	seen := map[string]int{}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := r.Header.Get("Origin") + "|" + r.Host
+		mu.Lock()
+		seen[key]++
+		n := seen[key]
+		mu.Unlock()
+
+		// Fail the FIRST delivery of every distinct payload, serve the retry.
+		if n == 1 {
+			killConn(t, w)
+			return
+		}
+		if r.Header.Get("Origin") != "" || strings.Contains(r.Host, "example.") {
+			http.Error(w, "not allowed", http.StatusForbidden)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(initializeOK))
+	}))
+	defer srv.Close()
+
+	p := newOriginValidationProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	sweep := findAttemptByClass(attempts, classSweep)
+	if sweep == nil {
+		t.Fatal("expected an aggregated sweep attempt")
+	}
+
+	// Every variant failed once and succeeded on retry, so nothing is untested.
+	if n := variantOutcomes(t, attempts)[variantNotTested]; n != 0 {
+		t.Errorf("%d variants recorded as not-tested; a retried success must count as tested", n)
+	}
+	if sweep.Status == attempt.StatusError {
+		t.Errorf("a sweep whose variants all succeeded on retry must not be errored: %q", sweep.Error)
+	}
+	if metaBool(sweep, attempt.MetadataKeyInconclusive) {
+		t.Errorf("a fully-retried sweep must not be inconclusive")
+	}
+	// Non-vacuity: the server really did drop the first delivery of each payload.
+	mu.Lock()
+	retried := 0
+	for _, n := range seen {
+		if n > 1 {
+			retried++
+		}
+	}
+	mu.Unlock()
+	if retried == 0 {
+		t.Fatal("no payload was retried — the test server did not misbehave as intended")
+	}
 }
 
 // TestOriginValidation_LostSampleIsNotInconclusive: losing SOME variants of a
