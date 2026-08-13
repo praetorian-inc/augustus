@@ -156,31 +156,36 @@ sending:
 			continue
 		}
 		params := toolParams(tool)
+		params = discoverToolValues(ctx, inv, name, params)
 		for _, param := range params {
 			if !isStringParam(param.typ) {
 				continue
 			}
 			// In-band computed-canary payloads (eval / SSTI / shell arithmetic).
 			for _, payload := range p.canary.Payloads {
-				// Stop issuing new calls the moment the context is done; the attempts
-				// already sent are still recorded and their callbacks reconciled below.
-				// Checked per-call (not per-param) so cancellation doesn't emit a burst
-				// of immediately-erroring attempts for the rest of the param's payloads.
-				if ctx.Err() != nil {
-					break sending
+				for _, variant := range payloadVariants(param, payload) {
+					// Stop issuing new calls the moment the context is done; the attempts
+					// already sent are still recorded and their callbacks reconciled below.
+					// Checked per-call (not per-param) so cancellation doesn't emit a burst
+					// of immediately-erroring attempts for the rest of the param's payloads.
+					if ctx.Err() != nil {
+						break sending
+					}
+					attempts = append(attempts, p.callOne(ctx, inv, name, param.name, params, variant))
 				}
-				attempts = append(attempts, p.callOne(ctx, inv, name, param.name, params, payload))
 			}
 			// Out-of-band OS-command payloads (blind + non-blind command injection).
 			for _, f := range mcpprobe.OOBCmdFormats {
-				if ctx.Err() != nil {
-					break sending
+				for _, prefix := range payloadPrefixes(param) {
+					if ctx.Err() != nil {
+						break sending
+					}
+					token := mcpprobe.RandToken()
+					proofURL := mcpprobe.ShellProofURL(col.URL(token), token)
+					a := p.callOOB(ctx, inv, name, param.name, params, prefix, f, proofURL)
+					pend = append(pend, pending{a: a, token: token})
+					attempts = append(attempts, a)
 				}
-				token := mcpprobe.RandToken()
-				proofURL := mcpprobe.ShellProofURL(col.URL(token), token)
-				a := p.callOOB(ctx, inv, name, param.name, params, f, proofURL)
-				pend = append(pend, pending{a: a, token: token})
-				attempts = append(attempts, a)
 			}
 		}
 	}
@@ -241,8 +246,8 @@ func (p *Injection) callOne(ctx context.Context, inv types.ToolInvoker, tool, pa
 // real shell resolves to the tracked token, and the callback catches BOTH the
 // blind case (nothing returned) and the non-blind case (a shell ran curl and the
 // callback still fired), so dropping reflection loses no true positives.
-func (p *Injection) callOOB(ctx context.Context, inv types.ToolInvoker, tool, param string, params []paramInfo, format, canaryURL string) *attempt.Attempt {
-	payload := fmt.Sprintf(format, canaryURL)
+func (p *Injection) callOOB(ctx context.Context, inv types.ToolInvoker, tool, param string, params []paramInfo, prefix, format, canaryURL string) *attempt.Attempt {
+	payload := prefix + fmt.Sprintf(format, canaryURL)
 
 	a := attempt.New(payload)
 	a.Probe = p.Name()
