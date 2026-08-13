@@ -328,5 +328,13 @@ func IsReadOnlyTool(tm map[string]any) bool {
 	if name == "" {
 		return false
 	}
+	// A destructive name segment wins over a read-only one. A compound name like
+	// reset_status or clear_cache matches BOTH vocabularies, and invoking it as the
+	// "read-only proof" would perform the destructive half. InvokesDestructiveOperation
+	// is the mirror matcher, so consulting it here means no caller can green-light a
+	// destructive-named tool through this gate alone.
+	if InvokesDestructiveOperation(tm) {
+		return false
+	}
 	return readOnlyToolNameRE.MatchString(name)
 }

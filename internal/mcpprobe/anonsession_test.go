@@ -337,3 +337,24 @@ func TestIsReadOnlyTool_NameHeuristic(t *testing.T) {
 		}
 	}
 }
+
+// TestIsReadOnlyTool_DestructiveNameWinsOverReadOnlySegment locks the fix for a
+// compound, UNANNOTATED name that matches BOTH vocabularies. A destructive segment
+// must win: otherwise the read-only invocation proof would pick the tool and
+// perform its destructive half against a customer's target.
+func TestIsReadOnlyTool_DestructiveNameWinsOverReadOnlySegment(t *testing.T) {
+	// Each name has a read-only segment (status/report/check/list) AND a destructive
+	// one (reset/clear/rotate/flush/purge). Before the fix the read-only match won.
+	for _, name := range []string{
+		"reset_status", "clear_status", "rotate_report", "flush_and_check", "purge_list",
+	} {
+		tm := map[string]any{"name": name}
+		if IsReadOnlyTool(tm) {
+			t.Errorf("IsReadOnlyTool(%q) = true, want false; a destructive segment must win over a read-only one", name)
+		}
+		// Sanity: the fixture really does match both vocabularies, so it exercises the overlap.
+		if !InvokesDestructiveOperation(tm) {
+			t.Errorf("InvokesDestructiveOperation(%q) = false; fixture no longer exercises the read-only/destructive overlap", name)
+		}
+	}
+}
