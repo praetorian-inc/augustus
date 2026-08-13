@@ -102,6 +102,36 @@ func TestOriginValidationDetector(t *testing.T) {
 		})
 	}
 
+	// A wholly untested bypass class means that check never ran, so a sweep
+	// that accepted nothing has not established enforcement. This scoring
+	// moved here from the probe, which used to force an error status to make
+	// the row non-passing — the probe now reports the fact and the detector
+	// classifies it.
+	untestedTests := []struct {
+		name      string
+		untested  any
+		wantScore float64
+	}{
+		{"no untested class → safe", []string{}, 0.0},
+		{"a class never ran → inconclusive", []string{"unexpected-host"}, InconclusiveScore},
+		{"JSON round-tripped []any → inconclusive", []any{"null-origin"}, InconclusiveScore},
+	}
+	for _, tt := range untestedTests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := originValidationAttempt("origin-validation-sweep", false, "0 of 9 accepted")
+			a.Metadata[attempt.MetadataKeyOriginValidationTargetClass] = "loopback"
+			a.Metadata[attempt.MetadataKeyOriginValidationBaselineAccepted] = true
+			a.Metadata[attempt.MetadataKeyOriginValidationUntestedClasses] = tt.untested
+			got, err := d.Detect(context.Background(), a)
+			if err != nil {
+				t.Fatalf("Detect: %v", err)
+			}
+			if len(got) != 1 || got[0] != tt.wantScore {
+				t.Errorf("Detect = %v, want [%v]", got, tt.wantScore)
+			}
+		})
+	}
+
 	// An attempt that does not carry the baseline fact (the CORS preflight, or
 	// a run predating it) keeps its previous scoring rather than being
 	// silently reclassified as inconclusive.

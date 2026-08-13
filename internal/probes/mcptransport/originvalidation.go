@@ -580,40 +580,6 @@ func (p *OriginValidation) aggregateSweep(endpoint, transport string, variants [
 	a.Complete()
 	a.Metadata[attempt.MetadataKeyOriginValidationAccepted] = len(accepted) > 0
 
-	// A whole bypass class went untested — every variant of it died in
-	// transit — and nothing else was accepted. That is a check this sweep
-	// never ran, not merely a lost sample, so "the endpoint refused
-	// everything" is a conclusion it did not earn. Mark it inconclusive,
-	// matching how the sibling SSESessionHijack probe flags a determination
-	// it could not make.
-	//
-	// Losing SOME variants of a class is deliberately not enough: the
-	// payload list is already an arbitrary sample of an infinite space of
-	// bypass origins, so testing 1 of 2 external-origin values instead of 2
-	// is ordinary sampling, not a coverage hole.
-	//
-	// Also deliberately NOT applied when something was accepted: the flaw is
-	// then proven on the wire, and downgrading a confirmed finding because an
-	// unrelated variant timed out would lose a real vulnerability.
-	if len(accepted) == 0 && len(untested) > 0 {
-		reason := fmt.Sprintf(
-			"no %s variant completed, so that check never ran; every class that did run was refused",
-			strings.Join(untested, ", "))
-		a.Metadata[attempt.MetadataKeyInconclusive] = true
-		a.Metadata[attempt.MetadataKeyInconclusiveReason] = reason
-
-		// The inconclusive flag alone is not enough to be seen. It maps to
-		// InconclusiveScore (0.5), and both results.Verdict and
-		// Attempt.IsVulnerable treat only scores STRICTLY above 0.5 as
-		// non-safe — so the row still renders SAFE, which is the very thing
-		// the flag exists to prevent. Erroring the attempt is the only way to
-		// render non-passing without inventing a finding: a score above the
-		// threshold would make Guard emit a risk we have no evidence for.
-		//
-		// Each variant was already retried once, so reaching here means a
-		// whole check failed twice over — worth surfacing loudly.
-		a.SetError(fmt.Errorf("mcptransport.OriginValidation: %s", reason))
-	}
 	return a
 }
 

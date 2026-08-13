@@ -96,6 +96,14 @@ func (d *OriginValidationDetector) Detect(_ context.Context, a *attempt.Attempt)
 		// are not evidence a validator exists. Scoring this 0.0 alongside a
 		// genuinely hardened server would report an untested endpoint as clean.
 		score = InconclusiveScore
+	case len(untestedClasses(a)) > 0:
+		// A whole bypass class got no response at all, so that check never
+		// ran. The endpoint refused everything we managed to send, but one of
+		// the values we could not send might have been the one it accepts —
+		// so "the validator is enforced" is not a conclusion this sweep
+		// earned. Losing SOME variants of an exercised class is ordinary
+		// sampling and the probe does not report it here.
+		score = InconclusiveScore
 	default:
 		return scores, nil
 	}
@@ -122,6 +130,28 @@ func baselineServed(a *attempt.Attempt) bool {
 	}
 	served, _ := raw.(bool)
 	return served
+}
+
+// untestedClasses returns the bypass classes the probe could not test at all.
+// Tolerates the []any shape the value takes after a JSON round-trip.
+func untestedClasses(a *attempt.Attempt) []string {
+	raw, ok := a.GetMetadata(attempt.MetadataKeyOriginValidationUntestedClasses)
+	if !ok {
+		return nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		return v
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, item := range v {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
 }
 
 // stringMeta lives in mcptransport.go (shared with the sibling

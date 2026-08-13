@@ -671,19 +671,10 @@ func TestOriginValidation_UntestedClassIsInconclusive(t *testing.T) {
 		t.Fatal("expected an aggregated sweep attempt")
 	}
 
-	errored := variantOutcomes(t, attempts)[variantNotTested]
-	if errored == 0 {
+	if variantOutcomes(t, attempts)[variantNotTested] == 0 {
 		t.Fatal("expected some variants to fail in transit; test server did not misbehave as intended")
 	}
 
-	if !metaBool(sweep, attempt.MetadataKeyInconclusive) {
-		t.Errorf("a sweep with nothing accepted and a wholly untested class (%d failed variants) must be inconclusive, not safe", errored)
-	}
-	reason, _ := sweep.GetMetadata(attempt.MetadataKeyInconclusiveReason)
-	reasonStr, _ := reason.(string)
-	if !strings.Contains(reasonStr, string(classUnexpectedHost)) {
-		t.Errorf("reason should name the class that never ran; got %q", reasonStr)
-	}
 	// The untested class is recorded as a fact for the detector and the report.
 	rawUntested, ok := sweep.GetMetadata(attempt.MetadataKeyOriginValidationUntestedClasses)
 	if !ok {
@@ -709,14 +700,16 @@ func TestOriginValidation_UntestedClassIsInconclusive(t *testing.T) {
 		t.Errorf("probe evidence must not claim enforcement; got:\n%s", sweepOutput(t, sweep))
 	}
 
-	// The inconclusive flag alone renders as SAFE (0.5 is not > 0.5), so the
-	// attempt must also be errored to be visibly non-passing. Without this the
-	// metadata says "could not assess" while the row says "safe".
-	if sweep.Status != attempt.StatusError {
-		t.Errorf("sweep status = %q, want %q — an unassessable check must not render as a pass", sweep.Status, attempt.StatusError)
+	// The probe records the fact and stops. Deciding what an untested class
+	// MEANS is the detector's job, so the probe must not classify it here:
+	// no inconclusive flag, and no error status — the attempt did not fail,
+	// %d of its requests got clean HTTP answers.
+	if metaBool(sweep, attempt.MetadataKeyInconclusive) {
+		t.Errorf("the probe must not set the inconclusive flag; that classification belongs to the detector")
 	}
-	if !strings.Contains(sweep.Error, string(classUnexpectedHost)) {
-		t.Errorf("sweep error should name the untested class; got %q", sweep.Error)
+	if sweep.Status == attempt.StatusError {
+		t.Errorf("the sweep did not fail — %d requests were answered — so it must not carry an error status: %q",
+			variantOutcomes(t, attempts)[variantRefused], sweep.Error)
 	}
 }
 
