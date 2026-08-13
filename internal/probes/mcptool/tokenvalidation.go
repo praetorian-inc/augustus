@@ -173,10 +173,15 @@ type TokenValidation struct {
 
 // NewTokenValidation constructs the probe.
 func NewTokenValidation(cfg registry.Config) (probes.Prober, error) {
+	policy := toolpolicy.New(cfg)
 	return &TokenValidation{
-		policy:           toolpolicy.New(cfg),
-		allParams:        registry.GetBool(cfg, "token_all_string_params", false),
-		allowDestructive: registry.GetBool(cfg, "token_allow_destructive", false),
+		policy:    policy,
+		allParams: registry.GetBool(cfg, "token_all_string_params", false),
+		// The shared allow_destructive is the master opt-in; token_allow_destructive
+		// is a probe-specific override. EITHER unlocks the name-heuristic gate, so an
+		// operator who enabled destructive testing globally is not silently still
+		// blocked on unannotated destructive-named tools.
+		allowDestructive: policy.AllowsDestructive() || registry.GetBool(cfg, "token_allow_destructive", false),
 	}, nil
 }
 

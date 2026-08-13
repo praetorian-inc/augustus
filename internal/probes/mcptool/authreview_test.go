@@ -440,6 +440,63 @@ func TestFunctionAuthorization_AllToolsStillGatesDestructive(t *testing.T) {
 	}
 }
 
+// TestDestructiveGate_HonoursSharedAllowDestructive locks that the shared
+// allow_destructive opt-in (toolpolicy's master key) also unlocks the name-heuristic
+// destructive gate on both probes, so an operator who enabled destructive testing
+// globally is not silently still blocked on unannotated destructive-named tools —
+// without ever setting the probe-specific authz_/token_ override.
+func TestDestructiveGate_HonoursSharedAllowDestructive(t *testing.T) {
+	t.Run("functionauthz", func(t *testing.T) {
+		var called []string
+		target := &mockTarget{
+			tools: []map[string]any{destructiveAdminTool()},
+			call: func(name string, _ map[string]any) types.ToolResult {
+				called = append(called, name)
+				return types.ToolResult{Text: "ok"}
+			},
+		}
+		// Shared key only (NOT authz_allow_destructive); all_tools to reach the tool.
+		if _, err := newFunctionAuthzProbe(t, registry.Config{"authz_all_tools": true, "allow_destructive": true}).
+			Probe(context.Background(), target); err != nil {
+			t.Fatalf("Probe: %v", err)
+		}
+		found := false
+		for _, n := range called {
+			if n == "delete_user" {
+				found = true
+			}
+		}
+		if !found {
+			t.Error("allow_destructive=true did not unlock the name-heuristic gate for FunctionAuthorization")
+		}
+	})
+
+	t.Run("tokenvalidation", func(t *testing.T) {
+		var called []string
+		target := &mockTarget{
+			tools: []map[string]any{tokenTool("delete_account", "api_key")},
+			call: func(name string, _ map[string]any) types.ToolResult {
+				called = append(called, name)
+				return types.ToolResult{Text: "ok"}
+			},
+		}
+		// Shared key only (NOT token_allow_destructive).
+		if _, err := newTokenValidationProbe(t, registry.Config{"allow_destructive": true}).
+			Probe(context.Background(), target); err != nil {
+			t.Fatalf("Probe: %v", err)
+		}
+		found := false
+		for _, n := range called {
+			if n == "delete_account" {
+				found = true
+			}
+		}
+		if !found {
+			t.Error("allow_destructive=true did not unlock the name-heuristic gate for TokenValidation")
+		}
+	})
+}
+
 // TestTokenValidation_VerificationGatesDestructive locks the P1 fix: the format-only
 // verification path submits values to the REAL tool, so it must skip an
 // irreversible-sounding unannotated tool unless token_allow_destructive is set.

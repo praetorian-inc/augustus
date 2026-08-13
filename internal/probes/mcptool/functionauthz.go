@@ -123,10 +123,15 @@ type FunctionAuthorization struct {
 
 // NewFunctionAuthorization constructs the probe.
 func NewFunctionAuthorization(cfg registry.Config) (probes.Prober, error) {
+	policy := toolpolicy.New(cfg)
 	return &FunctionAuthorization{
-		policy:           toolpolicy.New(cfg),
-		allTools:         registry.GetBool(cfg, "authz_all_tools", false),
-		allowDestructive: registry.GetBool(cfg, "authz_allow_destructive", false),
+		policy:   policy,
+		allTools: registry.GetBool(cfg, "authz_all_tools", false),
+		// The shared allow_destructive is the master opt-in; authz_allow_destructive
+		// is a probe-specific override. EITHER unlocks the name-heuristic gate, so an
+		// operator who enabled destructive testing globally is not silently still
+		// blocked on unannotated destructive-named tools.
+		allowDestructive: policy.AllowsDestructive() || registry.GetBool(cfg, "authz_allow_destructive", false),
 	}, nil
 }
 
