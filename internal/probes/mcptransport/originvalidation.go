@@ -722,10 +722,15 @@ func (p *OriginValidation) resolveEndpoint(gen types.Generator) string {
 // becomes a finding: the baseline gets its own attempt, while the bypass
 // variants are folded into one (see aggregateSweep).
 // A transport failure is retried once before the variant is recorded as
-// untested. That matters because an untested CLASS now errors the whole sweep
-// (see aggregateSweep), and in Guard a scan that produces no findings but does
-// produce probe errors fails the job outright. One dropped connection should
-// not do that; two consecutive failures to the same endpoint is a real signal.
+// untested. That matters because a wholly untested class costs the sweep its
+// conclusion: the detector scores it inconclusive rather than safe, since a
+// value we could not send might have been the one the endpoint accepts. One
+// dropped connection should not cost a clean endpoint its verdict; two
+// consecutive failures to the same endpoint is a real signal.
+//
+// Note that only classes with a single payload (null-origin, and case-variant
+// where it applies) are one failure away from being untested at all — the
+// others have a sibling that covers the class.
 //
 // Not retried when the context is already done — the scan is being torn down
 // and a second attempt would only add latency.

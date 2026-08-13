@@ -714,10 +714,10 @@ func TestOriginValidation_UntestedClassIsInconclusive(t *testing.T) {
 }
 
 // TestOriginValidation_TransientFailureIsRetried: a single dropped connection
-// must not be reported as an untested check. It would error the whole sweep,
-// and in Guard a scan with no findings but with probe errors fails the job —
-// so one flake would fail an otherwise-clean scan. Two consecutive failures is
-// the real signal; one is not.
+// must not be reported as an untested check. A wholly untested class costs the
+// sweep its conclusion — the detector scores it inconclusive rather than safe —
+// so one flake would deny a clean endpoint its verdict. Two consecutive
+// failures is the real signal; one is not.
 func TestOriginValidation_TransientFailureIsRetried(t *testing.T) {
 	var mu sync.Mutex
 	seen := map[string]int{}
