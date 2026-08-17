@@ -258,7 +258,7 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 			// DISCRIMINATOR, not the path — file_manager(action, path) needs a value
 			// for `action` in order to reach the sink through `path`.
 			if p.hasProbeableParam(ts.params) {
-				ts = ts.discoverValues(ctx, inv, name)
+				ts = ts.withShape(p.shapeMode()).discoverValues(ctx, inv, name)
 			}
 
 			// Payload flavour selection. A ReadOnly annotation is the only

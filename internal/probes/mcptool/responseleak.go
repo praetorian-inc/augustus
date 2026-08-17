@@ -136,6 +136,7 @@ func (p *ResponseLeak) Probe(ctx context.Context, gen types.Generator) ([]*attem
 		}
 		for _, ts := range toolSignatures(tool, p.valueChain(ctx, name)) {
 			p.warnBroadRules(name, ts.sig.Params)
+			ts = ts.withShape(p.shapeMode())
 			for _, c := range argCases(ts) {
 				if err := ctx.Err(); err != nil {
 					return attempts, err

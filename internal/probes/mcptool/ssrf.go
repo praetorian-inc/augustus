@@ -163,7 +163,7 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 			// candidates: the uncandidated parameter is typically a discriminator that
 			// must be satisfied to reach the URL sink, not the URL parameter itself.
 			if p.hasProbeableParam(ts.params) {
-				ts = ts.discoverValues(ctx, inv, name)
+				ts = ts.withShape(p.shapeMode()).discoverValues(ctx, inv, name)
 			}
 			for _, param := range ts.params {
 				if !isStringParam(param.typ) {

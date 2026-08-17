@@ -440,6 +440,65 @@ func TestSameAsBaseline_MasksBothIdsInBothResponses(t *testing.T) {
 	}
 }
 
+// The failure that made this necessary: a server stamping every response with a
+// fresh trace id makes no two responses textually equal, so the comparison
+// rejects nothing and every harvested value is confirmed for every
+// identifier-shaped parameter. Observed live as 30 confirmed "vendor ids" on one
+// parameter, including job ids and the caller's own tenant id.
+func TestSameAsBaseline_IgnoresAPerResponseNonce(t *testing.T) {
+	base := `{"error":"no such object","object_id":"NX-1","trace_id":"aaaaaaaaaaaaaaaa"}`
+	cand := `{"error":"no such object","object_id":"C-1","trace_id":"bbbbbbbbbbbbbbbb"}`
+	if !sameAsBaseline(cand, "C-1", base, "NX-1") {
+		t.Error("two identical refusals differing only in a per-call trace id are the same answer")
+	}
+
+	// The nonce must not flatten a genuine difference either.
+	served := `{"object":{"object_id":"C-1","name":"alpha"},"trace_id":"cccccccccccccccc"}`
+	if sameAsBaseline(served, "C-1", base, "NX-1") {
+		t.Error("masking nonces must not hide a served object")
+	}
+}
+
+func TestSameAsBaseline_NonceMaskingToleratesKeyStyles(t *testing.T) {
+	for _, key := range []string{"trace_id", "traceId", "Trace-ID", "requestId", "correlation_id", "nonce", "etag"} {
+		base := `{"error":"nope","` + key + `":"one"}`
+		cand := `{"error":"nope","` + key + `":"two"}`
+		if !sameAsBaseline(cand, "", base, "") {
+			t.Errorf("%s: a per-call field in this style must be masked", key)
+		}
+	}
+}
+
+// Non-JSON bodies have no structure to key off, and a regex over prose would as
+// happily blank a real identifier. Leaving them alone is the safe direction: the
+// comparison stays as strict as it was.
+func TestSameAsBaseline_NonJSONIsLeftAlone(t *testing.T) {
+	if !sameAsBaseline("not found", "", "not found", "") {
+		t.Error("identical non-JSON bodies must still compare equal")
+	}
+	if sameAsBaseline("found it", "", "not found", "") {
+		t.Error("differing non-JSON bodies must still compare unequal")
+	}
+}
+
+// A trace id matches the id matcher ("trace_id" splits to trace + id) but names a
+// CALL, not an object. Harvested, it is offered to every identifier-shaped
+// parameter on the surface, and every one of those calls is wasted.
+func TestExtractIDs_SkipsPerCallIdentifiers(t *testing.T) {
+	re := wordBoundaryRE(defaultIDParamWords)
+	got := extractIDs(re, `{"contract_id":"C-1","trace_id":"TR-9","request_id":"RQ-9"}`, nil)
+
+	want := map[string]bool{"C-1": true}
+	for _, id := range got {
+		if !want[id] {
+			t.Errorf("harvested %q; a per-call identifier is not an object identifier", id)
+		}
+	}
+	if len(got) != 1 {
+		t.Errorf("harvested %v, want just the contract id", got)
+	}
+}
+
 // spec builds a minimal signature for a tool with the given id-shaped params.
 func spec(name string, tm map[string]any, idParams ...string) toolSpec {
 	sig := toolsig.Signature{Tool: name, Select: map[string]any{}}

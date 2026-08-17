@@ -687,9 +687,21 @@ func (m *MCPIdentifiers) notFoundBaseline(ctx context.Context, s identitySession
 // identifier harvested as a candidate is still echoed as the tenant of the
 // baseline call — and masking only each response's own id leaves that occurrence
 // behind, making two identical refusals compare unequal.
+// Per-response nonces are masked too. A server that stamps every response with a
+// fresh trace id makes no two responses textually equal, so this returns false
+// for every candidate, nothing is ever rejected, and every harvested value is
+// confirmed for every identifier-shaped parameter. Observed live: 30 confirmed
+// "vendor ids" on one parameter, including job ids and the caller's own tenant
+// id, because the comparison could not reject anything.
 func sameAsBaseline(candText, candID, baseText, baseID string) bool {
 	const mask = "\x00AUGID\x00"
 	norm := func(s string) string {
+		// Nonces are masked FIRST, while the body is still parseable. The id mask
+		// embeds NUL bytes, which are not legal inside a JSON string, so
+		// substituting ids first makes the body fail to parse and maskNonces
+		// silently returns it untouched — leaving the very difference this exists
+		// to remove.
+		s = maskNonces(s)
 		if candID != "" {
 			s = strings.ReplaceAll(s, candID, mask)
 		}
@@ -699,6 +711,107 @@ func sameAsBaseline(candText, candID, baseText, baseID string) bool {
 		return s
 	}
 	return norm(candText) == norm(baseText)
+}
+
+// nonceKeyWords name response fields that carry a fresh value on every call and
+// therefore say nothing about whether two answers are the same. They are also
+// not object identifiers, so they must not be harvested as candidates.
+//
+// FUTURE WORK: derive this instead of listing it. Calling the not-found baseline
+// twice and treating any field that differs between the two as noise needs no
+// vocabulary at all and catches names this list will always miss (timestamps,
+// server-generated cursors, signed URLs). The list is here because it is
+// correct for the common case today and costs no extra requests; the dynamic
+// version costs one more baseline call per slot.
+var nonceKeyWords = []string{
+	"trace", "traceid", "traceparent", "tracestate",
+	"span", "spanid",
+	"request", "requestid", "reqid",
+	"correlation", "correlationid",
+	"nonce", "csrf", "xsrf",
+	"etag", "ray", "rayid",
+	"timestamp", "servertime", "generatedat",
+}
+
+// nonceKeyRE matches a JSON key that is one of nonceKeyWords, tolerating the
+// separator styles the same field appears under across servers (trace_id,
+// traceId, TraceID).
+var nonceKeyRE = buildNonceKeyRE()
+
+func buildNonceKeyRE() *regexp.Regexp {
+	seen := map[string]bool{}
+	var alts []string
+	for _, w := range nonceKeyWords {
+		// A word may appear alone ("nonce") or suffixed with an id-ish tail
+		// ("trace_id", "traceId"), so match the stem and allow the tail.
+		if seen[w] {
+			continue
+		}
+		seen[w] = true
+		alts = append(alts, regexp.QuoteMeta(w))
+	}
+	// Keys are compared with separators stripped and folded to lower case, so the
+	// pattern needs no separator alternatives of its own.
+	return regexp.MustCompile(`^(` + strings.Join(alts, "|") + `)(id|uid|uuid)?$`)
+}
+
+// isNonceKey reports whether a response key holds a per-call value.
+func isNonceKey(key string) bool {
+	return nonceKeyRE.MatchString(foldKey(key))
+}
+
+// foldKey lowercases a key and drops separators, so trace_id, traceId and
+// Trace-ID all compare as "traceid".
+func foldKey(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range strings.ToLower(s) {
+		if r == '_' || r == '-' || r == ' ' || r == '.' {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// maskNonces blanks the values of nonce-shaped fields in a JSON response so two
+// otherwise-identical answers compare equal. Non-JSON text is returned
+// unchanged: there is no structure to key off, and a regex over prose would just
+// as happily blank a real identifier.
+func maskNonces(s string) string {
+	var root any
+	if err := json.Unmarshal([]byte(s), &root); err != nil {
+		return s
+	}
+	blanked := blankNonces(root)
+	out, err := json.Marshal(blanked)
+	if err != nil {
+		return s
+	}
+	return string(out)
+}
+
+func blankNonces(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, val := range t {
+			if isNonceKey(k) {
+				out[k] = nil
+				continue
+			}
+			out[k] = blankNonces(val)
+		}
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i, e := range t {
+			out[i] = blankNonces(e)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // --- deterministic helpers -------------------------------------------------
@@ -802,6 +915,13 @@ func extractIDs(idRE *regexp.Regexp, text string, raw []byte) []string {
 		case map[string]any:
 			for _, k := range sortedMapKeys(t) {
 				val := t[k]
+				// A trace or request id matches the id matcher ("trace_id" splits
+				// to trace + id) but identifies a CALL, not an object. Harvested,
+				// it is then offered to every identifier-shaped parameter on the
+				// surface, and every one of those calls is wasted.
+				if isNonceKey(k) {
+					continue
+				}
 				keyMatch := matchWord(idRE, k)
 				if keyMatch {
 					add(scalarString(val))

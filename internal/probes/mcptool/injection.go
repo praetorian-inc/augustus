@@ -162,7 +162,7 @@ sending:
 		// parser used to produce.
 		for _, ts := range toolSignatures(tool, p.valueChain(ctx, name)) {
 			p.warnBroadRules(name, ts.sig.Params)
-			ts = ts.discoverValues(ctx, inv, name)
+			ts = ts.withShape(p.shapeMode()).discoverValues(ctx, inv, name)
 			for _, param := range ts.params {
 				if !isStringParam(param.typ) {
 					continue

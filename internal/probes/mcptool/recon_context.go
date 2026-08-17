@@ -26,6 +26,9 @@ type reconContext struct {
 	observed *observed.Store
 	identity string
 	rules    []toolsig.Rule
+	// fillOptional is the operator's call-shape setting:
+	// "never" (default) or "always". See toolSig.withShape.
+	fillOptional string
 }
 
 // SetContext implements recon.ContextAwareProbe. The scan runner calls it once,
@@ -39,6 +42,24 @@ func (r *reconContext) SetContext(pc recon.ProbeContext) {
 func (r *reconContext) configure(cfg registry.Config) {
 	r.rules = toolsig.RulesFromConfig(cfg)
 	r.identity = registry.GetString(cfg, "identity_label", DefaultIdentity)
+	r.fillOptional = registry.GetString(cfg, "fill_optional", fillOptionalNever)
+	switch r.fillOptional {
+	case fillOptionalAlways, fillOptionalNever:
+	default:
+		slog.Warn("mcptool: unrecognised fill_optional; using the default",
+			"got", r.fillOptional, "using", fillOptionalNever,
+			"valid", []string{fillOptionalNever, fillOptionalAlways})
+		r.fillOptional = fillOptionalNever
+	}
+}
+
+// shapeMode returns the configured call shape, defaulting for a probe that never
+// called configure.
+func (r *reconContext) shapeMode() string {
+	if r.fillOptional == "" {
+		return fillOptionalNever
+	}
+	return r.fillOptional
 }
 
 // invoker returns the target's tool interface with response recording attached,

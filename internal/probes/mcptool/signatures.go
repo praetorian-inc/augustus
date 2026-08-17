@@ -37,6 +37,9 @@ type toolSig struct {
 	// responses. Empty when a caller supplies none, in which case the filler
 	// alone decides, exactly as before.
 	pre toolsig.Chain
+	// fillOptional sends parameters the schema marks optional as well as the
+	// required ones. Set from the fill_optional operator setting; see withShape.
+	fillOptional bool
 }
 
 // toolSignatures parses a tool in the canonical Conversation.Tools wire shape
@@ -129,14 +132,18 @@ func paramInfoFrom(p toolsig.Param, toolDoc string) paramInfo {
 type probeFiller struct {
 	byPath   map[toolsig.Path]paramInfo
 	invented bool
+	// optional widens the filler to parameters the schema does not require.
+	// Off unless the operator sets fill_optional: always. See withShape for why
+	// the default is off.
+	optional bool
 }
 
-func newProbeFiller(params []paramInfo, invented bool) probeFiller {
+func newProbeFiller(params []paramInfo, invented, optional bool) probeFiller {
 	m := make(map[toolsig.Path]paramInfo, len(params))
 	for _, p := range params {
 		m[p.path] = p
 	}
-	return probeFiller{byPath: m, invented: invented}
+	return probeFiller{byPath: m, invented: invented, optional: optional}
 }
 
 // sourcePlaceholder names the source that invents a value nothing supplied. A
@@ -153,7 +160,10 @@ func (f probeFiller) Name() string {
 
 func (f probeFiller) Value(p toolsig.Param) (any, bool) {
 	pi, ok := f.byPath[p.Path]
-	if !ok || !pi.required {
+	if !ok {
+		return nil, false
+	}
+	if !pi.required && !f.optional {
 		return nil, false
 	}
 	if v, declared := declaredValue(pi); declared {
@@ -177,8 +187,35 @@ func (f probeFiller) Value(p toolsig.Param) (any, bool) {
 // so a conditional branch is still reached correctly.
 func (ts toolSig) chain() toolsig.Chain {
 	return append(append(toolsig.Chain{}, ts.pre...),
-		newProbeFiller(ts.params, false),
-		newProbeFiller(ts.params, true))
+		newProbeFiller(ts.params, false, ts.fillOptional),
+		newProbeFiller(ts.params, true, ts.fillOptional))
+}
+
+// fill_optional values. The default is "never" — a probe tests the call a client
+// would make, and adding arguments the caller did not ask for changes what is
+// being tested and what side effects it can have.
+const (
+	fillOptionalNever  = "never"
+	fillOptionalAlways = "always"
+)
+
+// withShape applies the operator's fill_optional setting to this signature.
+//
+// It is a plain switch, not an inference. The case that motivates it is a schema
+// marking a parameter optional that the server in fact requires — the
+// requirement stated in prose ("yyyy-mm-dd (at least one date required)") while
+// `required` lists only the envelope — which makes the minimal call one the
+// server always refuses.
+//
+// For that case a `values:` rule is the better answer and needs nothing here: a
+// rule reaches an optional parameter already, and it supplies a value the
+// operator knows is valid rather than a placeholder. "always" exists for the
+// coarser want — exercise optional parameters generally — and is off by default
+// because a filled optional parameter is a guess, so it lands in the call as an
+// invented value and makes any refusal unattributable.
+func (ts toolSig) withShape(mode string) toolSig {
+	ts.fillOptional = mode == fillOptionalAlways
+	return ts
 }
 
 // guessedArgs lists the required parameters of a prepared call that hold an
