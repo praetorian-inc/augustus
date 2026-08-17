@@ -469,6 +469,26 @@ func TestSameAsBaseline_NonceMaskingToleratesKeyStyles(t *testing.T) {
 	}
 }
 
+// The inverse of the bug this fix exists for. A key matching the nonce
+// vocabulary but holding a CONTAINER — "request" wrapping the echoed arguments —
+// is not a nonce, and blanking it would discard a whole subtree, so two
+// genuinely different answers would compare equal and a real object would be
+// rejected.
+func TestSameAsBaseline_NonceMaskingKeepsContainers(t *testing.T) {
+	base := `{"request":{"filters":{"status":"open"}},"id":"NX"}`
+	cand := `{"request":{"filters":{"status":"CLOSED"}},"id":"C1"}`
+	if sameAsBaseline(cand, "C1", base, "NX") {
+		t.Error("a real difference inside a nonce-NAMED container must not be discarded")
+	}
+
+	// A scalar under the same name is still masked.
+	b2 := `{"request_id":"one","id":"NX"}`
+	c2 := `{"request_id":"two","id":"C1"}`
+	if !sameAsBaseline(c2, "C1", b2, "NX") {
+		t.Error("a scalar nonce must still be masked")
+	}
+}
+
 // Non-JSON bodies have no structure to key off, and a regex over prose would as
 // happily blank a real identifier. Leaving them alone is the safe direction: the
 // comparison stays as strict as it was.

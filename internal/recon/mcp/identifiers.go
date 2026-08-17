@@ -723,14 +723,26 @@ func sameAsBaseline(candText, candID, baseText, baseID string) bool {
 // server-generated cursors, signed URLs). The list is here because it is
 // correct for the common case today and costs no extra requests; the dynamic
 // version costs one more baseline call per slot.
+// Stems only: nonceKeyRE allows an id/uid/uuid suffix, so listing both "trace"
+// and "traceid" would be the same entry twice.
 var nonceKeyWords = []string{
-	"trace", "traceid", "traceparent", "tracestate",
-	"span", "spanid",
-	"request", "requestid", "reqid",
-	"correlation", "correlationid",
+	"trace", "traceparent", "tracestate",
+	"span",
+	"request", "req",
+	"correlation",
 	"nonce", "csrf", "xsrf",
-	"etag", "ray", "rayid",
+	"etag", "ray",
 	"timestamp", "servertime", "generatedat",
+}
+
+// isScalar reports whether a decoded JSON value is a leaf. Containers are never
+// nonces however they are named.
+func isScalar(v any) bool {
+	switch v.(type) {
+	case map[string]any, []any:
+		return false
+	}
+	return true
 }
 
 // nonceKeyRE matches a JSON key that is one of nonceKeyWords, tolerating the
@@ -796,7 +808,13 @@ func blankNonces(v any) any {
 	case map[string]any:
 		out := make(map[string]any, len(t))
 		for k, val := range t {
-			if isNonceKey(k) {
+			// Only a SCALAR is a nonce. A key matching the vocabulary but holding
+			// an object or an array is a container that happens to share the name
+			// — "request" wrapping the echoed arguments, for instance — and
+			// blanking it would discard a whole subtree, so two genuinely
+			// different answers would compare equal and the candidate would be
+			// rejected. That is the same failure as the original bug, inverted.
+			if isNonceKey(k) && isScalar(val) {
 				out[k] = nil
 				continue
 			}
