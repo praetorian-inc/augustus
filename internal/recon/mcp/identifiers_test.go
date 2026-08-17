@@ -311,39 +311,6 @@ func TestExtractIDs_PrefersToolTextOverEnvelope(t *testing.T) {
 	}
 }
 
-// spyNav records whether it was invoked, and returns a canned classification.
-type spyNav struct {
-	called bool
-	reply  string
-}
-
-func (s *spyNav) Generate(context.Context, *attempt.Conversation, int) ([]attempt.Message, error) {
-	s.called = true
-	return []attempt.Message{attempt.NewAssistantMessage(s.reply)}, nil
-}
-func (s *spyNav) ClearHistory()       {}
-func (s *spyNav) Name() string        { return "spyNav" }
-func (s *spyNav) Description() string { return "spyNav" }
-
-func hasGetter(gs []toolSpec, name string) bool { return getterByName(gs, name) != nil }
-func getterByName(gs []toolSpec, name string) *toolSpec {
-	for i := range gs {
-		if gs[i].name == name {
-			return &gs[i]
-		}
-	}
-	return nil
-}
-
-func hasEnum(es []toolSpec, name string) bool {
-	for _, e := range es {
-		if e.name == name {
-			return true
-		}
-	}
-	return false
-}
-
 // TestNavigatorClassifyPrompt_TreatsCatalogAsUntrustedData (Layer 1): the tool
 // catalog is attacker-controlled, so the navigator prompt must frame it as
 // untrusted data to classify — never as instructions to obey — and restrict the

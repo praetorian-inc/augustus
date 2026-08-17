@@ -157,6 +157,7 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 			continue
 		}
 		for _, ts := range toolSignatures(tool, p.valueChain(ctx, name)) {
+			p.warnBroadRules(name, ts.sig.Params)
 			// Only worth a real invocation if this probe has something to send this
 			// signature. Gated on the SIGNATURE, not on the parameter needing
 			// candidates: the uncandidated parameter is typically a discriminator that
@@ -190,14 +191,15 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 					a.Metadata[attempt.MetadataKeySSRFOOBURL] = canaryURL
 
 					reflected := false
-					res, callErr := inv.CallTool(ctx, name, ts.args(param, payload))
+					args := ts.args(param, payload)
+					res, callErr := inv.CallTool(ctx, name, args)
 					if callErr != nil {
 						// A URL the SERVER refused cannot have been fetched, so the
 						// parameter WAS tested and held. Only a call that never arrived
 						// leaves it untested. The out-of-band wait below still runs
 						// either way: a refusal at the protocol layer does not prove
 						// the server made no request before answering.
-						ts.recordCallFailure(a, param, callErr)
+						ts.recordCallFailure(a, param, args, callErr)
 					} else {
 						a.AddOutput(res.Text)
 						reflected = strings.Contains(res.Text, p.marker)

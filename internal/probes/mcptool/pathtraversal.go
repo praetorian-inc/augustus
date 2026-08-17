@@ -250,6 +250,7 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 		desc, _ := tool["description"].(string)
 		hintedPrefixes := extractHintedPrefixes(desc)
 		for _, ts := range toolSignatures(tool, p.valueChain(ctx, name)) {
+			p.warnBroadRules(name, ts.sig.Params)
 			// Discovery is a REAL invocation, so it only runs against a tool this
 			// probe is going to test anyway. Gating on the tool (does it expose a
 			// path-shaped parameter?) rather than on the parameter that needs
@@ -513,12 +514,13 @@ func (p *PathTraversal) callOne(ctx context.Context, inv types.ToolInvoker, tool
 		a.Metadata[attempt.MetadataKeyPathTraversalIsWrite] = true
 	}
 
-	res, err := inv.CallTool(ctx, tool, ts.args(param, tp.payload))
+	args := ts.args(param, tp.payload)
+	res, err := inv.CallTool(ctx, tool, args)
 	if err != nil {
 		// A traversal payload the SERVER refused was submitted and rejected, so it
 		// reached no filesystem: a completed test with a negative result. A payload
 		// that never arrived tested nothing.
-		ts.recordCallFailure(a, param, err)
+		ts.recordCallFailure(a, param, args, err)
 		return a
 	}
 	// Surface the tool's own IsError signal so the detector can require a

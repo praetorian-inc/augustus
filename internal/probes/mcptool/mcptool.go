@@ -55,30 +55,6 @@ type paramInfo struct {
 // in a conditional branch, and the calls it built were rejected during argument
 // validation — which the probes recorded as the tool having been tested.
 
-// schemaEnum reads a JSON-schema "enum" as strings. Non-string members are
-// rendered where they are unambiguous so a mixed enum still yields a usable
-// value rather than none.
-func schemaEnum(prop map[string]any) []string {
-	raw, ok := prop["enum"].([]any)
-	if !ok {
-		return nil
-	}
-	out := make([]string, 0, len(raw))
-	for _, v := range raw {
-		switch s := v.(type) {
-		case string:
-			if s != "" {
-				out = append(out, s)
-			}
-		case bool:
-			out = append(out, strconv.FormatBool(s))
-		case float64:
-			out = append(out, strconv.FormatFloat(s, 'f', -1, 64))
-		}
-	}
-	return out
-}
-
 // paramDoc returns the fragment of a tool description that documents one named
 // parameter. Docstring-derived descriptions (what FastMCP and most SDKs publish)
 // put one "name: text" line per parameter under an "Args:" heading. Scoping to

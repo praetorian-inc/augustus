@@ -49,8 +49,6 @@ var (
 // config edit, not a code change.
 var (
 	defaultIDParamWords = []string{"id", "uuid", "guid", "key", "ref", "number", "order", "ticket", "account", "user"}
-	defaultGetterWords  = []string{"get", "read", "fetch", "retrieve", "show", "view", "describe"}
-	defaultEnumWords    = []string{"list", "search", "find", "query", "all", "enumerate", "browse"}
 	// defaultReadOnlyWords name operations that retrieve rather than change.
 	// Used only to decide whether reconnaissance may CALL a tool, never to
 	// decide what role it plays.

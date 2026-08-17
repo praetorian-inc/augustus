@@ -135,6 +135,7 @@ func (p *ResponseLeak) Probe(ctx context.Context, gen types.Generator) ([]*attem
 			continue
 		}
 		for _, ts := range toolSignatures(tool, p.valueChain(ctx, name)) {
+			p.warnBroadRules(name, ts.sig.Params)
 			for _, c := range argCases(ts) {
 				if err := ctx.Err(); err != nil {
 					return attempts, err
@@ -170,7 +171,7 @@ func (p *ResponseLeak) callOne(ctx context.Context, inv types.ToolInvoker, ts to
 		// so a refusal is only counted as conclusive when every other required
 		// argument held a real value. A case whose call was assembled around an
 		// invented placeholder cannot attribute the refusal to what it varied.
-		ts.recordCallFailure(a, paramInfo{}, err)
+		ts.recordCallFailure(a, paramInfo{}, c.args, err)
 		return a
 	}
 	// Store the response bounded to the generous maxResponseBytes cap (see its

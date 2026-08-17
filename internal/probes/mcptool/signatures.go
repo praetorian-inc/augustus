@@ -3,6 +3,7 @@ package mcptool
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 
@@ -11,6 +12,12 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
+
+// metaExpectedRefusal marks a refusal the tool's own schema predicted, so a
+// reader can tell "the server enforced a constraint it declared" apart from "the
+// server rejected something we expected it to accept". Only the second is a
+// surprise, and only the second is worth a reader's attention.
+const metaExpectedRefusal = "mcptool.expected_refusal"
 
 // toolSig pairs one of a tool's call signatures with the probe-side information
 // about its parameters.
@@ -208,11 +215,31 @@ func (ts toolSig) guessedArgs(inject paramInfo) []string {
 //	refused, call otherwise well-formed  — TESTED, negative result.
 //	refused, call built on a guess       — NOT TESTED; say which argument.
 //	no answer at all                     — NOT TESTED; the request never arrived.
-func (ts toolSig) recordCallFailure(a *attempt.Attempt, inject paramInfo, err error) {
+func (ts toolSig) recordCallFailure(a *attempt.Attempt, inject paramInfo, args map[string]any, err error) {
 	if !errors.Is(err, types.ErrCallRefused) {
 		mcpprobe.RecordCallFailure(a, err)
 		return
 	}
+
+	// A refusal the tool's OWN schema predicts is attributable, and to the thing
+	// under test: we sent a value the schema forbids for this parameter, and the
+	// server enforced what it declared. That is a completed test with a negative
+	// result, not a gap.
+	//
+	// The call is still SENT. Validating locally decides how to describe the
+	// answer, never whether to ask the question — a server that does not enforce
+	// its own schema is precisely what this would otherwise stop us discovering,
+	// and such servers exist.
+	if args != nil && ts.sig.Validate(args) != nil {
+		a.Metadata[attempt.MetadataKeyTargetRefused] = true
+		a.Metadata[metaExpectedRefusal] = true
+		a.AddOutput("the target refused the call, as its own schema said it would: " + err.Error())
+		a.Complete()
+		slog.Debug("mcptool: expected refusal; the payload violates the parameter's declared constraint and the target enforced it",
+			"tool", ts.tool, "param", string(inject.path))
+		return
+	}
+
 	guessed := ts.guessedArgs(inject)
 	if len(guessed) == 0 {
 		mcpprobe.RecordCallFailure(a, err)

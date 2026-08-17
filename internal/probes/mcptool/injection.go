@@ -161,6 +161,7 @@ sending:
 		// conditionals yields exactly one, holding the same parameters the flat
 		// parser used to produce.
 		for _, ts := range toolSignatures(tool, p.valueChain(ctx, name)) {
+			p.warnBroadRules(name, ts.sig.Params)
 			ts = ts.discoverValues(ctx, inv, name)
 			for _, param := range ts.params {
 				if !isStringParam(param.typ) {
@@ -230,13 +231,14 @@ func (p *Injection) callOne(ctx context.Context, inv types.ToolInvoker, tool str
 	a.Metadata["mcptool.tool"] = tool
 	a.Metadata["mcptool.param"] = string(param.path)
 
-	res, err := inv.CallTool(ctx, tool, ts.args(param, payload))
+	args := ts.args(param, payload)
+	res, err := inv.CallTool(ctx, tool, args)
 	if err != nil {
 		// A payload the SERVER refused reached the target and was rejected: it
 		// cannot have reached a sink, so this is a completed test with a negative
 		// result. A payload that never arrived tested nothing at all, and the two
 		// must not both read as the probe having failed.
-		ts.recordCallFailure(a, param, err)
+		ts.recordCallFailure(a, param, args, err)
 		return a
 	}
 	a.AddOutput(res.Text)
@@ -266,13 +268,14 @@ func (p *Injection) callOOB(ctx context.Context, inv types.ToolInvoker, tool str
 	a.Metadata["mcptool.tool"] = tool
 	a.Metadata["mcptool.param"] = string(param.path)
 
-	res, err := inv.CallTool(ctx, tool, ts.args(param, payload))
+	args := ts.args(param, payload)
+	res, err := inv.CallTool(ctx, tool, args)
 	if err != nil {
 		// A payload the SERVER refused reached the target and was rejected: it
 		// cannot have reached a sink, so this is a completed test with a negative
 		// result. A payload that never arrived tested nothing at all, and the two
 		// must not both read as the probe having failed.
-		ts.recordCallFailure(a, param, err)
+		ts.recordCallFailure(a, param, args, err)
 		return a
 	}
 	a.AddOutput(res.Text)
