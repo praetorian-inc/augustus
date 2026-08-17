@@ -19,6 +19,11 @@ type toolSig struct {
 	tool   string
 	sig    toolsig.Signature
 	params []paramInfo
+	// pre holds the value sources consulted before this package's own filler:
+	// operator configuration, hook variables, and values observed in earlier
+	// responses. Empty when a caller supplies none, in which case the filler
+	// alone decides, exactly as before.
+	pre toolsig.Chain
 }
 
 // toolSignatures parses a tool in the canonical Conversation.Tools wire shape
@@ -34,7 +39,7 @@ type toolSig struct {
 // An unparseable schema yields nothing, exactly as the previous parser did for
 // a tool with no "parameters" key: a tool we cannot read is a tool we cannot
 // honestly test.
-func toolSignatures(tool map[string]any) []toolSig {
+func toolSignatures(tool map[string]any, pre toolsig.Chain) []toolSig {
 	name, _ := tool["name"].(string)
 	schema, ok := tool["parameters"].(map[string]any)
 	if !ok {
@@ -52,7 +57,7 @@ func toolSignatures(tool map[string]any) []toolSig {
 	desc, _ := tool["description"].(string)
 	out := make([]toolSig, 0, len(sigs))
 	for _, sig := range sigs {
-		ts := toolSig{tool: name, sig: sig, params: make([]paramInfo, 0, len(sig.Params))}
+		ts := toolSig{tool: name, sig: sig, pre: pre, params: make([]paramInfo, 0, len(sig.Params))}
 		for _, p := range sig.Params {
 			ts.params = append(ts.params, paramInfoFrom(p, desc))
 		}
@@ -129,7 +134,7 @@ func (f probeFiller) Value(p toolsig.Param) (any, bool) {
 // The discriminator values that select a signature are written by Build itself,
 // so a conditional branch is still reached correctly.
 func (ts toolSig) chain() toolsig.Chain {
-	return toolsig.Chain{newProbeFiller(ts.params)}
+	return append(append(toolsig.Chain{}, ts.pre...), newProbeFiller(ts.params))
 }
 
 // args builds the arguments for one attempt: benign values everywhere, and the

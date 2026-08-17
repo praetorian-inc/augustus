@@ -228,3 +228,53 @@ func (s observedSource) Value(p Param) (any, bool) {
 	}
 	return s.f(p)
 }
+
+// RulesFromConfig reads operator-supplied value rules from a component's
+// configuration.
+//
+//	values:
+//	  - match: {name: "tenant_uid"}          # every tool, any depth
+//	    value: "1234567890123456789"
+//	  - match: {tool: "get_account", path: "params.id"}
+//	    value: "..."                      # a per-tool override beats the above
+//
+// Binding by SELECTOR rather than by tool name is what keeps the configuration
+// proportional to the target: one rule covers a value that appears in every
+// tool, at whatever depth each schema puts it, instead of one entry per tool
+// repeating the same value.
+//
+// A malformed entry is skipped rather than failing the scan: a bad rule must not
+// take down a run that is useful without it.
+func RulesFromConfig(cfg map[string]any) []Rule {
+	raw, ok := cfg["values"].([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]Rule, 0, len(raw))
+	for _, item := range raw {
+		entry, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		v, hasValue := entry["value"]
+		if !hasValue {
+			continue
+		}
+		r := Rule{Value: v}
+		if m, ok := entry["match"].(map[string]any); ok {
+			r.Tool, _ = m["tool"].(string)
+			r.Path, _ = m["path"].(string)
+			r.Name, _ = m["name"].(string)
+		}
+		// A rule constraining nothing would match every parameter of every tool,
+		// which is never what an operator means.
+		if r.specificity() == 0 {
+			continue
+		}
+		out = append(out, r)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}

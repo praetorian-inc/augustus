@@ -20,7 +20,7 @@ func Run(ctx context.Context, gen types.Generator, modules []Recon, store *Store
 		// before they run. Modules run in order and their output is recorded
 		// below before the next iteration, so a later module sees earlier facts.
 		if aware, ok := m.(ContextAwareRecon); ok {
-			aware.SetContext(ProbeContext{Recon: store})
+			aware.SetContext(ProbeContext{Recon: store, Observed: store.Values()})
 		}
 		obs, err := m.Recon(ctx, gen)
 		if err != nil {

@@ -49,14 +49,16 @@ type SSRF struct {
 // NewSSRF constructs the probe. All OOB settings default so a localhost target
 // works with zero config (ephemeral collector, base derived from its address).
 func NewSSRF(cfg registry.Config) (probes.Prober, error) {
-	return &SSRF{
+	probe := &SSRF{
 		listen:       registry.GetString(cfg, "oob_listen", "127.0.0.1:0"),
 		baseOverride: registry.GetString(cfg, "oob_base_url", ""),
 		wait:         time.Duration(registry.GetInt(cfg, "oob_wait_seconds", 3)) * time.Second,
 		allParams:    registry.GetBool(cfg, "ssrf_all_string_params", false),
 		marker:       "AUGOOB" + mcpprobe.RandToken(),
 		policy:       toolpolicy.New(cfg),
-	}, nil
+	}
+	probe.configure(cfg)
+	return probe, nil
 }
 
 func (p *SSRF) Name() string { return "mcptool.SSRF" }
@@ -154,7 +156,7 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 		if name == "" {
 			continue
 		}
-		for _, ts := range toolSignatures(tool) {
+		for _, ts := range toolSignatures(tool, p.valueChain(ctx, name)) {
 			// Only worth a real invocation if this probe has something to send this
 			// signature. Gated on the SIGNATURE, not on the parameter needing
 			// candidates: the uncandidated parameter is typically a discriminator that

@@ -170,11 +170,13 @@ type PathTraversal struct {
 // NewPathTraversal reads pathtraversal_all_string_params + the shared
 // tool-safety config keys (allow_destructive, tool_allowlist, tool_denylist).
 func NewPathTraversal(cfg registry.Config) (probes.Prober, error) {
-	return &PathTraversal{
+	probe := &PathTraversal{
 		allParams:                 registry.GetBool(cfg, "pathtraversal_all_string_params", false),
 		requireReadOnlyAnnotation: registry.GetBool(cfg, "pathtraversal_require_readonly_annotation", false),
 		policy:                    toolpolicy.New(cfg),
-	}, nil
+	}
+	probe.configure(cfg)
+	return probe, nil
 }
 
 func (p *PathTraversal) Name() string { return "mcptool.PathTraversal" }
@@ -247,7 +249,7 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 		}
 		desc, _ := tool["description"].(string)
 		hintedPrefixes := extractHintedPrefixes(desc)
-		for _, ts := range toolSignatures(tool) {
+		for _, ts := range toolSignatures(tool, p.valueChain(ctx, name)) {
 			// Discovery is a REAL invocation, so it only runs against a tool this
 			// probe is going to test anyway. Gating on the tool (does it expose a
 			// path-shaped parameter?) rather than on the parameter that needs

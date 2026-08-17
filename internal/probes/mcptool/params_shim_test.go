@@ -21,7 +21,7 @@ import (
 
 // toolParams returns the parameters of a tool's first call signature.
 func toolParams(tool map[string]any) []paramInfo {
-	sigs := toolSignatures(tool)
+	sigs := toolSignatures(tool, nil)
 	if len(sigs) == 0 {
 		return nil
 	}

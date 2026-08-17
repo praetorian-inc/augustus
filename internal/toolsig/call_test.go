@@ -278,3 +278,58 @@ func TestFlatSchemaBuildsFlatArguments(t *testing.T) {
 		t.Errorf("Args() = %#v, want %#v (no nesting, no invented keys)", got, want)
 	}
 }
+
+// Operator configuration is read from the same shape the config file uses, and
+// binds by selector so one rule covers a value appearing in every tool.
+func TestRulesFromConfig(t *testing.T) {
+	cfg := map[string]any{"values": []any{
+		map[string]any{
+			"match": map[string]any{"name": "tenant_uid"},
+			"value": "1234567890123456789",
+		},
+		map[string]any{
+			"match": map[string]any{"tool": "get_account", "path": "params.id"},
+			"value": "ACC-1",
+		},
+		map[string]any{"match": map[string]any{}, "value": "unconstrained"}, // dropped
+		map[string]any{"match": map[string]any{"name": "x"}},                // no value, dropped
+	}}
+
+	rules := RulesFromConfig(cfg)
+	if len(rules) != 2 {
+		t.Fatalf("got %d rules, want 2 (a rule constraining nothing and a rule with no value are both dropped)", len(rules))
+	}
+
+	src := FromRules("get_account", rules)
+	if v, ok := src.Value(Param{Path: "tenant_uid"}); !ok || v != "1234567890123456789" {
+		t.Errorf("tenant_uid = %v (ok=%v)", v, ok)
+	}
+	if v, ok := src.Value(Param{Path: "params.id"}); !ok || v != "ACC-1" {
+		t.Errorf("params.id = %v (ok=%v)", v, ok)
+	}
+}
+
+// An operator can always decline to write a rule, but if configuration ranked
+// below an inferred value there would be no way to override a wrong inference at
+// all. Explicit therefore beats inferred.
+func TestConfigOutranksObserved(t *testing.T) {
+	observed := FromObserved(func(p Param) (any, bool) {
+		if p.Path == "tenant_uid" {
+			return "FROM_RESPONSE", true
+		}
+		return nil, false
+	})
+	rules := FromRules("t", []Rule{{Name: "tenant_uid", Value: "FROM_CONFIG"}})
+
+	chain := Chain{rules, observed}
+	v, from, ok := chain.Value(Param{Path: "tenant_uid"})
+	if !ok || v != "FROM_CONFIG" || from != "config" {
+		t.Errorf("value = %v from %q (ok=%v), want FROM_CONFIG from config", v, from, ok)
+	}
+
+	// With no rule written, the observed value is used.
+	v, from, ok = Chain{FromRules("t", nil), observed}.Value(Param{Path: "tenant_uid"})
+	if !ok || v != "FROM_RESPONSE" || from != "observed" {
+		t.Errorf("value = %v from %q (ok=%v), want FROM_RESPONSE from observed", v, from, ok)
+	}
+}

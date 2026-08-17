@@ -1,5 +1,7 @@
 package recon
 
+import "github.com/praetorian-inc/augustus/internal/observed"
+
 // ProbeContext carries shared assessment state gathered before probes run. It is
 // delivered to probes that opt in via ContextAwareProbe, letting them reuse prior
 // reconnaissance (e.g. an MCP tool inventory) instead of re-deriving it — the
@@ -8,6 +10,16 @@ type ProbeContext struct {
 	// Recon is the shared observation store populated by the recon phase.
 	// The runner always delivers a non-nil store (it may be empty).
 	Recon *Store
+
+	// Observed holds the values seen in tool responses so far, so a value a
+	// server handed out during reconnaissance can fill a parameter a probe would
+	// otherwise have nothing to put in. Shared across the whole assessment: the
+	// point is that recon's reading is available to every probe that follows.
+	//
+	// Values are partitioned by the identity that observed them, and a probe
+	// asking for another identity's values has to say so; see the observed
+	// package for why that separation is load-bearing.
+	Observed *observed.Store
 }
 
 // ContextAwareProbe is implemented by probes that consume prior reconnaissance.

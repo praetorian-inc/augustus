@@ -54,14 +54,16 @@ type Injection struct {
 // out-of-band collector settings (all defaulted so a localhost target works with
 // zero config).
 func NewInjection(cfg registry.Config) (probes.Prober, error) {
-	return &Injection{
+	probe := &Injection{
 		canary:       mcpprobe.NewCanary(),
 		policy:       toolpolicy.New(cfg),
 		listen:       registry.GetString(cfg, "oob_listen", "127.0.0.1:0"),
 		baseOverride: registry.GetString(cfg, "oob_base_url", ""),
 		wait:         time.Duration(registry.GetInt(cfg, "oob_wait_seconds", 3)) * time.Second,
 		marker:       "AUGOOB" + mcpprobe.RandToken(),
-	}, nil
+	}
+	probe.configure(cfg)
+	return probe, nil
 }
 
 func (p *Injection) Name() string { return "mcptool.Injection" }
@@ -158,7 +160,7 @@ sending:
 		// One signature per concrete way the tool can be called. A tool with no
 		// conditionals yields exactly one, holding the same parameters the flat
 		// parser used to produce.
-		for _, ts := range toolSignatures(tool) {
+		for _, ts := range toolSignatures(tool, p.valueChain(ctx, name)) {
 			ts = ts.discoverValues(ctx, inv, name)
 			for _, param := range ts.params {
 				if !isStringParam(param.typ) {

@@ -60,7 +60,9 @@ type ResponseLeak struct {
 // NewResponseLeak constructs the probe with the shared tool-safety policy parsed
 // from config (allow_destructive, tool_allowlist, tool_denylist).
 func NewResponseLeak(cfg registry.Config) (probes.Prober, error) {
-	return &ResponseLeak{policy: toolpolicy.New(cfg)}, nil
+	probe := &ResponseLeak{policy: toolpolicy.New(cfg)}
+	probe.configure(cfg)
+	return probe, nil
 }
 
 func (p *ResponseLeak) Name() string { return "mcptool.ResponseLeak" }
@@ -131,7 +133,7 @@ func (p *ResponseLeak) Probe(ctx context.Context, gen types.Generator) ([]*attem
 		if name == "" {
 			continue
 		}
-		for _, ts := range toolSignatures(tool) {
+		for _, ts := range toolSignatures(tool, p.valueChain(ctx, name)) {
 			for _, c := range argCases(ts) {
 				if err := ctx.Err(); err != nil {
 					return attempts, err
