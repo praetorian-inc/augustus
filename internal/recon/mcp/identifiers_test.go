@@ -459,11 +459,30 @@ func TestSameAsBaseline_IgnoresAPerResponseNonce(t *testing.T) {
 }
 
 func TestSameAsBaseline_NonceMaskingToleratesKeyStyles(t *testing.T) {
-	for _, key := range []string{"trace_id", "traceId", "Trace-ID", "requestId", "correlation_id", "nonce", "etag"} {
+	for _, key := range []string{"trace_id", "traceId", "Trace-ID", "trace", "traceUUID"} {
 		base := `{"error":"nope","` + key + `":"one"}`
 		cand := `{"error":"nope","` + key + `":"two"}`
 		if !sameAsBaseline(cand, "", base, "") {
 			t.Errorf("%s: a per-call field in this style must be masked", key)
+		}
+	}
+}
+
+// The vocabulary is deliberately just "trace". On a surface where the domain
+// object IS a request, request_id holds a persistent identifier; masking it would
+// erase a legitimate response difference and discard a real candidate, so
+// authorization coverage for that resource would vanish with nothing in the
+// output to say so. A missing entry leaves visible junk; a wrong entry loses
+// coverage silently, which is worse.
+func TestNonceVocabularyExcludesPlausibleDomainFields(t *testing.T) {
+	for _, key := range []string{"request_id", "req_id", "correlation_id", "span_id", "etag", "nonce", "timestamp", "order_id"} {
+		if isNonceKey(key) {
+			t.Errorf("%s is treated as a nonce; it can be a real domain identifier", key)
+		}
+		base := `{"error":"nope","` + key + `":"one"}`
+		cand := `{"error":"nope","` + key + `":"two"}`
+		if sameAsBaseline(cand, "", base, "") {
+			t.Errorf("%s: a difference in this field must still count as a difference", key)
 		}
 	}
 }
@@ -496,15 +515,15 @@ func TestSameAsBaseline_RealWorldEnvelopeShape(t *testing.T) {
 // genuinely different answers would compare equal and a real object would be
 // rejected.
 func TestSameAsBaseline_NonceMaskingKeepsContainers(t *testing.T) {
-	base := `{"request":{"filters":{"status":"open"}},"id":"NX"}`
-	cand := `{"request":{"filters":{"status":"CLOSED"}},"id":"C1"}`
+	base := `{"trace":{"filters":{"status":"open"}},"id":"NX"}`
+	cand := `{"trace":{"filters":{"status":"CLOSED"}},"id":"C1"}`
 	if sameAsBaseline(cand, "C1", base, "NX") {
 		t.Error("a real difference inside a nonce-NAMED container must not be discarded")
 	}
 
 	// A scalar under the same name is still masked.
-	b2 := `{"request_id":"one","id":"NX"}`
-	c2 := `{"request_id":"two","id":"C1"}`
+	b2 := `{"trace_id":"one","id":"NX"}`
+	c2 := `{"trace_id":"two","id":"C1"}`
 	if !sameAsBaseline(c2, "C1", b2, "NX") {
 		t.Error("a scalar nonce must still be masked")
 	}
@@ -527,16 +546,37 @@ func TestSameAsBaseline_NonJSONIsLeftAlone(t *testing.T) {
 // parameter on the surface, and every one of those calls is wasted.
 func TestExtractIDs_SkipsPerCallIdentifiers(t *testing.T) {
 	re := wordBoundaryRE(defaultIDParamWords)
-	got := extractIDs(re, `{"contract_id":"C-1","trace_id":"TR-9","request_id":"RQ-9"}`, nil)
+	got := extractIDs(re, `{"contract_id":"C-1","trace_id":"TR-9"}`, nil)
 
-	want := map[string]bool{"C-1": true}
 	for _, id := range got {
-		if !want[id] {
-			t.Errorf("harvested %q; a per-call identifier is not an object identifier", id)
+		if id == "TR-9" {
+			t.Error("harvested the trace id; it identifies a call, not an object")
 		}
 	}
-	if len(got) != 1 {
+	if len(got) != 1 || got[0] != "C-1" {
 		t.Errorf("harvested %v, want just the contract id", got)
+	}
+}
+
+// Skipping the VALUE must not skip the subtree. A response nesting real
+// identifiers under a nonce-named envelope would otherwise yield no candidates at
+// all, and the authorization probe would emit no attempts against that surface —
+// reporting clean on something never examined.
+func TestExtractIDs_WalksThroughNonceNamedContainers(t *testing.T) {
+	re := wordBoundaryRE(defaultIDParamWords)
+	got := extractIDs(re, `{"trace":{"order_id":"O1"},"trace_id":"TR-9"}`, nil)
+
+	found := false
+	for _, id := range got {
+		if id == "O1" {
+			found = true
+		}
+		if id == "TR-9" {
+			t.Error("harvested the trace id itself")
+		}
+	}
+	if !found {
+		t.Errorf("harvested %v; an identifier nested under a nonce-named container must still be found", got)
 	}
 }
 

@@ -713,27 +713,32 @@ func sameAsBaseline(candText, candID, baseText, baseID string) bool {
 	return norm(candText) == norm(baseText)
 }
 
-// nonceKeyWords name response fields that carry a fresh value on every call and
+// nonceKeyWords names response fields that carry a fresh value on every call and
 // therefore say nothing about whether two answers are the same. They are also
 // not object identifiers, so they must not be harvested as candidates.
 //
-// FUTURE WORK: derive this instead of listing it. Calling the not-found baseline
-// twice and treating any field that differs between the two as noise needs no
-// vocabulary at all and catches names this list will always miss (timestamps,
-// server-generated cursors, signed URLs). The list is here because it is
-// correct for the common case today and costs no extra requests; the dynamic
-// version costs one more baseline call per slot.
+// Deliberately just "trace". A wider vocabulary is not a safer one: on a surface
+// where the domain object IS a request, "request_id" and "req_id" hold persistent
+// identifiers, so listing those stems made extractIDs discard real identifiers
+// and made sameAsBaseline erase legitimate response differences — authorization
+// coverage for that resource would disappear with nothing in the output to say
+// so. The same argument retires "correlation", "span", "etag", "ray", "nonce",
+// "csrf" and the timestamp stems: each is plausibly a domain field somewhere, and
+// the cost of a wrong entry (silent loss of coverage) is worse than the cost of a
+// missing one (the pre-existing bug, which is at least visible as junk).
+//
+// "trace" is kept because it is the one stem with no plausible domain meaning as
+// an object identifier, and it is the field that produced the bug in practice.
+//
 // Stems only: nonceKeyRE allows an id/uid/uuid suffix, so listing both "trace"
 // and "traceid" would be the same entry twice.
-var nonceKeyWords = []string{
-	"trace", "traceparent", "tracestate",
-	"span",
-	"request", "req",
-	"correlation",
-	"nonce", "csrf", "xsrf",
-	"etag", "ray",
-	"timestamp", "servertime", "generatedat",
-}
+//
+// FUTURE WORK: derive this instead of listing it. Calling the not-found baseline
+// twice and treating any field that differs between the two as noise needs no
+// vocabulary at all, is immune to the domain-collision problem above, and catches
+// what no list can (timestamps, server-generated cursors, signed URLs). It costs
+// one extra baseline request per slot, which is the only reason it is not here.
+var nonceKeyWords = []string{"trace"}
 
 // isScalar reports whether a decoded JSON value is a leaf. Containers are never
 // nonces however they are named.
@@ -933,14 +938,19 @@ func extractIDs(idRE *regexp.Regexp, text string, raw []byte) []string {
 		case map[string]any:
 			for _, k := range sortedMapKeys(t) {
 				val := t[k]
-				// A trace or request id matches the id matcher ("trace_id" splits
-				// to trace + id) but identifies a CALL, not an object. Harvested,
-				// it is then offered to every identifier-shaped parameter on the
-				// surface, and every one of those calls is wasted.
-				if isNonceKey(k) {
-					continue
-				}
-				keyMatch := matchWord(idRE, k)
+				// A trace id matches the id matcher ("trace_id" splits to trace +
+				// id) but identifies a CALL, not an object. Harvested, it is then
+				// offered to every identifier-shaped parameter on the surface, and
+				// every one of those calls is wasted.
+				//
+				// Skip only the VALUE, and keep walking. A response may nest real
+				// identifiers under a nonce-named envelope ({"trace":{"order_id":
+				// "O1"}}); skipping the subtree would lose them, leaving the
+				// candidate set empty and the authorization probe with nothing to
+				// test — a silent loss of coverage, which is the failure this whole
+				// change exists to avoid.
+				nonce := isNonceKey(k)
+				keyMatch := matchWord(idRE, k) && !nonce
 				if keyMatch {
 					add(scalarString(val))
 				}
