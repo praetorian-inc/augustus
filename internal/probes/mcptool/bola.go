@@ -147,10 +147,6 @@ func (p *BOLA) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 	// The values the attacker's OWN calls carried, keyed by argument path. See
 	// attackerArgValues: without these the replay is not an attack at all.
 	mine := attackerArgValues(identities, p.attackerLabel)
-	if len(mine) == 0 {
-		slog.Warn("mcptool.BOLA: the attacker identity confirmed no objects of its own, so no argument values are known for it and each replay must inherit the victim's non-identifier arguments. Where identity is carried in an argument rather than in the transport, such a call speaks AS the victim and a served response proves nothing. Attempts are marked with what they inherited.",
-			"attacker_identity_label", p.attackerLabel)
-	}
 
 	var attempts []*attempt.Attempt
 	for _, id := range identities {
@@ -173,7 +169,102 @@ func (p *BOLA) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 			attempts = append(attempts, p.callVictimObject(ctx, attacker, id.Identity, obj, ownObj, hasOwn, mine))
 		}
 	}
+	p.reportInheritedArgs(gen, attempts)
 	return attempts, nil
+}
+
+// reportInheritedArgs says something about the attack calls that had to borrow an
+// argument from the victim, and says it only when there were any.
+//
+// The risk being reported is narrow and worth stating exactly. An attack is
+// sound when the only thing crossing the identity boundary is the IDENTIFIER. An
+// argument the attacker had no value of its own for is borrowed from the
+// victim's validated call, and IF that argument is what tells the server who is
+// calling, the request speaks as the victim and a served response says nothing
+// about authorization.
+//
+// That "if" is the whole caveat, and it turns on where identity travels:
+//
+//	transport  — the session carries credentials, so a borrowed ARGUMENT cannot
+//	             be what identifies the caller. Nothing to warn about; recorded
+//	             at debug so the borrowing is still traceable.
+//	arguments  — no credentials are configured, so identity must be carried in
+//	             the request body if it is carried at all. This is the case the
+//	             caveat is for, and it is stated plainly.
+//	unknown    — the generator cannot say. The borrowing is reported and the
+//	             conclusion is not drawn, because asserting "proves nothing"
+//	             about a genuine finding is worse than admitting uncertainty.
+//
+// An earlier version of this warning fired on "the attacker supplied no argument
+// values" and announced that the attacker had confirmed no objects of its own.
+// Both were wrong. attackerArgValues excludes each reference's own identifier
+// slot by construction, so a getter whose ONLY argument is the identifier always
+// produces an empty set — with any number of confirmed objects — and the warning
+// fired, unconditionally, on every such surface. Measured: it fired on a
+// judge-confirmed cross-tenant leak and told the reviewer the leak proved
+// nothing.
+func (p *BOLA) reportInheritedArgs(gen types.Generator, attempts []*attempt.Attempt) {
+	borrowed := map[string]bool{}
+	tools := map[string]bool{}
+	for _, a := range attempts {
+		paths, _ := a.Metadata[metaBOLAInheritedArgs].(string)
+		if paths == "" {
+			continue
+		}
+		for _, path := range strings.Split(paths, ",") {
+			borrowed[path] = true
+		}
+		if tool, _ := a.Metadata["mcptool.tool"].(string); tool != "" {
+			tools[tool] = true
+		}
+	}
+	if len(borrowed) == 0 {
+		return
+	}
+	args, toolNames := sortedKeys(borrowed), sortedKeys(tools)
+
+	headers, known := transportIdentity(gen)
+	switch {
+	case known && len(headers) > 0:
+		slog.Debug("mcptool.BOLA: some attack calls reused an argument from the victim's validated call because the attacker had no value of its own for it. The attacker's identity is carried in the transport, so a reused argument is not what identifies the caller and the replay still speaks as the attacker.",
+			"attacker_identity_label", p.attackerLabel,
+			"credential_headers", strings.Join(headers, ","),
+			"inherited_args", strings.Join(args, ","), "tools", strings.Join(toolNames, ","))
+	case known:
+		slog.Warn("mcptool.BOLA: some attack calls reused an argument from the victim's validated call because the attacker had no value of its own for it, and NO credentials are configured for this target — so if this surface identifies its caller at all, it does so through an argument. Should one of the reused arguments be that argument, the call speaks AS the victim and a served response proves nothing about authorization. Give the attacker its own value with a values: rule. Affected attempts carry mcptool.inherited_args.",
+			"attacker_identity_label", p.attackerLabel,
+			"inherited_args", strings.Join(args, ","), "tools", strings.Join(toolNames, ","))
+	default:
+		slog.Warn("mcptool.BOLA: some attack calls reused an argument from the victim's validated call because the attacker had no value of its own for it, and this target cannot report whether credentials were configured for it — so whether identity travels in the transport or in an argument is unknown. If it travels in one of the reused arguments, those calls speak as the victim; review the affected attempts, which carry mcptool.inherited_args.",
+			"attacker_identity_label", p.attackerLabel,
+			"inherited_args", strings.Join(args, ","), "tools", strings.Join(toolNames, ","))
+	}
+}
+
+// transportIdentity reports the credential headers the target is configured
+// with, and whether that could be determined at all.
+//
+// Configured credentials mean the SESSION says who is calling, which is the fact
+// that decides whether a borrowed argument could be an identity. A generator
+// that cannot answer yields known=false, and the caller must then say it does
+// not know rather than assume either way.
+func transportIdentity(gen types.Generator) (headers []string, known bool) {
+	rep, ok := gen.(mcpprobe.CredentialReporter)
+	if !ok {
+		return nil, false
+	}
+	return rep.ConfiguredCredentialHeaders(), true
+}
+
+// sortedKeys renders a set deterministically, so the same scan logs the same
+// line twice.
+func sortedKeys(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // callVictimObject issues the attack call plus its negative (and, when available,

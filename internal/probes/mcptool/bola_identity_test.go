@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/recon"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/praetorian-inc/augustus/pkg/types"
@@ -152,5 +153,120 @@ func TestBOLA_NamesArgumentsInheritedFromTheVictim(t *testing.T) {
 	}
 	if got := attempts[0].Metadata[metaBOLAInheritedArgs]; got != "region" {
 		t.Errorf("inherited arguments = %v, want %q so a reviewer can see what the attack borrowed from the victim", got, "region")
+	}
+}
+
+// credentialTarget is a recordingTarget that also declares whether the operator
+// configured credentials for it — the fact that decides whether an argument
+// borrowed from the victim could be the thing identifying the caller.
+type credentialTarget struct {
+	recordingTarget
+	headers []string
+}
+
+func (c *credentialTarget) ConfiguredCredentialHeaders() []string { return c.headers }
+
+// TestBOLA_DoesNotClaimTheAttackerOwnsNothing locks the fix for a warning that
+// was false on exactly the runs that mattered.
+//
+// It fired on "the attacker supplied no argument values" and announced that the
+// attacker had confirmed no objects of its own. attackerArgValues excludes each
+// reference's own identifier slot by construction, so a getter whose ONLY
+// argument is the identifier — a very common shape — always produces an empty
+// set no matter how many objects the attacker owns. The warning therefore fired
+// unconditionally on such a surface, and told the reviewer that a served
+// response "proves nothing" on a run that was a genuine, judge-confirmed
+// cross-tenant leak.
+//
+// The condition worth reporting is not "no values were recovered" but "an
+// argument had to be borrowed from the victim", and even then only when identity
+// might travel in an argument.
+func TestBOLA_DoesNotClaimTheAttackerOwnsNothing(t *testing.T) {
+	store := recon.NewStore()
+	// Both identities own objects, and the getter's only argument IS the
+	// identifier — so nothing is ever borrowed.
+	observeIdentifiers(t, store, types.MCPIdentifiers{
+		Identity: "primary",
+		Objects: []types.MCPObjectRef{{
+			Tool: "get_record", Param: "record_id", ParamPath: "record_id",
+			ID: "rec_a1", Args: map[string]any{"record_id": "rec_a1"},
+		}},
+	})
+	observeIdentifiers(t, store, types.MCPIdentifiers{
+		Identity: "secondary",
+		Objects: []types.MCPObjectRef{{
+			Tool: "get_record", Param: "record_id", ParamPath: "record_id",
+			ID: "rec_b1", Args: map[string]any{"record_id": "rec_b1"},
+		}},
+	})
+
+	p := newBOLAProbe(t, registry.Config{"attacker_identity_label": "primary"})
+	p.SetContext(recon.ProbeContext{Recon: store})
+	target := &credentialTarget{
+		recordingTarget: recordingTarget{reply: func(_ string, _ map[string]any) types.ToolResult {
+			return types.ToolResult{Text: `{"record_id":"rec_b1","owner":"secondary"}`}
+		}},
+		headers: []string{"Authorization"},
+	}
+	attempts, err := p.Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if len(attempts) != 1 {
+		t.Fatalf("got %d attempts, want 1", len(attempts))
+	}
+	// Nothing was borrowed, so nothing may be caveated. A getter whose only
+	// argument is the identifier is the case the old warning got wrong.
+	if got, present := attempts[0].Metadata[metaBOLAInheritedArgs]; present {
+		t.Errorf("attempt reports inherited arguments %v, but the only argument is the identifier the attack is supposed to send", got)
+	}
+}
+
+// TestBOLA_ReportsInheritanceOnlyWhereItCouldMatter: the caveat belongs to calls
+// that actually borrowed something. It must attach to those and not to the rest.
+func TestBOLA_ReportsInheritanceOnlyWhereItCouldMatter(t *testing.T) {
+	store := recon.NewStore()
+	observeIdentifiers(t, store, types.MCPIdentifiers{
+		Identity: "primary",
+		Objects: []types.MCPObjectRef{{
+			Tool: "get_record", Param: "record_id", ParamPath: "record_id",
+			ID: "rec_a1", Args: map[string]any{"record_id": "rec_a1"},
+		}},
+	})
+	observeIdentifiers(t, store, types.MCPIdentifiers{
+		Identity: "secondary",
+		Objects: []types.MCPObjectRef{
+			{
+				Tool: "get_record", Param: "record_id", ParamPath: "record_id",
+				ID: "rec_b1", Args: map[string]any{"record_id": "rec_b1"},
+			},
+			{
+				Tool: "get_doc", Param: "doc_id", ParamPath: "doc_id",
+				ID: "doc_b1", Args: map[string]any{"doc_id": "doc_b1", "workspace": "ws-b"},
+			},
+		},
+	})
+
+	p := newBOLAProbe(t, registry.Config{"attacker_identity_label": "primary"})
+	p.SetContext(recon.ProbeContext{Recon: store})
+	target := &credentialTarget{
+		recordingTarget: recordingTarget{reply: func(_ string, _ map[string]any) types.ToolResult {
+			return types.ToolResult{Text: `{"ok":true}`}
+		}},
+	}
+	attempts, err := p.Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	byTool := map[string]*attempt.Attempt{}
+	for _, a := range attempts {
+		tool, _ := a.Metadata["mcptool.tool"].(string)
+		byTool[tool] = a
+	}
+	if got, present := byTool["get_record"].Metadata[metaBOLAInheritedArgs]; present {
+		t.Errorf("get_record reports inherited arguments %v, but its only argument is the identifier", got)
+	}
+	if got := byTool["get_doc"].Metadata[metaBOLAInheritedArgs]; got != "workspace" {
+		t.Errorf("get_doc inherited arguments = %v, want %q — the attacker has no workspace of its own", got, "workspace")
 	}
 }
