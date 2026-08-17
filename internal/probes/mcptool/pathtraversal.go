@@ -226,7 +226,7 @@ func (p *PathTraversal) GetPrompts() []string {
 // annotations, and dispatches. Returns no attempts for non-ToolInvoker
 // targets.
 func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
-	inv, ok := gen.(types.ToolInvoker)
+	inv, ok := p.invoker(gen)
 	if !ok {
 		return nil, fmt.Errorf("mcptool.PathTraversal: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
 	}
@@ -275,10 +275,6 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 					continue
 				}
 				pathParamSeen = true
-				if a := ts.untestedAttempt(p.Name(), p.GetPrimaryDetector(), param); a != nil {
-					attempts = append(attempts, a)
-					continue
-				}
 				// Baselines are kept per payload so each prefix-append variant can be
 				// compared against the unprefixed attempt for the SAME target file.
 				baselines := make([]*attempt.Attempt, 0, len(payloads))

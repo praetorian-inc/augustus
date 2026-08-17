@@ -44,8 +44,14 @@ func (r *reconContext) configure(cfg registry.Config) {
 
 // invoker returns the target's tool interface with response recording attached,
 // so that every value the target hands back becomes available to fill a later
-// argument. Wrapping here rather than at each call site means no probe has to
-// remember to do it, and forgetting cannot silently cost coverage.
+// argument.
+//
+// Every probe MUST obtain its invoker here rather than asserting on the
+// generator directly. A probe that asserts its own is not wrapped, so nothing it
+// learns is recorded: it cannot use a value from its own earlier call, and no
+// later probe can either. The cost of forgetting is silent — a parameter that
+// could have been filled simply never is, and the tool reports as untestable for
+// a reason nothing in the output explains.
 func (r *reconContext) invoker(gen types.Generator) (types.ToolInvoker, bool) {
 	inv, ok := gen.(types.ToolInvoker)
 	if !ok {

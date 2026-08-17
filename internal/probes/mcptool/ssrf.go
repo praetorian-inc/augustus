@@ -118,7 +118,7 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 	// catalog, so the canary URLs must be sent to the real target. A
 	// non-ToolInvoker target cannot be tested — fail loud rather than return a
 	// clean-looking empty result (a silent false negative for a scanner).
-	inv, ok := gen.(types.ToolInvoker)
+	inv, ok := p.invoker(gen)
 	if !ok {
 		return nil, fmt.Errorf("mcptool.SSRF: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
 	}
@@ -169,10 +169,6 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 					continue
 				}
 				if !p.allParams && !urlParamRE.MatchString(param.name) {
-					continue
-				}
-				if a := ts.untestedAttempt(p.Name(), p.GetPrimaryDetector(), param); a != nil {
-					attempts = append(attempts, a)
 					continue
 				}
 				// Same placement matrix as mcptool.Injection: the bare canary URL

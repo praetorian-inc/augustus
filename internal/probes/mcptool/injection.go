@@ -115,7 +115,7 @@ func (p *Injection) Probe(ctx context.Context, gen types.Generator) ([]*attempt.
 	// catalog, so the payloads must be sent to the real target. A non-ToolInvoker
 	// target cannot be tested by this probe — fail loud rather than return a
 	// clean-looking empty result (a silent false negative for a scanner).
-	inv, ok := gen.(types.ToolInvoker)
+	inv, ok := p.invoker(gen)
 	if !ok {
 		return nil, fmt.Errorf("mcptool.Injection: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
 	}
@@ -164,10 +164,6 @@ sending:
 			ts = ts.discoverValues(ctx, inv, name)
 			for _, param := range ts.params {
 				if !isStringParam(param.typ) {
-					continue
-				}
-				if a := ts.untestedAttempt(p.Name(), p.GetPrimaryDetector(), param); a != nil {
-					attempts = append(attempts, a)
 					continue
 				}
 				// In-band computed-canary payloads (eval / SSTI / shell arithmetic).

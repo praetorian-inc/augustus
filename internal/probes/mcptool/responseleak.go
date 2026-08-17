@@ -102,7 +102,7 @@ func (p *ResponseLeak) GetPrompts() []string { return nil }
 // argument cases. Returns no attempts (and no error) when the target advertises
 // no testable tool surface.
 func (p *ResponseLeak) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
-	inv, ok := gen.(types.ToolInvoker)
+	inv, ok := p.invoker(gen)
 	if !ok {
 		return nil, fmt.Errorf("mcptool.ResponseLeak: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
 	}

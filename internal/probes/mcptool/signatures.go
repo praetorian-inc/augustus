@@ -3,7 +3,6 @@ package mcptool
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"sort"
 	"strings"
 
@@ -251,18 +250,6 @@ func (ts toolSig) benignArgsFor() map[string]any {
 	return call.Args()
 }
 
-// unreachable reports the required parameters of this signature that neither
-// the schema nor the probe could supply a value for, given that inject will be
-// supplied by the caller.
-//
-// A non-empty result means any verdict from this signature describes how far
-// the scanner got, not whether the tool is safe.
-func (ts toolSig) unreachable(inject paramInfo) []toolsig.Param {
-	call, _ := ts.sig.Build(ts.chain())
-	call.Set(inject.path, "")
-	return call.Unresolved()
-}
-
 // markCallOutcome records WHICH kind of failure a differential leg hit, without
 // changing the verdict.
 //
@@ -278,45 +265,4 @@ func markCallOutcome(a *attempt.Attempt, err error) {
 		return
 	}
 	mcpprobe.MarkNotTested(a, err.Error())
-}
-
-// untestedAttempt reports a parameter that could not be exercised because the
-// call it belongs to cannot be built: some OTHER required parameter of this
-// signature has no value from the schema, the operator's configuration, a hook,
-// an observed response, or the probe's own filler.
-//
-// It returns nil when the call IS buildable, so a caller uses it as a guard.
-//
-// Emitting an attempt rather than skipping is the whole point. Sending the call
-// anyway means the server rejects it for a missing argument, and with refusals
-// now counted as completed tests that rejection would read as "the parameter was
-// tested and held" — which would be a false clean manufactured by the very
-// change that was meant to remove one. Skipping silently is the older version of
-// the same lie: the parameter simply never appears in the output, and a reader
-// counting covered parameters cannot tell it apart from one that was tested.
-func (ts toolSig) untestedAttempt(probe, detector string, inject paramInfo) *attempt.Attempt {
-	missing := ts.unreachable(inject)
-	if len(missing) == 0 {
-		return nil
-	}
-	names := make([]string, 0, len(missing))
-	for _, m := range missing {
-		names = append(names, string(m.Path))
-	}
-	sort.Strings(names)
-
-	a := attempt.New(fmt.Sprintf("%s %s NOT TESTED", ts.tool, inject.path))
-	a.Probe = probe
-	a.Detector = detector
-	a.Metadata["mcptool.tool"] = ts.tool
-	a.Metadata["mcptool.param"] = string(inject.path)
-	mcpprobe.MarkNotTested(a, fmt.Sprintf(
-		"no source could supply the required parameter(s) %s, so no call exercising %s could be built",
-		strings.Join(names, ", "), inject.path))
-	a.Metadata[attempt.MetadataKeyInconclusive] = true
-	a.Metadata[attempt.MetadataKeyInconclusiveReason] = a.Metadata[attempt.MetadataKeyNotTestedReason]
-	slog.Warn("mcptool: a parameter was NOT tested because the call could not be built; supply the missing value with a values: rule. This is NOT a clean result for that parameter.",
-		"probe", probe, "tool", ts.tool, "param", string(inject.path), "missing", strings.Join(names, ","))
-	a.SetError(&toolsig.UnresolvedError{Tool: ts.tool, Params: missing})
-	return a
 }

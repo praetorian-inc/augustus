@@ -106,7 +106,7 @@ func (p *BOLA) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 	if len(identities) == 0 {
 		return nil, nil
 	}
-	attacker, ok := gen.(types.ToolInvoker)
+	attacker, ok := p.invoker(gen)
 	if !ok {
 		slog.Warn("mcptool.BOLA: target is not a ToolInvoker; skipping")
 		return nil, nil

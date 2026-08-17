@@ -223,7 +223,7 @@ func (p *TokenValidation) GetPrompts() []string {
 
 // Probe gathers the evidence; the detector renders the verdict.
 func (p *TokenValidation) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
-	inv, ok := gen.(types.ToolInvoker)
+	inv, ok := p.invoker(gen)
 	if !ok {
 		return nil, fmt.Errorf("mcptool.TokenValidation: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
 	}
