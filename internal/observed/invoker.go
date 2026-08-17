@@ -46,7 +46,11 @@ func (r *recorder) ListTools(ctx context.Context) ([]map[string]any, error) {
 func (r *recorder) CallTool(ctx context.Context, name string, args map[string]any) (types.ToolResult, error) {
 	res, err := r.inner.CallTool(ctx, name, args)
 	if err == nil {
-		r.store.Record(r.identity, name, res)
+		// The arguments go in with the response. A server that echoes its input
+		// would otherwise fill the store with the scanner's own placeholders, and
+		// since the newest value wins they would outrank the identifiers the
+		// target genuinely handed out.
+		r.store.RecordCall(r.identity, name, args, res)
 	}
 	return res, err
 }

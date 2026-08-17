@@ -25,6 +25,7 @@ package observed
 
 import (
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 	"sync"
@@ -81,17 +82,62 @@ func New() *Store { return &Store{byKey: make(map[string][]Value)} }
 // Text is preferred over Raw: for an MCP result Raw is the protocol envelope
 // with the payload nested as an escaped string, so walking it would find the
 // envelope's own keys rather than the object the tool returned.
+//
+// Prefer RecordCall: without the arguments that produced the response there is
+// no way to tell what the server KNOWS from what the scanner just told it.
 func (s *Store) Record(identity, tool string, res types.ToolResult) {
+	s.RecordCall(identity, tool, nil, res)
+}
+
+// RecordCall records a response and ignores the values the caller just SENT.
+//
+// A response that repeats an argument back is not telling us anything. Many
+// servers echo their input — as a confirmation block, in a validation message,
+// or in the object they return — and without this the store fills up with the
+// scanner's own placeholders and sentinels. Since the most recently seen value
+// wins, that junk then OUTRANKS the identifiers the target actually handed out.
+//
+// Measured live: after one reconnaissance pass, the store's answer for
+// "tenant_id" was the deliberately-nonexistent sentinel recon uses to establish
+// a not-found baseline, and its answer for "object_id" was a tenant identifier
+// that recon had tried in that slot. Both had been echoed straight back. Every
+// probe that followed built its calls out of them.
+//
+// An echo is matched on the argument's own NAME as well as its value, so a value
+// the server returns under a DIFFERENT key than the one it was sent under is
+// kept: that repetition is the server saying something (this object's owner is
+// the tenant you asked as), rather than repeating what it was told.
+func (s *Store) RecordCall(identity, tool string, sent map[string]any, res types.ToolResult) {
 	root, ok := decode(res.Raw, res.Text)
 	if !ok {
 		return
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.walk(root, "", "", identity, tool, 1)
+	s.walk(root, "", "", identity, tool, 1, echoesOf(sent))
 }
 
-func (s *Store) walk(v any, key, parent, identity, tool string, depth int) {
+// echoesOf renders the arguments of a call as the set of (key, value) pairs that
+// would be an echo if they came back.
+func echoesOf(sent map[string]any) map[string]bool {
+	if len(sent) == 0 {
+		return nil
+	}
+	out := map[string]bool{}
+	for path, v := range toolsig.FlattenArgs(sent) {
+		if !usable(v) {
+			continue
+		}
+		out[echoKey(path.Leaf(), v)] = true
+	}
+	return out
+}
+
+func echoKey(key string, v any) string {
+	return normalize(key) + "\x00" + fmt.Sprint(v)
+}
+
+func (s *Store) walk(v any, key, parent, identity, tool string, depth int, echoes map[string]bool) {
 	if depth > maxDepth {
 		return
 	}
@@ -105,15 +151,18 @@ func (s *Store) walk(v any, key, parent, identity, tool string, depth int) {
 		}
 		sort.Strings(keys)
 		for _, k := range keys {
-			s.walk(t[k], k, key, identity, tool, depth+1)
+			s.walk(t[k], k, key, identity, tool, depth+1, echoes)
 		}
 	case []any:
 		// An array element inherits its container's key, so items of "contracts"
 		// are seen as belonging to "contracts" rather than to nothing.
 		for _, e := range t {
-			s.walk(e, key, parent, identity, tool, depth+1)
+			s.walk(e, key, parent, identity, tool, depth+1, echoes)
 		}
 	default:
+		if echoes[echoKey(key, v)] {
+			return // the caller sent this; the server is repeating, not telling
+		}
 		s.record(key, parent, v, identity, tool)
 	}
 }
