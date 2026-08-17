@@ -195,6 +195,13 @@ type identitySession struct {
 	inv   types.ToolInvoker
 	// chain supplies argument values for this identity's calls.
 	chain toolsig.Chain
+	// scope is the OPERATOR-supplied half of that chain: the values an operator
+	// declared for this identity, such as its tenant. It is kept separate because
+	// a declared value is a statement about who this identity IS, while the rest
+	// of the chain is made of values discovered during the scan. Only the former
+	// can say that a candidate names the identity's scope rather than an object it
+	// owns.
+	scope toolsig.Chain
 }
 
 // SetContext implements recon.ContextAwareRecon, receiving the shared
@@ -227,6 +234,7 @@ func (m *MCPIdentifiers) session(label string, inv types.ToolInvoker, own []tool
 	if len(m.rules) > 0 {
 		chain = append(chain, toolsig.FromRules("", m.rules))
 	}
+	scope := append(toolsig.Chain{}, chain...)
 	if m.values != nil {
 		chain = append(chain, m.values.Source(label))
 	}
@@ -235,6 +243,7 @@ func (m *MCPIdentifiers) session(label string, inv types.ToolInvoker, own []tool
 		label: label,
 		inv:   observed.Wrap(inv, m.values, label),
 		chain: chain,
+		scope: scope,
 	}
 }
 
@@ -493,8 +502,14 @@ func (m *MCPIdentifiers) discover(ctx context.Context, s identitySession, specs 
 			// recorded as an object, and mcptool.BOLA then "attacked" it by sending
 			// the victim's own tenant to the victim's own tenant argument — a call
 			// that any correct server serves, reported as a cross-tenant read.
+			//
+			// The check reads the OPERATOR-declared values only, never the whole
+			// chain. The chain also carries values discovered during this scan, and
+			// a discovered identifier is exactly what a candidate is supposed to be:
+			// consulting it would make every real identifier look like the
+			// identity's own scope and discard the lot.
 			scope := ""
-			if v, _, ok := s.chain.Value(idParam); ok {
+			if v, _, ok := s.scope.Value(idParam); ok {
 				scope = fmt.Sprint(v)
 			}
 
