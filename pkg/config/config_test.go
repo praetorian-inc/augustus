@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -1299,5 +1300,88 @@ func TestInterpolateMapEnvVars_RecursesIntoLists(t *testing.T) {
 	got := m["victims"].([]any)[0].(map[string]any)["generator_config"].(map[string]any)["api_key"]
 	if got != "secret-xyz" {
 		t.Fatalf("list element not interpolated: got %v", got)
+	}
+}
+
+// TestInterpolateEnvVars_GeneratorExtra guards ${ENV} in a generator's
+// generator-specific keys, which decode into Extra rather than into a typed
+// field. Headers are the case that matters: an Authorization value written as
+// "Bearer ${TOKEN}" and shipped literally earns a 401 on every request, which
+// looks exactly like a target rejecting the credential rather than like a
+// config that never resolved. The same map under recon's victims[] was already
+// interpolated, so without this the two identities in one authorization test
+// disagreed about whether ${VAR} means anything.
+func TestInterpolateEnvVars_GeneratorExtra(t *testing.T) {
+	_ = os.Setenv("AUG_TEST_GEN_TOKEN", "tok-abc")
+	_ = os.Setenv("AUG_TEST_GEN_HOST", "example.test")
+	defer func() {
+		_ = os.Unsetenv("AUG_TEST_GEN_TOKEN")
+		_ = os.Unsetenv("AUG_TEST_GEN_HOST")
+	}()
+
+	cfg := &Config{Generators: map[string]GeneratorConfig{
+		"mcp.MCP": {
+			APIKey: "${AUG_TEST_GEN_TOKEN}",
+			Extra: map[string]any{
+				"endpoint": "https://${AUG_TEST_GEN_HOST}/mcp",
+				"headers": map[string]any{
+					"Authorization": "Bearer ${AUG_TEST_GEN_TOKEN}",
+				},
+				"tool_denylist": []any{"keep_me"},
+				"rate_limit":    1,
+			},
+		},
+	}}
+
+	if err := interpolateConfigEnvVars(cfg); err != nil {
+		t.Fatalf("interpolateConfigEnvVars: %v", err)
+	}
+
+	gen := cfg.Generators["mcp.MCP"]
+	if gen.APIKey != "tok-abc" {
+		t.Errorf("api_key = %q, want tok-abc", gen.APIKey)
+	}
+	if got := gen.Extra["endpoint"]; got != "https://example.test/mcp" {
+		t.Errorf("endpoint = %v, want https://example.test/mcp", got)
+	}
+	hdrs, ok := gen.Extra["headers"].(map[string]any)
+	if !ok {
+		t.Fatalf("headers = %T, want map[string]any", gen.Extra["headers"])
+	}
+	if got := hdrs["Authorization"]; got != "Bearer tok-abc" {
+		t.Errorf("Authorization = %v, want Bearer tok-abc", got)
+	}
+	// Non-string values must survive untouched: interpolation walks the map, it
+	// does not rewrite it.
+	if got := gen.Extra["rate_limit"]; got != 1 {
+		t.Errorf("rate_limit = %v (%T), want int 1", got, got)
+	}
+	if got := gen.Extra["tool_denylist"].([]any)[0]; got != "keep_me" {
+		t.Errorf("tool_denylist[0] = %v, want keep_me", got)
+	}
+}
+
+// A generator naming an unset variable must fail the load, and the error must
+// say which generator. Interpolation is how credentials arrive, so resolving a
+// missing one to "" would send an empty Authorization header and report the
+// resulting 401s as scan results.
+func TestInterpolateEnvVars_GeneratorExtraMissingVarNamesTheGenerator(t *testing.T) {
+	_ = os.Unsetenv("AUG_TEST_GEN_ABSENT")
+
+	cfg := &Config{Generators: map[string]GeneratorConfig{
+		"mcp.MCP": {Extra: map[string]any{
+			"headers": map[string]any{"Authorization": "Bearer ${AUG_TEST_GEN_ABSENT}"},
+		}},
+	}}
+
+	err := interpolateConfigEnvVars(cfg)
+	if err == nil {
+		t.Fatal("an unset variable must fail the load, not resolve to an empty credential")
+	}
+	if !strings.Contains(err.Error(), "mcp.MCP") {
+		t.Errorf("error %q does not name the generator; with several configured, the operator cannot tell which one to fix", err)
+	}
+	if !strings.Contains(err.Error(), "AUG_TEST_GEN_ABSENT") {
+		t.Errorf("error %q does not name the variable", err)
 	}
 }
