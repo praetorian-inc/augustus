@@ -171,6 +171,10 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 				if !p.allParams && !urlParamRE.MatchString(param.name) {
 					continue
 				}
+				if a := ts.untestedAttempt(p.Name(), p.GetPrimaryDetector(), param); a != nil {
+					attempts = append(attempts, a)
+					continue
+				}
 				// Same placement matrix as mcptool.Injection: the bare canary URL
 				// always, plus one led by a value the target declares valid. A URL
 				// argument can sit behind the same first-token allowlist a command
@@ -192,7 +196,12 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 					reflected := false
 					res, callErr := inv.CallTool(ctx, name, ts.args(param, payload))
 					if callErr != nil {
-						a.SetError(callErr)
+						// A URL the SERVER refused cannot have been fetched, so the
+						// parameter WAS tested and held. Only a call that never arrived
+						// leaves it untested. The out-of-band wait below still runs
+						// either way: a refusal at the protocol layer does not prove
+						// the server made no request before answering.
+						ts.recordCallFailure(a, param, callErr)
 					} else {
 						a.AddOutput(res.Text)
 						reflected = strings.Contains(res.Text, p.marker)

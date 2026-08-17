@@ -81,8 +81,8 @@ func TestConstructs(t *testing.T) {
 			wantPaths: []string{"ids"},
 		},
 		{
-			name: "empty schema",
-			schema: `{"type":"object"}`,
+			name:      "empty schema",
+			schema:    `{"type":"object"}`,
 			wantSigs:  1,
 			wantPaths: []string{},
 		},

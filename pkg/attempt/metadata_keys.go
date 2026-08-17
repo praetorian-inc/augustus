@@ -4,10 +4,33 @@ package attempt
 // Using these constants prevents silent breakage from key typos.
 const (
 	MetadataKeySystemPrompt = "system_prompt"
-	MetadataKeyTriggers     = "triggers"
-	MetadataKeyFlipMode     = "flip_mode"
-	MetadataKeyVariant      = "variant"
-	MetadataKeyToolCalls    = "tool_calls"
+
+	// MetadataKeyNotTested (bool) reports that the attempt never got as far as
+	// testing anything: the arguments could not be built, or the request never
+	// reached the target. Nothing about the target follows from such an attempt,
+	// and in particular it is NOT a pass.
+	//
+	// It is deliberately distinct from MetadataKeyTargetRefused below. A refusal
+	// is a completed test with a negative result; this is the absence of a test.
+	// Merging them in either direction destroys the only signal that says whether
+	// a clean-looking scan actually covered the surface it reports on.
+	MetadataKeyNotTested = "augustus.not_tested"
+
+	// MetadataKeyNotTestedReason (string) says WHY nothing was tested — which
+	// required parameter had no value, or which transport failure intervened.
+	// Mandatory alongside MetadataKeyNotTested: a bare "not tested" moves the
+	// question from the report to whoever reads it.
+	MetadataKeyNotTestedReason = "augustus.not_tested_reason"
+
+	// MetadataKeyTargetRefused (bool) reports that the call REACHED the target
+	// and the target rejected it — schema validation, an unknown method, invalid
+	// parameters. The argument was submitted and considered, so this is evidence
+	// about the target rather than a gap in coverage.
+	MetadataKeyTargetRefused = "augustus.refused_by_target"
+	MetadataKeyTriggers      = "triggers"
+	MetadataKeyFlipMode      = "flip_mode"
+	MetadataKeyVariant       = "variant"
+	MetadataKeyToolCalls     = "tool_calls"
 
 	// MetadataKeyGoal carries the probe's objective so goal-conditioned
 	// detectors (e.g. agent.ToolLeakJudge) can read it from the attempt. The

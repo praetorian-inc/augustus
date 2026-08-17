@@ -275,6 +275,10 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 					continue
 				}
 				pathParamSeen = true
+				if a := ts.untestedAttempt(p.Name(), p.GetPrimaryDetector(), param); a != nil {
+					attempts = append(attempts, a)
+					continue
+				}
 				// Baselines are kept per payload so each prefix-append variant can be
 				// compared against the unprefixed attempt for the SAME target file.
 				baselines := make([]*attempt.Attempt, 0, len(payloads))
@@ -515,7 +519,10 @@ func (p *PathTraversal) callOne(ctx context.Context, inv types.ToolInvoker, tool
 
 	res, err := inv.CallTool(ctx, tool, ts.args(param, tp.payload))
 	if err != nil {
-		a.SetError(err)
+		// A traversal payload the SERVER refused was submitted and rejected, so it
+		// reached no filesystem: a completed test with a negative result. A payload
+		// that never arrived tested nothing.
+		ts.recordCallFailure(a, param, err)
 		return a
 	}
 	// Surface the tool's own IsError signal so the detector can require a

@@ -404,6 +404,11 @@ func (p *FunctionAuthorization) assessPresence(
 		// transient error cannot read as 0.0/safe.
 		a.Metadata[attempt.MetadataKeyInconclusive] = true
 		a.Metadata[attempt.MetadataKeyInconclusiveReason] = "forged-credential call failed: " + err.Error()
+		// Both outcomes leave the comparison undrawn, so both are inconclusive —
+		// but a refusal says the target considered this call and would not run it,
+		// while a transport failure says nothing at all. The report has to be able
+		// to tell them apart.
+		markCallOutcome(a, err)
 		slog.Warn("mcptool.FunctionAuthorization: the forged-credential call failed, so this context was NOT assessed; this is not a clean result",
 			"tool", tool, "param", param, "error", err)
 		a.SetError(err)
@@ -612,6 +617,7 @@ func (p *FunctionAuthorization) sweepParam(
 			// failed legs, so a transient error surfaces for a reviewer.
 			a.Metadata[attempt.MetadataKeyInconclusive] = true
 			a.Metadata[attempt.MetadataKeyInconclusiveReason] = "privilege-discriminator call failed: " + err.Error()
+			markCallOutcome(a, err)
 			slog.Warn("mcptool.FunctionAuthorization: a privilege-discriminator candidate call failed, so that candidate was NOT assessed; this is not a clean result",
 				"tool", name, "param", string(param.Path), "candidate", candidate, "error", err)
 			a.SetError(err)

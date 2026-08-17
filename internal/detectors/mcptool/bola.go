@@ -82,6 +82,13 @@ func (d *BOLADetector) Detect(ctx context.Context, a *attempt.Attempt) ([]float6
 	if a.Error != "" {
 		return []float64{0.0}, nil
 	}
+	// The target refused the call outright, so it served no object. That is the
+	// safe outcome, established at the protocol layer without any judgement about
+	// what a served response looks like on this server — so it needs no judge and
+	// must not be escalated to one as an unexplained survivor.
+	if refused, _ := a.Metadata[attempt.MetadataKeyTargetRefused].(bool); refused {
+		return []float64{0.0}, nil
+	}
 	if len(a.Outputs) == 0 {
 		return []float64{0.0}, nil
 	}

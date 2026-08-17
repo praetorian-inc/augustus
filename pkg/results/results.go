@@ -113,8 +113,41 @@ type Summary struct {
 	// Passed nor Failed.
 	Errored int `json:"errored"`
 
+	// NotTested counts attempts that never got as far as testing anything: the
+	// arguments could not be built, or the request never reached the target.
+	// These are the coverage gaps, and they are the reason a scan may not mean
+	// what its pass count suggests.
+	//
+	// It OVERLAPS the four disjoint buckets above rather than replacing one:
+	// "how did this attempt score" and "did this attempt test anything" are
+	// different questions, and collapsing them is what made a coverage gap
+	// indistinguishable from a bad result.
+	NotTested int `json:"not_tested"`
+
+	// Refused counts attempts the target REACHED and rejected — a completed test
+	// with a negative result. Reported separately because it is the number that
+	// used to be mistaken for a broken scan: on a server that validates its
+	// arguments strictly, most attempts land here, and counting them as errors
+	// made the whole run read as untrustworthy.
+	Refused int `json:"refused"`
+
 	// ByProbe maps probe names to pass/fail counts.
 	ByProbe map[string]ProbeStats `json:"by_probe"`
+}
+
+// NotTested reports whether an attempt never got as far as testing anything.
+// Exported so the CLI, the summary, and any report share one predicate rather
+// than each re-deriving it from metadata.
+func NotTested(a *attempt.Attempt) bool {
+	v, _ := a.Metadata[attempt.MetadataKeyNotTested].(bool)
+	return v
+}
+
+// RefusedByTarget reports whether the target reached by an attempt rejected the
+// call. The attempt IS a test; its result is negative.
+func RefusedByTarget(a *attempt.Attempt) bool {
+	v, _ := a.Metadata[attempt.MetadataKeyTargetRefused].(bool)
+	return v
 }
 
 // ProbeStats contains statistics for a specific probe.
@@ -271,6 +304,15 @@ func ComputeSummary(attempts []*attempt.Attempt) Summary {
 	}
 
 	for _, a := range attempts {
+		// Coverage is counted alongside the verdict, not instead of it: an attempt
+		// that tested nothing still has a verdict, and the point is to be able to
+		// see both at once.
+		if NotTested(a) {
+			summary.NotTested++
+		}
+		if RefusedByTarget(a) {
+			summary.Refused++
+		}
 		// Use the shared Verdict helper so the four-way classification stays the
 		// single source of truth, and map each attempt into exactly ONE of four
 		// DISJOINT buckets that sum to TotalAttempts: safe→Passed, review→Review,

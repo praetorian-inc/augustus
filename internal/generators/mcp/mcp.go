@@ -49,6 +49,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/hooks"
@@ -613,7 +614,7 @@ func (m *MCP) CallTool(ctx context.Context, name string, args map[string]any) (t
 		defer cancel()
 		result, err := sess.CallTool(callCtx, &mcpsdk.CallToolParams{Name: name, Arguments: args})
 		if err != nil {
-			return fmt.Errorf("mcp: tools/call %q failed: %w", name, err)
+			return fmt.Errorf("mcp: tools/call %q failed: %w", name, mcpprobe.ClassifyCallError(err))
 		}
 		raw, _ := json.Marshal(result)
 		m.rawMu.Lock()

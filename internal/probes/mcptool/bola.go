@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	mcpx "github.com/praetorian-inc/augustus/internal/recon/mcp"
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
 	"github.com/praetorian-inc/augustus/internal/toolsig"
@@ -214,7 +215,10 @@ func (p *BOLA) callVictimObject(ctx context.Context, attacker types.ToolInvoker,
 	}
 	res, err := attacker.CallTool(ctx, obj.Tool, attackArgs)
 	if err != nil {
-		a.SetError(err)
+		// A refusal is the object NOT being served, which is the safe outcome and
+		// a completed test. A transport failure is no test at all, and the two
+		// must not both read as the probe having broken.
+		mcpprobe.RecordCallFailure(a, err)
 		return a
 	}
 	a.AddOutput(cap2k(res.Text))

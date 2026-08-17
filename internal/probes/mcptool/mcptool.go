@@ -237,12 +237,31 @@ func isStringParam(typ string) bool {
 // Reaching for the first declared value instead would hand a tool whose enum is
 // ["delete", "read"] its destructive branch as a "benign" filler.
 func benignValue(p paramInfo) any {
-	if v, ok := p.typedEnumValue(); ok {
+	if v, ok := declaredValue(p); ok {
 		return v
+	}
+	return placeholderValue(p)
+}
+
+// declaredValue returns the filler the TARGET itself supplied for a parameter —
+// a typed enum member, or a documented value recognised as read-only — and
+// reports whether there was one. A call built entirely from these is one the
+// server had a reason to accept.
+func declaredValue(p paramInfo) (any, bool) {
+	if v, ok := p.typedEnumValue(); ok {
+		return v, true
 	}
 	if v, ok := p.safeCandidateValue(); ok {
-		return v
+		return v, true
 	}
+	return nil, false
+}
+
+// placeholderValue invents a filler from the parameter's declared TYPE alone,
+// for a parameter the target documents nothing about. It keeps a call
+// well-formed, but it is a guess, and a server that rejects it is rejecting the
+// guess rather than telling us anything about the parameter under test.
+func placeholderValue(p paramInfo) any {
 	switch p.typ {
 	case "integer", "number":
 		return 1

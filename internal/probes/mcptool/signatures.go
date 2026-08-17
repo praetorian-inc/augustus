@@ -1,8 +1,16 @@
 package mcptool
 
 import (
+	"errors"
+	"fmt"
+	"log/slog"
+	"sort"
+	"strings"
+
 	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/internal/toolsig"
+	"github.com/praetorian-inc/augustus/pkg/attempt"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 // toolSig pairs one of a tool's call signatures with the probe-side information
@@ -104,24 +112,54 @@ func paramInfoFrom(p toolsig.Param, toolDoc string) paramInfo {
 // benignValue already prefers a declared enum member or a value mined from the
 // tool's own documentation over a generic placeholder, so this single source
 // covers what the schema declares as well as what the prose reveals.
-type probeFiller struct{ byPath map[toolsig.Path]paramInfo }
+// It is split into two sources, and the split is not cosmetic. One answers with
+// a value the TARGET declared or documented; the other invents a generic
+// placeholder because nothing was available. Both fill the argument, but only
+// the first produces a call the server had any reason to accept — so when a call
+// is refused, which source filled its other arguments is the difference between
+// "the target refused our payload" and "the target refused our guess". Naming
+// them separately is what lets that be read off the call afterwards instead of
+// assumed.
+type probeFiller struct {
+	byPath   map[toolsig.Path]paramInfo
+	invented bool
+}
 
-func newProbeFiller(params []paramInfo) probeFiller {
+func newProbeFiller(params []paramInfo, invented bool) probeFiller {
 	m := make(map[toolsig.Path]paramInfo, len(params))
 	for _, p := range params {
 		m[p.path] = p
 	}
-	return probeFiller{byPath: m}
+	return probeFiller{byPath: m, invented: invented}
 }
 
-func (probeFiller) Name() string { return "probe" }
+// sourcePlaceholder names the source that invents a value nothing supplied. A
+// call carrying one was built out of a guess, and a refusal of such a call is
+// not evidence about the parameter under test.
+const sourcePlaceholder = "placeholder"
+
+func (f probeFiller) Name() string {
+	if f.invented {
+		return sourcePlaceholder
+	}
+	return "probe"
+}
 
 func (f probeFiller) Value(p toolsig.Param) (any, bool) {
 	pi, ok := f.byPath[p.Path]
 	if !ok || !pi.required {
 		return nil, false
 	}
-	return benignValue(pi), true
+	if v, declared := declaredValue(pi); declared {
+		if f.invented {
+			return nil, false // the declared half of the pair answers this one
+		}
+		return v, true
+	}
+	if !f.invented {
+		return nil, false
+	}
+	return placeholderValue(pi), true
 }
 
 // chain is the value chain used to prepare a call.
@@ -132,7 +170,64 @@ func (f probeFiller) Value(p toolsig.Param) (any, bool) {
 // The discriminator values that select a signature are written by Build itself,
 // so a conditional branch is still reached correctly.
 func (ts toolSig) chain() toolsig.Chain {
-	return append(append(toolsig.Chain{}, ts.pre...), newProbeFiller(ts.params))
+	return append(append(toolsig.Chain{}, ts.pre...),
+		newProbeFiller(ts.params, false),
+		newProbeFiller(ts.params, true))
+}
+
+// guessedArgs lists the required parameters of a prepared call that hold an
+// INVENTED placeholder — a value no schema, no operator rule, no hook and no
+// observed response supplied — excluding the parameter under test, which the
+// caller sets itself.
+//
+// It is read from the call's own provenance rather than recomputed, so it
+// describes the call that was actually sent.
+func (ts toolSig) guessedArgs(inject paramInfo) []string {
+	call, _ := ts.sig.Build(ts.chain())
+	var out []string
+	for path, from := range call.Provenance() {
+		if from == sourcePlaceholder && path != inject.path {
+			out = append(out, string(path))
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// recordCallFailure records a failed call, deciding whether the parameter under
+// test was actually tested.
+//
+// A refusal is only evidence about the parameter under test when the rest of the
+// call was something the server had a reason to accept. If another required
+// argument held an invented placeholder, the refusal may be about that
+// placeholder and not about the payload at all — the payload never reached
+// anything, and reporting "tested, and the target held" would be a false clean
+// manufactured by the very change meant to remove one.
+//
+// So there are three outcomes, not two:
+//
+//	refused, call otherwise well-formed  — TESTED, negative result.
+//	refused, call built on a guess       — NOT TESTED; say which argument.
+//	no answer at all                     — NOT TESTED; the request never arrived.
+func (ts toolSig) recordCallFailure(a *attempt.Attempt, inject paramInfo, err error) {
+	if !errors.Is(err, types.ErrCallRefused) {
+		mcpprobe.RecordCallFailure(a, err)
+		return
+	}
+	guessed := ts.guessedArgs(inject)
+	if len(guessed) == 0 {
+		mcpprobe.RecordCallFailure(a, err)
+		return
+	}
+	// Both facts are true and both belong in the record: the target did refuse,
+	// and we cannot attribute the refusal to the payload.
+	a.Metadata[attempt.MetadataKeyTargetRefused] = true
+	mcpprobe.MarkNotTested(a, fmt.Sprintf(
+		"the target refused the call, but %s carried an invented placeholder, so the refusal cannot be attributed to %s; supply a value with a values: rule",
+		strings.Join(guessed, ", "), inject.path))
+	a.Metadata[attempt.MetadataKeyInconclusive] = true
+	a.Metadata[attempt.MetadataKeyInconclusiveReason] = a.Metadata[attempt.MetadataKeyNotTestedReason]
+	a.SetError(err)
 }
 
 // args builds the arguments for one attempt: benign values everywhere, and the
@@ -166,4 +261,62 @@ func (ts toolSig) unreachable(inject paramInfo) []toolsig.Param {
 	call, _ := ts.sig.Build(ts.chain())
 	call.Set(inject.path, "")
 	return call.Unresolved()
+}
+
+// markCallOutcome records WHICH kind of failure a differential leg hit, without
+// changing the verdict.
+//
+// These probes reach every verdict by COMPARING two calls, so a leg that
+// produced no response leaves the comparison undrawn either way and the attempt
+// is inconclusive either way. But "the target considered this call and would not
+// run it" and "the request never arrived" are different facts about the scan,
+// and only one of them is a coverage gap. Recording which one lets a reviewer
+// tell a strict server from a flaky one without rerunning anything.
+func markCallOutcome(a *attempt.Attempt, err error) {
+	if errors.Is(err, types.ErrCallRefused) {
+		a.Metadata[attempt.MetadataKeyTargetRefused] = true
+		return
+	}
+	mcpprobe.MarkNotTested(a, err.Error())
+}
+
+// untestedAttempt reports a parameter that could not be exercised because the
+// call it belongs to cannot be built: some OTHER required parameter of this
+// signature has no value from the schema, the operator's configuration, a hook,
+// an observed response, or the probe's own filler.
+//
+// It returns nil when the call IS buildable, so a caller uses it as a guard.
+//
+// Emitting an attempt rather than skipping is the whole point. Sending the call
+// anyway means the server rejects it for a missing argument, and with refusals
+// now counted as completed tests that rejection would read as "the parameter was
+// tested and held" — which would be a false clean manufactured by the very
+// change that was meant to remove one. Skipping silently is the older version of
+// the same lie: the parameter simply never appears in the output, and a reader
+// counting covered parameters cannot tell it apart from one that was tested.
+func (ts toolSig) untestedAttempt(probe, detector string, inject paramInfo) *attempt.Attempt {
+	missing := ts.unreachable(inject)
+	if len(missing) == 0 {
+		return nil
+	}
+	names := make([]string, 0, len(missing))
+	for _, m := range missing {
+		names = append(names, string(m.Path))
+	}
+	sort.Strings(names)
+
+	a := attempt.New(fmt.Sprintf("%s %s NOT TESTED", ts.tool, inject.path))
+	a.Probe = probe
+	a.Detector = detector
+	a.Metadata["mcptool.tool"] = ts.tool
+	a.Metadata["mcptool.param"] = string(inject.path)
+	mcpprobe.MarkNotTested(a, fmt.Sprintf(
+		"no source could supply the required parameter(s) %s, so no call exercising %s could be built",
+		strings.Join(names, ", "), inject.path))
+	a.Metadata[attempt.MetadataKeyInconclusive] = true
+	a.Metadata[attempt.MetadataKeyInconclusiveReason] = a.Metadata[attempt.MetadataKeyNotTestedReason]
+	slog.Warn("mcptool: a parameter was NOT tested because the call could not be built; supply the missing value with a values: rule. This is NOT a clean result for that parameter.",
+		"probe", probe, "tool", ts.tool, "param", string(inject.path), "missing", strings.Join(names, ","))
+	a.SetError(&toolsig.UnresolvedError{Tool: ts.tool, Params: missing})
+	return a
 }

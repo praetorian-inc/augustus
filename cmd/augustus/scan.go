@@ -1186,6 +1186,18 @@ func (t *tableEvaluator) Evaluate(ctx context.Context, attempts []*attempt.Attem
 
 	fmt.Printf("\nOverall: %d passed, %d review, %d failed, %d errored (total: %d)\n",
 		totalPassed, totalReview, totalFailed, totalErrored, len(attempts))
+
+	// Coverage, reported alongside the verdicts rather than folded into them.
+	// A refusal is a test the target answered no to; an untested attempt is a gap
+	// where nothing about the target was learned. Reading the second as the first
+	// is how a scan comes to look clean without having covered anything.
+	summary := results.ComputeSummary(attempts)
+	if summary.Refused > 0 {
+		fmt.Printf("  %d attempt(s) were REFUSED by the target — tested, and the target held.\n", summary.Refused)
+	}
+	if summary.NotTested > 0 {
+		fmt.Printf("  %d attempt(s) were NOT TESTED — arguments could not be built, or the request never arrived. These say nothing about the target.\n", summary.NotTested)
+	}
 	// A scan whose probes errored carries no signal about the target; return the
 	// sentinel so main() maps it to a distinct exit code rather than a clean pass
 	// (LAB-4316).

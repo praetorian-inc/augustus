@@ -161,7 +161,11 @@ func (p *ResponseLeak) callOne(ctx context.Context, inv types.ToolInvoker, tool 
 
 	res, err := inv.CallTool(ctx, tool, c.args)
 	if err != nil {
-		a.SetError(err)
+		// A call the SERVER refused is a completed test with a negative result:
+		// these arguments were submitted and the tool would not run for them, so
+		// they can leak nothing. Only a call that never arrived leaves the case
+		// untested.
+		mcpprobe.RecordCallFailure(a, err)
 		return a
 	}
 	// Store the response bounded to the generous maxResponseBytes cap (see its

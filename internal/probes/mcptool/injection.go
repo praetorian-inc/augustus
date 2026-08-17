@@ -166,6 +166,10 @@ sending:
 				if !isStringParam(param.typ) {
 					continue
 				}
+				if a := ts.untestedAttempt(p.Name(), p.GetPrimaryDetector(), param); a != nil {
+					attempts = append(attempts, a)
+					continue
+				}
 				// In-band computed-canary payloads (eval / SSTI / shell arithmetic).
 				for _, payload := range p.canary.Payloads {
 					for _, variant := range payloadVariants(param, payload) {
@@ -232,7 +236,11 @@ func (p *Injection) callOne(ctx context.Context, inv types.ToolInvoker, tool str
 
 	res, err := inv.CallTool(ctx, tool, ts.args(param, payload))
 	if err != nil {
-		a.SetError(err)
+		// A payload the SERVER refused reached the target and was rejected: it
+		// cannot have reached a sink, so this is a completed test with a negative
+		// result. A payload that never arrived tested nothing at all, and the two
+		// must not both read as the probe having failed.
+		ts.recordCallFailure(a, param, err)
 		return a
 	}
 	a.AddOutput(res.Text)
@@ -264,7 +272,11 @@ func (p *Injection) callOOB(ctx context.Context, inv types.ToolInvoker, tool str
 
 	res, err := inv.CallTool(ctx, tool, ts.args(param, payload))
 	if err != nil {
-		a.SetError(err)
+		// A payload the SERVER refused reached the target and was rejected: it
+		// cannot have reached a sink, so this is a completed test with a negative
+		// result. A payload that never arrived tested nothing at all, and the two
+		// must not both read as the probe having failed.
+		ts.recordCallFailure(a, param, err)
 		return a
 	}
 	a.AddOutput(res.Text)

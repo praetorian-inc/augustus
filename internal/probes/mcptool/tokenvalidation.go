@@ -411,6 +411,7 @@ func (p *TokenValidation) assessShape(
 		// transient error cannot read as 0.0/safe.
 		a.Metadata[attempt.MetadataKeyInconclusive] = true
 		a.Metadata[attempt.MetadataKeyInconclusiveReason] = "probe verification call failed: " + err.Error()
+		markCallOutcome(a, err)
 		slog.Warn("mcptool.TokenValidation: the probe verification call failed, so this parameter was NOT assessed; this is not a clean result",
 			"tool", tool, "param", string(param.Path), "shape", fam.name, "error", err)
 		a.SetError(err)
@@ -424,6 +425,7 @@ func (p *TokenValidation) assessShape(
 		// reason so the detector reports uncertainty instead of a verdict.
 		a.Metadata[attempt.MetadataKeyInconclusive] = true
 		a.Metadata[attempt.MetadataKeyInconclusiveReason] = "same-shape replica call failed: " + err.Error()
+		markCallOutcome(a, err)
 	} else {
 		a.Metadata[mcpprobe.MetaAuthReplicaResponse] = secondText
 	}
