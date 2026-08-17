@@ -469,6 +469,28 @@ func TestSameAsBaseline_NonceMaskingToleratesKeyStyles(t *testing.T) {
 	}
 }
 
+// Anchored on the response shape actually observed on the wire from a live
+// third-party MCP server: a result envelope plus a per-call trace id at the top
+// level. Synthetic JSON proves the masking works; this proves it works on the
+// shape that produced the bug.
+func TestSameAsBaseline_RealWorldEnvelopeShape(t *testing.T) {
+	// An enumerating tool asked for a vendor that cannot exist, then for a
+	// candidate harvested from an unrelated tool. Both are empty results; only
+	// the trace id differs. Confirming the candidate here is what produced 30
+	// bogus "vendor ids" on one parameter.
+	base := `{"contracts":[],"trace_id":"fb36d9f52e11c4a1ef05a81ad5fb6901"}`
+	cand := `{"contracts":[],"trace_id":"0e1d2c3b4a59687776859403a2b1c0d9"}`
+	if !sameAsBaseline(cand, "CANDIDATE-1", base, "aug-nonexistent-99") {
+		t.Error("two empty results differing only in a trace id must not confirm an object")
+	}
+
+	// The same envelope actually holding something must still confirm.
+	served := `{"contracts":[{"id":"CANDIDATE-1","title":"a real contract"}],"trace_id":"aaaa1111bbbb2222cccc3333dddd4444"}`
+	if sameAsBaseline(served, "CANDIDATE-1", base, "aug-nonexistent-99") {
+		t.Error("a served object must still be distinguishable from the empty baseline")
+	}
+}
+
 // The inverse of the bug this fix exists for. A key matching the nonce
 // vocabulary but holding a CONTAINER — "request" wrapping the echoed arguments —
 // is not a nonce, and blanking it would discard a whole subtree, so two
