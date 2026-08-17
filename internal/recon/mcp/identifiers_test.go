@@ -274,7 +274,6 @@ func TestIdentifiers_UsesPriorInventory(t *testing.T) {
 func TestIdentifiers_NavigatorClassification(t *testing.T) {
 	m := newIdentifiersModule(t, registry.Config{
 		"identity_label": "tenant-a",
-		"use_navigator":  true,
 	})
 	// Inject a mock navigator (the embedded llm.Base field) that classifies the
 	// two tools.
@@ -561,7 +560,7 @@ func TestDiscover_LogsWhenTruncatingIDs(t *testing.T) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	defer slog.SetDefault(old)
 
-	m := newIdentifiersModule(t, registry.Config{"use_navigator": false, "max_ids_per_tool": 1})
+	m := newIdentifiersModule(t, registry.Config{"max_ids_per_tool": 1})
 	inv := &recordingInvoker{body: `[{"id":"x1"},{"id":"x2"}]`} // 2 ids, cap is 1
 
 	m.discover(context.Background(), identitySession{label: "a", inv: inv}, []toolSpec{spec("list_orders", nil)})
@@ -575,7 +574,6 @@ func TestDiscover_LogsWhenTruncatingIDs(t *testing.T) {
 // upstream only. Authorization to invoke lives at the call site.
 func TestDiscover_GatesDenylistedToolAtCallSite(t *testing.T) {
 	m := newIdentifiersModule(t, registry.Config{
-		"use_navigator": false,
 		"tool_denylist": []any{"danger_enum", "danger_get"},
 	})
 	rec := &recordingInvoker{body: `[{"id":"x1"}]`}
@@ -600,7 +598,7 @@ func TestDiscover_GatesDenylistedToolAtCallSite(t *testing.T) {
 // Layer 2, annotations: a tool the server annotates destructive is re-checked
 // and skipped where the call happens, independently of the upstream filter.
 func TestDiscover_GatesDestructiveAnnotatedToolAtCallSite(t *testing.T) {
-	m := newIdentifiersModule(t, registry.Config{"use_navigator": false})
+	m := newIdentifiersModule(t, registry.Config{})
 	rec := &recordingInvoker{body: `[{"id":"x1"}]`}
 
 	destructive := map[string]any{
@@ -622,7 +620,7 @@ func TestDiscover_GatesDestructiveAnnotatedToolAtCallSite(t *testing.T) {
 // able to act as the source of identifiers — that combination is the norm on a
 // tenant-scoped surface, and treating it as a getter left nothing to enumerate.
 func TestDiscover_ScopeParamDoesNotPreventHarvesting(t *testing.T) {
-	m := newIdentifiersModule(t, registry.Config{"use_navigator": false})
+	m := newIdentifiersModule(t, registry.Config{})
 	// The stub must ANSWER DIFFERENTLY for a real id than for one that does not
 	// exist, because that difference is exactly what confirms an object. A stub
 	// returning one fixed body would (correctly) confirm nothing.
@@ -730,7 +728,7 @@ func (o *objectServer) called(name string) bool {
 // be a read-only phase — with an identifier the value chain may have harvested,
 // which is what would make the call effective.
 func TestDiscover_DoesNotInvokeUnannotatedWriteTools(t *testing.T) {
-	m := newIdentifiersModule(t, registry.Config{"use_navigator": false})
+	m := newIdentifiersModule(t, registry.Config{})
 	rec := &recordingInvoker{body: `{"records":[{"record_id":"r1"}]}`}
 
 	m.discover(context.Background(), identitySession{label: "a", inv: rec}, []toolSpec{
@@ -754,7 +752,7 @@ func TestDiscover_DoesNotInvokeUnannotatedWriteTools(t *testing.T) {
 
 // The server's own read-only annotation is authoritative, whatever the name says.
 func TestDiscover_InvokesAnnotatedReadOnlyToolWhateverItIsCalled(t *testing.T) {
-	m := newIdentifiersModule(t, registry.Config{"use_navigator": false})
+	m := newIdentifiersModule(t, registry.Config{})
 	rec := &recordingInvoker{body: `{"records":[{"record_id":"r1"}]}`}
 
 	readOnly := map[string]any{
@@ -772,7 +770,6 @@ func TestDiscover_InvokesAnnotatedReadOnlyToolWhateverItIsCalled(t *testing.T) {
 // that decision is theirs rather than the heuristic's.
 func TestDiscover_InvokesToolTheOperatorNamed(t *testing.T) {
 	m := newIdentifiersModule(t, registry.Config{
-		"use_navigator":     false,
 		"enumeration_tools": []any{"drain_queue"},
 	})
 	rec := &recordingInvoker{body: `{"records":[{"record_id":"r1"}]}`}
@@ -789,7 +786,7 @@ func TestDiscover_InvokesToolTheOperatorNamed(t *testing.T) {
 // allowlist on the strength of the half that is safe. A compound name is only as
 // safe as its most dangerous verb.
 func TestDiscover_DestructiveVerbVetoesAReadOnlyName(t *testing.T) {
-	m := newIdentifiersModule(t, registry.Config{"use_navigator": false})
+	m := newIdentifiersModule(t, registry.Config{})
 	rec := &recordingInvoker{body: `{"records":[{"record_id":"r1"}]}`}
 
 	m.discover(context.Background(), identitySession{label: "a", inv: rec}, []toolSpec{
@@ -812,7 +809,7 @@ func TestDiscover_DestructiveVerbVetoesAReadOnlyName(t *testing.T) {
 // established read-only by the retrieval verb in it. "get_and_mark_read" matches
 // both "get" and "read" while the operation that matters is "mark".
 func TestDiscover_CompoundNameIsNotEstablishedReadOnly(t *testing.T) {
-	m := newIdentifiersModule(t, registry.Config{"use_navigator": false})
+	m := newIdentifiersModule(t, registry.Config{})
 	rec := &recordingInvoker{body: `{"records":[{"record_id":"r1"}]}`}
 
 	m.discover(context.Background(), identitySession{label: "a", inv: rec}, []toolSpec{

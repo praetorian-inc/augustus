@@ -37,16 +37,16 @@ var (
 	_ recon.ContextAwareRecon = (*MCPIdentifiers)(nil)
 )
 
-// Default keyword vocabularies for the DETERMINISTIC fallback classifier (the
-// LLM navigator is the primary path). Each list is operator-extendable or
-// replaceable via config, mirroring Hunter's ResolveMitigationPhrases pattern
-// (base.ResolveMitigationPhrases, LAB-4664):
-//   - id_param_patterns / id_param_extra_patterns     — which arg/key is an id
-//   - getter_name_patterns / getter_name_extra_patterns — which tools are getters
-//   - enum_name_patterns / enum_name_extra_patterns     — which tools enumerate
+// Default keyword vocabularies. Names are NO LONGER used to decide what role a
+// tool plays — that is discovered by calling it — so what remains is narrower:
+//   - id_param_patterns / id_param_extra_patterns — which arg/key looks like an id
+//   - read_only_name_patterns / destructive_name_patterns — whether recon may
+//     CALL a tool at all, which is a safety question, not a classification
 //
-// so a target the defaults miss (e.g. "sku"/"isbn" ids, oddly-named tools) is a
-// config edit, not a code change.
+// Each list is operator-extendable or replaceable via config, mirroring Hunter's
+// ResolveMitigationPhrases pattern (base.ResolveMitigationPhrases, LAB-4664), so
+// a target the defaults miss (e.g. "sku"/"isbn" ids) is a config edit, not a code
+// change.
 var (
 	defaultIDParamWords = []string{"id", "uuid", "guid", "key", "ref", "number", "order", "ticket", "account", "user"}
 	// defaultReadOnlyWords name operations that retrieve rather than change.
@@ -79,21 +79,23 @@ var (
 	}
 )
 
-// MCPIdentifiers is the recon module that discovers, per identity, the object
-// identifiers a target's getter tools will return objects for. It embeds
-// llm.Base for the navigator LLM (the PRIMARY classifier) and access to prior
-// observations; the keyword-heuristic classifier is the deterministic FALLBACK
-// used when no navigator is available or it errors. It renders no verdict —
-// proving a cross-identity leak is a downstream probe's job.
+// MCPIdentifiers is the recon module that discovers, per identity, which of a
+// target's tools return objects for which identifiers — by calling them, not by
+// reading their names. It embeds llm.Base for SetContext and access to prior
+// observations; it runs no navigator LLM, because there is nothing left to
+// classify. It renders no verdict — proving a cross-identity leak is a
+// downstream probe's job.
 type MCPIdentifiers struct {
 	llm.Base
 
-	identityLabel    string
-	victims          []victimConfig
-	getTools         []string
+	identityLabel string
+	victims       []victimConfig
+	// enumerationTools orders the work — tools named here are tried first. A
+	// hint, never a gate. There is no getTools counterpart: the get_tools config
+	// key is still honoured, via namedTools, where it marks a tool the operator
+	// has approved for invocation.
 	enumerationTools []string
 	idParams         map[string]string
-	useNavigator     bool
 	maxIDsPerTool    int
 
 	// allowDestructive mirrors the operator's acceptance of write risk; when set,
@@ -145,8 +147,8 @@ type victimConfig struct {
 	rules []toolsig.Rule
 }
 
-// NewIdentifiers constructs the module, wiring the embedded navigator base and
-// reading the classification hints and identity sessions from config.
+// NewIdentifiers constructs the module, wiring the embedded base and reading the
+// safety vocabularies, ordering hints and identity sessions from config.
 func NewIdentifiers(cfg registry.Config) (recon.Recon, error) {
 	base, err := llm.NewBase(cfg)
 	if err != nil {
@@ -156,7 +158,6 @@ func NewIdentifiers(cfg registry.Config) (recon.Recon, error) {
 		Base:              *base,
 		identityLabel:     registry.GetString(cfg, "identity_label", types.DefaultIdentity),
 		victims:           parseVictims(cfg),
-		getTools:          registry.GetStringSlice(cfg, "get_tools", nil),
 		enumerationTools:  registry.GetStringSlice(cfg, "enumeration_tools", nil),
 		idParams:          parseIDParams(cfg),
 		rules:             toolsig.RulesFromConfig(cfg),
@@ -164,7 +165,6 @@ func NewIdentifiers(cfg registry.Config) (recon.Recon, error) {
 		namedByOperator:   namedTools(cfg),
 		readOnlyNameRE:    wordBoundaryRE(resolvePatterns(cfg, "read_only_name_patterns", "read_only_name_extra_patterns", defaultReadOnlyWords)),
 		destructiveNameRE: wordBoundaryRE(resolvePatterns(cfg, "destructive_name_patterns", "destructive_name_extra_patterns", defaultDestructiveWords)),
-		useNavigator:      registry.GetBool(cfg, "use_navigator", true),
 		maxIDsPerTool:     registry.GetInt(cfg, "max_ids_per_tool", 5),
 		policy:            toolpolicy.New(cfg),
 		idParamRE:         wordBoundaryRE(resolvePatterns(cfg, "id_param_patterns", "id_param_extra_patterns", defaultIDParamWords)),
