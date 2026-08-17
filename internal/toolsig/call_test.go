@@ -189,14 +189,26 @@ func TestBroadRulesAreDetectable(t *testing.T) {
 	}
 }
 
-// The schema source must never volunteer a destructive enum member as filler
-// for a parameter the caller is not testing.
-func TestSchemaSourceRefusesDestructiveEnumMembers(t *testing.T) {
-	if v, ok := FromSchema().Value(Param{Enum: []string{"read", "delete"}}); !ok || v != "read" {
-		t.Errorf("value = %v (ok=%v), want read", v, ok)
+// Enum selection is deterministic and carries no judgement about which member
+// is safe. Whether a tool may be called at all is the server's declaration (tool
+// annotations) and the operator's decision (allow_destructive, denylists); a
+// tool past those gates has every branch in scope. Ranking members by how
+// dangerous they sound would substitute a guess for the server's own statement
+// and make the scan unpredictable.
+func TestSchemaSourceEnumIsDeterministic(t *testing.T) {
+	v, ok := FromSchema().Value(Param{Enum: []string{"delete", "read"}})
+	if !ok || v != "delete" {
+		t.Errorf("value = %v (ok=%v), want the first declared member", v, ok)
 	}
-	if _, ok := FromSchema().Value(Param{Enum: []string{"delete", "destroy"}}); ok {
-		t.Error("an all-destructive enum must yield no value rather than a destructive one")
+	// Const and default outrank an enum, both being unambiguous.
+	if v, ok := FromSchema().Value(Param{Enum: []string{"a"}, Default: 10}); !ok || v != 10 {
+		t.Errorf("value = %v (ok=%v), want the declared default", v, ok)
+	}
+	if v, ok := FromSchema().Value(Param{Enum: []string{"a"}, Const: "C"}); !ok || v != "C" {
+		t.Errorf("value = %v (ok=%v), want the declared const", v, ok)
+	}
+	if _, ok := FromSchema().Value(Param{Type: "string"}); ok {
+		t.Error("a parameter the schema does not determine must yield no value")
 	}
 }
 

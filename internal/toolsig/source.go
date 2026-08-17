@@ -53,6 +53,21 @@ func FromSchema() Source { return schemaSource{} }
 
 func (schemaSource) Name() string { return "schema" }
 
+// Value returns what the schema itself says the parameter holds.
+//
+// An enum member is chosen deterministically — the first declared value — and
+// no judgement is applied to which member is "safe". That judgement is not this
+// package's to make, and not a guess worth making: whether a tool may be called
+// at all is declared by the server in its tool annotations and decided by the
+// operator through allow_destructive and the tool allow/denylists. A tool that
+// has passed those gates has been declared callable by the party that owns it,
+// and every branch it exposes is in scope by that same declaration.
+//
+// The alternative — a local word list ranking enum members by how dangerous
+// they sound — substitutes a guess for the server's own statement, makes the
+// scan's behaviour unpredictable, and hides the more useful outcome: a tool
+// annotated non-destructive that turns out to write is a finding, not a case to
+// route around.
 func (schemaSource) Value(p Param) (any, bool) {
 	if p.Const != nil {
 		return p.Const, true
@@ -61,50 +76,9 @@ func (schemaSource) Value(p Param) (any, bool) {
 		return p.Default, true
 	}
 	if len(p.Enum) > 0 {
-		if v, ok := safeEnumValue(p.Enum); ok {
-			return v, true
-		}
+		return p.Enum[0], true
 	}
 	return nil, false
-}
-
-// destructiveEnumWords name operations that must never be chosen as a filler
-// value. A parameter under test is supplied by the caller; every other
-// parameter is filled to make the call reach its destination, and reaching it
-// via a delete branch is not an acceptable way to get there.
-var destructiveEnumWords = []string{
-	"delete", "remove", "destroy", "drop", "purge", "truncate", "erase",
-	"terminate", "kill", "revoke", "disable", "deactivate", "close", "end",
-	"cancel", "reset", "wipe", "clear", "uninstall", "detach", "eject",
-	"write", "update", "modify", "edit", "patch", "put", "post", "create",
-	"insert", "add", "send", "publish", "deploy", "execute", "run", "exec",
-	"invite", "approve", "reject", "accept", "confirm", "pay", "charge",
-	"refund", "transfer", "grant", "assign", "archive", "restore", "merge",
-	"rename", "move", "copy", "upload", "import", "export", "sync", "install",
-}
-
-// safeEnumValue picks an enum member that reads as read-only. It fails closed:
-// when no member is recognisably safe, no value is returned and a later source
-// or the caller decides, rather than this package guessing its way into a
-// destructive branch.
-func safeEnumValue(enum []string) (string, bool) {
-	for _, v := range enum {
-		if !destructiveWord(v) {
-			return v, true
-		}
-	}
-	return "", false
-}
-
-func destructiveWord(v string) bool {
-	l := strings.ToLower(v)
-	for _, w := range destructiveEnumWords {
-		if l == w || strings.HasPrefix(l, w+"_") || strings.HasSuffix(l, "_"+w) ||
-			strings.Contains(l, "_"+w+"_") {
-			return true
-		}
-	}
-	return false
 }
 
 // --- plain map -------------------------------------------------------------
