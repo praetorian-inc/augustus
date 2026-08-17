@@ -49,14 +49,16 @@ type SSRF struct {
 // NewSSRF constructs the probe. All OOB settings default so a localhost target
 // works with zero config (ephemeral collector, base derived from its address).
 func NewSSRF(cfg registry.Config) (probes.Prober, error) {
-	return &SSRF{
+	probe := &SSRF{
 		listen:       registry.GetString(cfg, "oob_listen", "127.0.0.1:0"),
 		baseOverride: registry.GetString(cfg, "oob_base_url", ""),
 		wait:         time.Duration(registry.GetInt(cfg, "oob_wait_seconds", 3)) * time.Second,
 		allParams:    registry.GetBool(cfg, "ssrf_all_string_params", false),
 		marker:       "AUGOOB" + mcpprobe.RandToken(),
 		policy:       toolpolicy.New(cfg),
-	}, nil
+	}
+	probe.configure(cfg)
+	return probe, nil
 }
 
 func (p *SSRF) Name() string { return "mcptool.SSRF" }
@@ -116,7 +118,7 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 	// catalog, so the canary URLs must be sent to the real target. A
 	// non-ToolInvoker target cannot be tested — fail loud rather than return a
 	// clean-looking empty result (a silent false negative for a scanner).
-	inv, ok := gen.(types.ToolInvoker)
+	inv, ok := p.invoker(gen)
 	if !ok {
 		return nil, fmt.Errorf("mcptool.SSRF: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
 	}
@@ -154,52 +156,60 @@ func (p *SSRF) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 		if name == "" {
 			continue
 		}
-		params := toolParams(tool)
-		// Only worth a real invocation if this probe has something to send this
-		// tool. Gated on the TOOL, not on the parameter needing candidates: the
-		// uncandidated parameter is typically a discriminator that must be
-		// satisfied to reach the URL sink, not the URL parameter itself.
-		if p.hasProbeableParam(params) {
-			params = discoverToolValues(ctx, inv, name, params)
-		}
-		for _, param := range params {
-			if !isStringParam(param.typ) {
-				continue
+		for _, ts := range toolSignatures(tool, p.valueChain(ctx, name)) {
+			p.warnBroadRules(name, ts.sig.Params)
+			// Only worth a real invocation if this probe has something to send this
+			// signature. Gated on the SIGNATURE, not on the parameter needing
+			// candidates: the uncandidated parameter is typically a discriminator that
+			// must be satisfied to reach the URL sink, not the URL parameter itself.
+			if p.hasProbeableParam(ts.params) {
+				ts = ts.withShape(p.shapeMode()).discoverValues(ctx, inv, name)
 			}
-			if !p.allParams && !urlParamRE.MatchString(param.name) {
-				continue
-			}
-			// Same placement matrix as mcptool.Injection: the bare canary URL
-			// always, plus one led by a value the target declares valid. A URL
-			// argument can sit behind the same first-token allowlist a command
-			// argument does, and a bare canary would be refused before the fetch.
-			for _, prefix := range payloadPrefixes(param) {
-				token := mcpprobe.RandToken()
-				canaryURL := col.URL(token)
-				payload := prefix + canaryURL
-
-				a := attempt.New(payload)
-				a.Probe = p.Name()
-				a.Detector = p.GetPrimaryDetector()
-				a.Metadata["mcptool.tool"] = name
-				a.Metadata["mcptool.param"] = param.name
-				// The OOB URL, not the payload: with a prefix the two differ, and
-				// the collector is keyed on the URL.
-				a.Metadata[attempt.MetadataKeySSRFOOBURL] = canaryURL
-
-				reflected := false
-				res, callErr := inv.CallTool(ctx, name, benignArgs(params, param.name, payload))
-				if callErr != nil {
-					a.SetError(callErr)
-				} else {
-					a.AddOutput(res.Text)
-					reflected = strings.Contains(res.Text, p.marker)
-					a.Complete()
+			for _, param := range ts.params {
+				if !isStringParam(param.typ) {
+					continue
 				}
-				a.Metadata[attempt.MetadataKeySSRFReflected] = reflected
+				if !p.allParams && !urlParamRE.MatchString(param.name) {
+					continue
+				}
+				// Same placement matrix as mcptool.Injection: the bare canary URL
+				// always, plus one led by a value the target declares valid. A URL
+				// argument can sit behind the same first-token allowlist a command
+				// argument does, and a bare canary would be refused before the fetch.
+				for _, prefix := range payloadPrefixes(param) {
+					token := mcpprobe.RandToken()
+					canaryURL := col.URL(token)
+					payload := prefix + canaryURL
 
-				pend = append(pend, pending{a: a, token: token})
-				attempts = append(attempts, a)
+					a := attempt.New(payload)
+					a.Probe = p.Name()
+					a.Detector = p.GetPrimaryDetector()
+					a.Metadata["mcptool.tool"] = name
+					a.Metadata["mcptool.param"] = string(param.path)
+					// The OOB URL, not the payload: with a prefix the two differ, and
+					// the collector is keyed on the URL.
+					a.Metadata[attempt.MetadataKeySSRFOOBURL] = canaryURL
+
+					reflected := false
+					args := ts.args(param, payload)
+					res, callErr := inv.CallTool(ctx, name, args)
+					if callErr != nil {
+						// A URL the SERVER refused cannot have been fetched, so the
+						// parameter WAS tested and held. Only a call that never arrived
+						// leaves it untested. The out-of-band wait below still runs
+						// either way: a refusal at the protocol layer does not prove
+						// the server made no request before answering.
+						ts.recordCallFailure(a, param, args, callErr)
+					} else {
+						a.AddOutput(res.Text)
+						reflected = strings.Contains(res.Text, p.marker)
+						a.Complete()
+					}
+					a.Metadata[attempt.MetadataKeySSRFReflected] = reflected
+
+					pend = append(pend, pending{a: a, token: token})
+					attempts = append(attempts, a)
+				}
 			}
 		}
 	}

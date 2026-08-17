@@ -223,7 +223,9 @@ func (s *AnonSession) ListTools(ctx context.Context) ([]map[string]any, error) {
 func (s *AnonSession) CallTool(ctx context.Context, name string, args map[string]any) (types.ToolResult, error) {
 	res, err := s.sess.CallTool(ctx, &mcpsdk.CallToolParams{Name: name, Arguments: args})
 	if err != nil {
-		return types.ToolResult{}, err
+		// Classified like the authenticated path: a refusal the server answered
+		// with is a completed test, a transport failure is not.
+		return types.ToolResult{}, ClassifyCallError(err)
 	}
 	raw, _ := json.Marshal(res)
 	return types.ToolResult{Text: contentText(res.Content), Raw: raw, IsError: res.IsError}, nil

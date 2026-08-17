@@ -8,6 +8,7 @@ import (
 
 	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
+	"github.com/praetorian-inc/augustus/internal/toolsig"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/recon"
@@ -60,7 +61,9 @@ type ResponseLeak struct {
 // NewResponseLeak constructs the probe with the shared tool-safety policy parsed
 // from config (allow_destructive, tool_allowlist, tool_denylist).
 func NewResponseLeak(cfg registry.Config) (probes.Prober, error) {
-	return &ResponseLeak{policy: toolpolicy.New(cfg)}, nil
+	probe := &ResponseLeak{policy: toolpolicy.New(cfg)}
+	probe.configure(cfg)
+	return probe, nil
 }
 
 func (p *ResponseLeak) Name() string { return "mcptool.ResponseLeak" }
@@ -99,7 +102,7 @@ func (p *ResponseLeak) GetPrompts() []string { return nil }
 // argument cases. Returns no attempts (and no error) when the target advertises
 // no testable tool surface.
 func (p *ResponseLeak) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
-	inv, ok := gen.(types.ToolInvoker)
+	inv, ok := p.invoker(gen)
 	if !ok {
 		return nil, fmt.Errorf("mcptool.ResponseLeak: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
 	}
@@ -131,28 +134,45 @@ func (p *ResponseLeak) Probe(ctx context.Context, gen types.Generator) ([]*attem
 		if name == "" {
 			continue
 		}
-		params := toolParams(tool)
-		for _, c := range argCases(params) {
-			if err := ctx.Err(); err != nil {
-				return attempts, err
+		for _, ts := range toolSignatures(tool, p.valueChain(ctx, name)) {
+			p.warnBroadRules(name, ts.sig.Params)
+			ts = ts.withShape(p.shapeMode())
+			for _, c := range argCases(ts) {
+				if err := ctx.Err(); err != nil {
+					return attempts, err
+				}
+				attempts = append(attempts, p.callOne(ctx, inv, ts, name, c))
 			}
-			attempts = append(attempts, p.callOne(ctx, inv, name, c))
 		}
 	}
 	return attempts, nil
 }
 
 // callOne invokes a single (tool, case) and records the attempt.
-func (p *ResponseLeak) callOne(ctx context.Context, inv types.ToolInvoker, tool string, c argCase) *attempt.Attempt {
+func (p *ResponseLeak) callOne(ctx context.Context, inv types.ToolInvoker, ts toolSig, tool string, c argCase) *attempt.Attempt {
 	a := attempt.New(fmt.Sprintf("tool=%s case=%s", tool, c.name))
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
 	a.Metadata["mcptool.tool"] = tool
 	a.Metadata["mcptool.case"] = c.name
+	if c.param != "" {
+		// Which parameter this case actually varied, so the report can say what
+		// was exercised rather than leaving it to be inferred from the case name.
+		a.Metadata["mcptool.param"] = string(c.param)
+	}
 
 	res, err := inv.CallTool(ctx, tool, c.args)
 	if err != nil {
-		a.SetError(err)
+		// A call the SERVER refused is a completed test with a negative result:
+		// these arguments were submitted and the tool would not run for them, so
+		// they can leak nothing. Only a call that never arrived leaves the case
+		// untested.
+		//
+		// Routed through the signature's own recorder rather than the shared one,
+		// so a refusal is only counted as conclusive when every other required
+		// argument held a real value. A case whose call was assembled around an
+		// invented placeholder cannot attribute the refusal to what it varied.
+		ts.recordCallFailure(a, paramInfo{}, c.args, err)
 		return a
 	}
 	// Store the response bounded to the generous maxResponseBytes cap (see its
@@ -190,7 +210,11 @@ func (p *ResponseLeak) gatedAttempt(advertised int) *attempt.Attempt {
 // metadata so a finding points at which input surfaced the secret.
 type argCase struct {
 	name string
-	args map[string]any
+	// param is the parameter this case varies, empty for the baseline cases. It
+	// is recorded on the attempt so the report can state which parameter was
+	// exercised instead of leaving it to be parsed out of the case name.
+	param toolsig.Path
+	args  map[string]any
 }
 
 // debugParams are parameter names that commonly toggle verbose/debug output,
@@ -204,23 +228,26 @@ var debugParams = map[string]bool{"debug": true, "verbose": true, "trace": true}
 // Cases with identical argument maps are deduped by their canonical form, so a
 // tool with no required params (where "empty" and "required" are both {}) is
 // invoked once per distinct argument set rather than twice.
-func argCases(params []paramInfo) []argCase {
-	// Sort params by name before deriving cases: toolParams builds the slice by
-	// iterating a Go map (randomized order), so the debug/verbose/trace cases —
-	// and thus the produced attempt order — would otherwise vary between runs.
-	// Sort a copy so the caller's slice is left untouched.
-	params = append([]paramInfo(nil), params...)
-	sort.Slice(params, func(i, j int) bool { return params[i].name < params[j].name })
+func argCases(ts toolSig) []argCase {
+	// Sort by path before deriving cases so the debug/verbose/trace cases — and
+	// thus the produced attempt order — are stable between runs. Sort a copy so
+	// the signature's own slice is left untouched.
+	params := append([]paramInfo(nil), ts.params...)
+	sort.Slice(params, func(i, j int) bool { return params[i].path < params[j].path })
 
 	all := []argCase{
 		{name: "empty", args: map[string]any{}},
-		{name: "required", args: requiredArgs(params)},
+		{name: "required", args: ts.benignArgsFor()},
 	}
 	for _, param := range params {
 		if debugParams[strings.ToLower(param.name)] {
-			args := requiredArgs(params)
-			args[param.name] = true
-			all = append(all, argCase{name: "debug:" + param.name, args: args})
+			// Written by PATH: a debug flag nested inside an object has to land
+			// inside it, not beside it.
+			all = append(all, argCase{
+				name:  "debug:" + string(param.path),
+				param: param.path,
+				args:  ts.args(param, true),
+			})
 		}
 	}
 
@@ -235,19 +262,4 @@ func argCases(params []paramInfo) []argCase {
 		cases = append(cases, c)
 	}
 	return cases
-}
-
-// requiredArgs fills every required parameter with a benign value so the call
-// reaches normal tool output instead of failing argument validation. Values
-// declared in the schema or documented in the description are preferred over the
-// generic placeholder, so a tool whose behaviour is gated on a discriminator
-// argument still returns real output to scan for credentials.
-func requiredArgs(params []paramInfo) map[string]any {
-	args := map[string]any{}
-	for _, p := range params {
-		if p.required {
-			args[p.name] = benignValue(p)
-		}
-	}
-	return args
 }

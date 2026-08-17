@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"sort"
 	"strings"
 
+	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	mcpx "github.com/praetorian-inc/augustus/internal/recon/mcp"
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
+	"github.com/praetorian-inc/augustus/internal/toolsig"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/recon"
@@ -54,7 +57,7 @@ type BOLA struct {
 // NewBOLA constructs the probe.
 func NewBOLA(cfg registry.Config) (probes.Prober, error) {
 	return &BOLA{
-		attackerLabel: registry.GetString(cfg, "attacker_identity_label", "primary"),
+		attackerLabel: registry.GetString(cfg, "attacker_identity_label", types.DefaultIdentity),
 		policy:        toolpolicy.New(cfg),
 	}, nil
 }
@@ -103,7 +106,7 @@ func (p *BOLA) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 	if len(identities) == 0 {
 		return nil, nil
 	}
-	attacker, ok := gen.(types.ToolInvoker)
+	attacker, ok := p.invoker(gen)
 	if !ok {
 		slog.Warn("mcptool.BOLA: target is not a ToolInvoker; skipping")
 		return nil, nil
@@ -141,6 +144,10 @@ func (p *BOLA) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 		}
 	}
 
+	// The values the attacker's OWN calls carried, keyed by argument path. See
+	// attackerArgValues: without these the replay is not an attack at all.
+	mine := attackerArgValues(identities, p.attackerLabel)
+
 	var attempts []*attempt.Attempt
 	for _, id := range identities {
 		if id.Identity == p.attackerLabel {
@@ -159,20 +166,118 @@ func (p *BOLA) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 				continue // attacker owns this exact object; not a cross-identity target
 			}
 			ownObj, hasOwn := ownByTool[obj.Tool]
-			attempts = append(attempts, p.callVictimObject(ctx, attacker, id.Identity, obj, ownObj, hasOwn))
+			attempts = append(attempts, p.callVictimObject(ctx, attacker, id.Identity, obj, ownObj, hasOwn, mine))
 		}
 	}
+	p.reportInheritedArgs(gen, attempts)
 	return attempts, nil
+}
+
+// reportInheritedArgs says something about the attack calls that had to borrow an
+// argument from the victim, and says it only when there were any.
+//
+// The risk being reported is narrow and worth stating exactly. An attack is
+// sound when the only thing crossing the identity boundary is the IDENTIFIER. An
+// argument the attacker had no value of its own for is borrowed from the
+// victim's validated call, and IF that argument is what tells the server who is
+// calling, the request speaks as the victim and a served response says nothing
+// about authorization.
+//
+// That "if" is the whole caveat, and it turns on where identity travels:
+//
+//	transport  — the session carries credentials, so a borrowed ARGUMENT cannot
+//	             be what identifies the caller. Nothing to warn about; recorded
+//	             at debug so the borrowing is still traceable.
+//	arguments  — no credentials are configured, so identity must be carried in
+//	             the request body if it is carried at all. This is the case the
+//	             caveat is for, and it is stated plainly.
+//	unknown    — the generator cannot say. The borrowing is reported and the
+//	             conclusion is not drawn, because asserting "proves nothing"
+//	             about a genuine finding is worse than admitting uncertainty.
+//
+// An earlier version of this warning fired on "the attacker supplied no argument
+// values" and announced that the attacker had confirmed no objects of its own.
+// Both were wrong. attackerArgValues excludes each reference's own identifier
+// slot by construction, so a getter whose ONLY argument is the identifier always
+// produces an empty set — with any number of confirmed objects — and the warning
+// fired, unconditionally, on every such surface. Measured: it fired on a
+// judge-confirmed cross-tenant leak and told the reviewer the leak proved
+// nothing.
+func (p *BOLA) reportInheritedArgs(gen types.Generator, attempts []*attempt.Attempt) {
+	borrowed := map[string]bool{}
+	tools := map[string]bool{}
+	for _, a := range attempts {
+		paths, _ := a.Metadata[metaBOLAInheritedArgs].(string)
+		if paths == "" {
+			continue
+		}
+		for _, path := range strings.Split(paths, ",") {
+			borrowed[path] = true
+		}
+		if tool, _ := a.Metadata["mcptool.tool"].(string); tool != "" {
+			tools[tool] = true
+		}
+	}
+	if len(borrowed) == 0 {
+		return
+	}
+	args, toolNames := sortedKeys(borrowed), sortedKeys(tools)
+
+	headers, known := transportIdentity(gen)
+	switch {
+	case known && len(headers) > 0:
+		slog.Debug("mcptool.BOLA: some attack calls reused an argument from the victim's validated call because the attacker had no value of its own for it. The attacker's identity is carried in the transport, so a reused argument is not what identifies the caller and the replay still speaks as the attacker.",
+			"attacker_identity_label", p.attackerLabel,
+			"credential_headers", strings.Join(headers, ","),
+			"inherited_args", strings.Join(args, ","), "tools", strings.Join(toolNames, ","))
+	case known:
+		slog.Warn("mcptool.BOLA: some attack calls reused an argument from the victim's validated call because the attacker had no value of its own for it, and NO credentials are configured for this target — so if this surface identifies its caller at all, it does so through an argument. Should one of the reused arguments be that argument, the call speaks AS the victim and a served response proves nothing about authorization. Give the attacker its own value with a values: rule. Affected attempts carry mcptool.inherited_args.",
+			"attacker_identity_label", p.attackerLabel,
+			"inherited_args", strings.Join(args, ","), "tools", strings.Join(toolNames, ","))
+	default:
+		slog.Warn("mcptool.BOLA: some attack calls reused an argument from the victim's validated call because the attacker had no value of its own for it, and this target cannot report whether credentials were configured for it — so whether identity travels in the transport or in an argument is unknown. If it travels in one of the reused arguments, those calls speak as the victim; review the affected attempts, which carry mcptool.inherited_args.",
+			"attacker_identity_label", p.attackerLabel,
+			"inherited_args", strings.Join(args, ","), "tools", strings.Join(toolNames, ","))
+	}
+}
+
+// transportIdentity reports the credential headers the target is configured
+// with, and whether that could be determined at all.
+//
+// Configured credentials mean the SESSION says who is calling, which is the fact
+// that decides whether a borrowed argument could be an identity. A generator
+// that cannot answer yields known=false, and the caller must then say it does
+// not know rather than assume either way.
+func transportIdentity(gen types.Generator) (headers []string, known bool) {
+	rep, ok := gen.(mcpprobe.CredentialReporter)
+	if !ok {
+		return nil, false
+	}
+	return rep.ConfiguredCredentialHeaders(), true
+}
+
+// sortedKeys renders a set deterministically, so the same scan logs the same
+// line twice.
+func sortedKeys(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // callVictimObject issues the attack call plus its negative (and, when available,
 // positive) control and records them as evidence. It renders no verdict.
-func (p *BOLA) callVictimObject(ctx context.Context, attacker types.ToolInvoker, victim string, obj, ownObj types.MCPObjectRef, hasOwn bool) *attempt.Attempt {
+func (p *BOLA) callVictimObject(ctx context.Context, attacker types.ToolInvoker, victim string, obj, ownObj types.MCPObjectRef, hasOwn bool, mine map[argKey]any) *attempt.Attempt {
 	a := attempt.New(obj.ID)
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
 	a.Metadata["mcptool.tool"] = obj.Tool
-	a.Metadata["mcptool.param"] = obj.Param
+	// The PATH, not the bare name. Two arguments of one tool can share a leaf
+	// name at different depths, so a name cannot say which one carried the
+	// identifier and a reader cannot replay the call from it.
+	a.Metadata["mcptool.param"] = string(idPathOf(obj))
 	a.Metadata[attempt.MetadataKeyBOLAID] = obj.ID
 	a.Metadata[attempt.MetadataKeyBOLAVictimIdentity] = victim
 	// Generic ground-truth sentence for the goal-conditioned judge — no server- or
@@ -182,13 +287,42 @@ func (p *BOLA) callVictimObject(ctx context.Context, attacker types.ToolInvoker,
 		p.attackerLabel, obj.ID, obj.Tool, victim, p.attackerLabel,
 	)
 
-	// ATTACK: replay with the SAME args recon validated the object with (id plus
-	// benign placeholders for any other required params); fall back to just the id
-	// for older observations that predate Args.
-	attackArgs := callArgs(obj)
+	// ATTACK: the victim's IDENTIFIER, in the attacker's OWN call.
+	//
+	// Only the identifier crosses the identity boundary. Every other argument is
+	// restored to the value the attacker's own confirmed calls used, because
+	// replaying the victim's whole argument map is not an authorization test: on
+	// any surface that carries identity in an argument — a tenant, an account, a
+	// workspace — that map contains the victim's identity, so the call speaks as
+	// the victim and the server serves it correctly. Measured against a lab server
+	// that enforces ownership properly: every replay returned the victim's object,
+	// because every replay asked as the victim.
+	attackArgs, inherited := p.attackArgs(obj, mine)
+	if len(inherited) > 0 {
+		// Named, not hidden. These are arguments the attacker has no value of its
+		// own for, so if one of them carries identity this call is not purely the
+		// attacker's and a served response is not proof of anything.
+		a.Metadata[metaBOLAInheritedArgs] = strings.Join(inherited, ",")
+
+		// Marking it is not enough on its own. The detector scores from the
+		// responses and does not read this key, so a call carrying the victim's
+		// tenant would be served correctly and then scored as an authorization
+		// break — a false positive against a server that behaved properly. The
+		// attempt is therefore marked inconclusive, which the detector does
+		// honour, so the evidence is still reported and a human decides.
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = fmt.Sprintf(
+			"the replay inherited %s from the victim's own call, so if any of those carries identity the call speaks as the victim and a served response is not evidence of a break; give the attacker a value with a values: rule",
+			strings.Join(inherited, ", "))
+		slog.Warn("mcptool.BOLA: replay inherited arguments from the victim; scoring inconclusive rather than risking a false positive",
+			"tool", obj.Tool, "inherited", strings.Join(inherited, ","))
+	}
 	res, err := attacker.CallTool(ctx, obj.Tool, attackArgs)
 	if err != nil {
-		a.SetError(err)
+		// A refusal is the object NOT being served, which is the safe outcome and
+		// a completed test. A transport failure is no test at all, and the two
+		// must not both read as the probe having broken.
+		mcpprobe.RecordCallFailure(a, err)
 		return a
 	}
 	a.AddOutput(cap2k(res.Text))
@@ -200,7 +334,7 @@ func (p *BOLA) callVictimObject(ctx context.Context, attacker types.ToolInvoker,
 	nxID := nonexistentID(obj.ID)
 	a.Metadata[attempt.MetadataKeyBOLANonexistentID] = nxID
 	negArgs := copyArgs(attackArgs)
-	negArgs[obj.Param] = nxID
+	setIDArg(negArgs, obj, nxID)
 	if negRes, negErr := attacker.CallTool(ctx, obj.Tool, negArgs); negErr == nil {
 		a.Metadata[attempt.MetadataKeyBOLANegativeControl] = cap2k(negRes.Text)
 	} else {
@@ -224,24 +358,132 @@ func (p *BOLA) callVictimObject(ctx context.Context, attacker types.ToolInvoker,
 	return a
 }
 
+// metaBOLAInheritedArgs lists the argument paths an attack call had to take from
+// the VICTIM's validated call because the attacker had no value of its own for
+// them. An identity-bearing argument in that list makes the attempt unsound, so
+// it travels with the evidence rather than being decided silently here.
+const metaBOLAInheritedArgs = "mcptool.inherited_args"
+
+// attackerArgValues collects, by argument path, the values the ATTACKER's own
+// confirmed calls used — the tenant, workspace or account arguments that say who
+// is calling, plus any other filler the getter required.
+//
+// Each reference's own identifier slot is excluded: that value names the
+// attacker's object, and writing it into an attack would overwrite the very
+// identifier the attack exists to send.
+//
+// Where two of the attacker's calls disagree about a path the first is kept. A
+// value that varies between calls is not an identity value, and identity values
+// are what this exists to recover.
+// argKey scopes a confirmed argument value to the tool it was confirmed for.
+// The same path can mean different things on different tools, so a value is only
+// evidence for the call it came from.
+type argKey struct {
+	tool string
+	path toolsig.Path
+}
+
+func attackerArgValues(identities []*types.MCPIdentifiers, attacker string) map[argKey]any {
+	out := map[argKey]any{}
+	for _, id := range identities {
+		if id.Identity != attacker {
+			continue
+		}
+		for _, obj := range id.Objects {
+			own := idPathOf(obj)
+			for path, v := range toolsig.FlattenArgs(obj.Args) {
+				if path == own {
+					continue
+				}
+				// Keyed by TOOL and path, not path alone. Two getters can both
+				// take a parameter at the same path and mean different things by
+				// it, so a value confirmed for one tool is not a value for the
+				// other — restoring it across tools would send an argument the
+				// attacker never actually established for that call.
+				k := argKey{tool: obj.Tool, path: path}
+				if _, seen := out[k]; seen {
+					continue
+				}
+				out[k] = v
+			}
+		}
+	}
+	return out
+}
+
+// attackArgs builds the attack call: the victim's validated arguments with every
+// path the attacker has a value of its own for restored to that value, and the
+// victim's identifier written at its own path.
+//
+// It returns the paths it could NOT restore — arguments inherited from the
+// victim's call — so the attempt can carry them as evidence.
+func (p *BOLA) attackArgs(obj types.MCPObjectRef, mine map[argKey]any) (map[string]any, []string) {
+	args := callArgs(obj)
+	own := idPathOf(obj)
+
+	var inherited []string
+	for path := range toolsig.FlattenArgs(args) {
+		if path == own {
+			continue
+		}
+		// Only a value the attacker confirmed FOR THIS TOOL counts. The same
+		// path on another tool is a different argument, and restoring across
+		// tools would send a value the attacker never established for this call.
+		if v, ok := mine[argKey{tool: obj.Tool, path: path}]; ok {
+			toolsig.SetPath(args, path, v)
+			continue
+		}
+		inherited = append(inherited, string(path))
+	}
+	sort.Strings(inherited)
+
+	// Written last so it survives the restoration above even when the attacker
+	// has a value at the same path.
+	setIDArg(args, obj, obj.ID)
+	return args, inherited
+}
+
+// idPathOf returns the path the identifier occupies in an object's call. An
+// observation recorded before paths existed carries only a name, which is a top
+// level path.
+func idPathOf(obj types.MCPObjectRef) toolsig.Path {
+	if obj.ParamPath != "" {
+		return toolsig.Path(obj.ParamPath)
+	}
+	return toolsig.Path(obj.Param)
+}
+
 // callArgs returns the validated arg map for an object, falling back to just the
 // id param for observations that predate Args.
 func callArgs(obj types.MCPObjectRef) map[string]any {
 	if len(obj.Args) > 0 {
 		return copyArgs(obj.Args)
 	}
-	return map[string]any{obj.Param: obj.ID}
+	args := map[string]any{}
+	setIDArg(args, obj, obj.ID)
+	return args
 }
 
-// copyArgs shallow-copies an arg map so per-call mutation (the negative control's
-// id swap) never aliases another call's args.
-func copyArgs(args map[string]any) map[string]any {
-	out := make(map[string]any, len(args))
-	for k, v := range args {
-		out[k] = v
+// setIDArg writes an identifier where the getter reads it.
+//
+// A top-level write is wrong whenever the identifier lives inside a nested
+// object, and wrong in the worst way: the real id survives untouched inside the
+// object, so the "nonexistent" negative control still addresses the REAL object
+// and returns a served response. The detector then reads the attack as matching
+// its not-found baseline and scores a genuine authorization flaw safe.
+func setIDArg(args map[string]any, obj types.MCPObjectRef, id string) {
+	if obj.ParamPath != "" {
+		toolsig.SetPath(args, toolsig.Path(obj.ParamPath), id)
+		return
 	}
-	return out
+	args[obj.Param] = id
 }
+
+// copyArgs deep-copies an arg map so per-call mutation (the negative control's
+// id swap) never reaches another call's arguments. A shallow copy would share
+// every nested object between the two, so swapping the control's id would
+// rewrite the attack's as well and both calls would address one object.
+func copyArgs(args map[string]any) map[string]any { return toolsig.CopyArgs(args) }
 
 var (
 	numericIDRE = regexp.MustCompile(`^[0-9]+$`)

@@ -47,6 +47,25 @@ type ToolInvoker interface {
 // the partial-as-complete failure this sentinel exists to make impossible to miss.
 var ErrCatalogTruncated = errors.New("types: tool catalog enumeration truncated; results are incomplete")
 
+// ErrCallRefused reports that the call REACHED the target and the target refused
+// it — a protocol-level rejection such as invalid parameters or an unknown
+// method, answered by the server itself. CallTool implementations wrap it;
+// consumers test with errors.Is.
+//
+// The distinction it draws is the difference between a test and a gap. A payload
+// the server rejects at schema validation is a completed test with a negative
+// result: the argument was submitted, the server considered it, and the server
+// said no. A transport failure is not a test at all — nothing was submitted and
+// nothing is known.
+//
+// Both used to arrive as an undifferentiated error, so both were recorded as the
+// probe having failed. Measured against one conditional server, 234 of 540
+// attempts were refusals: every one of them a successful test, all of them
+// counted as errors, and the whole scan reported as not reflecting the target's
+// safety. The pressure that creates is to stop treating errors as significant,
+// which is exactly how a genuine "we never tested this" becomes a silent pass.
+var ErrCallRefused = errors.New("types: the target refused the call")
+
 // ToolResult is the outcome of a single ToolInvoker.CallTool. It has no existing
 // equivalent (Message.ToolCalls represents a tool *call*, not its result).
 type ToolResult struct {
@@ -59,3 +78,14 @@ type ToolResult struct {
 	// a valid security observation, not a transport failure.
 	IsError bool
 }
+
+// DefaultIdentity labels the session a scan runs under when the operator names
+// no other.
+//
+// Values observed in tool responses are partitioned by identity, so
+// reconnaissance and the probes that follow it must agree on this label to share
+// what the target handed out. Two independent definitions of the same default
+// would drift into two partitions, and the symptom would be a probe finding an
+// empty store for no visible reason — so the constant lives in one place both
+// sides already import.
+const DefaultIdentity = "primary"

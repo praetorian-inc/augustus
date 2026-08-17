@@ -54,14 +54,16 @@ type Injection struct {
 // out-of-band collector settings (all defaulted so a localhost target works with
 // zero config).
 func NewInjection(cfg registry.Config) (probes.Prober, error) {
-	return &Injection{
+	probe := &Injection{
 		canary:       mcpprobe.NewCanary(),
 		policy:       toolpolicy.New(cfg),
 		listen:       registry.GetString(cfg, "oob_listen", "127.0.0.1:0"),
 		baseOverride: registry.GetString(cfg, "oob_base_url", ""),
 		wait:         time.Duration(registry.GetInt(cfg, "oob_wait_seconds", 3)) * time.Second,
 		marker:       "AUGOOB" + mcpprobe.RandToken(),
-	}, nil
+	}
+	probe.configure(cfg)
+	return probe, nil
 }
 
 func (p *Injection) Name() string { return "mcptool.Injection" }
@@ -113,7 +115,7 @@ func (p *Injection) Probe(ctx context.Context, gen types.Generator) ([]*attempt.
 	// catalog, so the payloads must be sent to the real target. A non-ToolInvoker
 	// target cannot be tested by this probe — fail loud rather than return a
 	// clean-looking empty result (a silent false negative for a scanner).
-	inv, ok := gen.(types.ToolInvoker)
+	inv, ok := p.invoker(gen)
 	if !ok {
 		return nil, fmt.Errorf("mcptool.Injection: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
 	}
@@ -155,36 +157,41 @@ sending:
 		if name == "" {
 			continue
 		}
-		params := toolParams(tool)
-		params = discoverToolValues(ctx, inv, name, params)
-		for _, param := range params {
-			if !isStringParam(param.typ) {
-				continue
-			}
-			// In-band computed-canary payloads (eval / SSTI / shell arithmetic).
-			for _, payload := range p.canary.Payloads {
-				for _, variant := range payloadVariants(param, payload) {
-					// Stop issuing new calls the moment the context is done; the attempts
-					// already sent are still recorded and their callbacks reconciled below.
-					// Checked per-call (not per-param) so cancellation doesn't emit a burst
-					// of immediately-erroring attempts for the rest of the param's payloads.
-					if ctx.Err() != nil {
-						break sending
-					}
-					attempts = append(attempts, p.callOne(ctx, inv, name, param.name, params, variant))
+		// One signature per concrete way the tool can be called. A tool with no
+		// conditionals yields exactly one, holding the same parameters the flat
+		// parser used to produce.
+		for _, ts := range toolSignatures(tool, p.valueChain(ctx, name)) {
+			p.warnBroadRules(name, ts.sig.Params)
+			ts = ts.withShape(p.shapeMode()).discoverValues(ctx, inv, name)
+			for _, param := range ts.params {
+				if !isStringParam(param.typ) {
+					continue
 				}
-			}
-			// Out-of-band OS-command payloads (blind + non-blind command injection).
-			for _, f := range mcpprobe.OOBCmdFormats {
-				for _, prefix := range payloadPrefixes(param) {
-					if ctx.Err() != nil {
-						break sending
+				// In-band computed-canary payloads (eval / SSTI / shell arithmetic).
+				for _, payload := range p.canary.Payloads {
+					for _, variant := range payloadVariants(param, payload) {
+						// Stop issuing new calls the moment the context is done; the attempts
+						// already sent are still recorded and their callbacks reconciled below.
+						// Checked per-call (not per-param) so cancellation doesn't emit a burst
+						// of immediately-erroring attempts for the rest of the param's payloads.
+						if ctx.Err() != nil {
+							break sending
+						}
+						attempts = append(attempts, p.callOne(ctx, inv, name, param, ts, variant))
 					}
-					token := mcpprobe.RandToken()
-					proofURL := mcpprobe.ShellProofURL(col.URL(token), token)
-					a := p.callOOB(ctx, inv, name, param.name, params, prefix, f, proofURL)
-					pend = append(pend, pending{a: a, token: token})
-					attempts = append(attempts, a)
+				}
+				// Out-of-band OS-command payloads (blind + non-blind command injection).
+				for _, f := range mcpprobe.OOBCmdFormats {
+					for _, prefix := range payloadPrefixes(param) {
+						if ctx.Err() != nil {
+							break sending
+						}
+						token := mcpprobe.RandToken()
+						proofURL := mcpprobe.ShellProofURL(col.URL(token), token)
+						a := p.callOOB(ctx, inv, name, param, ts, prefix, f, proofURL)
+						pend = append(pend, pending{a: a, token: token})
+						attempts = append(attempts, a)
+					}
 				}
 			}
 		}
@@ -216,17 +223,22 @@ sending:
 
 // callOne invokes a single (tool, param, payload) with an in-band computed canary
 // and records the attempt.
-func (p *Injection) callOne(ctx context.Context, inv types.ToolInvoker, tool, param string, params []paramInfo, payload string) *attempt.Attempt {
+func (p *Injection) callOne(ctx context.Context, inv types.ToolInvoker, tool string, param paramInfo, ts toolSig, payload string) *attempt.Attempt {
 	a := attempt.New(payload)
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
 	a.Metadata[attempt.MetadataKeyInjectionCanaries] = []string{p.canary.Marker}
 	a.Metadata["mcptool.tool"] = tool
-	a.Metadata["mcptool.param"] = param
+	a.Metadata["mcptool.param"] = string(param.path)
 
-	res, err := inv.CallTool(ctx, tool, benignArgs(params, param, payload))
+	args := ts.args(param, payload)
+	res, err := inv.CallTool(ctx, tool, args)
 	if err != nil {
-		a.SetError(err)
+		// A payload the SERVER refused reached the target and was rejected: it
+		// cannot have reached a sink, so this is a completed test with a negative
+		// result. A payload that never arrived tested nothing at all, and the two
+		// must not both read as the probe having failed.
+		ts.recordCallFailure(a, param, args, err)
 		return a
 	}
 	a.AddOutput(res.Text)
@@ -246,7 +258,7 @@ func (p *Injection) callOne(ctx context.Context, inv types.ToolInvoker, tool, pa
 // real shell resolves to the tracked token, and the callback catches BOTH the
 // blind case (nothing returned) and the non-blind case (a shell ran curl and the
 // callback still fired), so dropping reflection loses no true positives.
-func (p *Injection) callOOB(ctx context.Context, inv types.ToolInvoker, tool, param string, params []paramInfo, prefix, format, canaryURL string) *attempt.Attempt {
+func (p *Injection) callOOB(ctx context.Context, inv types.ToolInvoker, tool string, param paramInfo, ts toolSig, prefix, format, canaryURL string) *attempt.Attempt {
 	payload := prefix + fmt.Sprintf(format, canaryURL)
 
 	a := attempt.New(payload)
@@ -254,11 +266,16 @@ func (p *Injection) callOOB(ctx context.Context, inv types.ToolInvoker, tool, pa
 	a.Detector = p.GetPrimaryDetector()
 	a.Metadata[attempt.MetadataKeyInjectionOOBURL] = canaryURL
 	a.Metadata["mcptool.tool"] = tool
-	a.Metadata["mcptool.param"] = param
+	a.Metadata["mcptool.param"] = string(param.path)
 
-	res, err := inv.CallTool(ctx, tool, benignArgs(params, param, payload))
+	args := ts.args(param, payload)
+	res, err := inv.CallTool(ctx, tool, args)
 	if err != nil {
-		a.SetError(err)
+		// A payload the SERVER refused reached the target and was rejected: it
+		// cannot have reached a sink, so this is a completed test with a negative
+		// result. A payload that never arrived tested nothing at all, and the two
+		// must not both read as the probe having failed.
+		ts.recordCallFailure(a, param, args, err)
 		return a
 	}
 	a.AddOutput(res.Text)

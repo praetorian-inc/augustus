@@ -553,8 +553,8 @@ func TestResponseLeak_ArgCasesDeterministicOrder(t *testing.T) {
 		return out
 	}
 
-	got1 := names(argCases(forward))
-	got2 := names(argCases(reversed))
+	got1 := names(argCases(sigOf(forward)))
+	got2 := names(argCases(sigOf(reversed)))
 	if strings.Join(got1, ",") != strings.Join(got2, ",") {
 		t.Errorf("argCases order not stable across input orderings:\n forward  = %v\n reversed = %v", got1, got2)
 	}

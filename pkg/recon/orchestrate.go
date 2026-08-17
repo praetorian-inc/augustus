@@ -61,7 +61,7 @@ func RunAll(ctx context.Context, gen types.Generator, names []string, resolve Co
 // import the probes package. Call it on the RAW probe list before buff-wrapping
 // — buffed probes do not forward ContextAwareProbe.
 func InjectProbeContext[T any](items []T, store *Store) {
-	pc := ProbeContext{Recon: store}
+	pc := ProbeContext{Recon: store, Observed: store.Values()}
 	for _, it := range items {
 		if aware, ok := any(it).(ContextAwareProbe); ok {
 			aware.SetContext(pc)

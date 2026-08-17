@@ -3,6 +3,8 @@ package recon
 import (
 	"sync"
 
+	"github.com/praetorian-inc/augustus/internal/observed"
+
 	"github.com/praetorian-inc/augustus/pkg/output"
 )
 
@@ -14,10 +16,25 @@ import (
 type Store struct {
 	mu  sync.Mutex
 	obs []output.Observation
+	// values holds the scalars seen in tool responses, so a value the target
+	// handed out during reconnaissance can fill a parameter a probe would
+	// otherwise have nothing to put in. It rides on the observation store
+	// because that is what already reaches every recon module and every
+	// context-aware probe.
+	values *observed.Store
 }
 
 // NewStore returns an empty store.
-func NewStore() *Store { return &Store{} }
+func NewStore() *Store { return &Store{values: observed.New()} }
+
+// Values returns the store of values observed in tool responses. Never nil for
+// a store built by NewStore.
+func (s *Store) Values() *observed.Store {
+	if s == nil {
+		return nil
+	}
+	return s.values
+}
 
 // Observe records one observation.
 func (s *Store) Observe(o output.Observation) {

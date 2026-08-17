@@ -130,10 +130,15 @@ type MCPIdentifiers struct {
 // authorization probe can replay the getter without assuming any response format,
 // id format, or field names.
 type MCPObjectRef struct {
-	Tool   string `json:"tool"`             // getter confirmed to return this object
-	Param  string `json:"param"`            // getter arg that took the id
-	ID     string `json:"id"`               // the identifier value
-	Source string `json:"source,omitempty"` // enumerator the id came from
+	Tool  string `json:"tool"`  // getter confirmed to return this object
+	Param string `json:"param"` // getter arg that took the id, by name
+	// ParamPath addresses that argument within the call, which a name alone
+	// cannot do when the identifier sits inside a nested object. Empty means
+	// top level, so an observation recorded before paths existed still replays
+	// correctly.
+	ParamPath string `json:"param_path,omitempty"`
+	ID        string `json:"id"`               // the identifier value
+	Source    string `json:"source,omitempty"` // enumerator the id came from
 	// Args is the full argument map the getter was validated with (the id plus
 	// benign placeholders for any other required params). A BOLA replay must reuse
 	// it so getters with additional required args aren't rejected as IsError.
