@@ -263,6 +263,14 @@ func (m *MCPIdentifiers) Recon(ctx context.Context, gen types.Generator) ([]outp
 
 	getters, enumerators := m.classify(ctx, tools)
 	if len(getters) == 0 || len(enumerators) == 0 {
+		// Returning nothing here is indistinguishable in output from a target
+		// that simply owns no objects, so say which half was missing. The usual
+		// cause is every tool looking like a getter because a scope identifier
+		// (tenant_id, account_id) was mistaken for an object identifier — in
+		// which case name the real one with id_params.
+		slog.Warn("recon.MCPIdentifiers: no identifiers gathered — the tool surface did not classify into both roles. This is NOT a clean result.",
+			"tools", len(tools), "getters", len(getters), "enumerators", len(enumerators),
+			"hint", "set get_tools/enumeration_tools, or name the object identifier with id_params")
 		return nil, nil
 	}
 
@@ -413,6 +421,52 @@ func (m *MCPIdentifiers) classifyHeuristic(tools []map[string]any) (getters []to
 		}
 	}
 	return getters, enumerators
+}
+
+// notFoundResponse is a getter's answer for an identifier that cannot exist.
+type notFoundResponse struct {
+	id   string
+	text string
+}
+
+// notFoundBaseline asks a getter for a deliberately nonexistent identifier and
+// records what it says, so that a real answer can be told apart from a refusal
+// dressed as a normal result.
+//
+// One call per getter. A failure to obtain it is not fatal: the caller falls
+// back to the weaker IsError/emptiness check rather than discarding candidates
+// it cannot adjudicate.
+func (m *MCPIdentifiers) notFoundBaseline(ctx context.Context, s identitySession, g toolSpec) (notFoundResponse, bool) {
+	nxID := "aug-nonexistent-" + strconv.Itoa(len(g.name)*7+13)
+	res, err := s.inv.CallTool(ctx, g.name, g.callArgs(s.chain, nxID))
+	if err != nil || strings.TrimSpace(res.Text) == "" {
+		return notFoundResponse{}, false
+	}
+	return notFoundResponse{id: nxID, text: res.Text}, true
+}
+
+// sameAsBaseline reports whether a getter's answer for a candidate is the same
+// answer it gives for an identifier that does not exist, once identifiers have
+// been masked out of both. Servers echo the id they were asked about, so without
+// masking every response would look distinct.
+//
+// BOTH identifiers are masked in BOTH responses, not each in its own. A
+// candidate value can appear in the baseline's response as well — a tenant
+// identifier harvested as a candidate is still echoed as the tenant of the
+// baseline call — and masking only each response's own id leaves that occurrence
+// behind, making two identical refusals compare unequal.
+func sameAsBaseline(candText, candID, baseText, baseID string) bool {
+	const mask = "\x00AUGID\x00"
+	norm := func(s string) string {
+		if candID != "" {
+			s = strings.ReplaceAll(s, candID, mask)
+		}
+		if baseID != "" {
+			s = strings.ReplaceAll(s, baseID, mask)
+		}
+		return s
+	}
+	return norm(candText) == norm(baseText)
 }
 
 // requiredAt reports whether the parameter at path is required by the signature.
@@ -574,6 +628,14 @@ func (m *MCPIdentifiers) harvestAndValidate(ctx context.Context, s identitySessi
 			slog.Warn("recon.MCPIdentifiers: not invoking classified getter (call-site policy gate)", "tool", g.name, "reason", reason)
 			continue
 		}
+		// What this getter says about an id that cannot exist. Many servers report
+		// "not found" as a NORMAL result with an error in the body rather than as
+		// a protocol error, so a check that only tests IsError and emptiness
+		// confirms every string ever harvested — including values that are not
+		// object identifiers at all. Comparing against this baseline is what makes
+		// "the getter returned an object" mean something.
+		baseline, haveBaseline := m.notFoundBaseline(ctx, s, g)
+
 		for _, cand := range candidates {
 			key := g.name + "|" + string(g.idPath) + "|" + cand.id
 			if confirmed[key] {
@@ -582,6 +644,11 @@ func (m *MCPIdentifiers) harvestAndValidate(ctx context.Context, s identitySessi
 			args := g.callArgs(s.chain, cand.id)
 			res, err := s.inv.CallTool(ctx, g.name, args)
 			if err != nil || res.IsError || strings.TrimSpace(res.Text) == "" {
+				continue
+			}
+			if haveBaseline && sameAsBaseline(res.Text, cand.id, baseline.text, baseline.id) {
+				// Indistinguishable from asking for something that does not exist,
+				// so this id names no object the getter will serve.
 				continue
 			}
 			confirmed[key] = true
@@ -611,17 +678,119 @@ func (m *MCPIdentifiers) idParamFor(name string, params []toolsig.Param) (string
 		}
 		return p, toolsig.Path(p)
 	}
+
+	// Preference order, most meaningful first. Taking the first id-shaped
+	// parameter instead is how a tenant or account id gets mistaken for the
+	// object identifier: it matches the id pattern, it is required, and on a
+	// tenant-scoped surface it is declared first on every single tool. Every
+	// tool then looks like a getter, no tool looks like an enumerator, and the
+	// module returns nothing at all.
+	type ranked struct {
+		leaf string
+		path toolsig.Path
+		rank int
+	}
+	best := ranked{rank: -1}
 	for _, p := range params {
-		if p.Required && matchWord(m.idParamRE, p.Path.Leaf()) {
-			return p.Path.Leaf(), p.Path
+		leaf := p.Path.Leaf()
+		if !matchWord(m.idParamRE, leaf) {
+			continue
+		}
+		var rank int
+		switch {
+		// An identifier naming the same entity as the tool: get_object ->
+		// object_id, get_account -> account_id. The strongest signal available,
+		// and it needs no vocabulary. Checked FIRST so a tool that genuinely
+		// fetches an account still takes account_id as its object identifier.
+		case entityMatchesTool(leaf, name):
+			rank = 3
+		// A scope identifier names WHO is calling, not WHAT is being fetched, so
+		// it is not an object identifier at all — not even as a last resort.
+		//
+		// Accepting it as one is worse than finding nothing: a tenant-scoped
+		// surface declares tenant_id on every tool, so every tool acquires a
+		// "required id" and is classified a getter. Nothing is left to enumerate
+		// from, and the module reports no objects on a target full of them.
+		case isScopeID(leaf):
+			continue
+		case p.Required:
+			rank = 2
+		default:
+			rank = 1
+		}
+		if rank > best.rank {
+			best = ranked{leaf: leaf, path: p.Path, rank: rank}
 		}
 	}
-	for _, p := range params {
-		if matchWord(m.idParamRE, p.Path.Leaf()) {
-			return p.Path.Leaf(), p.Path
+	return best.leaf, best.path
+}
+
+// scopeIDWords name the caller's own context rather than an object to fetch.
+// A value for one of these is supplied by the operator; it is never something
+// an enumerator hands out for a getter to accept.
+var scopeIDWords = map[string]bool{
+	"tenant": true, "org": true, "organization": true, "organisation": true,
+	"account": true, "workspace": true, "project": true, "company": true,
+	"team": true, "realm": true, "namespace": true, "app": true, "client": true,
+}
+
+// isScopeID reports whether an id-shaped parameter names a scope.
+func isScopeID(leaf string) bool {
+	for _, w := range splitIdentifierWords(leaf) {
+		if scopeIDWords[w] {
+			return true
 		}
 	}
-	return "", ""
+	return false
+}
+
+// entityMatchesTool reports whether an identifier names the same entity the
+// tool does: "object_id" against "get_object" or "fetchObject".
+func entityMatchesTool(leaf, tool string) bool {
+	toolWords := map[string]bool{}
+	for _, w := range splitIdentifierWords(tool) {
+		toolWords[w] = true
+		toolWords[strings.TrimSuffix(w, "s")] = true
+	}
+	for _, w := range splitIdentifierWords(leaf) {
+		if w == "id" || w == "uid" || w == "uuid" || w == "key" {
+			continue
+		}
+		if toolWords[w] || toolWords[strings.TrimSuffix(w, "s")] {
+			return true
+		}
+	}
+	return false
+}
+
+// splitIdentifierWords lowercases and splits a name on delimiters and camelCase
+// humps, so "objectId", "object_id" and "OBJECT-ID" all yield [object id].
+func splitIdentifierWords(s string) []string {
+	var words []string
+	var cur strings.Builder
+	flush := func() {
+		if cur.Len() > 0 {
+			words = append(words, strings.ToLower(cur.String()))
+			cur.Reset()
+		}
+	}
+	runes := []rune(s)
+	for i, r := range runes {
+		switch {
+		case r == '_' || r == '-' || r == '.' || r == ' ':
+			flush()
+		case r >= 'A' && r <= 'Z':
+			// A hump starts a word unless it continues an acronym (ID, UUID).
+			if i > 0 && !(runes[i-1] >= 'A' && runes[i-1] <= 'Z') {
+				flush()
+			}
+			cur.WriteRune(r)
+		default:
+			cur.WriteRune(r)
+		}
+	}
+	flush()
+	return words
 }
 
 // --- deterministic helpers -------------------------------------------------

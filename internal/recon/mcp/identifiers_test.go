@@ -679,3 +679,97 @@ func (nonInvokerGen) Generate(context.Context, *attempt.Conversation, int) ([]at
 	return nil, nil
 }
 func (nonInvokerGen) ClearHistory() {}
+
+// A scope identifier names WHO is calling, not WHAT is being fetched. Choosing
+// it as the object identifier makes every tool look like a getter, leaves no
+// enumerator, and the module then gathers nothing at all.
+func TestIdParamFor_PrefersObjectIDOverScopeID(t *testing.T) {
+	m := newIdentifiersModule(t, registry.Config{"use_navigator": false})
+	params := []toolsig.Param{
+		{Path: "tenant_id", Required: true}, // declared first, id-shaped, required
+		{Path: "object_id", Required: true},
+	}
+	leaf, path := m.idParamFor("get_object", params)
+	if leaf != "object_id" || path != "object_id" {
+		t.Errorf("idParamFor = (%q, %q), want object_id: a tenant id is the caller's scope, not the object", leaf, path)
+	}
+}
+
+// The identifier that names the same entity as the tool wins, whatever order
+// the schema declares parameters in and whatever case style it uses.
+func TestIdParamFor_PrefersEntityMatchingTheTool(t *testing.T) {
+	m := newIdentifiersModule(t, registry.Config{"use_navigator": false})
+	cases := []struct {
+		tool   string
+		params []toolsig.Param
+		want   string
+	}{
+		{"get_object", []toolsig.Param{{Path: "record_id", Required: true}, {Path: "object_id"}}, "object_id"},
+		{"fetchObject", []toolsig.Param{{Path: "accountId", Required: true}, {Path: "objectId"}}, "objectId"},
+		{"list_records", []toolsig.Param{{Path: "tenant_uid"}, {Path: "record_id"}}, "record_id"},
+	}
+	for _, tc := range cases {
+		if leaf, _ := m.idParamFor(tc.tool, tc.params); leaf != tc.want {
+			t.Errorf("%s: idParamFor = %q, want %q", tc.tool, leaf, tc.want)
+		}
+	}
+}
+
+// A tool whose only id-shaped parameter is a scope has NO object identifier, so
+// it is an enumerator candidate rather than a getter.
+//
+// This is the case that made a tenant-scoped surface yield nothing: tenant_id is
+// declared on every tool, so accepting it as an object id made every tool a
+// getter and left nothing to enumerate from.
+func TestIdParamFor_ScopeOnlyToolHasNoObjectID(t *testing.T) {
+	m := newIdentifiersModule(t, registry.Config{"use_navigator": false})
+	if leaf, _ := m.idParamFor("list_objects", []toolsig.Param{{Path: "tenant_id", Required: true}}); leaf != "" {
+		t.Errorf("idParamFor = %q, want empty: a scope id names the caller, not an object", leaf)
+	}
+}
+
+// But a tool that genuinely fetches the scoped entity does take its id: the
+// entity rule fires before the scope rule.
+func TestIdParamFor_ScopeWordIsAnObjectIDWhenTheToolFetchesIt(t *testing.T) {
+	m := newIdentifiersModule(t, registry.Config{"use_navigator": false})
+	if leaf, _ := m.idParamFor("get_account", []toolsig.Param{{Path: "account_id", Required: true}}); leaf != "account_id" {
+		t.Errorf("idParamFor = %q, want account_id: get_account fetches an account", leaf)
+	}
+}
+
+// Servers routinely report "not found" as a normal result with an error in the
+// body. Confirming on IsError and emptiness alone therefore accepts every string
+// ever harvested — including values that name no object.
+func TestSameAsBaseline_RecognisesANotFoundDressedAsSuccess(t *testing.T) {
+	base := `{"error":"no such object","object_id":"aug-nonexistent-99"}`
+	cand := `{"error":"no such object","object_id":"TENANT-A"}`
+	if !sameAsBaseline(cand, "TENANT-A", base, "aug-nonexistent-99") {
+		t.Error("a response identical to the not-found baseline (once ids are masked) must not confirm an object")
+	}
+
+	real := `{"object":{"object_id":"obj_a1","name":"alpha report"}}`
+	if sameAsBaseline(real, "obj_a1", base, "aug-nonexistent-99") {
+		t.Error("a served object must be distinguishable from the not-found baseline")
+	}
+}
+
+// Masking is what makes the comparison work at all: a server echoing the id it
+// was asked about would otherwise make every refusal look distinct.
+func TestSameAsBaseline_MasksTheEchoedIdentifier(t *testing.T) {
+	if !sameAsBaseline(`{"error":"unknown id X1"}`, "X1", `{"error":"unknown id NX"}`, "NX") {
+		t.Error("two refusals differing only in the echoed id are the same answer")
+	}
+}
+
+// A candidate value can also appear in the BASELINE's response — a tenant
+// identifier harvested as a candidate is echoed as the tenant of every call,
+// baseline included. Masking each response's own id only would leave that
+// occurrence behind and make two identical refusals compare unequal, which is
+// exactly how a tenant id came to be confirmed as an object.
+func TestSameAsBaseline_MasksBothIdsInBothResponses(t *testing.T) {
+	base := `{"error":"no such object","received":{"tenant_id":"TENANT-A","object_id":"NX-1"}}`
+	cand := `{"error":"no such object","received":{"tenant_id":"TENANT-A","object_id":"TENANT-A"}}`
+	if !sameAsBaseline(cand, "TENANT-A", base, "NX-1") {
+		t.Error("a refusal echoing the candidate value elsewhere must still match the baseline")
+	}
+}
