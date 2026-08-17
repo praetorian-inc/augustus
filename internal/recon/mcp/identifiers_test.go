@@ -654,3 +654,64 @@ func (o *objectServer) called(name string) bool {
 	}
 	return false
 }
+
+// Reconnaissance is read-only by contract, and the destructive-annotation gate
+// does not deliver that on its own: its default is PERMIT, and most servers
+// annotate nothing. Discovery calls every signature it is given, so without a
+// second gate an unannotated delete operation is invoked during what is meant to
+// be a read-only phase — with an identifier the value chain may have harvested,
+// which is what would make the call effective.
+func TestDiscover_DoesNotInvokeUnannotatedWriteTools(t *testing.T) {
+	m := newIdentifiersModule(t, registry.Config{"use_navigator": false})
+	rec := &recordingInvoker{body: `{"records":[{"record_id":"r1"}]}`}
+
+	m.discover(context.Background(), identitySession{label: "a", inv: rec}, []toolSpec{
+		spec("list_records", nil),            // reads as retrieval
+		spec("get_record", nil, "record_id"), // reads as retrieval
+		spec("delete_record", nil, "record_id"),
+		spec("wipe_everything", nil),
+	})
+
+	for _, safe := range []string{"list_records", "get_record"} {
+		if !rec.called(safe) {
+			t.Errorf("%s should be invoked: its name is recognisably a read operation", safe)
+		}
+	}
+	for _, unsafe := range []string{"delete_record", "wipe_everything"} {
+		if rec.called(unsafe) {
+			t.Errorf("%s must NOT be invoked: the server does not annotate it read-only and its name is not a read operation", unsafe)
+		}
+	}
+}
+
+// The server's own read-only annotation is authoritative, whatever the name says.
+func TestDiscover_InvokesAnnotatedReadOnlyToolWhateverItIsCalled(t *testing.T) {
+	m := newIdentifiersModule(t, registry.Config{"use_navigator": false})
+	rec := &recordingInvoker{body: `{"records":[{"record_id":"r1"}]}`}
+
+	readOnly := map[string]any{
+		"name":        "purge_cache",
+		"annotations": types.MCPToolAnnotations{ReadOnly: true},
+	}
+	m.discover(context.Background(), identitySession{label: "a", inv: rec}, []toolSpec{spec("purge_cache", readOnly)})
+
+	if !rec.called("purge_cache") {
+		t.Error("a tool the server annotates read-only must be invoked despite its name")
+	}
+}
+
+// Naming a tool is the operator's statement that calling it is acceptable, and
+// that decision is theirs rather than the heuristic's.
+func TestDiscover_InvokesToolTheOperatorNamed(t *testing.T) {
+	m := newIdentifiersModule(t, registry.Config{
+		"use_navigator":     false,
+		"enumeration_tools": []any{"drain_queue"},
+	})
+	rec := &recordingInvoker{body: `{"records":[{"record_id":"r1"}]}`}
+
+	m.discover(context.Background(), identitySession{label: "a", inv: rec}, []toolSpec{spec("drain_queue", nil)})
+
+	if !rec.called("drain_queue") {
+		t.Error("a tool named in enumeration_tools must be invoked; the operator has accepted it")
+	}
+}

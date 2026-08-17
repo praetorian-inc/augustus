@@ -395,7 +395,12 @@ func branchPoints(s *jsonschema.Schema, prefix Path, r *refs, seen map[*jsonsche
 			// A conditional whose discriminator we cannot read applies
 			// unconditionally: keep its contribution rather than dropping it.
 			g := alternatives{at: prefix}
-			g.add(map[string]any{}, r.deref(c.Then))
+			if c.Then != nil {
+				g.add(map[string]any{}, r.deref(c.Then))
+			}
+			if c.Else != nil {
+				g.add(map[string]any{}, r.deref(c.Else))
+			}
 			groups = append(groups, g)
 			continue
 		}
@@ -403,7 +408,23 @@ func branchPoints(s *jsonschema.Schema, prefix Path, r *refs, seen map[*jsonsche
 			byDiscriminator[key] = &alternatives{at: prefix}
 			order = append(order, key)
 		}
-		byDiscriminator[key].add(sel, r.deref(c.Then))
+		if c.Then != nil {
+			byDiscriminator[key].add(sel, r.deref(c.Then))
+		}
+		// The else branch is the operation taken when the condition does NOT
+		// hold. Its parameters are as real as the then branch's, and dropping
+		// them removes an entire operation from every signature while the scan
+		// still reports as complete.
+		//
+		// Its selector is a negation, which a map of fixed values cannot express,
+		// so it carries none: the discriminator is left to the value chain, which
+		// picks a declared member. That reaches the else operation whenever the
+		// enum has a member the condition does not pin — the ordinary case — and
+		// where it does not, the parameters are still discovered and reported
+		// rather than silently absent.
+		if c.Else != nil {
+			byDiscriminator[key].add(map[string]any{}, r.deref(c.Else))
+		}
 	}
 	for _, k := range order {
 		groups = append(groups, *byDiscriminator[k])
@@ -467,18 +488,18 @@ func prefixSel(prefix Path, sel map[string]any) map[string]any {
 }
 
 // conditional pairs an if with its then.
-type conditional struct{ If, Then *jsonschema.Schema }
+type conditional struct{ If, Then, Else *jsonschema.Schema }
 
 // conditionals collects if/then pairs from the schema itself and from its allOf
 // entries, which is where servers most often place them.
 func conditionals(s *jsonschema.Schema) []conditional {
 	var out []conditional
-	if s.If != nil && s.Then != nil {
-		out = append(out, conditional{s.If, s.Then})
+	if s.If != nil && (s.Then != nil || s.Else != nil) {
+		out = append(out, conditional{s.If, s.Then, s.Else})
 	}
 	for _, a := range s.AllOf {
-		if a != nil && a.If != nil && a.Then != nil {
-			out = append(out, conditional{a.If, a.Then})
+		if a != nil && a.If != nil && (a.Then != nil || a.Else != nil) {
+			out = append(out, conditional{a.If, a.Then, a.Else})
 		}
 	}
 	return out

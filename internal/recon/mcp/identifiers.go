@@ -51,6 +51,14 @@ var (
 	defaultIDParamWords = []string{"id", "uuid", "guid", "key", "ref", "number", "order", "ticket", "account", "user"}
 	defaultGetterWords  = []string{"get", "read", "fetch", "retrieve", "show", "view", "describe"}
 	defaultEnumWords    = []string{"list", "search", "find", "query", "all", "enumerate", "browse"}
+	// defaultReadOnlyWords name operations that retrieve rather than change.
+	// Used only to decide whether reconnaissance may CALL a tool, never to
+	// decide what role it plays.
+	defaultReadOnlyWords = []string{
+		"get", "list", "read", "fetch", "search", "find", "query", "view",
+		"show", "describe", "inspect", "lookup", "count", "check", "status",
+		"browse", "enumerate", "retrieve", "preview", "summary", "info",
+	}
 )
 
 // MCPIdentifiers is the recon module that discovers, per identity, the object
@@ -69,6 +77,15 @@ type MCPIdentifiers struct {
 	idParams         map[string]string
 	useNavigator     bool
 	maxIDsPerTool    int
+
+	// allowDestructive mirrors the operator's acceptance of write risk; when set,
+	// the read-only gate below stands down.
+	allowDestructive bool
+	// namedByOperator are tools the operator listed explicitly, which is a
+	// statement that calling them is acceptable.
+	namedByOperator map[string]bool
+	// readOnlyNameRE recognises names that read as retrieval operations.
+	readOnlyNameRE *regexp.Regexp
 
 	// values holds what the target has already handed back, partitioned by the
 	// identity that saw it. Delivered by the runner via SetContext.
@@ -122,6 +139,9 @@ func NewIdentifiers(cfg registry.Config) (recon.Recon, error) {
 		enumerationTools: registry.GetStringSlice(cfg, "enumeration_tools", nil),
 		idParams:         parseIDParams(cfg),
 		rules:            toolsig.RulesFromConfig(cfg),
+		allowDestructive: registry.GetBool(cfg, "allow_destructive", false),
+		namedByOperator:  namedTools(cfg),
+		readOnlyNameRE:   wordBoundaryRE(resolvePatterns(cfg, "read_only_name_patterns", "read_only_name_extra_patterns", defaultReadOnlyWords)),
 		useNavigator:     registry.GetBool(cfg, "use_navigator", true),
 		maxIDsPerTool:    registry.GetInt(cfg, "max_ids_per_tool", 5),
 		policy:           toolpolicy.New(cfg),
@@ -408,6 +428,42 @@ func (m *MCPIdentifiers) specs(tools []map[string]any) []toolSpec {
 	return out
 }
 
+// readOnlyGate decides whether reconnaissance may invoke a tool.
+//
+// Reconnaissance is read-only by contract, and the destructive-annotation gate
+// alone does not deliver that. Its default is PERMIT: a tool the server does not
+// annotate is allowed through, and most servers annotate nothing. Discovery calls
+// every signature it is given, so on such a server that reaches delete and update
+// operations — with an identifier the value chain may have harvested from an
+// earlier response, which is precisely what makes the call effective.
+//
+// So the gate is an allowlist and it fails closed. A tool is invoked when the
+// SERVER says it is read-only, when the OPERATOR named it, when the operator has
+// accepted the risk wholesale, or when its own name is recognisably a read
+// operation. Anything else is skipped and reported.
+//
+// Names are used here as a SAFETY signal, not to decide a tool's role — the
+// distinction matters, because role classification by name is what this module
+// stopped doing. The asymmetry is what justifies it: mistaking a safe tool for an
+// unsafe one costs coverage, and a scan that says so can be widened by
+// configuration. Mistaking an unsafe tool for a safe one costs the customer data,
+// and nothing recovers that.
+func (m *MCPIdentifiers) readOnlyGate(spec toolSpec) (bool, string) {
+	if m.allowDestructive {
+		return false, ""
+	}
+	if ann, ok := spec.tm["annotations"].(types.MCPToolAnnotations); ok && ann.ReadOnly {
+		return false, ""
+	}
+	if m.namedByOperator[spec.name] {
+		return false, ""
+	}
+	if matchWord(m.readOnlyNameRE, spec.name) {
+		return false, ""
+	}
+	return true, "the server does not annotate it read-only, no operator setting names it, and its name is not recognisably a read operation"
+}
+
 // idCandidates returns the parameters of a signature that could carry an object
 // identifier.
 //
@@ -457,6 +513,11 @@ func (m *MCPIdentifiers) discover(ctx context.Context, s identitySession, specs 
 			slog.Warn("recon.MCPIdentifiers: not invoking tool (call-site policy gate)", "tool", spec.name, "reason", reason)
 			continue
 		}
+		if skip, reason := m.readOnlyGate(spec); skip {
+			slog.Warn("recon.MCPIdentifiers: not invoking tool during reconnaissance; it is not established as read-only. This narrows identifier discovery — name it in enumeration_tools or get_tools if it is safe to call.",
+				"tool", spec.name, "reason", reason)
+			continue
+		}
 		res, err := s.inv.CallTool(ctx, spec.name, spec.callArgs(s.chain, ""))
 		if err != nil || res.IsError {
 			continue
@@ -483,6 +544,15 @@ func (m *MCPIdentifiers) discover(ctx context.Context, s identitySession, specs 
 	confirmed := map[string]bool{}
 	for _, spec := range specs {
 		if skip, _ := m.policy.Skip(spec.name, spec.tm); skip {
+			continue
+		}
+		// The same read-only gate as the harvest loop, and it matters MORE here.
+		// This loop supplies a real identifier the target itself handed out, so an
+		// ungated delete or update operation would be called with exactly the
+		// argument that makes it effective.
+		if skip, reason := m.readOnlyGate(spec); skip {
+			slog.Warn("recon.MCPIdentifiers: not offering identifiers to this tool; it is not established as read-only",
+				"tool", spec.name, "reason", reason)
 			continue
 		}
 		for _, idParam := range m.idCandidates(spec) {
@@ -825,5 +895,17 @@ func sortedMapKeys(m map[string]any) []string {
 		out = append(out, k)
 	}
 	sort.Strings(out)
+	return out
+}
+
+// namedTools collects the tools an operator listed explicitly. Naming a tool is
+// a statement that calling it is acceptable, which is the operator's to make.
+func namedTools(cfg registry.Config) map[string]bool {
+	out := map[string]bool{}
+	for _, key := range []string{"enumeration_tools", "get_tools", "tool_allowlist"} {
+		for _, n := range registry.GetStringSlice(cfg, key, nil) {
+			out[n] = true
+		}
+	}
 	return out
 }

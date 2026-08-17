@@ -185,11 +185,38 @@ func (s *Store) record(key, parent string, v any, identity, tool string) {
 	vals = append(vals, Value{
 		Key: key, Parent: parent, V: v, Tool: tool, Identity: identity, Seq: s.seq,
 	})
-	// Keep the most recent, which is the likeliest to still be valid.
-	if len(vals) > maxPerKey {
-		vals = vals[len(vals)-maxPerKey:]
+	// The cap is per (key, IDENTITY), not per key.
+	//
+	// Identities are recorded one session after another, so a shared cap lets the
+	// last session seen evict everything the first recorded under the same key.
+	// The primary identity's values would vanish because a victim session
+	// happened to return eight of its own, and Source("primary") would then have
+	// nothing to offer — an empty result caused entirely by scan ordering.
+	s.byKey[norm] = capPerIdentity(vals, identity)
+}
+
+// capPerIdentity drops the oldest values belonging to the given identity once it
+// exceeds the cap, leaving every other identity's history untouched.
+func capPerIdentity(vals []Value, identity string) []Value {
+	n := 0
+	for _, v := range vals {
+		if v.Identity == identity {
+			n++
+		}
 	}
-	s.byKey[norm] = vals
+	if n <= maxPerKey {
+		return vals
+	}
+	drop := n - maxPerKey
+	out := make([]Value, 0, len(vals)-drop)
+	for _, v := range vals {
+		if drop > 0 && v.Identity == identity {
+			drop--
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
 }
 
 // usable reports whether a scalar is worth keeping as a candidate argument.

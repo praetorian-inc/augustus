@@ -413,3 +413,65 @@ func itoa(i int) string {
 	}
 	return string(b)
 }
+
+// An if/then/ELSE schema describes two operations. Keeping only the then branch
+// drops an entire operation's parameters from every signature while the scan
+// still reports as complete — the same silent narrowing this package exists to
+// remove, reintroduced one keyword along.
+func TestElseBranchParametersAreDiscovered(t *testing.T) {
+	schema := `{"type":"object",
+	  "properties":{"mode":{"type":"string","enum":["fast","thorough"]}},
+	  "required":["mode"],
+	  "if":   {"properties":{"mode":{"const":"fast"}}},
+	  "then": {"properties":{"quick_hint":{"type":"string"}}},
+	  "else": {"properties":{"deep_target":{"type":"string"},
+	                          "deep_depth":{"type":"integer"}}}}`
+
+	sigs, err := Signatures("scan", json.RawMessage(schema))
+	if err != nil {
+		t.Fatalf("Signatures: %v", err)
+	}
+
+	found := map[string]bool{}
+	for _, s := range sigs {
+		for _, p := range s.Params {
+			found[string(p.Path)] = true
+		}
+	}
+	for _, want := range []string{"quick_hint", "deep_target", "deep_depth"} {
+		if !found[want] {
+			t.Errorf("%s not discovered; a parameter declared only by the else branch is still a parameter. found=%v", want, found)
+		}
+	}
+}
+
+// allOf-nested if/then/else is the shape servers actually publish, so the else
+// branch has to survive there too.
+func TestElseBranchInsideAllOf(t *testing.T) {
+	schema := `{"type":"object",
+	  "properties":{"action":{"type":"string","enum":["read","write"]}},
+	  "required":["action"],
+	  "allOf":[{
+	    "if":   {"properties":{"action":{"const":"read"}}},
+	    "then": {"properties":{"params":{"type":"object",
+	              "properties":{"read_id":{"type":"string"}}}}},
+	    "else": {"properties":{"params":{"type":"object",
+	              "properties":{"write_payload":{"type":"string"}}}}}}]}`
+
+	sigs, err := Signatures("op", json.RawMessage(schema))
+	if err != nil {
+		t.Fatalf("Signatures: %v", err)
+	}
+	found := map[string]bool{}
+	for _, s := range sigs {
+		for _, p := range s.Params {
+			found[string(p.Path)] = true
+		}
+	}
+	if !found["params.write_payload"] {
+		t.Errorf("params.write_payload (else branch, nested) not discovered; found=%v", found)
+	}
+	if !found["params.read_id"] {
+		t.Errorf("params.read_id (then branch, nested) not discovered; found=%v", found)
+	}
+}

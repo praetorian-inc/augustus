@@ -13,10 +13,27 @@ import (
 // transport produced.
 //
 // A JSON-RPC error object can only have come from the server: it arrived over a
-// working connection, in answer to a request the server parsed. So the call
-// reached the target and the target refused it — a completed test with a
-// negative result, not a failure to test. A dropped connection, a timeout or a
-// TLS failure carries no such answer and is left as the plain error it is.
+// working connection, in answer to a request the server parsed. But arriving is
+// not the same as being REFUSED, and only refusal means the argument was tested.
+//
+// Only codes that reject the REQUEST count:
+//
+//	-32700 parse error       -32600 invalid request
+//	-32601 method not found  -32602 invalid params
+//
+// Each says the server declined to act on what it was given — a completed test
+// with a negative result.
+//
+// -32603 (internal error) and the server-defined range (-32000..-32099) say the
+// opposite: the server accepted the request and then something went wrong while
+// running it. Treating those as refusals would let a payload that CRASHED a
+// handler be recorded as an argument the target considered and rejected, which
+// is both false and exactly backwards — a handler failing on our input is closer
+// to a finding than to a clean result. They stay errors, so they surface as
+// untested rather than as a pass.
+//
+// A dropped connection, a timeout or a TLS failure carries no answer at all and
+// is left as the plain error it is.
 //
 // The wrapping is additive. The original error is preserved for its message and
 // its own chain, so a caller that does not care about the distinction sees
@@ -29,7 +46,23 @@ func ClassifyCallError(err error) error {
 	if !errors.As(err, &wire) {
 		return err
 	}
+	if !rejectsRequest(wire.Code) {
+		return err
+	}
 	return fmt.Errorf("%w (JSON-RPC %d): %w", types.ErrCallRefused, wire.Code, err)
+}
+
+// rejectsRequest reports whether a JSON-RPC error code means the server declined
+// to act on the request, as opposed to failing while carrying it out.
+func rejectsRequest(code int64) bool {
+	switch code {
+	case -32700, // parse error
+		-32600, // invalid request
+		-32601, // method not found
+		-32602: // invalid params
+		return true
+	}
+	return false
 }
 
 // RecordCallFailure records the outcome of a tool call that returned an error,

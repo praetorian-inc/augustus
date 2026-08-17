@@ -244,3 +244,29 @@ func itoa(i int) string {
 	}
 	return string(b)
 }
+
+// The cap is per identity, not per key. Identities are recorded one session
+// after another, so a shared cap lets the last session seen evict everything the
+// first recorded under the same key — the primary identity's values vanishing
+// because a victim session happened to return more of its own.
+func TestPerKeyCapIsPerIdentity(t *testing.T) {
+	s := New()
+	s.Record("primary", "list", res(`{"record_id":"PRIMARY-1"}`))
+	for i := 0; i < maxPerKey*2; i++ {
+		s.Record("victim", "list", res(`{"record_id":"VICTIM-`+itoa(i)+`"}`))
+	}
+
+	v, ok := s.Source("primary").Value(param("record_id", "string"))
+	if !ok || v != "PRIMARY-1" {
+		t.Errorf("primary value = %v (ok=%v), want PRIMARY-1; another identity's history must not evict it", v, ok)
+	}
+	victim := 0
+	for _, val := range s.Values("record_id") {
+		if val.Identity == "victim" {
+			victim++
+		}
+	}
+	if victim > maxPerKey {
+		t.Errorf("victim kept %d values, cap is %d", victim, maxPerKey)
+	}
+}
