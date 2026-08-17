@@ -131,12 +131,13 @@ func (p *ResponseLeak) Probe(ctx context.Context, gen types.Generator) ([]*attem
 		if name == "" {
 			continue
 		}
-		params := toolParams(tool)
-		for _, c := range argCases(params) {
-			if err := ctx.Err(); err != nil {
-				return attempts, err
+		for _, ts := range toolSignatures(tool) {
+			for _, c := range argCases(ts) {
+				if err := ctx.Err(); err != nil {
+					return attempts, err
+				}
+				attempts = append(attempts, p.callOne(ctx, inv, name, c))
 			}
-			attempts = append(attempts, p.callOne(ctx, inv, name, c))
 		}
 	}
 	return attempts, nil
@@ -204,23 +205,25 @@ var debugParams = map[string]bool{"debug": true, "verbose": true, "trace": true}
 // Cases with identical argument maps are deduped by their canonical form, so a
 // tool with no required params (where "empty" and "required" are both {}) is
 // invoked once per distinct argument set rather than twice.
-func argCases(params []paramInfo) []argCase {
-	// Sort params by name before deriving cases: toolParams builds the slice by
-	// iterating a Go map (randomized order), so the debug/verbose/trace cases —
-	// and thus the produced attempt order — would otherwise vary between runs.
-	// Sort a copy so the caller's slice is left untouched.
-	params = append([]paramInfo(nil), params...)
-	sort.Slice(params, func(i, j int) bool { return params[i].name < params[j].name })
+func argCases(ts toolSig) []argCase {
+	// Sort by path before deriving cases so the debug/verbose/trace cases — and
+	// thus the produced attempt order — are stable between runs. Sort a copy so
+	// the signature's own slice is left untouched.
+	params := append([]paramInfo(nil), ts.params...)
+	sort.Slice(params, func(i, j int) bool { return params[i].path < params[j].path })
 
 	all := []argCase{
 		{name: "empty", args: map[string]any{}},
-		{name: "required", args: requiredArgs(params)},
+		{name: "required", args: ts.benignArgsFor()},
 	}
 	for _, param := range params {
 		if debugParams[strings.ToLower(param.name)] {
-			args := requiredArgs(params)
-			args[param.name] = true
-			all = append(all, argCase{name: "debug:" + param.name, args: args})
+			// Written by PATH: a debug flag nested inside an object has to land
+			// inside it, not beside it.
+			all = append(all, argCase{
+				name: "debug:" + string(param.path),
+				args: ts.args(param, true),
+			})
 		}
 	}
 
@@ -235,19 +238,4 @@ func argCases(params []paramInfo) []argCase {
 		cases = append(cases, c)
 	}
 	return cases
-}
-
-// requiredArgs fills every required parameter with a benign value so the call
-// reaches normal tool output instead of failing argument validation. Values
-// declared in the schema or documented in the description are preferred over the
-// generic placeholder, so a tool whose behaviour is gated on a discriminator
-// argument still returns real output to scan for credentials.
-func requiredArgs(params []paramInfo) map[string]any {
-	args := map[string]any{}
-	for _, p := range params {
-		if p.required {
-			args[p.name] = benignValue(p)
-		}
-	}
-	return args
 }

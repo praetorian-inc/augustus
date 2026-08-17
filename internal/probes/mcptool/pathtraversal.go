@@ -247,65 +247,66 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 		}
 		desc, _ := tool["description"].(string)
 		hintedPrefixes := extractHintedPrefixes(desc)
-		params := toolParams(tool)
-		// Discovery is a REAL invocation, so it only runs against a tool this
-		// probe is going to test anyway. Gating on the tool (does it expose a
-		// path-shaped parameter?) rather than on the parameter that needs
-		// candidates is deliberate: the parameter needing discovery is usually the
-		// DISCRIMINATOR, not the path — file_manager(action, path) needs a value
-		// for `action` in order to reach the sink through `path`.
-		if p.hasProbeableParam(params) {
-			params = discoverToolValues(ctx, inv, name, params)
-		}
-
-		// Payload flavour selection. A ReadOnly annotation is the only
-		// unambiguous positive signal that the tool cannot write; anything
-		// else (destructive-annotated OR annotation-absent) uses the
-		// write-safe canary path so we never risk clobbering /etc/passwd
-		// on a write-capable sink.
-		payloads := p.payloadsFor(tool, params)
-
-		for _, param := range params {
-			if !isStringParam(param.typ) {
-				continue
+		for _, ts := range toolSignatures(tool) {
+			// Discovery is a REAL invocation, so it only runs against a tool this
+			// probe is going to test anyway. Gating on the tool (does it expose a
+			// path-shaped parameter?) rather than on the parameter that needs
+			// candidates is deliberate: the parameter needing discovery is usually the
+			// DISCRIMINATOR, not the path — file_manager(action, path) needs a value
+			// for `action` in order to reach the sink through `path`.
+			if p.hasProbeableParam(ts.params) {
+				ts = ts.discoverValues(ctx, inv, name)
 			}
-			if !p.allParams && !matchesPathParam(param.name) {
-				continue
-			}
-			pathParamSeen = true
-			// Baselines are kept per payload so each prefix-append variant can be
-			// compared against the unprefixed attempt for the SAME target file.
-			baselines := make([]*attempt.Attempt, 0, len(payloads))
-			for _, tp := range payloads {
-				a := p.callOne(ctx, inv, name, param.name, params, tp)
-				baselines = append(baselines, a)
-				attempts = append(attempts, a)
-			}
-			// Prefix-append variants — defeat `filename.startswith(prefix)`
-			// / `prefix in path` gates that the tool description disclosed.
-			for _, prefix := range hintedPrefixes {
-				// One accepted-but-absent control per prefix: a path that stays
-				// INSIDE the declared sandbox and names something that cannot
-				// exist. The guard must accept it, so whatever the tool returns is
-				// what "accepted, then failed at the filesystem" looks like on THIS
-				// target, in its own language and wording. That makes it the
-				// reference the escape attempt is compared against.
-				ctl := p.callOne(ctx, inv, name, param.name, params, pathTraversalPayload{
-					payload: joinHintedPath(prefix, "augctl-"+mcpprobe.RandToken()),
-					// No signatures: a control can never itself be a finding.
-				})
-				ctl.Metadata[attempt.MetadataKeyPathTraversalIsControl] = true
-				attempts = append(attempts, ctl)
 
-				for i, tp := range payloads {
-					prefixed := pathTraversalPayload{
-						payload:    joinHintedPath(prefix, tp.payload),
-						signatures: tp.signatures,
-						isWrite:    tp.isWrite,
-					}
-					a := p.callOne(ctx, inv, name, param.name, params, prefixed)
-					markGuardBypass(a, baselines[i], ctl)
+			// Payload flavour selection. A ReadOnly annotation is the only
+			// unambiguous positive signal that the tool cannot write; anything
+			// else (destructive-annotated OR annotation-absent) uses the
+			// write-safe canary path so we never risk clobbering /etc/passwd
+			// on a write-capable sink.
+			payloads := p.payloadsFor(tool, ts.params)
+
+			for _, param := range ts.params {
+				if !isStringParam(param.typ) {
+					continue
+				}
+				if !p.allParams && !matchesPathParam(param.name) {
+					continue
+				}
+				pathParamSeen = true
+				// Baselines are kept per payload so each prefix-append variant can be
+				// compared against the unprefixed attempt for the SAME target file.
+				baselines := make([]*attempt.Attempt, 0, len(payloads))
+				for _, tp := range payloads {
+					a := p.callOne(ctx, inv, name, param, ts, tp)
+					baselines = append(baselines, a)
 					attempts = append(attempts, a)
+				}
+				// Prefix-append variants — defeat `filename.startswith(prefix)`
+				// / `prefix in path` gates that the tool description disclosed.
+				for _, prefix := range hintedPrefixes {
+					// One accepted-but-absent control per prefix: a path that stays
+					// INSIDE the declared sandbox and names something that cannot
+					// exist. The guard must accept it, so whatever the tool returns is
+					// what "accepted, then failed at the filesystem" looks like on THIS
+					// target, in its own language and wording. That makes it the
+					// reference the escape attempt is compared against.
+					ctl := p.callOne(ctx, inv, name, param, ts, pathTraversalPayload{
+						payload: joinHintedPath(prefix, "augctl-"+mcpprobe.RandToken()),
+						// No signatures: a control can never itself be a finding.
+					})
+					ctl.Metadata[attempt.MetadataKeyPathTraversalIsControl] = true
+					attempts = append(attempts, ctl)
+
+					for i, tp := range payloads {
+						prefixed := pathTraversalPayload{
+							payload:    joinHintedPath(prefix, tp.payload),
+							signatures: tp.signatures,
+							isWrite:    tp.isWrite,
+						}
+						a := p.callOne(ctx, inv, name, param, ts, prefixed)
+						markGuardBypass(a, baselines[i], ctl)
+						attempts = append(attempts, a)
+					}
 				}
 			}
 		}
@@ -499,18 +500,18 @@ func joinHintedPath(prefix, payload string) string {
 }
 
 // callOne invokes one (tool, param, payload) and records the attempt.
-func (p *PathTraversal) callOne(ctx context.Context, inv types.ToolInvoker, tool, param string, params []paramInfo, tp pathTraversalPayload) *attempt.Attempt {
+func (p *PathTraversal) callOne(ctx context.Context, inv types.ToolInvoker, tool string, param paramInfo, ts toolSig, tp pathTraversalPayload) *attempt.Attempt {
 	a := attempt.New(tp.payload)
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
 	a.Metadata[attempt.MetadataKeyPathTraversalSignatures] = tp.signatures
 	a.Metadata["mcptool.tool"] = tool
-	a.Metadata["mcptool.param"] = param
+	a.Metadata["mcptool.param"] = string(param.path)
 	if tp.isWrite {
 		a.Metadata[attempt.MetadataKeyPathTraversalIsWrite] = true
 	}
 
-	res, err := inv.CallTool(ctx, tool, benignArgs(params, param, tp.payload))
+	res, err := inv.CallTool(ctx, tool, ts.args(param, tp.payload))
 	if err != nil {
 		a.SetError(err)
 		return a

@@ -22,12 +22,22 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/praetorian-inc/augustus/internal/toolsig"
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
-// paramInfo describes one tool parameter parsed from its JSON-schema.
+// paramInfo describes one tool parameter of one call signature.
 type paramInfo struct {
-	name     string
+	// name is the parameter's own name, without the object path that leads to
+	// it. Probes match on it — a URL-ish or path-ish parameter is recognised by
+	// what it is called, not by where it sits — and report it in findings.
+	name string
+	// path addresses the parameter within the argument object: "url" for a
+	// top-level parameter, "params.record_id" for one nested inside an
+	// object, "filters[0].field" inside an array element. A name alone cannot
+	// carry this, and using one as an address is what put payloads beside the
+	// object they belonged in rather than inside it.
+	path     toolsig.Path
 	typ      string
 	required bool
 	// candidates are plausible VALID values for this parameter, in preference
@@ -39,58 +49,11 @@ type paramInfo struct {
 	candidates []string
 }
 
-// toolParams parses the parameters of a tool in the canonical Conversation.Tools
-// wire shape (map with a "parameters" JSON-schema object).
-func toolParams(tool map[string]any) []paramInfo {
-	schema, ok := tool["parameters"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	props, _ := schema["properties"].(map[string]any)
-	desc, _ := tool["description"].(string)
-
-	required := map[string]bool{}
-	switch req := schema["required"].(type) {
-	case []any:
-		for _, r := range req {
-			if s, ok := r.(string); ok {
-				required[s] = true
-			}
-		}
-	case []string:
-		for _, s := range req {
-			required[s] = true
-		}
-	}
-
-	out := make([]paramInfo, 0, len(props))
-	for name, raw := range props {
-		typ := ""
-		var candidates []string
-		propDoc := ""
-		if p, ok := raw.(map[string]any); ok {
-			typ, _ = p["type"].(string)
-			candidates = schemaEnum(p)
-			propDoc, _ = p["description"].(string)
-		}
-		// Sources in descending authority. The schema's enum is definitive. Then
-		// the PROPERTY's own description, which is where most SDKs put per-argument
-		// docs and which needs no attribution guessing — it belongs to this
-		// parameter by construction. Only then the tool-level description's "Args:"
-		// block, where the parameter's line has to be located by name.
-		//
-		// Most servers in the wild declare no enum at all (every DVMCP tool ships a
-		// bare {"title","type"} property), which is why mining exists.
-		if len(candidates) == 0 {
-			candidates = mineCandidateValues(propDoc)
-		}
-		if len(candidates) == 0 {
-			candidates = mineCandidateValues(paramDoc(desc, name))
-		}
-		out = append(out, paramInfo{name: name, typ: typ, required: required[name], candidates: candidates})
-	}
-	return out
-}
+// Parameter discovery now lives in toolSignatures (signatures.go), which reads
+// the whole schema rather than only its top-level properties. The flat parser
+// that stood here could not see a parameter nested inside an object or declared
+// in a conditional branch, and the calls it built were rejected during argument
+// validation — which the probes recorded as the tool having been tested.
 
 // schemaEnum reads a JSON-schema "enum" as strings. Non-string members are
 // rendered where they are unambiguous so a mixed enum still yields a usable
@@ -265,20 +228,6 @@ func isStringParam(typ string) bool {
 	return typ == "" || typ == "string"
 }
 
-// benignArgs builds a call argument map: the injected payload in injectParam, and
-// benign placeholders for every other required param so the call reaches the sink
-// instead of failing argument validation.
-func benignArgs(params []paramInfo, injectParam, payload string) map[string]any {
-	args := map[string]any{injectParam: payload}
-	for _, p := range params {
-		if p.name == injectParam || !p.required {
-			continue
-		}
-		args[p.name] = benignValue(p)
-	}
-	return args
-}
-
 // benignValue picks a filler for a parameter the probe is not injecting into.
 // A declared value is preferred over the generic placeholder: where the
 // parameter gates which branch the server takes, the placeholder is rejected up
@@ -346,9 +295,9 @@ func splitAlternation(group string) []string {
 // Cost is one call per tool, made with placeholder arguments, and it runs only
 // for parameters that have no candidates already. Failure is silent and total:
 // params keep whatever they had, which is the pre-existing behaviour.
-func discoverToolValues(ctx context.Context, inv types.ToolInvoker, tool string, params []paramInfo) []paramInfo {
+func (ts toolSig) discoverValues(ctx context.Context, inv types.ToolInvoker, tool string) toolSig {
 	if inv == nil {
-		return params
+		return ts
 	}
 
 	// The adoption test runs BEFORE the call, not after it.
@@ -362,57 +311,57 @@ func discoverToolValues(ctx context.Context, inv types.ToolInvoker, tool string,
 	// more parameters are uncandidated — is a side effect with no possible
 	// benefit.
 	missing := -1
-	for i, p := range params {
+	for i, p := range ts.params {
 		if isStringParam(p.typ) && len(p.candidates) == 0 {
 			if missing >= 0 {
-				return params
+				return ts
 			}
 			missing = i
 		}
 	}
 	if missing < 0 {
-		return params
+		return ts
 	}
 
-	args := map[string]any{}
-	sent := map[string]bool{}
-	record := func(name string, v any) {
-		args[name] = v
-		if s, ok := v.(string); ok {
-			sent[strings.ToLower(s)] = true
-		}
-	}
-	for _, p := range params {
-		if p.required {
-			record(p.name, benignValue(p))
-		}
-	}
-	// The parameter being discovered for is ALWAYS sent, required or not.
+	// Build the benign call, then ensure the parameter being discovered for is
+	// present whether or not it is required.
 	//
-	// Only required parameters were sent before, so when the uncandidated
-	// parameter was optional the call carried no value for it at all: the tool ran
-	// with its own defaults, the response was an ordinary success rather than the
-	// deliberately-invalid rejection this call exists to provoke, and candidates
-	// were then mined out of normal output. Same defect class as trusting an
-	// optional discriminator in readIntent.
-	if _, ok := args[params[missing].name]; !ok {
-		record(params[missing].name, benignValue(params[missing]))
-	}
-	res, err := inv.CallTool(ctx, tool, args)
-	if err != nil || res.Text == "" {
-		return params
+	// Only required parameters carry a value otherwise, so an uncandidated
+	// OPTIONAL parameter would be absent from the call entirely: the tool would
+	// run with its own defaults, the response would be an ordinary success rather
+	// than the deliberately-invalid rejection this call exists to provoke, and
+	// candidates would then be mined out of normal output.
+	call, _ := ts.sig.Build(ts.chain())
+	target := ts.params[missing]
+	if _, ok := call.Get(target.path); !ok {
+		call.Set(target.path, benignValue(target))
 	}
 
-	// Values we just sent are excluded: a rejection message routinely quotes the
-	// value it refused, and adopting it would pin the probe to the placeholder the
-	// server has already rejected.
+	// Values we are about to send are excluded from mining: a rejection message
+	// routinely quotes the value it refused, and adopting it would pin the probe
+	// to the placeholder the server has already rejected.
+	sent := map[string]bool{}
+	for _, p := range ts.params {
+		if v, ok := call.Get(p.path); ok {
+			if str, ok := v.(string); ok {
+				sent[strings.ToLower(str)] = true
+			}
+		}
+	}
+
+	res, err := inv.CallTool(ctx, tool, call.Args())
+	if err != nil || res.Text == "" {
+		return ts
+	}
+
 	if found := mineCandidateValuesExcluding(res.Text, sent); len(found) > 0 {
-		out := make([]paramInfo, len(params))
-		copy(out, params)
-		out[missing].candidates = found
+		out := ts
+		out.params = make([]paramInfo, len(ts.params))
+		copy(out.params, ts.params)
+		out.params[missing].candidates = found
 		return out
 	}
-	return params
+	return ts
 }
 
 // payloadPrefixes returns the leading text to place before a payload for one
