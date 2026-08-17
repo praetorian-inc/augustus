@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"sort"
 	"strings"
 
 	mcpx "github.com/praetorian-inc/augustus/internal/recon/mcp"
@@ -142,6 +143,14 @@ func (p *BOLA) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 		}
 	}
 
+	// The values the attacker's OWN calls carried, keyed by argument path. See
+	// attackerArgValues: without these the replay is not an attack at all.
+	mine := attackerArgValues(identities, p.attackerLabel)
+	if len(mine) == 0 {
+		slog.Warn("mcptool.BOLA: the attacker identity confirmed no objects of its own, so no argument values are known for it and each replay must inherit the victim's non-identifier arguments. Where identity is carried in an argument rather than in the transport, such a call speaks AS the victim and a served response proves nothing. Attempts are marked with what they inherited.",
+			"attacker_identity_label", p.attackerLabel)
+	}
+
 	var attempts []*attempt.Attempt
 	for _, id := range identities {
 		if id.Identity == p.attackerLabel {
@@ -160,7 +169,7 @@ func (p *BOLA) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 				continue // attacker owns this exact object; not a cross-identity target
 			}
 			ownObj, hasOwn := ownByTool[obj.Tool]
-			attempts = append(attempts, p.callVictimObject(ctx, attacker, id.Identity, obj, ownObj, hasOwn))
+			attempts = append(attempts, p.callVictimObject(ctx, attacker, id.Identity, obj, ownObj, hasOwn, mine))
 		}
 	}
 	return attempts, nil
@@ -168,7 +177,7 @@ func (p *BOLA) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attem
 
 // callVictimObject issues the attack call plus its negative (and, when available,
 // positive) control and records them as evidence. It renders no verdict.
-func (p *BOLA) callVictimObject(ctx context.Context, attacker types.ToolInvoker, victim string, obj, ownObj types.MCPObjectRef, hasOwn bool) *attempt.Attempt {
+func (p *BOLA) callVictimObject(ctx context.Context, attacker types.ToolInvoker, victim string, obj, ownObj types.MCPObjectRef, hasOwn bool, mine map[toolsig.Path]any) *attempt.Attempt {
 	a := attempt.New(obj.ID)
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
@@ -183,10 +192,23 @@ func (p *BOLA) callVictimObject(ctx context.Context, attacker types.ToolInvoker,
 		p.attackerLabel, obj.ID, obj.Tool, victim, p.attackerLabel,
 	)
 
-	// ATTACK: replay with the SAME args recon validated the object with (id plus
-	// benign placeholders for any other required params); fall back to just the id
-	// for older observations that predate Args.
-	attackArgs := callArgs(obj)
+	// ATTACK: the victim's IDENTIFIER, in the attacker's OWN call.
+	//
+	// Only the identifier crosses the identity boundary. Every other argument is
+	// restored to the value the attacker's own confirmed calls used, because
+	// replaying the victim's whole argument map is not an authorization test: on
+	// any surface that carries identity in an argument — a tenant, an account, a
+	// workspace — that map contains the victim's identity, so the call speaks as
+	// the victim and the server serves it correctly. Measured against a lab server
+	// that enforces ownership properly: every replay returned the victim's object,
+	// because every replay asked as the victim.
+	attackArgs, inherited := p.attackArgs(obj, mine)
+	if len(inherited) > 0 {
+		// Named, not hidden. These are arguments the attacker has no value of its
+		// own for, so if one of them carries identity this call is not purely the
+		// attacker's and a served response is not proof of anything.
+		a.Metadata[metaBOLAInheritedArgs] = strings.Join(inherited, ",")
+	}
 	res, err := attacker.CallTool(ctx, obj.Tool, attackArgs)
 	if err != nil {
 		a.SetError(err)
@@ -223,6 +245,84 @@ func (p *BOLA) callVictimObject(ctx context.Context, attacker types.ToolInvoker,
 
 	a.Complete()
 	return a
+}
+
+// metaBOLAInheritedArgs lists the argument paths an attack call had to take from
+// the VICTIM's validated call because the attacker had no value of its own for
+// them. An identity-bearing argument in that list makes the attempt unsound, so
+// it travels with the evidence rather than being decided silently here.
+const metaBOLAInheritedArgs = "mcptool.inherited_args"
+
+// attackerArgValues collects, by argument path, the values the ATTACKER's own
+// confirmed calls used — the tenant, workspace or account arguments that say who
+// is calling, plus any other filler the getter required.
+//
+// Each reference's own identifier slot is excluded: that value names the
+// attacker's object, and writing it into an attack would overwrite the very
+// identifier the attack exists to send.
+//
+// Where two of the attacker's calls disagree about a path the first is kept. A
+// value that varies between calls is not an identity value, and identity values
+// are what this exists to recover.
+func attackerArgValues(identities []*types.MCPIdentifiers, attacker string) map[toolsig.Path]any {
+	out := map[toolsig.Path]any{}
+	for _, id := range identities {
+		if id.Identity != attacker {
+			continue
+		}
+		for _, obj := range id.Objects {
+			own := idPathOf(obj)
+			for path, v := range toolsig.FlattenArgs(obj.Args) {
+				if path == own {
+					continue
+				}
+				if _, seen := out[path]; seen {
+					continue
+				}
+				out[path] = v
+			}
+		}
+	}
+	return out
+}
+
+// attackArgs builds the attack call: the victim's validated arguments with every
+// path the attacker has a value of its own for restored to that value, and the
+// victim's identifier written at its own path.
+//
+// It returns the paths it could NOT restore — arguments inherited from the
+// victim's call — so the attempt can carry them as evidence.
+func (p *BOLA) attackArgs(obj types.MCPObjectRef, mine map[toolsig.Path]any) (map[string]any, []string) {
+	args := callArgs(obj)
+	own := idPathOf(obj)
+
+	var inherited []string
+	for path := range toolsig.FlattenArgs(args) {
+		if path == own {
+			continue
+		}
+		if v, ok := mine[path]; ok {
+			toolsig.SetPath(args, path, v)
+			continue
+		}
+		inherited = append(inherited, string(path))
+	}
+	sort.Strings(inherited)
+
+	// Written last so it survives the restoration above even when the attacker
+	// has a value at the same path.
+	setIDArg(args, obj, obj.ID)
+	return args, inherited
+}
+
+// idPathOf returns the path the identifier occupies in an object's call. An
+// observation recorded before paths existed carries only a name, which is a top
+// level path.
+func idPathOf(obj types.MCPObjectRef) toolsig.Path {
+	if obj.ParamPath != "" {
+		return toolsig.Path(obj.ParamPath)
+	}
+	return toolsig.Path(obj.Param)
 }
 
 // callArgs returns the validated arg map for an object, falling back to just the

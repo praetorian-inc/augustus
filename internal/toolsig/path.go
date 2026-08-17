@@ -195,6 +195,45 @@ func setPath(args map[string]any, path Path, value any) {
 // where the server reads it rather than at the top level.
 func SetPath(args map[string]any, p Path, value any) { setPath(args, p, value) }
 
+// FlattenArgs reduces a nested argument object to the leaf values it holds,
+// keyed by the same Path that addresses them.
+//
+// It is the inverse of the rendering Call.Args performs, and exists so a caller
+// holding a recorded argument map — one identity's validated call, replayed by
+// another — can reason about it one argument at a time instead of treating it as
+// an opaque blob. An argument that carries identity is a leaf like any other,
+// and it cannot be found, compared, or replaced without a path to name it by.
+func FlattenArgs(args map[string]any) map[Path]any {
+	out := map[Path]any{}
+	flattenInto(out, "", args)
+	return out
+}
+
+func flattenInto(out map[Path]any, prefix Path, v any) {
+	switch t := v.(type) {
+	case map[string]any:
+		if len(t) == 0 && prefix != "" {
+			out[prefix] = t
+			return
+		}
+		for k, sub := range t {
+			flattenInto(out, prefix.Child(k), sub)
+		}
+	case []any:
+		if len(t) == 0 && prefix != "" {
+			out[prefix] = t
+			return
+		}
+		for i, sub := range t {
+			flattenInto(out, prefix.Index(i), sub)
+		}
+	default:
+		if prefix != "" {
+			out[prefix] = v
+		}
+	}
+}
+
 // CopyArgs deep-copies an argument map so that mutating one copy cannot reach
 // another.
 //

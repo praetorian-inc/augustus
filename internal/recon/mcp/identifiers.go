@@ -92,6 +92,19 @@ type victimConfig struct {
 	label   string
 	genType string
 	genCfg  registry.Config
+	// rules are argument values specific to THIS identity, consulted ahead of the
+	// module-wide ones.
+	//
+	// They exist because not every server carries identity in the transport. A
+	// tenant-scoped tool surface commonly takes the tenant as an ARGUMENT on every
+	// call, and there the two identities are the same endpoint, the same headers
+	// and the same session — differing only in one value. Without per-identity
+	// rules such a target cannot be expressed at all: both sessions would send the
+	// module-wide tenant, both would enumerate the same objects, and the
+	// set-difference that establishes ownership would be empty. BOLA would then
+	// report nothing and the surface would read as clean because nothing was ever
+	// asked of it.
+	rules []toolsig.Rule
 }
 
 // NewIdentifiers constructs the module, wiring the embedded navigator base and
@@ -202,8 +215,15 @@ func (m *MCPIdentifiers) SetContext(pc recon.ProbeContext) {
 // Operator configuration outranks anything scraped from a response. An operator
 // who wants the observed value writes no rule; ranking configuration below the
 // scrape would leave no way to correct a wrong inference.
-func (m *MCPIdentifiers) session(label string, inv types.ToolInvoker) identitySession {
+func (m *MCPIdentifiers) session(label string, inv types.ToolInvoker, own []toolsig.Rule) identitySession {
 	chain := toolsig.Chain{}
+	// This identity's own rules outrank the module-wide ones. A value that
+	// DISTINGUISHES two identities has to beat a value that is shared by them, or
+	// the two sessions send the same arguments and there is no ownership boundary
+	// left to test.
+	if len(own) > 0 {
+		chain = append(chain, toolsig.FromRules("", own))
+	}
 	if len(m.rules) > 0 {
 		chain = append(chain, toolsig.FromRules("", m.rules))
 	}
@@ -267,7 +287,7 @@ func (m *MCPIdentifiers) Recon(ctx context.Context, gen types.Generator) ([]outp
 	// Each identity's calls are recorded under that identity's label, so the
 	// values a target hands out during reconnaissance are available to the probes
 	// that follow — and cannot be confused with another identity's.
-	sessions := []identitySession{m.session(m.identityLabel, primary)}
+	sessions := []identitySession{m.session(m.identityLabel, primary, nil)}
 	for _, v := range m.victims {
 		g, err := generators.Create(v.genType, v.genCfg)
 		if err != nil {
@@ -279,7 +299,7 @@ func (m *MCPIdentifiers) Recon(ctx context.Context, gen types.Generator) ([]outp
 			slog.Warn("recon.MCPIdentifiers: victim generator is not a ToolInvoker", "label", v.label)
 			continue
 		}
-		sessions = append(sessions, m.session(v.label, vi))
+		sessions = append(sessions, m.session(v.label, vi, v.rules))
 	}
 
 	var obs []output.Observation
@@ -465,7 +485,25 @@ func (m *MCPIdentifiers) discover(ctx context.Context, s identitySession, specs 
 			// body, so without this every harvested string would confirm.
 			baseline, haveBaseline := m.notFoundBaseline(ctx, s, slot)
 
+			// The value this identity's own chain already puts in this slot is not
+			// an object it OWNS — it is the scope it operates in. A tenant-scoped
+			// surface hands its tenant back in every response, so the tenant is
+			// harvested as a candidate, fed into the tenant argument, and confirmed
+			// against a not-found baseline it obviously differs from. The result was
+			// recorded as an object, and mcptool.BOLA then "attacked" it by sending
+			// the victim's own tenant to the victim's own tenant argument — a call
+			// that any correct server serves, reported as a cross-tenant read.
+			scope := ""
+			if v, _, ok := s.chain.Value(idParam); ok {
+				scope = fmt.Sprint(v)
+			}
+
 			for _, cand := range candidates {
+				if scope != "" && cand.id == scope {
+					slog.Debug("recon.MCPIdentifiers: candidate equals this identity's own value for the slot; it names the scope, not an object it owns",
+						"identity", s.label, "tool", slot.name, "param", string(slot.idPath))
+					continue
+				}
 				key := slot.name + "|" + string(slot.idPath) + "|" + cand.id
 				if confirmed[key] {
 					continue
@@ -730,6 +768,10 @@ func parseVictims(cfg registry.Config) []victimConfig {
 		if gc, ok := m["generator_config"].(map[string]any); ok {
 			vc.genCfg = registry.Config(gc)
 		}
+		// Read the same "values:" shape the module reads for the primary identity,
+		// so an operator writes one form of rule regardless of which identity it
+		// belongs to.
+		vc.rules = toolsig.RulesFromConfig(mc)
 		if vc.label != "" && vc.genType != "" {
 			out = append(out, vc)
 		}
