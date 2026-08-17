@@ -91,8 +91,15 @@ func segments(path string) []segment {
 				continue
 			}
 			n, err := strconv.Atoi(path[i+1 : j])
-			if err != nil {
-				n = 0
+			if err != nil || n < 0 {
+				// A malformed index is not silently treated as element zero:
+				// that would write the value into the wrong element and report
+				// the parameter as tested. A negative one would panic on the
+				// slice. Keep the whole bracket as a literal key so the path
+				// simply fails to match anything.
+				out = append(out, segment{key: path[i : j+1]})
+				i = j
+				continue
 			}
 			out = append(out, segment{index: n, isIdx: true})
 			i = j
@@ -123,7 +130,7 @@ func setPath(args map[string]any, path Path, value any) {
 	// container holds whatever we are currently writing into, addressed through
 	// the parent so we can replace it when it turns out to be the wrong type.
 	var (
-		curMap map[string]any = args
+		curMap = args
 		curArr []any
 		inArr  bool
 	)
@@ -172,6 +179,8 @@ func setPath(args map[string]any, path Path, value any) {
 		owner := curMap
 		// Look ahead: an index step next means this key holds an array.
 		if i+1 < len(segs) && segs[i+1].isIdx {
+			// The next step indexes, so this key holds an ARRAY. An existing
+			// non-array value is replaced rather than indexed through.
 			arr, _ := owner[key].([]any)
 			curArr, inArr = arr, true
 			setParent = func(v any) { owner[key] = v }

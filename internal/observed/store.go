@@ -389,12 +389,23 @@ func normalize(s string) string {
 // entityOf splits an identifier-shaped parameter name into the entity it names.
 // "record_id" yields "contract"; "id" alone yields nothing, because a bare id
 // names no entity to match a container against.
+// minEntityLen is the shortest entity name that can be matched against a
+// container. Below it the match is noise: "uid" would yield the entity "u", and
+// any container whose key merely ends in that letter — "menu" — would satisfy
+// it, filling the parameter with an unrelated identifier and reporting a test
+// that never touched the intended object.
+const minEntityLen = 3
+
 func entityOf(name string) (string, bool) {
 	n := normalize(name)
 	if n == "id" || !strings.HasSuffix(n, "id") {
 		return "", false
 	}
-	return strings.TrimSuffix(n, "id"), true
+	entity := strings.TrimSuffix(n, "id")
+	if len(entity) < minEntityLen {
+		return "", false
+	}
+	return entity, true
 }
 
 // matchesEntity reports whether a container key names the given entity, in

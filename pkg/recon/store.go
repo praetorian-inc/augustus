@@ -1,8 +1,9 @@
 package recon
 
 import (
-	"github.com/praetorian-inc/augustus/internal/observed"
 	"sync"
+
+	"github.com/praetorian-inc/augustus/internal/observed"
 
 	"github.com/praetorian-inc/augustus/pkg/output"
 )

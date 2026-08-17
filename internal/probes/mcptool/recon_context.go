@@ -12,11 +12,10 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
-// DefaultIdentity labels the session a probe runs under when the operator names
-// no other. Values observed in tool responses are partitioned by identity, so
-// recon and the probes that follow it must agree on this label to share what the
-// target handed out; both default to the same string so that they do.
-const DefaultIdentity = "primary"
+// DefaultIdentity is re-exported from pkg/types so probe code reads naturally.
+// The single definition lives there because reconnaissance needs it too, and two
+// copies of a default that must agree is a bug waiting to happen.
+const DefaultIdentity = types.DefaultIdentity
 
 // reconContext is embedded by mcptool probes to consume shared reconnaissance.
 // It provides the ContextAwareProbe opt-in, a tool-source resolver that prefers

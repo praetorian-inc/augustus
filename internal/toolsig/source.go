@@ -257,7 +257,11 @@ func RulesFromConfig(cfg map[string]any) []Rule {
 			continue
 		}
 		v, hasValue := entry["value"]
-		if !hasValue {
+		// A key present with no content ("value:" and nothing after it) decodes
+		// to nil. Keeping the rule would resolve the parameter to a JSON null,
+		// which the server rejects while the tool still counts as tested — a
+		// silent non-test produced by a typo.
+		if !hasValue || v == nil {
 			continue
 		}
 		r := Rule{Value: v}

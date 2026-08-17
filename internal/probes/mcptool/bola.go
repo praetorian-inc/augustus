@@ -57,7 +57,7 @@ type BOLA struct {
 // NewBOLA constructs the probe.
 func NewBOLA(cfg registry.Config) (probes.Prober, error) {
 	return &BOLA{
-		attackerLabel: registry.GetString(cfg, "attacker_identity_label", "primary"),
+		attackerLabel: registry.GetString(cfg, "attacker_identity_label", types.DefaultIdentity),
 		policy:        toolpolicy.New(cfg),
 	}, nil
 }
@@ -269,7 +269,7 @@ func sortedKeys(set map[string]bool) []string {
 
 // callVictimObject issues the attack call plus its negative (and, when available,
 // positive) control and records them as evidence. It renders no verdict.
-func (p *BOLA) callVictimObject(ctx context.Context, attacker types.ToolInvoker, victim string, obj, ownObj types.MCPObjectRef, hasOwn bool, mine map[toolsig.Path]any) *attempt.Attempt {
+func (p *BOLA) callVictimObject(ctx context.Context, attacker types.ToolInvoker, victim string, obj, ownObj types.MCPObjectRef, hasOwn bool, mine map[argKey]any) *attempt.Attempt {
 	a := attempt.New(obj.ID)
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
@@ -303,6 +303,19 @@ func (p *BOLA) callVictimObject(ctx context.Context, attacker types.ToolInvoker,
 		// own for, so if one of them carries identity this call is not purely the
 		// attacker's and a served response is not proof of anything.
 		a.Metadata[metaBOLAInheritedArgs] = strings.Join(inherited, ",")
+
+		// Marking it is not enough on its own. The detector scores from the
+		// responses and does not read this key, so a call carrying the victim's
+		// tenant would be served correctly and then scored as an authorization
+		// break — a false positive against a server that behaved properly. The
+		// attempt is therefore marked inconclusive, which the detector does
+		// honour, so the evidence is still reported and a human decides.
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = fmt.Sprintf(
+			"the replay inherited %s from the victim's own call, so if any of those carries identity the call speaks as the victim and a served response is not evidence of a break; give the attacker a value with a values: rule",
+			strings.Join(inherited, ", "))
+		slog.Warn("mcptool.BOLA: replay inherited arguments from the victim; scoring inconclusive rather than risking a false positive",
+			"tool", obj.Tool, "inherited", strings.Join(inherited, ","))
 	}
 	res, err := attacker.CallTool(ctx, obj.Tool, attackArgs)
 	if err != nil {
@@ -362,8 +375,16 @@ const metaBOLAInheritedArgs = "mcptool.inherited_args"
 // Where two of the attacker's calls disagree about a path the first is kept. A
 // value that varies between calls is not an identity value, and identity values
 // are what this exists to recover.
-func attackerArgValues(identities []*types.MCPIdentifiers, attacker string) map[toolsig.Path]any {
-	out := map[toolsig.Path]any{}
+// argKey scopes a confirmed argument value to the tool it was confirmed for.
+// The same path can mean different things on different tools, so a value is only
+// evidence for the call it came from.
+type argKey struct {
+	tool string
+	path toolsig.Path
+}
+
+func attackerArgValues(identities []*types.MCPIdentifiers, attacker string) map[argKey]any {
+	out := map[argKey]any{}
 	for _, id := range identities {
 		if id.Identity != attacker {
 			continue
@@ -374,10 +395,16 @@ func attackerArgValues(identities []*types.MCPIdentifiers, attacker string) map[
 				if path == own {
 					continue
 				}
-				if _, seen := out[path]; seen {
+				// Keyed by TOOL and path, not path alone. Two getters can both
+				// take a parameter at the same path and mean different things by
+				// it, so a value confirmed for one tool is not a value for the
+				// other — restoring it across tools would send an argument the
+				// attacker never actually established for that call.
+				k := argKey{tool: obj.Tool, path: path}
+				if _, seen := out[k]; seen {
 					continue
 				}
-				out[path] = v
+				out[k] = v
 			}
 		}
 	}
@@ -390,7 +417,7 @@ func attackerArgValues(identities []*types.MCPIdentifiers, attacker string) map[
 //
 // It returns the paths it could NOT restore — arguments inherited from the
 // victim's call — so the attempt can carry them as evidence.
-func (p *BOLA) attackArgs(obj types.MCPObjectRef, mine map[toolsig.Path]any) (map[string]any, []string) {
+func (p *BOLA) attackArgs(obj types.MCPObjectRef, mine map[argKey]any) (map[string]any, []string) {
 	args := callArgs(obj)
 	own := idPathOf(obj)
 
@@ -399,7 +426,10 @@ func (p *BOLA) attackArgs(obj types.MCPObjectRef, mine map[toolsig.Path]any) (ma
 		if path == own {
 			continue
 		}
-		if v, ok := mine[path]; ok {
+		// Only a value the attacker confirmed FOR THIS TOOL counts. The same
+		// path on another tool is a different argument, and restoring across
+		// tools would send a value the attacker never established for this call.
+		if v, ok := mine[argKey{tool: obj.Tool, path: path}]; ok {
 			toolsig.SetPath(args, path, v)
 			continue
 		}

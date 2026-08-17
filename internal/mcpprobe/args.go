@@ -25,10 +25,20 @@ import (
 // one we cannot honestly claim to have tested.
 func ToolSignatures(tool map[string]any) []toolsig.Signature {
 	name, _ := tool["name"].(string)
-	schema, ok := tool["parameters"].(map[string]any)
-	if !ok {
+	rawSchema, present := tool["parameters"]
+	if !present {
+		// No parameters key at all: a tool that takes no arguments, which is a
+		// readable schema with an empty parameter list.
 		sigs, _ := toolsig.Signatures(name, nil)
 		return sigs
+	}
+	schema, ok := rawSchema.(map[string]any)
+	if !ok {
+		// The key is there but is not a schema. That is a tool we cannot read,
+		// not a tool without arguments — and the difference matters: treating it
+		// as argument-free sends an empty call whose refusal would be recorded
+		// as a completed negative test.
+		return nil
 	}
 	raw, err := json.Marshal(schema)
 	if err != nil {

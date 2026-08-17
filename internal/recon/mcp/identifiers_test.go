@@ -715,3 +715,27 @@ func TestDiscover_InvokesToolTheOperatorNamed(t *testing.T) {
 		t.Error("a tool named in enumeration_tools must be invoked; the operator has accepted it")
 	}
 }
+
+// Name matching is per-token, so a compound name carries every verb in it. A
+// tool called get_and_delete_record contains "get" and would pass a plain
+// allowlist on the strength of the half that is safe. A compound name is only as
+// safe as its most dangerous verb.
+func TestDiscover_DestructiveVerbVetoesAReadOnlyName(t *testing.T) {
+	m := newIdentifiersModule(t, registry.Config{"use_navigator": false})
+	rec := &recordingInvoker{body: `{"records":[{"record_id":"r1"}]}`}
+
+	m.discover(context.Background(), identitySession{label: "a", inv: rec}, []toolSpec{
+		spec("get_and_delete_record", nil, "record_id"),
+		spec("list_then_purge", nil),
+		spec("read_record", nil, "record_id"),
+	})
+
+	for _, unsafe := range []string{"get_and_delete_record", "list_then_purge"} {
+		if rec.called(unsafe) {
+			t.Errorf("%s must NOT be invoked: a destructive verb vetoes the read-only name match", unsafe)
+		}
+	}
+	if !rec.called("read_record") {
+		t.Error("read_record should still be invoked")
+	}
+}

@@ -136,9 +136,19 @@ func (c *Call) Get(p Path) (any, bool) {
 // benign call, and genuinely independent variants of one call, such as an
 // attack and the control it is compared against.
 func (c *Call) Clone() *Call {
+	// Values are usually scalars, but not always: an array or object parameter
+	// is filled with an empty container, and a caller may set one directly.
+	// maps.Clone copies the map and not what it points at, so a container would
+	// stay shared between clones and mutating one variant would mutate the
+	// other — the aliasing this flat representation exists to prevent, surviving
+	// one level down.
+	kv := make(map[Path]any, len(c.kv))
+	for k, v := range c.kv {
+		kv[k] = copyValue(v)
+	}
 	return &Call{
 		sig:  c.sig,
-		kv:   maps.Clone(c.kv),
+		kv:   kv,
 		from: maps.Clone(c.from),
 	}
 }

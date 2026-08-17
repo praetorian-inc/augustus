@@ -54,6 +54,18 @@ var (
 	// defaultReadOnlyWords name operations that retrieve rather than change.
 	// Used only to decide whether reconnaissance may CALL a tool, never to
 	// decide what role it plays.
+	// defaultDestructiveWords name operations that change state. Used only to
+	// VETO invocation during reconnaissance, never to classify a tool's role.
+	defaultDestructiveWords = []string{
+		"delete", "remove", "destroy", "drop", "purge", "truncate", "erase",
+		"wipe", "clear", "terminate", "kill", "revoke", "disable", "deactivate",
+		"create", "update", "modify", "edit", "patch", "write", "insert", "add",
+		"send", "publish", "deploy", "execute", "run", "exec", "invite",
+		"approve", "reject", "confirm", "cancel", "end", "close", "pay",
+		"charge", "refund", "transfer", "grant", "assign", "archive", "restore",
+		"rename", "move", "upload", "import", "install", "uninstall", "reset",
+		"set", "put", "post", "manage", "drain", "flush",
+	}
 	defaultReadOnlyWords = []string{
 		"get", "list", "read", "fetch", "search", "find", "query", "view",
 		"show", "describe", "inspect", "lookup", "count", "check", "status",
@@ -86,6 +98,9 @@ type MCPIdentifiers struct {
 	namedByOperator map[string]bool
 	// readOnlyNameRE recognises names that read as retrieval operations.
 	readOnlyNameRE *regexp.Regexp
+	// destructiveNameRE recognises names carrying an operation that changes
+	// state. It VETOES readOnlyNameRE rather than merely failing to match it.
+	destructiveNameRE *regexp.Regexp
 
 	// values holds what the target has already handed back, partitioned by the
 	// identity that saw it. Delivered by the runner via SetContext.
@@ -132,20 +147,21 @@ func NewIdentifiers(cfg registry.Config) (recon.Recon, error) {
 		return nil, err
 	}
 	return &MCPIdentifiers{
-		Base:             *base,
-		identityLabel:    registry.GetString(cfg, "identity_label", "primary"),
-		victims:          parseVictims(cfg),
-		getTools:         registry.GetStringSlice(cfg, "get_tools", nil),
-		enumerationTools: registry.GetStringSlice(cfg, "enumeration_tools", nil),
-		idParams:         parseIDParams(cfg),
-		rules:            toolsig.RulesFromConfig(cfg),
-		allowDestructive: registry.GetBool(cfg, "allow_destructive", false),
-		namedByOperator:  namedTools(cfg),
-		readOnlyNameRE:   wordBoundaryRE(resolvePatterns(cfg, "read_only_name_patterns", "read_only_name_extra_patterns", defaultReadOnlyWords)),
-		useNavigator:     registry.GetBool(cfg, "use_navigator", true),
-		maxIDsPerTool:    registry.GetInt(cfg, "max_ids_per_tool", 5),
-		policy:           toolpolicy.New(cfg),
-		idParamRE:        wordBoundaryRE(resolvePatterns(cfg, "id_param_patterns", "id_param_extra_patterns", defaultIDParamWords)),
+		Base:              *base,
+		identityLabel:     registry.GetString(cfg, "identity_label", types.DefaultIdentity),
+		victims:           parseVictims(cfg),
+		getTools:          registry.GetStringSlice(cfg, "get_tools", nil),
+		enumerationTools:  registry.GetStringSlice(cfg, "enumeration_tools", nil),
+		idParams:          parseIDParams(cfg),
+		rules:             toolsig.RulesFromConfig(cfg),
+		allowDestructive:  registry.GetBool(cfg, "allow_destructive", false),
+		namedByOperator:   namedTools(cfg),
+		readOnlyNameRE:    wordBoundaryRE(resolvePatterns(cfg, "read_only_name_patterns", "read_only_name_extra_patterns", defaultReadOnlyWords)),
+		destructiveNameRE: wordBoundaryRE(resolvePatterns(cfg, "destructive_name_patterns", "destructive_name_extra_patterns", defaultDestructiveWords)),
+		useNavigator:      registry.GetBool(cfg, "use_navigator", true),
+		maxIDsPerTool:     registry.GetInt(cfg, "max_ids_per_tool", 5),
+		policy:            toolpolicy.New(cfg),
+		idParamRE:         wordBoundaryRE(resolvePatterns(cfg, "id_param_patterns", "id_param_extra_patterns", defaultIDParamWords)),
 	}, nil
 }
 
@@ -457,6 +473,13 @@ func (m *MCPIdentifiers) readOnlyGate(spec toolSpec) (bool, string) {
 	}
 	if m.namedByOperator[spec.name] {
 		return false, ""
+	}
+	// A destructive token anywhere in the name vetoes the allowlist. Name
+	// matching is per-token, so "get_and_delete_record" carries "get" and would
+	// otherwise pass on the strength of the half that is safe. A compound name
+	// is only as safe as its most dangerous verb.
+	if matchWord(m.destructiveNameRE, spec.name) {
+		return true, "its name contains an operation that changes state"
 	}
 	if matchWord(m.readOnlyNameRE, spec.name) {
 		return false, ""

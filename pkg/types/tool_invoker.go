@@ -78,3 +78,14 @@ type ToolResult struct {
 	// a valid security observation, not a transport failure.
 	IsError bool
 }
+
+// DefaultIdentity labels the session a scan runs under when the operator names
+// no other.
+//
+// Values observed in tool responses are partitioned by identity, so
+// reconnaissance and the probes that follow it must agree on this label to share
+// what the target handed out. Two independent definitions of the same default
+// would drift into two partitions, and the symptom would be a probe finding an
+// empty store for no visible reason — so the constant lives in one place both
+// sides already import.
+const DefaultIdentity = "primary"

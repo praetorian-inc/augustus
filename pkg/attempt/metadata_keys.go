@@ -26,6 +26,15 @@ const (
 	// and the target rejected it — schema validation, an unknown method, invalid
 	// parameters. The argument was submitted and considered, so this is evidence
 	// about the target rather than a gap in coverage.
+	//
+	// It does NOT on its own mean the test was conclusive, and it can appear
+	// alongside MetadataKeyNotTested. Both facts are true when a refused call
+	// carried an invented placeholder in some OTHER required argument: the
+	// target did refuse, and the refusal cannot be attributed to the parameter
+	// under test rather than to the placeholder. A consumer summarising coverage
+	// must therefore read MetadataKeyNotTested first and treat a refusal as
+	// conclusive only in its absence — reading this key alone would report an
+	// unattributable refusal as "the target held".
 	MetadataKeyTargetRefused = "augustus.refused_by_target"
 	MetadataKeyTriggers      = "triggers"
 	MetadataKeyFlipMode      = "flip_mode"

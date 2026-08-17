@@ -91,6 +91,7 @@ func RecordCallFailure(a *attempt.Attempt, err error) bool {
 		return true
 	}
 	if errors.Is(err, types.ErrCallRefused) {
+		ensureMetadata(a)
 		a.Metadata[attempt.MetadataKeyTargetRefused] = true
 		a.AddOutput("the target refused the call: " + err.Error())
 		a.Complete()
@@ -111,6 +112,19 @@ func MarkNotTested(a *attempt.Attempt, reason string) {
 	if a == nil {
 		return
 	}
+	ensureMetadata(a)
 	a.Metadata[attempt.MetadataKeyNotTested] = true
 	a.Metadata[attempt.MetadataKeyNotTestedReason] = reason
+}
+
+// ensureMetadata makes an attempt's metadata map writable.
+//
+// attempt.New allocates it, so this only matters for an Attempt built as a zero
+// value — which tests do. Recording an outcome must never be the thing that
+// panics: the whole point of these helpers is that the scan can say what
+// happened, and a nil map turns "we could not test this" into a stack trace.
+func ensureMetadata(a *attempt.Attempt) {
+	if a.Metadata == nil {
+		a.Metadata = make(map[string]any)
+	}
 }

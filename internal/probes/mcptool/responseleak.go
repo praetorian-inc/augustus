@@ -139,7 +139,7 @@ func (p *ResponseLeak) Probe(ctx context.Context, gen types.Generator) ([]*attem
 				if err := ctx.Err(); err != nil {
 					return attempts, err
 				}
-				attempts = append(attempts, p.callOne(ctx, inv, name, c))
+				attempts = append(attempts, p.callOne(ctx, inv, ts, name, c))
 			}
 		}
 	}
@@ -147,7 +147,7 @@ func (p *ResponseLeak) Probe(ctx context.Context, gen types.Generator) ([]*attem
 }
 
 // callOne invokes a single (tool, case) and records the attempt.
-func (p *ResponseLeak) callOne(ctx context.Context, inv types.ToolInvoker, tool string, c argCase) *attempt.Attempt {
+func (p *ResponseLeak) callOne(ctx context.Context, inv types.ToolInvoker, ts toolSig, tool string, c argCase) *attempt.Attempt {
 	a := attempt.New(fmt.Sprintf("tool=%s case=%s", tool, c.name))
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
@@ -165,7 +165,12 @@ func (p *ResponseLeak) callOne(ctx context.Context, inv types.ToolInvoker, tool 
 		// these arguments were submitted and the tool would not run for them, so
 		// they can leak nothing. Only a call that never arrived leaves the case
 		// untested.
-		mcpprobe.RecordCallFailure(a, err)
+		//
+		// Routed through the signature's own recorder rather than the shared one,
+		// so a refusal is only counted as conclusive when every other required
+		// argument held a real value. A case whose call was assembled around an
+		// invented placeholder cannot attribute the refusal to what it varied.
+		ts.recordCallFailure(a, paramInfo{}, err)
 		return a
 	}
 	// Store the response bounded to the generous maxResponseBytes cap (see its
