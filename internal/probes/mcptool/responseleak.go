@@ -8,6 +8,7 @@ import (
 
 	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
+	"github.com/praetorian-inc/augustus/internal/toolsig"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/recon"
@@ -152,6 +153,11 @@ func (p *ResponseLeak) callOne(ctx context.Context, inv types.ToolInvoker, tool 
 	a.Detector = p.GetPrimaryDetector()
 	a.Metadata["mcptool.tool"] = tool
 	a.Metadata["mcptool.case"] = c.name
+	if c.param != "" {
+		// Which parameter this case actually varied, so the report can say what
+		// was exercised rather than leaving it to be inferred from the case name.
+		a.Metadata["mcptool.param"] = string(c.param)
+	}
 
 	res, err := inv.CallTool(ctx, tool, c.args)
 	if err != nil {
@@ -193,7 +199,11 @@ func (p *ResponseLeak) gatedAttempt(advertised int) *attempt.Attempt {
 // metadata so a finding points at which input surfaced the secret.
 type argCase struct {
 	name string
-	args map[string]any
+	// param is the parameter this case varies, empty for the baseline cases. It
+	// is recorded on the attempt so the report can state which parameter was
+	// exercised instead of leaving it to be parsed out of the case name.
+	param toolsig.Path
+	args  map[string]any
 }
 
 // debugParams are parameter names that commonly toggle verbose/debug output,
@@ -223,8 +233,9 @@ func argCases(ts toolSig) []argCase {
 			// Written by PATH: a debug flag nested inside an object has to land
 			// inside it, not beside it.
 			all = append(all, argCase{
-				name: "debug:" + string(param.path),
-				args: ts.args(param, true),
+				name:  "debug:" + string(param.path),
+				param: param.path,
+				args:  ts.args(param, true),
 			})
 		}
 	}

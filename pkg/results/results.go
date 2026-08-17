@@ -1,6 +1,8 @@
 package results
 
 import (
+	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -64,6 +66,21 @@ type AttemptResult struct {
 
 	// Error contains any error message if status is error.
 	Error string `json:"error,omitempty"`
+
+	// Metadata carries the attempt's own record of WHAT it tested — which tool,
+	// which parameter, at which path, under which identity, and whether the probe
+	// considered the result conclusive.
+	//
+	// Without it a report can only say that a scan happened. Which parameter of
+	// which tool actually received a payload had to be reconstructed from the
+	// TARGET's responses, which is both laborious and unsound: a call the server
+	// never processed leaves no trace to reconstruct from, so precisely the
+	// attempts whose coverage is in doubt are the ones the report cannot account
+	// for. Coverage has to come from augustus's own output.
+	//
+	// Omitted when empty, so a consumer written against the previous shape sees
+	// exactly what it saw before.
+	Metadata map[string]any `json:"metadata,omitempty"`
 
 	// Timestamp records when the attempt occurred.
 	Timestamp time.Time `json:"timestamp"`
@@ -200,8 +217,39 @@ func ToAttemptResult(a *attempt.Attempt) AttemptResult {
 		Verdict:   Verdict(a),
 		Status:    a.Status,
 		Error:     a.Error,
+		Metadata:  encodableMetadata(a.Metadata),
 		Timestamp: a.Timestamp,
 	}
+}
+
+// encodableMetadata renders an attempt's metadata so that every key survives
+// JSON encoding.
+//
+// Metadata is map[string]any and a probe may put anything in it. A single value
+// the encoder cannot handle — a channel, a func, an error, a type with a failing
+// MarshalJSON — fails the encode for the WHOLE line, so one careless probe would
+// silently cost every other attempt in the run its output. Such a value is
+// therefore rendered as text rather than dropped: a key that is hard to encode
+// still records that the attempt tested something, and losing that quietly is
+// the failure this field exists to end.
+//
+// Nothing is filtered by size or by name. What a probe chose to record is what
+// the report should be able to show; deciding here which of a probe's own
+// statements are worth keeping would put the omission somewhere no reader can
+// see it.
+func encodableMetadata(md map[string]any) map[string]any {
+	if len(md) == 0 {
+		return nil
+	}
+	out := make(map[string]any, len(md))
+	for k, v := range md {
+		if _, err := json.Marshal(v); err != nil {
+			out[k] = fmt.Sprint(v)
+			continue
+		}
+		out[k] = v
+	}
+	return out
 }
 
 // ToAttemptResults converts a slice of attempts to simplified AttemptResults.

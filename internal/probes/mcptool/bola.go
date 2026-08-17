@@ -182,7 +182,10 @@ func (p *BOLA) callVictimObject(ctx context.Context, attacker types.ToolInvoker,
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
 	a.Metadata["mcptool.tool"] = obj.Tool
-	a.Metadata["mcptool.param"] = obj.Param
+	// The PATH, not the bare name. Two arguments of one tool can share a leaf
+	// name at different depths, so a name cannot say which one carried the
+	// identifier and a reader cannot replay the call from it.
+	a.Metadata["mcptool.param"] = string(idPathOf(obj))
 	a.Metadata[attempt.MetadataKeyBOLAID] = obj.ID
 	a.Metadata[attempt.MetadataKeyBOLAVictimIdentity] = victim
 	// Generic ground-truth sentence for the goal-conditioned judge — no server- or
