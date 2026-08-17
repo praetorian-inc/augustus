@@ -186,3 +186,44 @@ func setPath(args map[string]any, path Path, value any) {
 		setParent = func(v any) { owner[key] = v }
 	}
 }
+
+// SetPath assigns value at a path within an existing argument map, creating
+// intermediate objects and arrays as needed.
+//
+// It exists for callers holding a raw argument map rather than a Call — a
+// recorded observation being replayed, for instance — so that they place a value
+// where the server reads it rather than at the top level.
+func SetPath(args map[string]any, p Path, value any) { setPath(args, p, value) }
+
+// CopyArgs deep-copies an argument map so that mutating one copy cannot reach
+// another.
+//
+// A shallow copy shares every nested object between the copies, so writing to
+// one writes to both. Where a caller builds two variants of a call — an attack
+// and the control it is compared against — that sharing makes both calls address
+// the same object, and a real finding reads as a pass.
+func CopyArgs(args map[string]any) map[string]any {
+	if args == nil {
+		return nil
+	}
+	out := make(map[string]any, len(args))
+	for k, v := range args {
+		out[k] = copyValue(v)
+	}
+	return out
+}
+
+func copyValue(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		return CopyArgs(t)
+	case []any:
+		arr := make([]any, len(t))
+		for i, e := range t {
+			arr[i] = copyValue(e)
+		}
+		return arr
+	default:
+		return v
+	}
+}

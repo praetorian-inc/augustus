@@ -11,8 +11,10 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/praetorian-inc/augustus/internal/observed"
 	"github.com/praetorian-inc/augustus/internal/recon/llm"
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
+	"github.com/praetorian-inc/augustus/internal/toolsig"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/output"
 	"github.com/praetorian-inc/augustus/pkg/recon"
@@ -68,6 +70,13 @@ type MCPIdentifiers struct {
 	useNavigator     bool
 	maxIDsPerTool    int
 
+	// values holds what the target has already handed back, partitioned by the
+	// identity that saw it. Delivered by the runner via SetContext.
+	values *observed.Store
+	// rules are operator-supplied argument values, bound by selector rather than
+	// by tool name so one rule covers a value that appears throughout a surface.
+	rules []toolsig.Rule
+
 	// policy is the shared destructive-tool safety gate. recon is read-only, so a
 	// tool the server annotates destructive (or one an operator denies) must never
 	// be classified as a getter or enumerator — it would otherwise be invoked with
@@ -101,6 +110,7 @@ func NewIdentifiers(cfg registry.Config) (recon.Recon, error) {
 		getTools:         registry.GetStringSlice(cfg, "get_tools", nil),
 		enumerationTools: registry.GetStringSlice(cfg, "enumeration_tools", nil),
 		idParams:         parseIDParams(cfg),
+		rules:            toolsig.RulesFromConfig(cfg),
 		useNavigator:     registry.GetBool(cfg, "use_navigator", true),
 		maxIDsPerTool:    registry.GetInt(cfg, "max_ids_per_tool", 5),
 		policy:           toolpolicy.New(cfg),
@@ -174,6 +184,42 @@ func (m *MCPIdentifiers) Name() string { return "recon.MCPIdentifiers" }
 type identitySession struct {
 	label string
 	inv   types.ToolInvoker
+	// chain supplies argument values for this identity's calls.
+	chain toolsig.Chain
+}
+
+// SetContext implements recon.ContextAwareRecon, receiving the shared
+// assessment state before this module runs.
+//
+// It must delegate to the embedded Base, which is what wires the observation
+// store this module reads its tool inventory from; overriding without
+// delegating silently leaves that store nil and sends the module back to a live
+// enumeration it did not need.
+func (m *MCPIdentifiers) SetContext(pc recon.ProbeContext) {
+	m.Base.SetContext(pc)
+	m.values = pc.Observed
+}
+
+// session builds one identity's session: its invoker wrapped so every response
+// is recorded under that identity, and the value chain used to build its calls.
+//
+// Operator configuration outranks anything scraped from a response. An operator
+// who wants the observed value writes no rule; ranking configuration below the
+// scrape would leave no way to correct a wrong inference.
+func (m *MCPIdentifiers) session(label string, inv types.ToolInvoker) identitySession {
+	chain := toolsig.Chain{}
+	if len(m.rules) > 0 {
+		chain = append(chain, toolsig.FromRules("", m.rules))
+	}
+	if m.values != nil {
+		chain = append(chain, m.values.Source(label))
+	}
+	chain = append(chain, valueChain()...)
+	return identitySession{
+		label: label,
+		inv:   observed.Wrap(inv, m.values, label),
+		chain: chain,
+	}
 }
 
 // toolSpec is one classified tool plus its parsed parameters. For getters,
@@ -182,9 +228,17 @@ type identitySession struct {
 // policy can be re-asserted at the call site, independently of the upstream
 // catalog filter.
 type toolSpec struct {
-	name    string
-	params  []toolParam
+	name string
+	// sig is one concrete way the tool can be called. A tool whose parameters
+	// vary by discriminator has several, and they are not interchangeable, so
+	// each is classified and exercised on its own.
+	sig    toolsig.Signature
+	params []toolsig.Param
+	// idParam is the identifier argument's own name, kept for the observation
+	// payload; idPath addresses it within the call, which a name cannot do when
+	// the identifier sits inside a nested object.
 	idParam string
+	idPath  toolsig.Path
 	tm      map[string]any
 }
 
@@ -212,7 +266,10 @@ func (m *MCPIdentifiers) Recon(ctx context.Context, gen types.Generator) ([]outp
 		return nil, nil
 	}
 
-	sessions := []identitySession{{label: m.identityLabel, inv: primary}}
+	// Each identity's calls are recorded under that identity's label, so the
+	// values a target hands out during reconnaissance are available to the probes
+	// that follow — and cannot be confused with another identity's.
+	sessions := []identitySession{m.session(m.identityLabel, primary)}
 	for _, v := range m.victims {
 		g, err := generators.Create(v.genType, v.genCfg)
 		if err != nil {
@@ -224,7 +281,7 @@ func (m *MCPIdentifiers) Recon(ctx context.Context, gen types.Generator) ([]outp
 			slog.Warn("recon.MCPIdentifiers: victim generator is not a ToolInvoker", "label", v.label)
 			continue
 		}
-		sessions = append(sessions, identitySession{label: v.label, inv: vi})
+		sessions = append(sessions, m.session(v.label, vi))
 	}
 
 	var obs []output.Observation
@@ -323,35 +380,49 @@ func (m *MCPIdentifiers) classifyHeuristic(tools []map[string]any) (getters []to
 		if name == "" {
 			continue
 		}
-		params := paramsOf(tool)
-		idParam := m.idParamFor(name, params)
-		hasRequiredID := idParam != "" && paramRequired(params, idParam)
+		for _, spec := range specsOf(tool) {
+			idParam, idPath := m.idParamFor(name, spec.params)
+			spec.idParam, spec.idPath = idParam, idPath
+			hasRequiredID := idPath != "" && requiredAt(spec.params, idPath)
 
-		if getHint[name] {
-			getters = append(getters, toolSpec{name: name, params: params, idParam: idParam, tm: tool})
-			continue
-		}
-		if enumHint[name] {
-			enumerators = append(enumerators, toolSpec{name: name, params: params, tm: tool})
-			continue
-		}
+			if getHint[name] {
+				getters = append(getters, spec)
+				continue
+			}
+			if enumHint[name] {
+				spec.idParam, spec.idPath = "", ""
+				enumerators = append(enumerators, spec)
+				continue
+			}
 
-		// Destructive/denied tools are already removed upstream in classify() via the
-		// shared toolpolicy gate (server annotations + operator allow/deny), so the
-		// heuristic no longer name-matches for destructiveness.
-		isGetter := idParam != "" && (matchWord(m.getterRE, name) || hasRequiredID)
-		isEnum := matchWord(m.enumRE, name) || !hasRequiredID
+			// Destructive/denied tools are already removed upstream in classify() via the
+			// shared toolpolicy gate (server annotations + operator allow/deny), so the
+			// heuristic no longer name-matches for destructiveness.
+			isGetter := idPath != "" && (matchWord(m.getterRE, name) || hasRequiredID)
+			isEnum := matchWord(m.enumRE, name) || !hasRequiredID
 
-		if isGetter {
-			getters = append(getters, toolSpec{name: name, params: params, idParam: idParam, tm: tool})
-		}
-		// A tool with no required id-like param is an enumerator candidate, but a
-		// confirmed getter is never also treated as an enumerator.
-		if isEnum && !isGetter {
-			enumerators = append(enumerators, toolSpec{name: name, params: params, tm: tool})
+			if isGetter {
+				getters = append(getters, spec)
+			}
+			// A tool with no required id-like param is an enumerator candidate, but a
+			// confirmed getter is never also treated as an enumerator.
+			if isEnum && !isGetter {
+				spec.idParam, spec.idPath = "", ""
+				enumerators = append(enumerators, spec)
+			}
 		}
 	}
 	return getters, enumerators
+}
+
+// requiredAt reports whether the parameter at path is required by the signature.
+func requiredAt(params []toolsig.Param, path toolsig.Path) bool {
+	for _, p := range params {
+		if p.Path == path {
+			return p.Required
+		}
+	}
+	return false
 }
 
 // navClassification is the navigator's JSON reply shape.
@@ -392,14 +463,14 @@ func navigatorClassifyPrompt(catalog []byte) (system, user string) {
 // classifyWithNavigator asks the navigator LLM to classify the tools. It returns
 // ok=false on any error so the caller falls back to heuristics.
 func (m *MCPIdentifiers) classifyWithNavigator(ctx context.Context, tools []map[string]any) (getters []toolSpec, enumerators []toolSpec, ok bool) {
-	byName := map[string][]toolParam{}
+	specsByName := map[string][]toolSpec{}
 	tmByName := map[string]map[string]any{}
 	for _, tool := range tools {
 		name, _ := tool["name"].(string)
 		if name == "" {
 			continue
 		}
-		byName[name] = paramsOf(tool)
+		specsByName[name] = specsOf(tool)
 		tmByName[name] = tool
 	}
 
@@ -427,18 +498,29 @@ func (m *MCPIdentifiers) classifyWithNavigator(ctx context.Context, tools []map[
 	}
 
 	for _, g := range nc.Getters {
-		params, known := byName[g.Tool]
+		specs, known := specsByName[g.Tool]
 		if !known || g.Param == "" {
 			continue
 		}
-		getters = append(getters, toolSpec{name: g.Tool, params: params, idParam: g.Param, tm: tmByName[g.Tool]})
+		// The navigator names a parameter; take every signature that has one,
+		// since a tool with conditional branches may expose it in only some.
+		for _, spec := range specs {
+			for _, p := range spec.params {
+				if p.Path.Leaf() != g.Param && string(p.Path) != g.Param {
+					continue
+				}
+				spec.idParam, spec.idPath = p.Path.Leaf(), p.Path
+				getters = append(getters, spec)
+				break
+			}
+		}
 	}
 	for _, e := range nc.Enumerators {
-		params, known := byName[e]
+		specs, known := specsByName[e]
 		if !known {
 			continue
 		}
-		enumerators = append(enumerators, toolSpec{name: e, params: params, tm: tmByName[e]})
+		enumerators = append(enumerators, specs...)
 	}
 	if len(getters) == 0 || len(enumerators) == 0 {
 		return nil, nil, false
@@ -467,7 +549,7 @@ func (m *MCPIdentifiers) harvestAndValidate(ctx context.Context, s identitySessi
 			slog.Warn("recon.MCPIdentifiers: not invoking classified enumerator (call-site policy gate)", "tool", en.name, "reason", reason)
 			continue
 		}
-		res, err := s.inv.CallTool(ctx, en.name, requiredBenignArgs(en.params))
+		res, err := s.inv.CallTool(ctx, en.name, en.callArgs(s.chain, ""))
 		if err != nil || res.IsError {
 			continue
 		}
@@ -485,7 +567,7 @@ func (m *MCPIdentifiers) harvestAndValidate(ctx context.Context, s identitySessi
 	var refs []types.MCPObjectRef
 	confirmed := map[string]bool{}
 	for _, g := range getters {
-		if g.idParam == "" {
+		if g.idPath == "" {
 			continue
 		}
 		if skip, reason := m.policy.Skip(g.name, g.tm); skip {
@@ -493,22 +575,23 @@ func (m *MCPIdentifiers) harvestAndValidate(ctx context.Context, s identitySessi
 			continue
 		}
 		for _, cand := range candidates {
-			key := g.name + "|" + g.idParam + "|" + cand.id
+			key := g.name + "|" + string(g.idPath) + "|" + cand.id
 			if confirmed[key] {
 				continue
 			}
-			args := benignArgs(g.params, g.idParam, cand.id)
+			args := g.callArgs(s.chain, cand.id)
 			res, err := s.inv.CallTool(ctx, g.name, args)
 			if err != nil || res.IsError || strings.TrimSpace(res.Text) == "" {
 				continue
 			}
 			confirmed[key] = true
 			refs = append(refs, types.MCPObjectRef{
-				Tool:   g.name,
-				Param:  g.idParam,
-				ID:     cand.id,
-				Source: cand.source,
-				Args:   args, // full validated args, so a BOLA replay reuses required params
+				Tool:      g.name,
+				Param:     g.idParam,
+				ParamPath: string(g.idPath),
+				ID:        cand.id,
+				Source:    cand.source,
+				Args:      args, // full validated args, so a BOLA replay reuses required params
 			})
 		}
 	}
@@ -518,114 +601,104 @@ func (m *MCPIdentifiers) harvestAndValidate(ctx context.Context, s identitySessi
 // idParamFor resolves the identifier argument of a tool: an explicit id_params
 // config entry wins, otherwise the first required id-like param, otherwise the
 // first id-like param of any kind.
-func (m *MCPIdentifiers) idParamFor(name string, params []toolParam) string {
+func (m *MCPIdentifiers) idParamFor(name string, params []toolsig.Param) (string, toolsig.Path) {
+	// An explicit config entry may name the parameter or give its full path.
 	if p, ok := m.idParams[name]; ok {
-		return p
+		for _, cand := range params {
+			if string(cand.Path) == p || cand.Path.Leaf() == p {
+				return cand.Path.Leaf(), cand.Path
+			}
+		}
+		return p, toolsig.Path(p)
 	}
 	for _, p := range params {
-		if p.required && matchWord(m.idParamRE, p.name) {
-			return p.name
+		if p.Required && matchWord(m.idParamRE, p.Path.Leaf()) {
+			return p.Path.Leaf(), p.Path
 		}
 	}
 	for _, p := range params {
-		if matchWord(m.idParamRE, p.name) {
-			return p.name
+		if matchWord(m.idParamRE, p.Path.Leaf()) {
+			return p.Path.Leaf(), p.Path
 		}
 	}
-	return ""
+	return "", ""
 }
 
 // --- deterministic helpers -------------------------------------------------
 
-// toolParam describes one tool parameter parsed from its JSON schema.
-type toolParam struct {
-	name     string
-	typ      string
-	required bool
-}
-
-// paramsOf parses the parameters of a tool in the canonical Conversation.Tools
-// wire shape (map with a "parameters" JSON-schema object).
-func paramsOf(tool map[string]any) []toolParam {
+// specsOf parses a tool into one spec per call signature.
+//
+// Parsing lives in internal/toolsig, shared with the probe packages. Recon used
+// to keep its own copy that read only a schema's top-level properties, which
+// meant an identifier nested inside an object was invisible and a discriminator
+// was filled with a placeholder the server rejected — so a tool that hands out
+// identifiers all day yielded none.
+func specsOf(tool map[string]any) []toolSpec {
+	name, _ := tool["name"].(string)
 	schema, ok := tool["parameters"].(map[string]any)
 	if !ok {
 		return nil
 	}
-	props, _ := schema["properties"].(map[string]any)
-
-	required := map[string]bool{}
-	switch req := schema["required"].(type) {
-	case []any:
-		for _, r := range req {
-			if s, ok := r.(string); ok {
-				required[s] = true
-			}
-		}
-	case []string:
-		for _, s := range req {
-			required[s] = true
-		}
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		return nil
 	}
-
-	out := make([]toolParam, 0, len(props))
-	for _, name := range sortedMapKeys(props) {
-		typ := ""
-		if p, ok := props[name].(map[string]any); ok {
-			typ, _ = p["type"].(string)
-		}
-		out = append(out, toolParam{name: name, typ: typ, required: required[name]})
+	sigs, err := toolsig.Signatures(name, raw)
+	if err != nil {
+		return nil
+	}
+	out := make([]toolSpec, 0, len(sigs))
+	for _, sig := range sigs {
+		out = append(out, toolSpec{name: name, sig: sig, params: sig.Params, tm: tool})
 	}
 	return out
 }
 
-func paramRequired(params []toolParam, name string) bool {
-	for _, p := range params {
-		if p.name == name {
-			return p.required
-		}
-	}
-	return false
+// valueChain supplies arguments for a recon call: what the schema declares
+// first, then a type-shaped placeholder for anything left.
+//
+// The schema half is what recon previously lacked entirely. A discriminator
+// declaring enum ["get","search","list"] was filled with "test", the server
+// rejected the call before the tool ran, and no identifiers came back — a
+// failure that looked like a target with nothing to find.
+func valueChain() toolsig.Chain {
+	return toolsig.Chain{toolsig.FromSchema(), placeholderFiller{}}
 }
 
-// benignArgs builds a call argument map: the identifier in idParam plus benign
-// placeholders for every other required param so the call reaches the tool
-// instead of failing argument validation.
-func benignArgs(params []toolParam, idParam, id string) map[string]any {
-	args := map[string]any{idParam: id}
-	for _, p := range params {
-		if p.name == idParam || !p.required {
-			continue
-		}
-		args[p.name] = benignValue(p.typ)
-	}
-	return args
-}
+// placeholderFiller supplies a type-shaped value for a REQUIRED parameter the
+// schema does not determine, so the call reaches the tool instead of failing
+// argument validation. Optional parameters are left unset, as before, so the
+// tool applies its own defaults.
+type placeholderFiller struct{}
 
-// requiredBenignArgs builds benign placeholders for every required param of an
-// enumerator (which takes no identifier).
-func requiredBenignArgs(params []toolParam) map[string]any {
-	args := map[string]any{}
-	for _, p := range params {
-		if p.required {
-			args[p.name] = benignValue(p.typ)
-		}
-	}
-	return args
-}
+func (placeholderFiller) Name() string { return "placeholder" }
 
-func benignValue(typ string) any {
-	switch typ {
+func (placeholderFiller) Value(p toolsig.Param) (any, bool) {
+	if !p.Required {
+		return nil, false
+	}
+	switch p.Type {
 	case "integer", "number":
-		return 1
+		return 1, true
 	case "boolean":
-		return true
+		return true, true
 	case "array":
-		return []any{}
+		return []any{}, true
 	case "object":
-		return map[string]any{}
+		return map[string]any{}, true
 	default:
-		return "test"
+		return "test", true
 	}
+}
+
+// callArgs builds the arguments for one call to a spec, with id placed at the
+// spec's identifier path when one is given.
+func (t toolSpec) callArgs(chain toolsig.Chain, id string) map[string]any {
+	call, _ := t.sig.Build(chain)
+	if t.idPath != "" {
+		call.Set(t.idPath, id)
+	}
+	return call.Args()
 }
 
 // extractIDs walks a tool result's JSON and collects the scalar values of every

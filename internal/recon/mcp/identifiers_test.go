@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/praetorian-inc/augustus/internal/toolsig"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/output"
@@ -493,14 +494,14 @@ func (r *recordingInvoker) CallTool(_ context.Context, name string, _ map[string
 func TestIdParamFor_RecognizesCamelCaseAndAcronymIDs(t *testing.T) {
 	m := newIdentifiersModule(t, registry.Config{"use_navigator": false})
 	for _, name := range []string{"orderId", "userID", "customerId"} {
-		params := []toolParam{{name: name, required: true}}
-		if got := m.idParamFor("get_thing", params); got != name {
+		params := []toolsig.Param{{Path: toolsig.Path(name), Required: true}}
+		if got, _ := m.idParamFor("get_thing", params); got != name {
 			t.Errorf("idParamFor should recognize %q as an id param; got %q", name, got)
 		}
 	}
 	// A camelCase word that merely contains the letters "id" must NOT be misread
 	// as an id param (no over-match): "isValid" splits to is/Valid, no "id" token.
-	if got := m.idParamFor("check", []toolParam{{name: "isValid", required: true}}); got != "" {
+	if got, _ := m.idParamFor("check", []toolsig.Param{{Path: "isValid", Required: true}}); got != "" {
 		t.Errorf("isValid must not be treated as an id param; got %q", got)
 	}
 }

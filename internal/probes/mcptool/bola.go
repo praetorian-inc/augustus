@@ -9,6 +9,7 @@ import (
 
 	mcpx "github.com/praetorian-inc/augustus/internal/recon/mcp"
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
+	"github.com/praetorian-inc/augustus/internal/toolsig"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/recon"
@@ -200,7 +201,7 @@ func (p *BOLA) callVictimObject(ctx context.Context, attacker types.ToolInvoker,
 	nxID := nonexistentID(obj.ID)
 	a.Metadata[attempt.MetadataKeyBOLANonexistentID] = nxID
 	negArgs := copyArgs(attackArgs)
-	negArgs[obj.Param] = nxID
+	setIDArg(negArgs, obj, nxID)
 	if negRes, negErr := attacker.CallTool(ctx, obj.Tool, negArgs); negErr == nil {
 		a.Metadata[attempt.MetadataKeyBOLANegativeControl] = cap2k(negRes.Text)
 	} else {
@@ -230,18 +231,31 @@ func callArgs(obj types.MCPObjectRef) map[string]any {
 	if len(obj.Args) > 0 {
 		return copyArgs(obj.Args)
 	}
-	return map[string]any{obj.Param: obj.ID}
+	args := map[string]any{}
+	setIDArg(args, obj, obj.ID)
+	return args
 }
 
-// copyArgs shallow-copies an arg map so per-call mutation (the negative control's
-// id swap) never aliases another call's args.
-func copyArgs(args map[string]any) map[string]any {
-	out := make(map[string]any, len(args))
-	for k, v := range args {
-		out[k] = v
+// setIDArg writes an identifier where the getter reads it.
+//
+// A top-level write is wrong whenever the identifier lives inside a nested
+// object, and wrong in the worst way: the real id survives untouched inside the
+// object, so the "nonexistent" negative control still addresses the REAL object
+// and returns a served response. The detector then reads the attack as matching
+// its not-found baseline and scores a genuine authorization flaw safe.
+func setIDArg(args map[string]any, obj types.MCPObjectRef, id string) {
+	if obj.ParamPath != "" {
+		toolsig.SetPath(args, toolsig.Path(obj.ParamPath), id)
+		return
 	}
-	return out
+	args[obj.Param] = id
 }
+
+// copyArgs deep-copies an arg map so per-call mutation (the negative control's
+// id swap) never reaches another call's arguments. A shallow copy would share
+// every nested object between the two, so swapping the control's id would
+// rewrite the attack's as well and both calls would address one object.
+func copyArgs(args map[string]any) map[string]any { return toolsig.CopyArgs(args) }
 
 var (
 	numericIDRE = regexp.MustCompile(`^[0-9]+$`)
