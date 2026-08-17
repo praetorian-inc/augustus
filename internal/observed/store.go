@@ -168,6 +168,18 @@ func (s *Store) Values(key string) []Value {
 	return out
 }
 
+// Keys returns the normalised keys held, in a deterministic order.
+func (s *Store) Keys() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]string, 0, len(s.byKey))
+	for k := range s.byKey {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // Len reports how many distinct keys the store holds.
 func (s *Store) Len() int {
 	s.mu.RLock()
