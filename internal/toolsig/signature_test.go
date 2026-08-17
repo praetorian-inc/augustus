@@ -109,7 +109,7 @@ func TestConstructs(t *testing.T) {
 }
 
 // A conditional schema has no single parameter list: record_id exists only
-// under action=get and vendor_id only under action=search, and they can never
+// under action=get and supplier_id only under action=search, and they can never
 // appear in the same call. This is the shape a top-level reader collapses into
 // three parameters and an opaque empty object.
 func TestConditionalBranchesBecomeSeparateSignatures(t *testing.T) {
@@ -126,7 +126,7 @@ func TestConditionalBranchesBecomeSeparateSignatures(t *testing.T) {
 	       "required":["record_id"]}}}},
 	    {"if":{"properties":{"action":{"const":"search"}},"required":["action"]},
 	     "then":{"properties":{"params":{"type":"object",
-	       "properties":{"vendor_id":{"type":"string"},
+	       "properties":{"supplier_id":{"type":"string"},
 	                     "limit":{"type":"integer","default":10}}}}}},
 	    {"if":{"properties":{"action":{"const":"list"}},"required":["action"]},
 	     "then":{"properties":{"params":{"type":"object",
@@ -142,12 +142,12 @@ func TestConditionalBranchesBecomeSeparateSignatures(t *testing.T) {
 	}
 
 	get := findSig(t, sigs, "action", "get")
-	if want := []string{"action", "tenant_uid", "params.record_id"}; !reflect.DeepEqual(paths(get), want) {
+	if want := []string{"action", "params.record_id", "tenant_uid"}; !reflect.DeepEqual(paths(get), want) {
 		t.Errorf("action=get params = %v, want %v", paths(get), want)
 	}
 
 	search := findSig(t, sigs, "action", "search")
-	if want := []string{"action", "tenant_uid", "params.limit", "params.vendor_id"}; !reflect.DeepEqual(paths(search), want) {
+	if want := []string{"action", "params.limit", "params.supplier_id", "tenant_uid"}; !reflect.DeepEqual(paths(search), want) {
 		t.Errorf("action=search params = %v, want %v", paths(search), want)
 	}
 

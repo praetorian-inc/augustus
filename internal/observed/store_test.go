@@ -19,7 +19,7 @@ func param(path, typ string) toolsig.Param {
 // another tool that no schema could have supplied.
 func TestObservedValueFillsAParameter(t *testing.T) {
 	s := New()
-	s.Record("identity-a", "list_records", res(`{"contracts":[{"record_id":"C-42","title":"x"}]}`))
+	s.Record("identity-a", "list_records", res(`{"records":[{"record_id":"C-42","title":"x"}]}`))
 
 	v, ok := s.Source("identity-a").Value(param("params.record_id", "string"))
 	if !ok || v != "C-42" {
@@ -44,7 +44,7 @@ func TestIdentityIsolation(t *testing.T) {
 	if v, _ := s.Source("identity-b").Value(p); v != "B-1" {
 		t.Errorf("identity-b saw %v, want its own B-1", v)
 	}
-	if v, ok := s.Source("client-c").Value(p); ok {
+	if v, ok := s.Source("identity-c").Value(p); ok {
 		t.Errorf("an identity that observed nothing got %v; it must get nothing", v)
 	}
 }
@@ -72,7 +72,7 @@ func TestCrossIdentityIsExplicit(t *testing.T) {
 func TestMatchingPrecedence(t *testing.T) {
 	t.Run("normalised key", func(t *testing.T) {
 		s := New()
-		s.Record("a", "t", res(`{"contractId":"C-1"}`))
+		s.Record("a", "t", res(`{"recordId":"C-1"}`))
 		if v, ok := s.Source("a").Value(param("record_id", "string")); !ok || v != "C-1" {
 			t.Errorf("value = %v (ok=%v), want C-1 via case/separator-insensitive match", v, ok)
 		}
@@ -80,9 +80,9 @@ func TestMatchingPrecedence(t *testing.T) {
 
 	t.Run("entity match on a bare id", func(t *testing.T) {
 		s := New()
-		s.Record("a", "t", res(`{"contracts":[{"id":"C-9"}]}`))
+		s.Record("a", "t", res(`{"records":[{"id":"C-9"}]}`))
 		if v, ok := s.Source("a").Value(param("record_id", "string")); !ok || v != "C-9" {
-			t.Errorf("value = %v (ok=%v), want C-9 from contracts[].id", v, ok)
+			t.Errorf("value = %v (ok=%v), want C-9 from records[].id", v, ok)
 		}
 	})
 

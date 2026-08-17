@@ -235,7 +235,7 @@ func (s observedSource) Value(p Param) (any, bool) {
 //	values:
 //	  - match: {name: "tenant_uid"}          # every tool, any depth
 //	    value: "1234567890123456789"
-//	  - match: {tool: "get_account", path: "params.id"}
+//	  - match: {tool: "get_profile", path: "params.id"}
 //	    value: "..."                      # a per-tool override beats the above
 //
 // Binding by SELECTOR rather than by tool name is what keeps the configuration

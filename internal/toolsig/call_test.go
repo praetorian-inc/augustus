@@ -49,9 +49,9 @@ func TestBuildRendersNestedArguments(t *testing.T) {
 	}
 
 	want := map[string]any{
-		"action":  "get",
+		"action":     "get",
 		"tenant_uid": "1234567890123456789",
-		"params":  map[string]any{"record_id": "829471*513"},
+		"params":     map[string]any{"record_id": "829471*513"},
 	}
 	if got := call.Args(); !reflect.DeepEqual(got, want) {
 		t.Errorf("Args() = %#v\nwant %#v", got, want)
@@ -215,7 +215,7 @@ func TestSchemaSourceEnumIsDeterministic(t *testing.T) {
 // Hook variables are matched by upper-cased name, so an opaque value can be
 // fetched at scan time instead of written into a config file.
 func TestHookVarsSource(t *testing.T) {
-	src := FromHookVars(map[string]string{"ORG_UID": "FROM_HOOK"})
+	src := FromHookVars(map[string]string{"TENANT_UID": "FROM_HOOK"})
 	if v, ok := src.Value(Param{Path: "tenant_uid"}); !ok || v != "FROM_HOOK" {
 		t.Errorf("value = %v (ok=%v), want FROM_HOOK", v, ok)
 	}
@@ -288,7 +288,7 @@ func TestRulesFromConfig(t *testing.T) {
 			"value": "1234567890123456789",
 		},
 		map[string]any{
-			"match": map[string]any{"tool": "get_account", "path": "params.id"},
+			"match": map[string]any{"tool": "get_profile", "path": "params.id"},
 			"value": "ACC-1",
 		},
 		map[string]any{"match": map[string]any{}, "value": "unconstrained"}, // dropped
@@ -300,7 +300,7 @@ func TestRulesFromConfig(t *testing.T) {
 		t.Fatalf("got %d rules, want 2 (a rule constraining nothing and a rule with no value are both dropped)", len(rules))
 	}
 
-	src := FromRules("get_account", rules)
+	src := FromRules("get_profile", rules)
 	if v, ok := src.Value(Param{Path: "tenant_uid"}); !ok || v != "1234567890123456789" {
 		t.Errorf("tenant_uid = %v (ok=%v)", v, ok)
 	}
