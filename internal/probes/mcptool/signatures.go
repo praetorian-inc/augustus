@@ -1,8 +1,7 @@
 package mcptool
 
 import (
-	"encoding/json"
-
+	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/internal/toolsig"
 )
 
@@ -41,16 +40,15 @@ type toolSig struct {
 // honestly test.
 func toolSignatures(tool map[string]any, pre toolsig.Chain) []toolSig {
 	name, _ := tool["name"].(string)
-	schema, ok := tool["parameters"].(map[string]any)
-	if !ok {
+	if _, ok := tool["parameters"].(map[string]any); !ok {
+		// A tool declaring no schema at all has no parameter to place a payload
+		// in, and the payload probes have always skipped it. mcpprobe.ToolSignatures
+		// describes it as a no-argument tool instead, which is right for the probes
+		// that make a plain call; it is not what these probes want.
 		return nil
 	}
-	raw, err := json.Marshal(schema)
-	if err != nil {
-		return nil
-	}
-	sigs, err := toolsig.Signatures(name, raw)
-	if err != nil {
+	sigs := mcpprobe.ToolSignatures(tool)
+	if len(sigs) == 0 {
 		return nil
 	}
 

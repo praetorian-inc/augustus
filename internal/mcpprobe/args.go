@@ -2,121 +2,114 @@ package mcpprobe
 
 import (
 	"encoding/json"
-	"fmt"
 	"strconv"
+
+	"github.com/praetorian-inc/augustus/internal/toolsig"
 )
 
-// ToolParam describes one tool parameter parsed from its JSON schema.
-type ToolParam struct {
-	Name     string
-	Type     string
-	Required bool
-	// Enum holds the values the schema declares for this parameter, when it
-	// declares any. These are values the TARGET ITSELF advertises, which is why a
-	// probe may try them freely: it is exercising the documented interface rather
-	// than guessing at hidden behaviour.
-	Enum []string
-	// Description is the parameter's own schema description, when present.
-	Description string
-}
-
-// ToolParams parses a tool's parameters from the canonical Conversation.Tools
-// wire shape (a map with a "parameters" JSON-schema object).
+// ToolSignatures parses a tool in the canonical Conversation.Tools wire shape (a
+// map with a "parameters" JSON-schema object) into the concrete calls the tool
+// accepts.
 //
-// internal/probes/mcptool has its own injection-oriented variant of this parse.
-// This one is kept separate because it additionally extracts declared enum values
-// and descriptions, which the authorization probes need and the injection probes
-// do not; merging them would widen the injection probes' surface for no benefit.
-func ToolParams(tool map[string]any) []ToolParam {
+// This replaced a flat reader that looked at top-level "properties" and nothing
+// else. That reader was wrong twice over on any schema the MCP specification
+// permits but a hand-written parser does not: a parameter nested inside an
+// object was invisible, and a parameter declared only under a conditional branch
+// did not exist at all. The calls it built were rejected by the server during
+// argument validation, and the probes recorded the tool as having been tested.
+// See internal/toolsig.
+//
+// A tool with no "parameters" key takes no arguments, and yields one signature
+// with no parameters — a description of the tool, not a failure. A schema that is
+// present but unreadable yields nothing, because a surface we could not parse is
+// one we cannot honestly claim to have tested.
+func ToolSignatures(tool map[string]any) []toolsig.Signature {
+	name, _ := tool["name"].(string)
 	schema, ok := tool["parameters"].(map[string]any)
 	if !ok {
+		sigs, _ := toolsig.Signatures(name, nil)
+		return sigs
+	}
+	raw, err := json.Marshal(schema)
+	if err != nil {
 		return nil
 	}
-	props, _ := schema["properties"].(map[string]any)
-
-	required := map[string]bool{}
-	switch req := schema["required"].(type) {
-	case []any:
-		for _, r := range req {
-			if s, ok := r.(string); ok {
-				required[s] = true
-			}
-		}
-	case []string:
-		for _, s := range req {
-			required[s] = true
-		}
-	}
-
-	out := make([]ToolParam, 0, len(props))
-	for name, raw := range props {
-		p := ToolParam{Name: name, Required: required[name]}
-		if m, ok := raw.(map[string]any); ok {
-			p.Type, _ = m["type"].(string)
-			p.Description, _ = m["description"].(string)
-			p.Enum = stringsFrom(m["enum"])
-		}
-		out = append(out, p)
-	}
-	return out
-}
-
-// stringsFrom coerces a JSON-decoded list into []string, tolerating the []any
-// that survives a JSON round trip and rendering non-string scalars.
-func stringsFrom(raw any) []string {
-	switch v := raw.(type) {
-	case []string:
-		return v
-	case []any:
-		out := make([]string, 0, len(v))
-		for _, e := range v {
-			switch m := e.(type) {
-			case string:
-				if m != "" {
-					out = append(out, m)
-				}
-			case bool, float64, int, int64, json.Number:
-				// Rendered, not dropped. The authorization probes REQUIRE declared
-				// values to run their authority sweep at all, so silently discarding a
-				// numeric or boolean enum removed that coverage rather than merely
-				// losing a value.
-				out = append(out, fmt.Sprint(m))
-			}
-		}
-		return out
-	default:
+	sigs, err := toolsig.Signatures(name, raw)
+	if err != nil {
 		return nil
 	}
+	return sigs
 }
 
-// BenignArgs builds an argument map for a tool call: overrides carries the values
-// the probe cares about, and every other REQUIRED parameter gets a harmless
-// placeholder so the call reaches the target's logic instead of failing argument
-// validation first.
+// BenignCall builds a call for one signature with a harmless placeholder in
+// every REQUIRED parameter, so the call reaches the target's logic instead of
+// failing argument validation first.
 //
 // A call rejected for a missing required argument tells us nothing about
 // authorization, which is why the placeholders matter: without them a probe would
 // mistake schema validation for an access denial.
-func BenignArgs(params []ToolParam, overrides map[string]any) map[string]any {
-	args := make(map[string]any, len(params)+len(overrides))
-	for _, p := range params {
-		if !p.Required {
-			continue
-		}
-		args[p.Name] = benignValue(p)
+//
+// The caller gets the Call rather than the arguments so it can Set the value it
+// is testing and Unset the one it needs ABSENT — the omitted-versus-forged
+// comparison at the heart of the credential-presence check needs both.
+func BenignCall(sig toolsig.Signature) *toolsig.Call {
+	// The error is deliberately dropped: it reports required parameters no source
+	// could fill, and the caller is about to supply the one it cares about. What
+	// remains unfilled after that is Call.Unresolved, which reflects the call's
+	// actual state rather than a verdict frozen at build time.
+	call, _ := sig.Build(toolsig.Chain{benignFiller{}})
+	return call
+}
+
+// BenignArgs is BenignCall plus overrides, rendered as the argument object to
+// send. Overrides are addressed by PATH, so a value destined for a parameter
+// nested inside an object lands where the server reads it rather than beside the
+// object it belongs in.
+func BenignArgs(sig toolsig.Signature, overrides map[toolsig.Path]any) map[string]any {
+	call := BenignCall(sig)
+	for path, v := range overrides {
+		call.Set(path, v)
 	}
-	for k, v := range overrides {
-		args[k] = v
+	return call.Args()
+}
+
+// benignFiller supplies a harmless placeholder for every REQUIRED parameter of a
+// signature.
+//
+// It answers for required parameters only. An optional parameter left unset lets
+// the tool apply its own default, which is both the long-standing behaviour and
+// the smaller intervention: sending a value for something the caller need not
+// send changes what the tool does, for no gain to the test.
+//
+// A value the TARGET declares is preferred over a generic placeholder: it is a
+// value the target itself advertises as acceptable, so it is the least likely to
+// be rejected out of hand.
+//
+// That preference is deliberate here and deliberately ABSENT from
+// internal/probes/mcptool's own filler, which will only send a declared value it
+// recognises as read-only. The two probe families want different things from a
+// filler and the difference is not an oversight. Every verdict the authorization
+// and credential probes reach is a COMPARISON between two calls, so a filler the
+// server rejects destroys the comparison and the finding with it. A
+// payload-bearing probe has no such dependency and would rather lose one call
+// than have "delete" chosen for it as a benign value.
+type benignFiller struct{}
+
+func (benignFiller) Name() string { return "benign" }
+
+func (benignFiller) Value(p toolsig.Param) (any, bool) {
+	if !p.Required {
+		return nil, false
 	}
-	return args
+	return benignValue(p), true
 }
 
 // benignValue returns a harmless placeholder for a parameter. A declared enum
 // value is preferred: it is a value the target itself advertises as acceptable,
 // so it is the least likely to be rejected out of hand.
-func benignValue(p ToolParam) any {
+func benignValue(p toolsig.Param) any {
 	if len(p.Enum) > 0 {
-		// Enum values are stored as strings, so a non-string enum
+		// Enum values are rendered as strings, so a non-string enum
 		// ({"type":"integer","enum":[1,2]}) would otherwise be submitted as "1" and
 		// rejected by schema validation before the call reaches the parameter under
 		// test. Coerce the placeholder back to the declared scalar type.

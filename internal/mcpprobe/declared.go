@@ -3,6 +3,8 @@ package mcpprobe
 import (
 	"regexp"
 	"strings"
+
+	"github.com/praetorian-inc/augustus/internal/toolsig"
 )
 
 // quotedValueRE matches a single-token value inside double quotes, single quotes,
@@ -33,21 +35,40 @@ var slashAlternativesRE = regexp.MustCompile(`\(([A-Za-z0-9._-]+(?:/[A-Za-z0-9._
 // It returns only what the target advertises. It never invents a value, so an
 // empty result honestly means "this target declares nothing here", and the caller
 // decides what to do about that.
+// Parameters are matched by LEAF name across every call signature, first match
+// winning, so a parameter nested inside an object is found by the same name a
+// probe and a docstring both refer to it by. Where two signatures declare the
+// same leaf name with different values, this returns the first — a lower bound,
+// which is why the per-parameter form below exists for callers that already hold
+// the parsed parameter and need no name matching at all.
 func DeclaredValues(tool map[string]any, param string) []string {
-	for _, p := range ToolParams(tool) {
-		if p.Name != param {
-			continue
-		}
-		if len(p.Enum) > 0 {
-			return p.Enum
-		}
-		if vals := valuesFromText(p.Description); len(vals) > 0 {
-			return vals
-		}
-		break
-	}
 	desc, _ := tool["description"].(string)
+	for _, sig := range ToolSignatures(tool) {
+		for _, p := range sig.Params {
+			if p.Path.Leaf() != param {
+				continue
+			}
+			return DeclaredValuesFor(p, desc)
+		}
+	}
 	return valuesFromText(paramDocLine(desc, param))
+}
+
+// DeclaredValuesFor is DeclaredValues for a parameter that has already been
+// parsed out of the schema, applying the same three sources in the same order.
+//
+// A caller iterating a signature's parameters holds the exact parameter, so it
+// should use this rather than search by name: a name is ambiguous across
+// conditional branches and across nested objects, and the parameter is not.
+func DeclaredValuesFor(p toolsig.Param, toolDesc string) []string {
+	if len(p.Enum) > 0 {
+		return p.Enum
+	}
+	if vals := valuesFromText(p.Doc); len(vals) > 0 {
+		return vals
+	}
+	// Prose refers to a parameter by its own name, never by its path.
+	return valuesFromText(paramDocLine(toolDesc, p.Path.Leaf()))
 }
 
 // paramDocLine returns the line of a docstring-style description that documents

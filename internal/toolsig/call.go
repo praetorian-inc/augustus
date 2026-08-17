@@ -110,6 +110,19 @@ func (c *Call) Set(p Path, v any) {
 	c.from[p] = "caller"
 }
 
+// Unset removes the value at path, so the argument is ABSENT from the rendered
+// call rather than present with some placeholder.
+//
+// The distinction is the whole content of a credential-presence test: "the
+// caller sent no token" and "the caller sent a token that was never issued" are
+// different requests, and a server that answers them differently is reacting to
+// the argument being there rather than to what it contains. Without Unset the
+// control leg cannot be expressed at all.
+func (c *Call) Unset(p Path) {
+	delete(c.kv, p)
+	delete(c.from, p)
+}
+
 // Get returns the value currently held at path.
 func (c *Call) Get(p Path) (any, bool) {
 	v, ok := c.kv[p]

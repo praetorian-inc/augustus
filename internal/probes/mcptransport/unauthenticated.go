@@ -283,7 +283,23 @@ func (p *UnauthenticatedAccess) Probe(ctx context.Context, gen types.Generator) 
 	}
 
 	name, _ := tool["name"].(string)
-	args := mcpprobe.BenignArgs(mcpprobe.ToolParams(tool), nil)
+	// One signature is enough for this proof. The question is whether the server
+	// ACTS for an unauthenticated caller at all, and a single accepted call
+	// answers it; enumeration above already carries the headline finding, so
+	// there is nothing to gain from invoking every branch of a conditional tool
+	// against a target we have just shown to be open.
+	sigs := mcpprobe.ToolSignatures(tool)
+	if len(sigs) == 0 {
+		// The tool declares a schema we could not read, so we cannot build a call
+		// the server would accept. Previously this sent an empty argument object
+		// and recorded whatever came back — a schema-validation rejection read as
+		// the server refusing an anonymous caller, which is a false clean on the
+		// exact class this probe exists to catch.
+		slog.Warn("mcptransport.UnauthenticatedAccess: could not read the chosen tool's parameter schema, so the anonymous invocation proof was NOT attempted; reporting the enumeration finding only. This is NOT a clean result for invocation.",
+			"endpoint", endpoint, "tool", name)
+		return attempts, nil
+	}
+	args := mcpprobe.BenignArgs(sigs[0], nil)
 	call := attempt.New(fmt.Sprintf("anonymous session: tools/call %q carrying no credentials", name))
 	call.Metadata[mcpprobe.MetaAuthTool] = name
 

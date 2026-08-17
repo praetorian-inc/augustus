@@ -3,6 +3,7 @@ package mcptool
 import (
 	"context"
 	"crypto/rand"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
+	"github.com/praetorian-inc/augustus/internal/toolsig"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/recon"
@@ -264,27 +266,31 @@ func (p *TokenValidation) probeVerificationSurfaces(ctx context.Context, inv typ
 				"tool", name)
 			continue
 		}
-		params := mcpprobe.ToolParams(tool)
-		for _, param := range params {
-			if !isStringParam(param.Type) {
-				continue
-			}
-			if !p.allParams && !credentialParamRE.MatchString(mcpprobe.SplitCamelCase(param.Name)) {
-				continue
-			}
+		// One sweep per CALL SIGNATURE. A credential argument that exists only
+		// under one branch of a conditional schema was invisible to the flat
+		// reader, so the verification surface it guards was never submitted to.
+		for _, sig := range mcpprobe.ToolSignatures(tool) {
+			for _, param := range sig.Params {
+				if !isStringParam(param.Type) {
+					continue
+				}
+				if !p.allParams && !credentialParamRE.MatchString(mcpprobe.SplitCamelCase(param.Path.Leaf())) {
+					continue
+				}
 
-			// NEGATIVE CONTROL: a value no validator should accept. It is the
-			// baseline every candidate response is compared against, so without it
-			// the detector reports inconclusive rather than guessing.
-			controlText, controlErr := p.call(ctx, inv, name, params, param.Name, malformedControlValue)
-			if controlErr != nil {
-				slog.Warn("mcptool.TokenValidation: malformed-value control call failed; results for this parameter will be inconclusive rather than assumed safe",
-					"tool", name, "param", param.Name, "error", controlErr)
-			}
+				// NEGATIVE CONTROL: a value no validator should accept. It is the
+				// baseline every candidate response is compared against, so without it
+				// the detector reports inconclusive rather than guessing.
+				controlText, controlErr := p.call(ctx, inv, name, sig, param.Path, malformedControlValue)
+				if controlErr != nil {
+					slog.Warn("mcptool.TokenValidation: malformed-value control call failed; results for this parameter will be inconclusive rather than assumed safe",
+						"tool", name, "param", string(param.Path), "error", controlErr)
+				}
 
-			for _, fam := range p.candidateShapes(param) {
-				a := p.assessShape(ctx, inv, name, params, param, fam, controlText)
-				attempts = append(attempts, a)
+				for _, fam := range p.candidateShapes(param) {
+					a := p.assessShape(ctx, inv, name, sig, param, fam, controlText)
+					attempts = append(attempts, a)
+				}
 			}
 		}
 	}
@@ -348,10 +354,10 @@ func callToolOnce(ctx context.Context, inv types.ToolInvoker, name string, args 
 // not the reuse. (A credential literal sitting in a schema enum is a real finding,
 // but it is credential EXPOSURE — mcpsecrets.Credential's surface — not weak
 // validation.)
-func (p *TokenValidation) candidateShapes(param mcpprobe.ToolParam) []shapeFamily {
+func (p *TokenValidation) candidateShapes(param toolsig.Param) []shapeFamily {
 	if len(param.Enum) > 0 {
 		slog.Info("mcptool.TokenValidation: parameter declares an enum, so every acceptable value is target-declared and none is never-issued; skipping the shape differential for it",
-			"param", param.Name)
+			"param", string(param.Path))
 		return nil
 	}
 	return shapeFamilies()
@@ -361,7 +367,7 @@ func (p *TokenValidation) candidateShapes(param mcpprobe.ToolParam) []shapeFamil
 // alongside the control, for the detector to adjudicate.
 func (p *TokenValidation) assessShape(
 	ctx context.Context, inv types.ToolInvoker, tool string,
-	params []mcpprobe.ToolParam, param mcpprobe.ToolParam,
+	sig toolsig.Signature, param toolsig.Param,
 	fam shapeFamily, controlText string,
 ) *attempt.Attempt {
 	first, err1 := fam.gen()
@@ -372,7 +378,7 @@ func (p *TokenValidation) assessShape(
 	a.Detector = p.GetPrimaryDetector()
 	a.Metadata[mcpprobe.MetaAuthClass] = mcpprobe.AuthClassTokenFormatOnly
 	a.Metadata[mcpprobe.MetaAuthTool] = tool
-	a.Metadata[mcpprobe.MetaAuthParam] = param.Name
+	a.Metadata[mcpprobe.MetaAuthParam] = string(param.Path)
 	a.Metadata[mcpprobe.MetaAuthShapeFamily] = fam.name
 	a.Metadata[mcpprobe.MetaAuthProbeValue] = first
 	a.Metadata[mcpprobe.MetaAuthReplicaValue] = second
@@ -388,7 +394,7 @@ func (p *TokenValidation) assessShape(
 		a.Metadata[attempt.MetadataKeyInconclusive] = true
 		a.Metadata[attempt.MetadataKeyInconclusiveReason] = "could not generate independent never-issued values: " + err.Error()
 		slog.Warn("mcptool.TokenValidation: could not generate the probe values, so this parameter was NOT assessed; this is not a clean result",
-			"tool", tool, "param", param.Name, "shape", fam.name, "error", err)
+			"tool", tool, "param", string(param.Path), "shape", fam.name, "error", err)
 		a.SetError(err)
 		return a
 	}
@@ -397,7 +403,7 @@ func (p *TokenValidation) assessShape(
 		a.Metadata[mcpprobe.MetaAuthDeclaredValues] = strings.Join(param.Enum, ",")
 	}
 
-	firstText, err := p.call(ctx, inv, tool, params, param.Name, first)
+	firstText, err := p.call(ctx, inv, tool, sig, param.Path, first)
 	if err != nil {
 		// A failed leg is not a clean parameter: without the first response there is
 		// no differential to draw. Marked inconclusive and loud, exactly as the
@@ -406,13 +412,13 @@ func (p *TokenValidation) assessShape(
 		a.Metadata[attempt.MetadataKeyInconclusive] = true
 		a.Metadata[attempt.MetadataKeyInconclusiveReason] = "probe verification call failed: " + err.Error()
 		slog.Warn("mcptool.TokenValidation: the probe verification call failed, so this parameter was NOT assessed; this is not a clean result",
-			"tool", tool, "param", param.Name, "shape", fam.name, "error", err)
+			"tool", tool, "param", string(param.Path), "shape", fam.name, "error", err)
 		a.SetError(err)
 		return a
 	}
 	a.AddOutput(firstText)
 
-	secondText, err := p.call(ctx, inv, tool, params, param.Name, second)
+	secondText, err := p.call(ctx, inv, tool, sig, param.Path, second)
 	if err != nil {
 		// Without the replica the differential cannot be corroborated. Record the
 		// reason so the detector reports uncertainty instead of a verdict.
@@ -475,61 +481,113 @@ func (p *TokenValidation) probeIssuanceSurfaces(ctx context.Context, inv types.T
 				"tool", name)
 			continue
 		}
-		params := mcpprobe.ToolParams(tool)
-		args := mcpprobe.BenignArgs(params, nil)
-
-		// Each leg is retried once, for the same reason callLeg is: a transient
-		// failure under load destroys the comparison rather than producing a wrong
-		// answer, so a dropped request silently costs a finding. Measured on the
-		// benchmark corpus, contention alone accounted for lost findings.
-		firstRes, err1 := callToolOnce(ctx, inv, name, args)
-		if err1 != nil {
-			attempts = append(attempts, p.unsampledAttempt(name, "first", err1))
-			continue
-		}
-		firstTok := extractCredentialLike(firstRes.Text)
-		if firstTok == "" {
-			continue // this tool issues nothing credential-shaped
-		}
-		secondRes, err2 := callToolOnce(ctx, inv, name, args)
-		if err2 != nil {
-			attempts = append(attempts, p.unsampledAttempt(name, "second", err2))
-			continue
-		}
-		secondTok := extractCredentialLike(secondRes.Text)
-		if secondTok == "" {
-			continue
-		}
-
-		// Compared HERE, in memory, and only the verdict is recorded. Both values
-		// are live credentials the target just issued; storing them so the detector
-		// could compare them later would put working credentials in the attempt
-		// metadata, the JSONL report and every downstream consumer.
-		relation := mcpprobe.IssuedRelation(firstTok, secondTok)
-		evidence := fmt.Sprintf("first %s; second %s",
-			mcpprobe.RedactCredential(firstTok), mcpprobe.RedactCredential(secondTok))
-
-		a := attempt.New(fmt.Sprintf("two credentials issued in close succession by %q", name))
-		a.Probe = p.Name()
-		a.Detector = p.GetPrimaryDetector()
-		a.Metadata[mcpprobe.MetaAuthClass] = mcpprobe.AuthClassTokenPredictable
-		a.Metadata[mcpprobe.MetaAuthTool] = name
-		a.Metadata[mcpprobe.MetaAuthIssuedRelation] = relation
-		a.Metadata[mcpprobe.MetaAuthIssuedEvidence] = evidence
-		a.AddOutput(fmt.Sprintf("two credentials issued in close succession relate as %q (%s)", relation, evidence))
-		a.Complete()
-		attempts = append(attempts, a)
+		attempts = append(attempts, p.sampleIssuer(ctx, inv, name, tool)...)
 	}
 	return attempts
+}
+
+// maxIssuerSignatures bounds how many distinct call signatures of one issuing
+// tool are sampled. Sampling means invoking the tool TWICE, so a tool with many
+// conditional branches would otherwise turn one check into a burst of live
+// credential issuances against a customer's server.
+const maxIssuerSignatures = 4
+
+// sampleIssuer draws two credentials from each distinct call signature of an
+// issuing tool and records the pair for structural comparison.
+//
+// Sampling per SIGNATURE rather than once per tool is the point of the
+// migration: a discriminated tool is several operations behind one name, and
+// only one branch may mint anything. Argument objects are deduplicated first, so
+// branches that differ only in optional parameters collapse to a single sample
+// instead of issuing the same credential repeatedly.
+func (p *TokenValidation) sampleIssuer(ctx context.Context, inv types.ToolInvoker, name string, tool map[string]any) []*attempt.Attempt {
+	sigs := mcpprobe.ToolSignatures(tool)
+	if len(sigs) == 0 {
+		slog.Warn("mcptool.TokenValidation: could not read this tool's parameter schema, so its issuance surface was NOT sampled; this is not a clean result for that tool",
+			"tool", name)
+		return nil
+	}
+
+	var (
+		attempts []*attempt.Attempt
+		seen     = map[string]bool{}
+		sampled  int
+	)
+	for _, sig := range sigs {
+		args := mcpprobe.BenignArgs(sig, nil)
+		key, err := json.Marshal(args)
+		if err == nil {
+			if seen[string(key)] {
+				continue
+			}
+			seen[string(key)] = true
+		}
+		if sampled >= maxIssuerSignatures {
+			slog.Warn("mcptool.TokenValidation: more distinct call signatures than the sampling cap; the remaining branches of this issuing tool were NOT sampled. This is NOT a clean result for those branches.",
+				"tool", name, "signatures", len(sigs), "cap", maxIssuerSignatures)
+			break
+		}
+		sampled++
+
+		if a := p.samplePair(ctx, inv, name, args); a != nil {
+			attempts = append(attempts, a)
+		}
+	}
+	return attempts
+}
+
+// samplePair invokes one concrete call twice and records how the two issued
+// credentials relate. It returns nil when the tool issues nothing
+// credential-shaped, which is not a finding and not a failure.
+func (p *TokenValidation) samplePair(ctx context.Context, inv types.ToolInvoker, name string, args map[string]any) *attempt.Attempt {
+	// Each leg is retried once, for the same reason callLeg is: a transient
+	// failure under load destroys the comparison rather than producing a wrong
+	// answer, so a dropped request silently costs a finding. Measured on the
+	// benchmark corpus, contention alone accounted for lost findings.
+	firstRes, err1 := callToolOnce(ctx, inv, name, args)
+	if err1 != nil {
+		return p.unsampledAttempt(name, "first", err1)
+	}
+	firstTok := extractCredentialLike(firstRes.Text)
+	if firstTok == "" {
+		return nil // this call issues nothing credential-shaped
+	}
+	secondRes, err2 := callToolOnce(ctx, inv, name, args)
+	if err2 != nil {
+		return p.unsampledAttempt(name, "second", err2)
+	}
+	secondTok := extractCredentialLike(secondRes.Text)
+	if secondTok == "" {
+		return nil
+	}
+
+	// Compared HERE, in memory, and only the verdict is recorded. Both values
+	// are live credentials the target just issued; storing them so the detector
+	// could compare them later would put working credentials in the attempt
+	// metadata, the JSONL report and every downstream consumer.
+	relation := mcpprobe.IssuedRelation(firstTok, secondTok)
+	evidence := fmt.Sprintf("first %s; second %s",
+		mcpprobe.RedactCredential(firstTok), mcpprobe.RedactCredential(secondTok))
+
+	a := attempt.New(fmt.Sprintf("two credentials issued in close succession by %q", name))
+	a.Probe = p.Name()
+	a.Detector = p.GetPrimaryDetector()
+	a.Metadata[mcpprobe.MetaAuthClass] = mcpprobe.AuthClassTokenPredictable
+	a.Metadata[mcpprobe.MetaAuthTool] = name
+	a.Metadata[mcpprobe.MetaAuthIssuedRelation] = relation
+	a.Metadata[mcpprobe.MetaAuthIssuedEvidence] = evidence
+	a.AddOutput(fmt.Sprintf("two credentials issued in close succession relate as %q (%s)", relation, evidence))
+	a.Complete()
+	return a
 }
 
 // call invokes a tool with value in one parameter and benign placeholders
 // elsewhere, returning the response text.
 func (p *TokenValidation) call(
 	ctx context.Context, inv types.ToolInvoker, tool string,
-	params []mcpprobe.ToolParam, param, value string,
+	sig toolsig.Signature, param toolsig.Path, value string,
 ) (string, error) {
-	args := mcpprobe.BenignArgs(params, map[string]any{param: value})
+	args := mcpprobe.BenignArgs(sig, map[toolsig.Path]any{param: value})
 	// Retried once (via callToolOnce), like FunctionAuthorization's callLeg: a
 	// single transient failure of a leg destroys the differential, so without the
 	// retry it would cost a finding rather than produce a wrong verdict.
