@@ -124,8 +124,9 @@ type Summary struct {
 	// indistinguishable from a bad result.
 	NotTested int `json:"not_tested"`
 
-	// Refused counts attempts the target REACHED and rejected — a completed test
-	// with a negative result. Reported separately because it is the number that
+	// Refused counts attempts the target REACHED and rejected, AND whose refusal
+	// is attributable to what the attempt varied — a completed test with a
+	// negative result. Reported separately because it is the number that
 	// used to be mistaken for a broken scan: on a server that validates its
 	// arguments strictly, most attempts land here, and counting them as errors
 	// made the whole run read as untrustworthy.
@@ -145,7 +146,18 @@ func NotTested(a *attempt.Attempt) bool {
 
 // RefusedByTarget reports whether the target reached by an attempt rejected the
 // call. The attempt IS a test; its result is negative.
+// RefusedByTarget reports whether the target reached by an attempt rejected the
+// call AND the refusal can be attributed to what the attempt varied.
+//
+// A refusal that also carries NotTested cannot: some OTHER required argument
+// held an invented placeholder, so the target may have been objecting to that
+// instead. Counting it here would report "tested, and the target held" about an
+// attempt the very next line reports as not tested — telling the operator both
+// things about one attempt, and the reassuring one first.
 func RefusedByTarget(a *attempt.Attempt) bool {
+	if NotTested(a) {
+		return false
+	}
 	v, _ := a.Metadata[attempt.MetadataKeyTargetRefused].(bool)
 	return v
 }

@@ -739,3 +739,26 @@ func TestDiscover_DestructiveVerbVetoesAReadOnlyName(t *testing.T) {
 		t.Error("read_record should still be invoked")
 	}
 }
+
+// No list of destructive verbs is ever complete, so a compound name is not
+// established read-only by the retrieval verb in it. "get_and_mark_read" matches
+// both "get" and "read" while the operation that matters is "mark".
+func TestDiscover_CompoundNameIsNotEstablishedReadOnly(t *testing.T) {
+	m := newIdentifiersModule(t, registry.Config{"use_navigator": false})
+	rec := &recordingInvoker{body: `{"records":[{"record_id":"r1"}]}`}
+
+	m.discover(context.Background(), identitySession{label: "a", inv: rec}, []toolSpec{
+		spec("get_and_mark_read", nil, "record_id"),
+		spec("fetch_or_create", nil, "record_id"),
+		spec("list_records", nil),
+	})
+
+	for _, compound := range []string{"get_and_mark_read", "fetch_or_create"} {
+		if rec.called(compound) {
+			t.Errorf("%s must NOT be invoked: a conjunction means it does more than retrieve", compound)
+		}
+	}
+	if !rec.called("list_records") {
+		t.Error("a plain retrieval name must still be invoked")
+	}
+}

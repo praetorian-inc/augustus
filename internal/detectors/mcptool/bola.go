@@ -89,6 +89,21 @@ func (d *BOLADetector) Detect(ctx context.Context, a *attempt.Attempt) ([]float6
 	if refused, _ := a.Metadata[attempt.MetadataKeyTargetRefused].(bool); refused {
 		return []float64{0.0}, nil
 	}
+	// The probe established that this replay is not purely the attacker's — it
+	// inherited an argument from the victim's own call, and if that argument
+	// carries identity then the server serving the object is correct behaviour,
+	// not a break.
+	//
+	// This must be honoured BEFORE the judge. The judge is shown responses and
+	// asked whether the target object came back; it cannot see that the request
+	// spoke with the victim's tenant, so on an argument-scoped server it would
+	// answer "leak" about a server that behaved properly. Scoring inconclusive
+	// keeps the evidence in the report without asserting a finding.
+	if inconclusive, _ := a.Metadata[attempt.MetadataKeyInconclusive].(bool); inconclusive {
+		slog.Warn("mcptool.BOLA: attempt marked inconclusive by the probe; not escalating to the judge",
+			"probe", a.Probe, "reason", metaString(a, attempt.MetadataKeyInconclusiveReason))
+		return []float64{0.5}, nil
+	}
 	if len(a.Outputs) == 0 {
 		return []float64{0.0}, nil
 	}

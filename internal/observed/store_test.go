@@ -270,3 +270,19 @@ func TestPerKeyCapIsPerIdentity(t *testing.T) {
 		t.Errorf("victim kept %d values, cap is %d", victim, maxPerKey)
 	}
 }
+
+// The distinct-key budget is per identity. A global one lets the first identity
+// fill it and then silently starve every later one, so a victim's identifiers
+// never reach Source(victim) and the authorization probe emits no tests.
+func TestKeyBudgetIsPerIdentity(t *testing.T) {
+	s := New()
+	for i := 0; i < maxKeys+50; i++ {
+		s.Record("primary", "t", res(`{"k`+itoa(i)+`":"v"}`))
+	}
+	s.Record("victim", "t", res(`{"record_id":"VICTIM-1"}`))
+
+	v, ok := s.Source("victim").Value(param("record_id", "string"))
+	if !ok || v != "VICTIM-1" {
+		t.Errorf("victim value = %v (ok=%v); one identity filling the budget must not starve another", v, ok)
+	}
+}

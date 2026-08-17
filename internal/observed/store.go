@@ -172,7 +172,13 @@ func (s *Store) record(key, parent string, v any, identity, tool string) {
 		return
 	}
 	norm := normalize(key)
-	if _, exists := s.byKey[norm]; !exists && len(s.byKey) >= maxKeys {
+	// The key budget is charged PER IDENTITY. A global one lets the first
+	// identity's responses fill it — a listing tool returning thousands of
+	// distinct fields is enough — after which no later identity can record a key
+	// it has not already seen. The victim's identifiers would never reach
+	// Source(victim), and BOLA would emit no tests at all, for a reason nothing
+	// in the output explains.
+	if _, exists := s.byKey[norm]; !exists && s.keysFor(identity) >= maxKeys {
 		return
 	}
 	vals := s.byKey[norm]
@@ -217,6 +223,20 @@ func capPerIdentity(vals []Value, identity string) []Value {
 		out = append(out, v)
 	}
 	return out
+}
+
+// keysFor counts the distinct keys one identity has recorded.
+func (s *Store) keysFor(identity string) int {
+	n := 0
+	for _, vals := range s.byKey {
+		for _, v := range vals {
+			if v.Identity == identity {
+				n++
+				break
+			}
+		}
+	}
+	return n
 }
 
 // usable reports whether a scalar is worth keeping as a candidate argument.

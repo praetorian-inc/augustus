@@ -423,7 +423,14 @@ func branchPoints(s *jsonschema.Schema, prefix Path, r *refs, seen map[*jsonsche
 		// where it does not, the parameters are still discovered and reported
 		// rather than silently absent.
 		if c.Else != nil {
-			byDiscriminator[key].add(map[string]any{}, r.deref(c.Else))
+			// The else branch needs a discriminator value that FALSIFIES the
+			// condition. Leaving the selector empty is not neutral: the value
+			// chain then picks the first declared enum member, which on a schema
+			// like {enum:[fast,thorough]} with if(mode==fast) is the very value
+			// the condition pins — so the call runs the THEN operation while
+			// carrying else-only parameters, and a permissive server can accept
+			// it and have the result scored as a test of a parameter it ignored.
+			byDiscriminator[key].add(negatedSelector(s, r, sel), r.deref(c.Else))
 		}
 	}
 	for _, k := range order {
@@ -472,6 +479,44 @@ func branchPoints(s *jsonschema.Schema, prefix Path, r *refs, seen map[*jsonsche
 		groups = append(groups, branchPoints(sub, path, r, seen, depth+1)...)
 	}
 	return groups
+}
+
+// negatedSelector picks discriminator values that make the if condition FALSE,
+// so a call built from the else branch actually reaches the else operation.
+//
+// It works when the base schema declares an enum for the discriminator and that
+// enum has a member the condition does not pin — the ordinary case. Where it
+// cannot (a free-form discriminator, or an enum of one), it returns no selector
+// rather than a wrong one: the parameters are still discovered and reported, and
+// a caller that cannot reach the branch is better served by an unconstrained
+// call than by one silently aimed at the wrong operation.
+func negatedSelector(base *jsonschema.Schema, r *refs, pinned map[string]any) map[string]any {
+	out := map[string]any{}
+	for path, v := range pinned {
+		prop := propertyAt(base, r, path)
+		if prop == nil {
+			continue
+		}
+		for _, member := range enumStrings(prop) {
+			if member != fmt.Sprint(v) {
+				out[path] = member
+				break
+			}
+		}
+	}
+	return out
+}
+
+// propertyAt resolves a dotted path to the property schema it names.
+func propertyAt(s *jsonschema.Schema, r *refs, path string) *jsonschema.Schema {
+	cur := r.deref(s)
+	for _, seg := range strings.Split(path, ".") {
+		if cur == nil || cur.Properties == nil {
+			return nil
+		}
+		cur = r.deref(cur.Properties[seg])
+	}
+	return cur
 }
 
 // prefixSel rewrites a branch's selector keys as full paths, so a discriminator

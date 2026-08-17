@@ -54,6 +54,14 @@ var (
 	// defaultReadOnlyWords name operations that retrieve rather than change.
 	// Used only to decide whether reconnaissance may CALL a tool, never to
 	// decide what role it plays.
+	// compoundNameRE recognises a name that joins operations: get_and_mark_read,
+	// listThenPurge, fetch_or_create. The conjunction is the signal, not the
+	// verbs around it.
+	// Anchored on the SEPARATOR, not on \b: underscore is a word character in Go
+	// regex, so \b never matches inside get_and_mark_read and the rule would
+	// silently never fire on the snake_case names this is aimed at.
+	compoundNameRE = regexp.MustCompile(`(?i)(^|_)(and|then|or|plus|with|after|before)(_|$)`)
+
 	// defaultDestructiveWords name operations that change state. Used only to
 	// VETO invocation during reconnaissance, never to classify a tool's role.
 	defaultDestructiveWords = []string{
@@ -480,6 +488,16 @@ func (m *MCPIdentifiers) readOnlyGate(spec toolSpec) (bool, string) {
 	// is only as safe as its most dangerous verb.
 	if matchWord(m.destructiveNameRE, spec.name) {
 		return true, "its name contains an operation that changes state"
+	}
+	// A COMPOUND name describes more than one operation, and a read-only verb in
+	// it establishes nothing about the other half. "get_and_mark_read" matches
+	// both "get" and "read" while the operation that matters is "mark" — and no
+	// list of destructive verbs will ever be complete enough to catch every such
+	// second verb. Rather than extend the vocabulary indefinitely, a conjunction
+	// is treated as a statement that the tool does more than retrieve, and the
+	// operator is asked to confirm it.
+	if compoundNameRE.MatchString(humpSplit(spec.name)) {
+		return true, "its name joins more than one operation, so a read-only verb in it establishes nothing about the rest; name it in get_tools or enumeration_tools if it is safe to call"
 	}
 	if matchWord(m.readOnlyNameRE, spec.name) {
 		return false, ""
