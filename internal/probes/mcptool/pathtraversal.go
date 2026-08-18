@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
@@ -35,13 +36,28 @@ var (
 // snake_case first so `filePath`, `outputPath`, `targetFile` etc. also
 // match (fixes CodeRabbit #5). The regex itself only understands
 // underscore/hyphen/space separators.
-var pathParamRE = regexp.MustCompile(`(?i)(^|[_\- ])(file|filename|filepath|path|dir|directory|folder|template|resource|include|require|load|read|open|attachment|input|output|dest|destination|target|log|logfile|save|store|dump|report|uri)($|[_\- ])`)
+var pathParamRE = regexp.MustCompile(`(?i)(^|[_\- ])(file|filename|filepath|path|dir|directory|folder|template|resource|include|require|load|read|open|attachment|input|output|dest|destination|target|log|logfile|save|store|dump|report|uri|config|conf|settings|document|doc|source|src|location)($|[_\- ])`)
 
 // camelCaseBoundaryRE splits transitions from lowercase/digit → uppercase so
 // `outputPath` normalises to `output_Path` (which the case-insensitive
 // pathParamRE then matches as `output` followed by a boundary followed by
 // `path`). Without this the default matcher would skip common schema names.
 var camelCaseBoundaryRE = regexp.MustCompile(`([a-z0-9])([A-Z])`)
+
+// hasProbeableParam reports whether this tool exposes a parameter this probe
+// would actually inject into. Used to decide whether the tool is worth a
+// discovery invocation at all — see the call site.
+func (p *PathTraversal) hasProbeableParam(params []paramInfo) bool {
+	for _, param := range params {
+		if !isStringParam(param.typ) {
+			continue
+		}
+		if p.allParams || matchesPathParam(param.name) {
+			return true
+		}
+	}
+	return false
+}
 
 // matchesPathParam tests a parameter name against pathParamRE after camelCase
 // normalisation. See the regex-level comment above.
@@ -105,7 +121,7 @@ var readPayloads = []pathTraversalPayload{
 // read set. The canary hex is fresh per call so parallel runs don't collide
 // and each attempt's success is self-identifying in the response.
 func buildWritePayloads() []pathTraversalPayload {
-	canary := "augwrite-" + randToken()
+	canary := "augwrite-" + mcpprobe.RandToken()
 	name := "proof-" + canary
 	// Signature: the canary appearing in the tool's response text is the
 	// signal. The path IS the payload, but the canary is a random 16-hex
@@ -144,16 +160,23 @@ func buildWritePayloads() []pathTraversalPayload {
 type PathTraversal struct {
 	reconContext
 	allParams bool
-	policy    toolpolicy.Policy
+	// requireReadOnlyAnnotation restores the pre-LAB-5568 behaviour: read
+	// payloads only ever reach tools the server explicitly annotated ReadOnly,
+	// never tools whose read intent was inferred from name and description.
+	requireReadOnlyAnnotation bool
+	policy                    toolpolicy.Policy
 }
 
 // NewPathTraversal reads pathtraversal_all_string_params + the shared
 // tool-safety config keys (allow_destructive, tool_allowlist, tool_denylist).
 func NewPathTraversal(cfg registry.Config) (probes.Prober, error) {
-	return &PathTraversal{
-		allParams: registry.GetBool(cfg, "pathtraversal_all_string_params", false),
-		policy:    toolpolicy.New(cfg),
-	}, nil
+	probe := &PathTraversal{
+		allParams:                 registry.GetBool(cfg, "pathtraversal_all_string_params", false),
+		requireReadOnlyAnnotation: registry.GetBool(cfg, "pathtraversal_require_readonly_annotation", false),
+		policy:                    toolpolicy.New(cfg),
+	}
+	probe.configure(cfg)
+	return probe, nil
 }
 
 func (p *PathTraversal) Name() string { return "mcptool.PathTraversal" }
@@ -203,7 +226,7 @@ func (p *PathTraversal) GetPrompts() []string {
 // annotations, and dispatches. Returns no attempts for non-ToolInvoker
 // targets.
 func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
-	inv, ok := gen.(types.ToolInvoker)
+	inv, ok := p.invoker(gen)
 	if !ok {
 		return nil, fmt.Errorf("mcptool.PathTraversal: target %q does not support direct tool invocation; this probe requires a tool-surface generator such as mcp.MCP", gen.Name())
 	}
@@ -226,36 +249,67 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 		}
 		desc, _ := tool["description"].(string)
 		hintedPrefixes := extractHintedPrefixes(desc)
-		params := toolParams(tool)
+		for _, ts := range toolSignatures(tool, p.valueChain(ctx, name)) {
+			p.warnBroadRules(name, ts.sig.Params)
+			// Discovery is a REAL invocation, so it only runs against a tool this
+			// probe is going to test anyway. Gating on the tool (does it expose a
+			// path-shaped parameter?) rather than on the parameter that needs
+			// candidates is deliberate: the parameter needing discovery is usually the
+			// DISCRIMINATOR, not the path — file_manager(action, path) needs a value
+			// for `action` in order to reach the sink through `path`.
+			if p.hasProbeableParam(ts.params) {
+				ts = ts.withShape(p.shapeMode()).discoverValues(ctx, inv, name)
+			}
 
-		// Payload flavour selection. A ReadOnly annotation is the only
-		// unambiguous positive signal that the tool cannot write; anything
-		// else (destructive-annotated OR annotation-absent) uses the
-		// write-safe canary path so we never risk clobbering /etc/passwd
-		// on a write-capable sink.
-		payloads := p.payloadsFor(tool)
+			// Payload flavour selection. A ReadOnly annotation is the only
+			// unambiguous positive signal that the tool cannot write; anything
+			// else (destructive-annotated OR annotation-absent) uses the
+			// write-safe canary path so we never risk clobbering /etc/passwd
+			// on a write-capable sink.
+			payloads := p.payloadsFor(tool, ts.params)
 
-		for _, param := range params {
-			if !isStringParam(param.typ) {
-				continue
-			}
-			if !p.allParams && !matchesPathParam(param.name) {
-				continue
-			}
-			pathParamSeen = true
-			for _, tp := range payloads {
-				attempts = append(attempts, p.callOne(ctx, inv, name, param.name, params, tp))
-			}
-			// Prefix-append variants — defeat `filename.startswith(prefix)`
-			// / `prefix in path` gates that the tool description disclosed.
-			for _, prefix := range hintedPrefixes {
+			for _, param := range ts.params {
+				if !isStringParam(param.typ) {
+					continue
+				}
+				if !p.allParams && !matchesPathParam(param.name) {
+					continue
+				}
+				pathParamSeen = true
+				// Baselines are kept per payload so each prefix-append variant can be
+				// compared against the unprefixed attempt for the SAME target file.
+				baselines := make([]*attempt.Attempt, 0, len(payloads))
 				for _, tp := range payloads {
-					prefixed := pathTraversalPayload{
-						payload:    joinHintedPath(prefix, tp.payload),
-						signatures: tp.signatures,
-						isWrite:    tp.isWrite,
+					a := p.callOne(ctx, inv, name, param, ts, tp)
+					baselines = append(baselines, a)
+					attempts = append(attempts, a)
+				}
+				// Prefix-append variants — defeat `filename.startswith(prefix)`
+				// / `prefix in path` gates that the tool description disclosed.
+				for _, prefix := range hintedPrefixes {
+					// One accepted-but-absent control per prefix: a path that stays
+					// INSIDE the declared sandbox and names something that cannot
+					// exist. The guard must accept it, so whatever the tool returns is
+					// what "accepted, then failed at the filesystem" looks like on THIS
+					// target, in its own language and wording. That makes it the
+					// reference the escape attempt is compared against.
+					ctl := p.callOne(ctx, inv, name, param, ts, pathTraversalPayload{
+						payload: joinHintedPath(prefix, "augctl-"+mcpprobe.RandToken()),
+						// No signatures: a control can never itself be a finding.
+					})
+					ctl.Metadata[attempt.MetadataKeyPathTraversalIsControl] = true
+					attempts = append(attempts, ctl)
+
+					for i, tp := range payloads {
+						prefixed := pathTraversalPayload{
+							payload:    joinHintedPath(prefix, tp.payload),
+							signatures: tp.signatures,
+							isWrite:    tp.isWrite,
+						}
+						a := p.callOne(ctx, inv, name, param, ts, prefixed)
+						markGuardBypass(a, baselines[i], ctl)
+						attempts = append(attempts, a)
 					}
-					attempts = append(attempts, p.callOne(ctx, inv, name, param.name, params, prefixed))
 				}
 			}
 		}
@@ -274,7 +328,7 @@ func (p *PathTraversal) Probe(ctx context.Context, gen types.Generator) ([]*atte
 // server that ships zero annotations therefore never receives a payload
 // that could overwrite /etc/passwd, even if allow_destructive=true opened
 // the policy gate.
-func (p *PathTraversal) payloadsFor(tool map[string]any) []pathTraversalPayload {
+func (p *PathTraversal) payloadsFor(tool map[string]any, params []paramInfo) []pathTraversalPayload {
 	// Annotations are stored as a VALUE (types.MCPToolAnnotations) on the
 	// tool map by the recon layer's shared shape; see the sibling
 	// toolpolicy.Policy.Skip method for the same assertion pattern.
@@ -282,7 +336,91 @@ func (p *PathTraversal) payloadsFor(tool map[string]any) []pathTraversalPayload 
 	if ok && ann.ReadOnly {
 		return readPayloads
 	}
+	// No ReadOnly annotation. Annotations are optional in the MCP spec and most
+	// servers ship none at all (every DVMCP tool, for one), so treating absence
+	// as "might write" left the read oracle — a file-content signature, the
+	// strongest evidence this probe has — permanently dark on the majority of
+	// real targets. Measured: across all ten DVMCP challenges not one read
+	// payload was ever sent.
+	//
+	// Fall back to the tool's own declared read intent. This is a deliberate
+	// risk trade, and the risk is smaller than it first looks: the conservative
+	// path is not inert either, since write payloads CREATE files under /tmp.
+	// Sending a read payload to a tool that turns out to write would target a
+	// sensitive path, so readIntent demands positive evidence and bails on any
+	// hint of mutation. Operators who want the old behaviour unconditionally can
+	// set pathtraversal_require_readonly_annotation=true.
+	if !p.requireReadOnlyAnnotation && readIntent(tool, params) {
+		return readPayloads
+	}
 	return buildWritePayloads()
+}
+
+// responseTemplate reduces a response to its invariant shape by removing the one
+// part that necessarily differs between attempts: the payload the tool echoed
+// back. What remains is the target's own wording for an outcome CLASS, whatever
+// language or framework produced it.
+//
+// This is what makes the guard-bypass oracle phrase-independent. An earlier
+// version matched error text against curated English regexes ("no such file or
+// directory", "not allowed"), which were derived from one corpus of Python
+// servers and would silently miss any target that words its errors differently,
+// returns structured errors, or is not in English.
+func responseTemplate(a *attempt.Attempt) string {
+	if a == nil || len(a.Outputs) == 0 {
+		return ""
+	}
+	s := strings.Join(a.Outputs, "\n")
+	if a.Prompt != "" {
+		s = strings.ReplaceAll(s, a.Prompt, " ")
+	}
+	// Quoting around the echoed payload is incidental to the class.
+	s = strings.NewReplacer("'", " ", `"`, " ", "`", " ").Replace(s)
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// markGuardBypass records whether a prefix-append attempt defeated the tool's own
+// path guard, using a three-way comparison that never inspects error wording.
+//
+//	baseline — the bare traversal payload, which the guard is expected to refuse
+//	prefixed — the same payload behind the prefix the tool itself disclosed
+//	control  — a path inside the declared sandbox naming something that cannot
+//	           exist, so the guard MUST accept it and the filesystem MUST fail it
+//
+// The control is the key. It shows what "accepted by the guard, then failed on
+// disk" looks like on this specific target, in this target's own words. So when
+// the prefixed attempt lands in the SAME class as the control while the bare
+// attempt landed somewhere else, the guard admitted the escaped path — the
+// traversal worked, and only an unrelated fact about this host (the sandbox
+// directory not existing, say) kept content from coming back. On a deployment
+// where that directory exists, the same payload reads arbitrary files.
+//
+// Both conditions are required. Without "differs from baseline" a target that
+// refuses everything identically would look bypassed; without "matches control"
+// any unusual response would. A target that answers all three identically
+// produces no finding, which is the correct fail-closed outcome for a server too
+// terse to tell the classes apart.
+func markGuardBypass(prefixed, baseline, control *attempt.Attempt) {
+	if prefixed == nil || baseline == nil || control == nil {
+		return
+	}
+	prefixedShape := responseTemplate(prefixed)
+	baselineShape := responseTemplate(baseline)
+	controlShape := responseTemplate(control)
+	if prefixedShape == "" || baselineShape == "" || controlShape == "" {
+		return
+	}
+	// The prefix has to have changed the outcome...
+	if prefixedShape == baselineShape {
+		return
+	}
+	// ...and changed it into the one the guard demonstrably accepts.
+	if prefixedShape != controlShape {
+		return
+	}
+	prefixed.WithMetadata(attempt.MetadataKeyPathTraversalGuardBypass, true)
+	prefixed.WithMetadata(attempt.MetadataKeyPathTraversalBaselineResponse, strings.Join(baseline.Outputs, "\n"))
+	prefixed.WithMetadata(attempt.MetadataKeyPathTraversalControlResponse, strings.Join(control.Outputs, "\n"))
 }
 
 // extractHintedPrefixes pulls absolute filesystem paths from a tool
@@ -365,20 +503,24 @@ func joinHintedPath(prefix, payload string) string {
 }
 
 // callOne invokes one (tool, param, payload) and records the attempt.
-func (p *PathTraversal) callOne(ctx context.Context, inv types.ToolInvoker, tool, param string, params []paramInfo, tp pathTraversalPayload) *attempt.Attempt {
+func (p *PathTraversal) callOne(ctx context.Context, inv types.ToolInvoker, tool string, param paramInfo, ts toolSig, tp pathTraversalPayload) *attempt.Attempt {
 	a := attempt.New(tp.payload)
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
 	a.Metadata[attempt.MetadataKeyPathTraversalSignatures] = tp.signatures
 	a.Metadata["mcptool.tool"] = tool
-	a.Metadata["mcptool.param"] = param
+	a.Metadata["mcptool.param"] = string(param.path)
 	if tp.isWrite {
 		a.Metadata[attempt.MetadataKeyPathTraversalIsWrite] = true
 	}
 
-	res, err := inv.CallTool(ctx, tool, benignArgs(params, param, tp.payload))
+	args := ts.args(param, tp.payload)
+	res, err := inv.CallTool(ctx, tool, args)
 	if err != nil {
-		a.SetError(err)
+		// A traversal payload the SERVER refused was submitted and rejected, so it
+		// reached no filesystem: a completed test with a negative result. A payload
+		// that never arrived tested nothing.
+		ts.recordCallFailure(a, param, args, err)
 		return a
 	}
 	// Surface the tool's own IsError signal so the detector can require a

@@ -49,6 +49,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/hooks"
@@ -441,12 +442,14 @@ func (m *MCP) httpClient() *http.Client {
 
 // exchange dispatches one request according to the configured mode.
 func (m *MCP) exchange(ctx context.Context, sess *mcpsdk.ClientSession, conv *attempt.Conversation) (attempt.Message, error) {
+	// listTools paginates and takes one RequestTimeout per page (see pageCtx), so
+	// it derives its own deadlines; only the single-shot tool call is bounded here.
+	if m.cfg.Mode == ModeListTools {
+		return m.listTools(ctx, sess)
+	}
+
 	callCtx, cancel := context.WithTimeout(ctx, m.cfg.RequestTimeout)
 	defer cancel()
-
-	if m.cfg.Mode == ModeListTools {
-		return m.listTools(callCtx, sess)
-	}
 	return m.callTool(callCtx, sess, conv)
 }
 
@@ -480,16 +483,77 @@ func (m *MCP) callTool(ctx context.Context, sess *mcpsdk.ClientSession, conv *at
 	return attempt.NewAssistantMessage(contentText(result.Content)), nil
 }
 
+// listAllTools performs one paginated tools/list walk, returning every advertised
+// tool and whether the enumeration was truncated. It is the single place the
+// tools/list cursor semantics live for the two model-facing paths (mode:list_tools
+// and ToolInvoker.ListTools). A truncated walk is a warning plus partial results,
+// not an error; only a transport/protocol failure or caller cancellation errors.
+//
+// The recon inventory deliberately keeps its own closure: it enumerates four
+// catalogs through one generic helper and skips storeRawJSON, so folding it in
+// here would need a flag and would make the tools case inconsistent with its
+// three siblings.
+func (m *MCP) listAllTools(ctx context.Context, sess *mcpsdk.ClientSession) ([]*mcpsdk.Tool, bool, error) {
+	var lastPage *mcpsdk.ListToolsResult
+	tools, err := listAll(ctx, m.walkLimits(), func(pctx context.Context, cursor string) ([]*mcpsdk.Tool, string, error) {
+		res, err := sess.ListTools(pctx, &mcpsdk.ListToolsParams{Cursor: cursor})
+		if err != nil {
+			return nil, "", err
+		}
+		lastPage = res
+		return res.Tools, res.NextCursor, nil
+	})
+	if err != nil && !errors.Is(err, errListTruncated) {
+		return nil, false, fmt.Errorf("mcp: tools/list failed: %w", err)
+	}
+
+	truncated := errors.Is(err, errListTruncated)
+	if truncated {
+		// Keep the pages we did enumerate but flag the truncation — never a
+		// silent partial-as-complete tool list.
+		slog.Warn("mcp: tool catalog enumeration stopped early; results may be incomplete",
+			"collected", len(tools), "page_cap", maxListPages)
+	}
+
+	// Record the WHOLE catalog as the raw response. LastRawResponse documents "the
+	// most recent tool list", and runtime hooks read it expecting every tool that
+	// was enumerated; storing each page in turn would leave only the FINAL page
+	// visible, so a hook scanning a paginated catalog would see one tool instead of
+	// all of them. Rebuilt from the last page so its result-level fields (_meta, and
+	// a still-pending nextCursor that honestly marks a truncated walk) survive.
+	if lastPage != nil {
+		combined := *lastPage
+		combined.Tools = tools
+		m.storeRawJSON(&combined)
+	}
+	return tools, truncated, nil
+}
+
+// truncationNotice marks a rendered catalog as incomplete. It is scanner
+// metadata, not target output: worded with no imperative or instruction-like
+// phrasing so a detector scanning the catalog for injected instructions cannot
+// mistake it for something the target said, and appended ONLY on truncation so a
+// normal walk's output is untouched.
+const truncationNotice = "\n\n[augustus: tool catalog enumeration stopped early — this listing is incomplete]"
+
 // listTools issues tools/list and returns the advertised tools rendered as text
 // so detectors can inspect names, descriptions, and schemas for injected content.
 func (m *MCP) listTools(ctx context.Context, sess *mcpsdk.ClientSession) (attempt.Message, error) {
-	result, err := sess.ListTools(ctx, nil)
+	sdkTools, truncated, err := m.listAllTools(ctx, sess)
 	if err != nil {
-		return attempt.Message{}, fmt.Errorf("mcp: tools/list failed: %w", err)
+		return attempt.Message{}, err
 	}
 
-	m.storeRawJSON(result)
-	return attempt.NewAssistantMessage(formatTools(result.Tools)), nil
+	// Carry the truncation into the probe-facing output, not just the operator log:
+	// this text IS the artifact a detector scores, so without the notice a detector
+	// would judge a partial catalog as if it were the target's whole tool surface
+	// and report clean. attempt.Message has no metadata channel, so for this path
+	// the rendered text is the only place the signal can travel.
+	text := formatTools(sdkTools)
+	if truncated {
+		text += truncationNotice
+	}
+	return attempt.NewAssistantMessage(text), nil
 }
 
 // ListTools implements types.ToolInvoker. It returns the target's advertised
@@ -504,19 +568,34 @@ func (m *MCP) ListTools(ctx context.Context) ([]map[string]any, error) {
 	}
 
 	var tools []map[string]any
+	var truncated bool
 	err := m.withSession(ctx, func(ctx context.Context, sess *mcpsdk.ClientSession) error {
-		callCtx, cancel := context.WithTimeout(ctx, m.cfg.RequestTimeout)
-		defer cancel()
-		result, err := sess.ListTools(callCtx, nil)
+		// Paginate: follow nextCursor across all pages so a server can't hide tools
+		// on a later page from tool-surface probes (loop/cursor-repeat bounded).
+		sdkTools, trunc, err := m.listAllTools(ctx, sess)
 		if err != nil {
-			return fmt.Errorf("mcp: tools/list failed: %w", err)
+			return err
 		}
-		m.storeRawJSON(result)
-		tools = toolsToMaps(result.Tools)
+		tools, truncated = toolsToMaps(sdkTools), trunc
 		return nil
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	// A truncated enumeration FAILS CLOSED. Returning a knowingly partial catalog
+	// with a nil error is the exact defect this branch exists to remove, one layer
+	// up: a server can halt the walk after a benign prefix, and every mcptool.* probe
+	// would then scan that prefix, find nothing, and report the target clean. An
+	// honest "could not enumerate the surface" beats a false pass.
+	//
+	// The partial catalog is still returned alongside the error, so a caller that
+	// deliberately wants best-effort data can use it; the default `if err != nil`
+	// path skips the target instead. It is also NOT memoized — the cache lives for
+	// the session, so storing an incomplete surface would hand the same partial view
+	// to every later probe.
+	if truncated {
+		return tools, fmt.Errorf("mcp: refusing to report a partial tool catalog as complete (%d tools enumerated): %w", len(tools), errListTruncated)
 	}
 
 	m.toolsMu.Lock()
@@ -535,7 +614,7 @@ func (m *MCP) CallTool(ctx context.Context, name string, args map[string]any) (t
 		defer cancel()
 		result, err := sess.CallTool(callCtx, &mcpsdk.CallToolParams{Name: name, Arguments: args})
 		if err != nil {
-			return fmt.Errorf("mcp: tools/call %q failed: %w", name, err)
+			return fmt.Errorf("mcp: tools/call %q failed: %w", name, mcpprobe.ClassifyCallError(err))
 		}
 		raw, _ := json.Marshal(result)
 		m.rawMu.Lock()

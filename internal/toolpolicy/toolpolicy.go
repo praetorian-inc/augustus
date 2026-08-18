@@ -49,6 +49,13 @@ func New(cfg registry.Config) Policy {
 	}
 }
 
+// AllowsDestructive reports whether the shared allow_destructive opt-in is set.
+// A probe that additionally gates destructive tools by NAME heuristic (beyond the
+// server-annotation gate this policy applies) should treat this as the master
+// opt-in, so an operator who enabled destructive testing globally is not silently
+// still blocked on the name-heuristic layer.
+func (p Policy) AllowsDestructive() bool { return p.allowDestructive }
+
 // Skip reports whether a tool must not be invoked, with a human-readable reason
 // for logging. tm is the tool's ListTools-shaped map; its "annotations" key, when
 // present, is a types.MCPToolAnnotations value. tm may be nil — a nil map read

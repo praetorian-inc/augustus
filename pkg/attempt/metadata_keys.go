@@ -4,10 +4,42 @@ package attempt
 // Using these constants prevents silent breakage from key typos.
 const (
 	MetadataKeySystemPrompt = "system_prompt"
-	MetadataKeyTriggers     = "triggers"
-	MetadataKeyFlipMode     = "flip_mode"
-	MetadataKeyVariant      = "variant"
-	MetadataKeyToolCalls    = "tool_calls"
+
+	// MetadataKeyNotTested (bool) reports that the attempt never got as far as
+	// testing anything: the arguments could not be built, or the request never
+	// reached the target. Nothing about the target follows from such an attempt,
+	// and in particular it is NOT a pass.
+	//
+	// It is deliberately distinct from MetadataKeyTargetRefused below. A refusal
+	// is a completed test with a negative result; this is the absence of a test.
+	// Merging them in either direction destroys the only signal that says whether
+	// a clean-looking scan actually covered the surface it reports on.
+	MetadataKeyNotTested = "augustus.not_tested"
+
+	// MetadataKeyNotTestedReason (string) says WHY nothing was tested — which
+	// required parameter had no value, or which transport failure intervened.
+	// Mandatory alongside MetadataKeyNotTested: a bare "not tested" moves the
+	// question from the report to whoever reads it.
+	MetadataKeyNotTestedReason = "augustus.not_tested_reason"
+
+	// MetadataKeyTargetRefused (bool) reports that the call REACHED the target
+	// and the target rejected it — schema validation, an unknown method, invalid
+	// parameters. The argument was submitted and considered, so this is evidence
+	// about the target rather than a gap in coverage.
+	//
+	// It does NOT on its own mean the test was conclusive, and it can appear
+	// alongside MetadataKeyNotTested. Both facts are true when a refused call
+	// carried an invented placeholder in some OTHER required argument: the
+	// target did refuse, and the refusal cannot be attributed to the parameter
+	// under test rather than to the placeholder. A consumer summarising coverage
+	// must therefore read MetadataKeyNotTested first and treat a refusal as
+	// conclusive only in its absence — reading this key alone would report an
+	// unattributable refusal as "the target held".
+	MetadataKeyTargetRefused = "augustus.refused_by_target"
+	MetadataKeyTriggers      = "triggers"
+	MetadataKeyFlipMode      = "flip_mode"
+	MetadataKeyVariant       = "variant"
+	MetadataKeyToolCalls     = "tool_calls"
 
 	// MetadataKeyGoal carries the probe's objective so goal-conditioned
 	// detectors (e.g. agent.ToolLeakJudge) can read it from the attempt. The
@@ -81,6 +113,32 @@ const (
 	// the detector so a write finding is scored only when accompanied by a
 	// tool-side success signal (not a mere echo of the path in an error).
 	MetadataKeyPathTraversalIsWrite = "mcptool.pathtraversal_is_write"
+	// MetadataKeyPathTraversalGuardBypass (bool) marks a prefix-append attempt
+	// whose paired baseline attempt was refused by the tool's own path guard
+	// while the prefixed payload got through to a filesystem call. The pair is
+	// the evidence: an authorization refusal on the bare payload plus a
+	// filesystem-level error on the escaped one means the guard was defeated
+	// even though no file content came back. Detectors score a single attempt
+	// and get no cross-attempt context, so the probe performs the comparison
+	// and records the verdict here — the same division of labour as the
+	// MetadataKeyBOLA* controls.
+	MetadataKeyPathTraversalGuardBypass = "mcptool.pathtraversal_guard_bypass"
+	// MetadataKeyPathTraversalBaselineResponse (string) carries the paired
+	// baseline response that MetadataKeyPathTraversalGuardBypass was derived
+	// from, so a reviewer can see both halves of the differential.
+	MetadataKeyPathTraversalBaselineResponse = "mcptool.pathtraversal_baseline_response"
+	// MetadataKeyPathTraversalControlResponse (string) carries the third leg of
+	// the guard-bypass comparison: the response to a path that stayed INSIDE the
+	// tool's declared sandbox while naming something that cannot exist. The guard
+	// must accept it, so it shows what "accepted, then failed on disk" looks like
+	// on this specific target, in that target's own wording. Recorded so a
+	// reviewer can see all three legs of the differential.
+	MetadataKeyPathTraversalControlResponse = "mcptool.pathtraversal_control_response"
+	// MetadataKeyPathTraversalIsControl (bool) marks an attempt that exists only
+	// as a reference point for the guard-bypass comparison. Control attempts carry
+	// no signatures and can never themselves be a finding; the flag keeps them
+	// legible in a report rather than looking like a payload that did nothing.
+	MetadataKeyPathTraversalIsControl = "mcptool.pathtraversal_is_control"
 	// MetadataKeyPathTraversalToolIsError (bool) is the value of
 	// types.ToolResult.IsError from the target's response. When true on a
 	// write attempt, the tool refused; the detector suppresses the
@@ -97,14 +155,23 @@ const (
 	// the expected Origin/Host validation. Values are stable strings suitable
 	// for grouping in a finding report:
 	//
+	//	origin-validation-sweep  the aggregated Origin/Host bypass finding for the
+	//	                         endpoint; carries every crafted value it accepted
+	//	                         as evidence (see MetadataKeyOriginValidationVariants)
+	//	cors-reflect-creds       server reflected the attacker Origin AND allow-credentials in an OPTIONS preflight
+	//	baseline                 spec-compliant baseline (missing Origin) — informational, not a finding
+	//
+	// The per-variant classes below are NOT attempt classes. They label the
+	// individual crafted values inside the aggregated attempt's variant list;
+	// a server that validates nothing accepts all of them, so emitting one
+	// attempt per variant reported a single flaw as ten findings (LAB-5584):
+	//
 	//	external-origin        server accepted a plausibly-external Origin (root cause)
 	//	null-origin            server accepted Origin: null (sandbox iframes, file://)
 	//	extension-origin       server accepted a chrome-extension://[uuid] Origin
 	//	localhost-lookalike    server accepted an Origin that spoofs "localhost" (weak substring/prefix validator)
 	//	case-variant           server accepted a case-shifted variant of the expected host
 	//	unexpected-host        server processed a request bearing a non-canonical Host header
-	//	cors-reflect-creds     server reflected the attacker Origin AND allow-credentials in an OPTIONS preflight
-	//	baseline               spec-compliant baseline (missing Origin) — informational, not a finding
 	MetadataKeyOriginValidationClass = "mcptool.originvalidation_class"
 	// MetadataKeyOriginValidationOrigin (string) is the Origin header value sent.
 	MetadataKeyOriginValidationOrigin = "mcptool.originvalidation_origin"
@@ -137,6 +204,61 @@ const (
 	// loopback/lan and InconclusiveScore (spec violation but
 	// exploitability depends on deployment) on public/unresolvable.
 	MetadataKeyOriginValidationTargetClass = "mcptool.originvalidation_target_class"
+	// MetadataKeyOriginValidationVariants ([]map[string]any) carries the
+	// per-variant detail of the aggregated Origin/Host sweep — one entry per
+	// crafted value the probe sent, each with:
+	//
+	//	class     the per-variant class (external-origin, null-origin, ...)
+	//	origin    the Origin header sent, when the variant set one
+	//	host      the Host header sent, when the variant set one
+	//	outcome   "accepted" (server served a request it should have refused),
+	//	          "refused" (server rejected it), or "not-tested" (the request
+	//	          never completed). A tri-state, not a bool: "refused" is
+	//	          evidence of validation and "not-tested" is the absence of
+	//	          evidence, and conflating them lets an untested variant read
+	//	          as a clean result.
+	//	result    one-line response summary ("HTTP 200, application/json") or
+	//	          the transport error when the request never completed
+	//
+	// Which variants pass is what tells a remediator whether validation is
+	// absent or merely weak — a case-variant-only bypass is a different bug
+	// from accepting any origin — so the detail is preserved even though the
+	// whole sweep scores as one finding.
+	MetadataKeyOriginValidationVariants = "mcptool.originvalidation_variants"
+	// MetadataKeyOriginValidationAcceptedClasses ([]string) lists the distinct
+	// per-variant classes the endpoint accepted, in sweep order. The fast
+	// grouping key for a report that doesn't want to walk the variant list.
+	MetadataKeyOriginValidationAcceptedClasses = "mcptool.originvalidation_accepted_classes"
+	// MetadataKeyOriginValidationVariantsSent (int) is how many crafted
+	// Origin/Host values the sweep sent.
+	MetadataKeyOriginValidationVariantsSent = "mcptool.originvalidation_variants_sent"
+	// MetadataKeyOriginValidationVariantsAccepted (int) is how many of those
+	// the endpoint accepted. Equal to sent means no validation is enforced at
+	// all; between 1 and sent means partial validation.
+	MetadataKeyOriginValidationVariantsAccepted = "mcptool.originvalidation_variants_accepted"
+	// MetadataKeyOriginValidationBaselineAccepted (bool) records whether the
+	// endpoint served the plain no-Origin baseline request.
+	//
+	// This is the fact that makes every other refusal in the sweep
+	// interpretable. When it is false the endpoint is refusing the CALLER, not
+	// the Origin — an auth gate, an IP allowlist and a dead backend are
+	// indistinguishable from Origin enforcement to an outside observer — so
+	// refusals of the crafted values are NOT evidence that a validator exists.
+	// The detector reads this to score such a sweep inconclusive rather than
+	// clean.
+	MetadataKeyOriginValidationBaselineAccepted = "mcptool.originvalidation_baseline_accepted"
+	// MetadataKeyOriginValidationUntestedClasses ([]string) lists the bypass
+	// classes for which NOT ONE variant got a response — checks that never ran,
+	// as opposed to a class that was exercised and merely lost a sample.
+	MetadataKeyOriginValidationUntestedClasses = "mcptool.originvalidation_untested_classes"
+	// MetadataKeyOriginValidationCredentialedRead (bool) records whether the
+	// CORS preflight found credentialed reflection of the attacker Origin.
+	// Set on the aggregated sweep attempt because it escalates that finding's
+	// impact: without it a rebound page drives the tool surface blind; with it
+	// the page can also read the responses.
+	// Omitted entirely when the preflight did not complete — recording false
+	// there would assert an absence the probe never observed.
+	MetadataKeyOriginValidationCredentialedRead = "mcptool.originvalidation_credentialed_read" // #nosec G101 -- metadata key name, not a credential
 
 	// MetadataKeySSESessionAccepted (bool) records whether an SSE session-
 	// hijack probe attempt succeeded (weakness confirmed). Read by the
@@ -175,4 +297,53 @@ const (
 	// upstream defeats session-lifetime test" or "<2 SSE samples: cannot
 	// assess ID entropy".
 	MetadataKeyInconclusiveReason = "mcptool.inconclusive_reason"
+
+	// MetadataKeyPrimitiveCanaries holds the []string of computed-arithmetic
+	// canary markers a mcpprimitive probe expects to see in returned content if
+	// the server evaluated an injected payload (e.g. a prompt template rendered
+	// through an expression engine). The marker never appears in the payload
+	// text, so content that merely echoes the injected value cannot match.
+	MetadataKeyPrimitiveCanaries = "mcpprimitive.canaries"
+	// MetadataKeyPrimitiveSignatures holds the []string of well-known file
+	// signatures (e.g. "root:x:0:0:") a mcpprimitive probe expects in returned
+	// content if a resource URI resolved to that system file.
+	MetadataKeyPrimitiveSignatures = "mcpprimitive.signatures"
+	// MetadataKeyPrimitiveOOBCallback (bool) records whether the out-of-band
+	// collector received a callback for this attempt's canary URL — proof the
+	// server made the request (blind SSRF via resources/read, or blind command
+	// execution while rendering a prompt template).
+	MetadataKeyPrimitiveOOBCallback = "mcpprimitive.oob_callback"
+	// MetadataKeyPrimitiveOOBURL (string) is the canary URL this attempt planted.
+	MetadataKeyPrimitiveOOBURL = "mcpprimitive.oob_url"
+	// MetadataKeyPrimitiveReflected (bool) records whether the returned content
+	// carried the collector's body marker — the non-blind case, where the server
+	// fetched the canary URL and handed back its content.
+	MetadataKeyPrimitiveReflected = "mcpprimitive.reflected"
+	// MetadataKeyPrimitiveClass (string) categorises how the attempt attacked the
+	// primitive, for grouping in a finding report. Values are stable strings:
+	//
+	//	resource-traversal          resource URI escaped its intended scope (arbitrary file read)
+	//	resource-template-arg       a resource-template parameter was interpolated into a sink
+	//	resource-ssrf               resources/read fetched a caller-supplied URL
+	//	resource-content            an advertised resource read as-is (no payload), so
+	//	                            its served body can be scored for smuggled instructions
+	//	prompt-content              an argument-less prompt template rendered as-is, same purpose
+	//	prompt-template-injection   prompts/get evaluated an argument (SSTI/eval)
+	//	prompt-command-injection    prompts/get executed an OS command while rendering
+	MetadataKeyPrimitiveClass = "mcpprimitive.class"
+	// MetadataKeyPrimitiveTarget (string) is the primitive attacked — the resource
+	// URI requested, or the prompt-template name rendered.
+	MetadataKeyPrimitiveTarget = "mcpprimitive.target"
+	// MetadataKeyPrimitiveArg (string) is the prompt-template argument the payload
+	// was injected into. Absent for resource attempts, which carry no arguments.
+	MetadataKeyPrimitiveArg = "mcpprimitive.arg"
+	// MetadataKeyPrimitiveCallError (string) records the server's refusal for a
+	// call that returned a JSON-RPC error. resources/read and prompts/get have no
+	// application-level error flag (unlike tools/call), so a denial arrives as an
+	// error — preserving it keeps a refusal visible to a reviewer instead of
+	// collapsing it into a silent non-finding.
+	MetadataKeyPrimitiveCallError = "mcpprimitive.call_error"
+	// MetadataKeyPrimitiveMIMEType (string) is the MIME type the server declared for
+	// the first returned content block.
+	MetadataKeyPrimitiveMIMEType = "mcpprimitive.mime_type"
 )

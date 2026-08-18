@@ -19,6 +19,11 @@ type mockTarget struct {
 	tools    []map[string]any
 	call     func(name string, args map[string]any) types.ToolResult
 	listHook func() // optional: invoked whenever ListTools is called
+	// callErr, when set, returns a TRANSPORT-level error for a call — a Go error
+	// rather than a ToolResult with IsError. The two are not interchangeable: an
+	// IsError result means the server answered and refused, while a Go error means
+	// no answer arrived, which is what the retry and inconclusive paths key off.
+	callErr func(name string, args map[string]any) error
 }
 
 func (m *mockTarget) Generate(context.Context, *attempt.Conversation, int) ([]attempt.Message, error) {
@@ -36,6 +41,11 @@ func (m *mockTarget) ListTools(context.Context) ([]map[string]any, error) {
 }
 
 func (m *mockTarget) CallTool(_ context.Context, name string, args map[string]any) (types.ToolResult, error) {
+	if m.callErr != nil {
+		if err := m.callErr(name, args); err != nil {
+			return types.ToolResult{}, err
+		}
+	}
 	return m.call(name, args), nil
 }
 
@@ -78,7 +88,7 @@ func newInjectionProbe(t *testing.T) *Injection {
 // canary marker, and the detector flags it.
 func TestInjection_DetectsEvalSink(t *testing.T) {
 	p := newInjectionProbe(t)
-	marker := p.canary.marker
+	marker := p.canary.Marker
 
 	target := &mockTarget{
 		tools: []map[string]any{stringTool("calc", "expression")},
@@ -168,7 +178,7 @@ func (plainGen) Description() string { return "plain" }
 
 // testURLRE extracts a URL from argument text the way a naive URL-fetching tool
 // would: a literal scan with no shell processing. It stops at the shell-proof
-// "$(" that shellProofURL splices into the token, so the extracted URL resolves
+// "$(" that mcpprobe.ShellProofURL splices into the token, so the extracted URL resolves
 // to a different path than the shell-collapsed one.
 var testURLRE = regexp.MustCompile("https?://[^\\s`)$\"']+")
 

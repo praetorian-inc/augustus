@@ -37,6 +37,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/lmrc"
 	_ "github.com/praetorian-inc/augustus/internal/probes/malwaregen"
 	_ "github.com/praetorian-inc/augustus/internal/probes/mcpconfig"
+	_ "github.com/praetorian-inc/augustus/internal/probes/mcpprimitive"
 	_ "github.com/praetorian-inc/augustus/internal/probes/mcptool"
 	_ "github.com/praetorian-inc/augustus/internal/probes/mcptransport"
 	_ "github.com/praetorian-inc/augustus/internal/probes/mischievous"

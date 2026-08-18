@@ -167,6 +167,18 @@ func interpolateConfigEnvVars(cfg *Config) error {
 			}
 			gen.APIKey = apiKey
 		}
+		// Generator-specific keys land in Extra (yaml ",inline"), and they hold
+		// exactly the values an operator must not commit: auth headers, tenant
+		// identifiers, endpoints with embedded tokens. Interpolating only the
+		// typed fields made ${VAR} work in `api_key` but not in `headers`, so a
+		// header written as "Bearer ${TOKEN}" shipped that string literally and
+		// every request came back 401 — indistinguishable from a target that
+		// simply rejects the credential. The same map inside recon's victims[]
+		// was already interpolated, so the two halves of one authorization test
+		// disagreed about whether ${VAR} means anything.
+		if err := interpolateMapEnvVars(gen.Extra, getenv); err != nil {
+			return fmt.Errorf("generator %q: %w", name, err)
+		}
 		cfg.Generators[name] = gen
 	}
 

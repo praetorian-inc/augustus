@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	_ "github.com/praetorian-inc/augustus/internal/detectors/mcpsecrets"
+	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	mcpx "github.com/praetorian-inc/augustus/internal/recon/mcp"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
@@ -552,8 +553,8 @@ func TestResponseLeak_ArgCasesDeterministicOrder(t *testing.T) {
 		return out
 	}
 
-	got1 := names(argCases(forward))
-	got2 := names(argCases(reversed))
+	got1 := names(argCases(sigOf(forward)))
+	got2 := names(argCases(sigOf(reversed)))
 	if strings.Join(got1, ",") != strings.Join(got2, ",") {
 		t.Errorf("argCases order not stable across input orderings:\n forward  = %v\n reversed = %v", got1, got2)
 	}
@@ -681,7 +682,7 @@ func TestResponseLeak_RawByteCap(t *testing.T) {
 	var vuln bool
 	for _, a := range attempts {
 		for _, o := range a.Outputs {
-			if len(o) > maxResponseBytes+len("…[truncated]") {
+			if len(o) > mcpprobe.MaxResponseBytes+len("…[truncated]") {
 				t.Fatalf("stored output exceeds cap: %d bytes", len(o))
 			}
 		}
