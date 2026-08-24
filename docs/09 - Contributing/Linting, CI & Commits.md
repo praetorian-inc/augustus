@@ -11,7 +11,7 @@ status: complete
 
 ## golangci-lint v2 config
 
-`.golangci.yml` (golangci-lint **v2**, pinned to `v2.12.2` in the `Makefile`) configures two things:
+`.golangci.yml` (golangci-lint **v2**, pinned to `v2.13.1` in the `Makefile`) configures two things:
 
 ```yaml
 version: "2"
@@ -41,7 +41,7 @@ golangci-lint fmt ./...    # apply gofumpt + goimports (exactly what CI checks)
 make lint                  # run the standard linter set
 ```
 
-`make lint` uses an installed `golangci-lint` if present, otherwise auto-installs the pinned `v2.12.2`, and falls back to `go vet` only if installation fails.
+`make lint` runs the pinned `v2.13.1` module via `go run`, so an older binary elsewhere on `PATH` cannot be selected.
 
 ## CI
 

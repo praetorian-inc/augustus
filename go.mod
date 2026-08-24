@@ -1,6 +1,6 @@
 module github.com/praetorian-inc/augustus
 
-go 1.25.3
+go 1.27.0
 
 require (
 	github.com/Milly/go-base2048 v0.1.0

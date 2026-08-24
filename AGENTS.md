@@ -21,7 +21,7 @@ make test-equiv               # Run equivalence tests (Go vs Python)
 make test-cover               # Run tests with coverage report
 
 # Lint & format
-make lint                     # Run golangci-lint per .golangci.yml (standard linters + gofumpt/goimports formatters); auto-installs the pinned version, falls back to go vet if unavailable
+make lint                     # Run the exact pinned golangci-lint version per .golangci.yml (standard linters + gofumpt/goimports formatters)
 golangci-lint fmt ./...       # Apply gofumpt + goimports formatting — matches what CI enforces (plain `go fmt` no longer satisfies the lint gate)
 ```
 

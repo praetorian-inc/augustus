@@ -696,8 +696,9 @@ type recordingInvoker struct {
 func (r *recordingInvoker) Generate(context.Context, *attempt.Conversation, int) ([]attempt.Message, error) {
 	return nil, nil
 }
-func (r *recordingInvoker) ClearHistory()                                       {}
-func (r *recordingInvoker) Name() string                                        { return "recording" }
+func (r *recordingInvoker) ClearHistory() {}
+func (r *recordingInvoker) Name() string  { return "recording" }
+
 func (r *recordingInvoker) Description() string                                 { return "recording" }
 func (r *recordingInvoker) ListTools(context.Context) ([]map[string]any, error) { return nil, nil }
 func (r *recordingInvoker) CallTool(_ context.Context, name string, _ map[string]any) (types.ToolResult, error) {

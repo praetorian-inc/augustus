@@ -80,7 +80,7 @@ Unlike research-oriented tools, Augustus is built for production security testin
 
 ### Installation
 
-Requires Go 1.25.3 or later.
+Requires Go 1.27.0 or later.
 
 ```bash
 go install github.com/praetorian-inc/augustus/cmd/augustus@latest

@@ -10,7 +10,7 @@ We are committed to providing a welcoming and inspiring community for all. Pleas
 
 ### Prerequisites
 
-- **Go 1.21+** - Augustus is written in Go
+- **Go 1.27.0+** - Augustus is written in Go
 - **Git** - For version control
 - **Make** - For build automation
 
