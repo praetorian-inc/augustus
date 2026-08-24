@@ -26,7 +26,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Go 1.25.3
-ARG GO_VERSION=1.25.3
+ARG GO_VERSION=1.27.0
 RUN curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz -o /tmp/go.tar.gz && \
     rm -rf /usr/local/go && \
     tar -C /usr/local -xzf /tmp/go.tar.gz && \
@@ -35,7 +35,7 @@ ENV PATH="/usr/local/go/bin:/home/vscode/go/bin:${PATH}"
 ENV GOPATH="/home/vscode/go"
 
 # Install Go tools
-RUN GOPATH=/tmp/gotools go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest && \
+RUN GOPATH=/tmp/gotools go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.1 && \
     mkdir -p /home/vscode/go/bin && \
     cp /tmp/gotools/bin/* /home/vscode/go/bin/ && \
     chown -R vscode:vscode /home/vscode/go 2>/dev/null || true && \

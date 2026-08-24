@@ -9,9 +9,9 @@ status: complete
 
 ## Prerequisites
 
-- **Go 1.25.3 or later** (the version pinned in `go.mod`).
+- **Go 1.27.0 or later** (the version pinned in `go.mod`).
 - `make` for the convenience targets (optional — you can build directly with `go`).
-- `golangci-lint v2.12.2` for linting (the `lint` target auto-installs the pinned version if missing, and falls back to `go vet`).
+- `golangci-lint v2.13.1` for linting (the `lint` target auto-installs the pinned version if missing, and falls back to `go vet`).
 
 ## Install via `go install`
 

@@ -10,7 +10,7 @@ BINARY ?= augustus
 BUILD_DIR ?= bin
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS := -ldflags "-s -w -X main.version=$(VERSION)"
-GOLANGCI_LINT_VERSION ?= v2.12.2
+GOLANGCI_LINT_VERSION ?= v2.13.1
 
 # Auto-discover source files
 GO_SOURCES := $(shell find . -type f -name '*.go' -not -path './vendor/*')
