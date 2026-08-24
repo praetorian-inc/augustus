@@ -11,7 +11,7 @@ status: complete
 
 - **Go 1.27.0 or later** (the version pinned in `go.mod`).
 - `make` for the convenience targets (optional — you can build directly with `go`).
-- `golangci-lint v2.13.1` for linting (the `lint` target auto-installs the pinned version if missing, and falls back to `go vet`).
+- `golangci-lint v2.13.1` for linting (the `lint` target runs this exact version via `go run`).
 
 ## Install via `go install`
 
@@ -44,7 +44,7 @@ go build ./cmd/augustus
 | `make test` | Run all tests with the race detector (`go test -v -race ./...`). |
 | `make test-cover` | Run tests with coverage, emit `coverage.html`. |
 | `make test-equiv` | Run Go-vs-Python equivalence tests (`./tests/equivalence/...`). |
-| `make lint` | Run `golangci-lint run ./...`; auto-installs the pinned version, else `go vet`. |
+| `make lint` | Run the pinned `golangci-lint v2.13.1` via `go run`. |
 | `make install` | `go install ./cmd/augustus` into `$GOPATH/bin`. |
 | `make clean` | Remove `bin/`, `coverage.out`, `coverage.html`. |
 | `make help` | List available targets (default goal). |

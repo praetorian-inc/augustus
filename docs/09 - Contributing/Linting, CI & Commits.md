@@ -41,7 +41,7 @@ golangci-lint fmt ./...    # apply gofumpt + goimports (exactly what CI checks)
 make lint                  # run the standard linter set
 ```
 
-`make lint` uses an installed `golangci-lint` if present, otherwise auto-installs the pinned `v2.13.1`, and falls back to `go vet` only if installation fails.
+`make lint` runs the pinned `v2.13.1` module via `go run`, so an older binary elsewhere on `PATH` cannot be selected.
 
 ## CI
 

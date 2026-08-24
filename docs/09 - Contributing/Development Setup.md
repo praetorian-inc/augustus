@@ -11,10 +11,10 @@ status: complete
 
 ## Prerequisites
 
-- **Go** — the module targets the version pinned in `go.mod` (`go 1.25.3`). Use that or newer.
+- **Go** — the module targets the version pinned in `go.mod` (`go 1.27.0`). Use that or newer.
 - **Git** — version control.
 - **Make** — build automation (the `Makefile` wraps the common targets).
-- **golangci-lint v2** (`v2.13.1`, pinned in the `Makefile`) — for the format/lint gate. `make lint` auto-installs the pinned version if it is missing and falls back to `go vet`.
+- **golangci-lint v2** (`v2.13.1`, pinned in the `Makefile`) — for the format/lint gate. `make lint` runs that exact version via `go run`.
 
 ## Clone
 

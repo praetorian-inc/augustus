@@ -25,7 +25,7 @@ RUN apt-get update && \
     && apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-# Install Go 1.25.3
+# Install Go 1.27.0
 ARG GO_VERSION=1.27.0
 RUN curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz -o /tmp/go.tar.gz && \
     rm -rf /usr/local/go && \

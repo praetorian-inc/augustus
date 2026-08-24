@@ -6,8 +6,8 @@
 # enforce a clean `gofmt`/`gofumpt`/`goimports` tree.
 #
 # CI runs this via praetorian-inc/public-workflows .github/workflows/go-ci.yml
-# (golangci-lint v2.12.2, enable-lint defaults to true). No workflow change is
-# needed — ci.yml and security.yml already watch `.golangci*`.
+# (golangci-lint v2.13.1, enable-lint defaults to true). ci.yml passes that
+# exact version; ci.yml and security.yml already watch `.golangci*`.
 #
 # To extend with bug-catching linters later (Tier 2: bodyclose, errorlint,
 # copyloopvar, usestdlibvars, nilerr), add them under `linters.enable` and
