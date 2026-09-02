@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This is the canonical agent instruction file for this repository. It provides guidance to any coding agent working with this code — Claude Code, Codex, and Gemini all load it. `CLAUDE.md` is a one-line pointer to this file, and `.gemini/settings.json` names it for Gemini.
 
 ## Project Overview
 
