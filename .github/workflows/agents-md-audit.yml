@@ -1,0 +1,16 @@
+name: Instruction-File Audit
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review]
+concurrency:
+  group: agents-md-audit-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  audit:
+    uses: praetorian-inc/public-workflows/.github/workflows/agents-md-audit.yml@a1c9243b3365df01b2ea64948f4327b4089455b0
+    permissions:
+      contents: read
+      pull-requests: write
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      RUBRIC_TOKEN: ${{ secrets.RUBRIC_TOKEN }}
