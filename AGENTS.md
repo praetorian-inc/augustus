@@ -17,7 +17,7 @@ make generate              # pkg/register blank-imports from internal/
 make generate-check
 ```
 
-Lint is `.golangci.yml` (v2 `standard` linters plus `gofumpt`/`goimports`). CI is `.github/workflows/ci.yml`. After adding a package under `internal/`, run `make generate` or the binary will not see it; `make test` also runs the register drift guard.
+Lint is `.golangci.yml` (v2 `standard` linters plus `gofumpt`/`goimports`). CI is `.github/workflows/ci.yml`. After adding a package under `internal/`, run `make generate` or the binary will not see it. Run `make generate-check` separately to verify generated registration files are current; `make test` does not.
 
 ## Scanner contracts
 

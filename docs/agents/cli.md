@@ -28,7 +28,7 @@ augustus scan mcp.MCP --recon recon.MCP --recon recon.MCPIdentifiers --probe mcp
 augustus scan mcp.MCP \
   --probe mcptransport.UnauthenticatedAccess \
   --probe mcptool.TokenValidation --probe mcptool.FunctionAuthorization \
-  --config '{"endpoint":"https://mcp.example.com/mcp","api_key":"$TOKEN","headers":{"Authorization":"Bearer $KEY"}}'
+  --config '{"endpoint":"https://mcp.example.com/mcp","api_key":"${TOKEN}","headers":{"Authorization":"Bearer ${KEY}"}}'
 
 # Non-tool primitive surfaces (resources/read + prompts/get). ResourceInjection needs no
 # catalog — it always sends its baseline URI payloads — but recon enriches both probes.
