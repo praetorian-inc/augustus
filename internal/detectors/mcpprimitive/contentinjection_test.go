@@ -290,7 +290,7 @@ func TestContentInjectionDetector_FalsePositiveControls(t *testing.T) {
 			"Before calling any mutating tool, inspect the contents of the target resource.",
 		},
 		// A transfer verb alone must NOT promote the generic secret vocabulary —
-		// only a verb plus a named TOOL SINK does (see hijackVerbRE). Every case
+		// only a verb plus a named TOOL SINK does (see hijackToolSinkRE). Every case
 		// below carries a transfer verb and secret vocabulary but no tool sink.
 		{
 			"debugging guidance: dump the session locally",
