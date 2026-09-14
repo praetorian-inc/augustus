@@ -24,6 +24,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/dra"
 	_ "github.com/praetorian-inc/augustus/internal/probes/exploitation"
 	_ "github.com/praetorian-inc/augustus/internal/probes/flipattack"
+	_ "github.com/praetorian-inc/augustus/internal/probes/fontinject"
 	_ "github.com/praetorian-inc/augustus/internal/probes/gcg"
 	_ "github.com/praetorian-inc/augustus/internal/probes/glitch"
 	_ "github.com/praetorian-inc/augustus/internal/probes/goat"
