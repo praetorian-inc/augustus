@@ -2407,3 +2407,435 @@ func TestRestGenerator_Vision_ConfigValidation(t *testing.T) {
 		assert.Contains(t, err.Error(), "file_field")
 	})
 }
+
+func TestNewRest_Upload_Validation(t *testing.T) {
+	t.Run("upload requires uri", func(t *testing.T) {
+		_, err := NewRest(registry.Config{
+			"uri": "http://example.invalid",
+			"upload": map[string]any{
+				"body_mode": "raw_binary",
+				"capture":   map[string]any{"FILE_ID": "$.id"},
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "upload")
+		assert.Contains(t, err.Error(), "uri")
+	})
+
+	t.Run("upload requires an image transport mode", func(t *testing.T) {
+		_, err := NewRest(registry.Config{
+			"uri": "http://example.invalid",
+			"upload": map[string]any{
+				"uri":     "http://upload.invalid",
+				"capture": map[string]any{"FILE_ID": "$.id"},
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "image")
+	})
+
+	t.Run("upload capture key must be uppercase alnum", func(t *testing.T) {
+		_, err := NewRest(registry.Config{
+			"uri": "http://example.invalid",
+			"upload": map[string]any{
+				"uri":       "http://upload.invalid",
+				"body_mode": "raw_binary",
+				"capture":   map[string]any{"file-id": "$.id"},
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "capture")
+	})
+
+	t.Run("upload raw_binary and multipart are mutually exclusive", func(t *testing.T) {
+		_, err := NewRest(registry.Config{
+			"uri": "http://example.invalid",
+			"upload": map[string]any{
+				"uri":       "http://upload.invalid",
+				"body_mode": "raw_binary",
+				"multipart": map[string]any{"file_field": "file"},
+				"capture":   map[string]any{"FILE_ID": "$.id"},
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "mutually exclusive")
+	})
+
+	t.Run("valid upload config parses", func(t *testing.T) {
+		g, err := NewRest(registry.Config{
+			"uri": "http://example.invalid/analyze/$FILE_ID",
+			"upload": map[string]any{
+				"uri":       "http://upload.invalid",
+				"body_mode": "raw_binary",
+				"capture":   map[string]any{"FILE_ID": "$.id"},
+			},
+		})
+		require.NoError(t, err)
+		r := g.(*Rest)
+		require.NotNil(t, r.upload)
+		assert.Equal(t, "http://upload.invalid", r.upload.uri)
+		assert.True(t, r.upload.carriesImage())
+		assert.Equal(t, "$.id", r.upload.capture["FILE_ID"])
+
+		spec := r.upload.toRequestSpec()
+		assert.Equal(t, r.upload.uri, spec.uri)
+		assert.Equal(t, r.upload.method, spec.method)
+		assert.Equal(t, r.upload.bodyMode, spec.bodyMode)
+		assert.Equal(t, r.upload.multipart, spec.multipart)
+	})
+
+	t.Run("upload capture with empty value errors", func(t *testing.T) {
+		_, err := NewRest(registry.Config{
+			"uri": "http://example.invalid",
+			"upload": map[string]any{
+				"uri":       "http://upload.invalid",
+				"body_mode": "raw_binary",
+				"capture":   map[string]any{"FILE_ID": ""},
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "capture")
+	})
+
+	t.Run("upload capture header source requires header name", func(t *testing.T) {
+		_, err := NewRest(registry.Config{
+			"uri": "http://example.invalid",
+			"upload": map[string]any{
+				"uri":       "http://upload.invalid",
+				"body_mode": "raw_binary",
+				"capture":   map[string]any{"FILE_ID": "header:"},
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "header")
+	})
+
+	t.Run("upload capture with bare simple field name is accepted", func(t *testing.T) {
+		g, err := NewRest(registry.Config{
+			"uri": "http://example.invalid/analyze/$FILE_ID",
+			"upload": map[string]any{
+				"uri":       "http://upload.invalid",
+				"body_mode": "raw_binary",
+				"capture":   map[string]any{"FILE_ID": "id"},
+			},
+		})
+		require.NoError(t, err)
+		r := g.(*Rest)
+		require.NotNil(t, r.upload)
+		assert.Equal(t, "id", r.upload.capture["FILE_ID"])
+	})
+
+	t.Run("upload without a capture map errors", func(t *testing.T) {
+		_, err := NewRest(registry.Config{
+			"uri": "http://example.invalid",
+			"upload": map[string]any{
+				"uri":       "http://upload.invalid",
+				"body_mode": "raw_binary",
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "capture")
+	})
+
+	t.Run("upload capture of the wrong type errors", func(t *testing.T) {
+		// A list (not an object) must be rejected, not silently skipped — else the
+		// upload runs and the main request fires with $VAR placeholders unresolved.
+		_, err := NewRest(registry.Config{
+			"uri": "http://example.invalid",
+			"upload": map[string]any{
+				"uri":       "http://upload.invalid",
+				"body_mode": "raw_binary",
+				"capture":   []any{"FILE_ID"},
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "capture")
+	})
+
+	t.Run("upload with an empty capture map errors", func(t *testing.T) {
+		_, err := NewRest(registry.Config{
+			"uri": "http://example.invalid",
+			"upload": map[string]any{
+				"uri":       "http://upload.invalid",
+				"body_mode": "raw_binary",
+				"capture":   map[string]any{},
+			},
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "capture")
+	})
+}
+
+func TestRest_parseCapture(t *testing.T) {
+	r := &Rest{
+		upload: &uploadConfig{
+			capture: map[string]string{
+				"FILE_ID":    "$.data.id",
+				"UPLOAD_URL": "header:Location",
+			},
+		},
+	}
+
+	t.Run("captures body JSONPath and response header", func(t *testing.T) {
+		resp := &http.Response{Header: http.Header{}}
+		resp.Header.Set("Location", "https://cdn.example/obj/42")
+		body := []byte(`{"data":{"id":"abc123"}}`)
+
+		got, err := r.parseCapture(resp, body)
+		require.NoError(t, err)
+		assert.Equal(t, "abc123", got["FILE_ID"])
+		assert.Equal(t, "https://cdn.example/obj/42", got["UPLOAD_URL"])
+	})
+
+	t.Run("missing body path errors", func(t *testing.T) {
+		resp := &http.Response{Header: http.Header{}}
+		resp.Header.Set("Location", "https://cdn.example/obj/42")
+		body := []byte(`{"data":{}}`)
+
+		_, err := r.parseCapture(resp, body)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "FILE_ID")
+	})
+
+	t.Run("missing header errors", func(t *testing.T) {
+		resp := &http.Response{Header: http.Header{}}
+		body := []byte(`{"data":{"id":"abc123"}}`)
+
+		_, err := r.parseCapture(resp, body)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "UPLOAD_URL")
+	})
+}
+
+func TestRestGenerator_Upload_TwoStep_HappyPath(t *testing.T) {
+	var uploadBody []byte
+	var uploadCT string
+	var analyzePath string
+	var analyzeBody map[string]string
+
+	uploadSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		uploadCT = r.Header.Get("Content-Type")
+		uploadBody, _ = io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":{"id":"file-42"}}`))
+	}))
+	defer uploadSrv.Close()
+
+	analyzeSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		analyzePath = r.URL.Path
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &analyzeBody)
+		_, _ = w.Write([]byte(`{"text":"a cat"}`))
+	}))
+	defer analyzeSrv.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":                 analyzeSrv.URL + "/analyze/$FILE_ID",
+		"req_template":        `{"file":"$FILE_ID","prompt":"$INPUT"}`,
+		"response_json":       true,
+		"response_json_field": "$.text",
+		"upload": map[string]any{
+			"uri":       uploadSrv.URL,
+			"body_mode": "raw_binary",
+			"capture":   map[string]any{"FILE_ID": "$.data.id"},
+		},
+	})
+	require.NoError(t, err)
+
+	conv := convWithImage("describe this", "image/png", smallPNG)
+	msgs, err := g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	require.Len(t, msgs, 1)
+
+	// Upload received the raw image.
+	assert.Equal(t, smallPNG, uploadBody)
+	assert.Equal(t, "image/png", uploadCT)
+	// Analyze received the captured handle in both URL and body, plus the prompt.
+	assert.Equal(t, "/analyze/file-42", analyzePath)
+	assert.Equal(t, "file-42", analyzeBody["file"])
+	assert.Equal(t, "describe this", analyzeBody["prompt"])
+	// And the analyze response was parsed.
+	assert.Equal(t, "a cat", msgs[0].Content)
+}
+
+func TestRestGenerator_Upload_CaptureFromHeader(t *testing.T) {
+	var analyzeHeader string
+	uploadSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", "https://cdn.example/obj/99")
+		w.WriteHeader(http.StatusCreated)
+	}))
+	defer uploadSrv.Close()
+
+	analyzeSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		analyzeHeader = r.Header.Get("X-Upload-Url")
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer analyzeSrv.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":          analyzeSrv.URL,
+		"req_template": `{"prompt":"$INPUT"}`,
+		"headers":      map[string]any{"X-Upload-Url": "$UPLOAD_URL"},
+		"upload": map[string]any{
+			"uri":       uploadSrv.URL,
+			"body_mode": "raw_binary",
+			"capture":   map[string]any{"UPLOAD_URL": "header:Location"},
+		},
+	})
+	require.NoError(t, err)
+
+	conv := convWithImage("hi", "image/png", smallPNG)
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	assert.Equal(t, "https://cdn.example/obj/99", analyzeHeader)
+}
+
+// TestRestGenerator_Upload_PresignedURLInHeaderAndURI guards against jsonEscape
+// HTML-escaping "&" (and "<", ">") when a captured value is substituted into a
+// request HEADER or URI rather than a JSON body. Unlike a JSON body — which is
+// decoded server-side, so an HTML-escaped "&" round-trips fine — headers and
+// URIs have no such decode step: a literal "&" must survive on the wire byte
+// for byte, or a presigned-URL's query-string parameters (a very common
+// capture-and-replay use case) get corrupted.
+func TestRestGenerator_Upload_PresignedURLInHeaderAndURI(t *testing.T) {
+	const presignedURL = "https://bucket.s3.amazonaws.com/key?X-Amz-Algorithm=AWS4&X-Amz-Signature=abc123&X-Amz-Date=x"
+
+	var analyzeHeader string
+	var analyzePath string
+
+	uploadSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Location", presignedURL)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"file&42"}`))
+	}))
+	defer uploadSrv.Close()
+
+	analyzeSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		analyzeHeader = r.Header.Get("X-Upload-Url")
+		analyzePath = r.URL.Path
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer analyzeSrv.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":          analyzeSrv.URL + "/analyze/$FILE_ID",
+		"req_template": `{"prompt":"$INPUT"}`,
+		"headers":      map[string]any{"X-Upload-Url": "$UPLOAD_URL"},
+		"upload": map[string]any{
+			"uri":       uploadSrv.URL,
+			"body_mode": "raw_binary",
+			"capture": map[string]any{
+				"UPLOAD_URL": "header:Location",
+				"FILE_ID":    "$.id",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	conv := convWithImage("hi", "image/png", smallPNG)
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+
+	// The header must carry the presigned URL byte-for-byte: real ampersands,
+	// never the Unicode-escaped form that default JSON HTML-escaping would emit.
+	assert.Equal(t, presignedURL, analyzeHeader)
+	assert.NotContains(t, analyzeHeader, "\\u0026")
+
+	// An ampersand-bearing captured value substituted into the URI must also
+	// survive unescaped rather than being Unicode-escaped.
+	assert.Equal(t, "/analyze/file&42", analyzePath)
+}
+
+func TestRestGenerator_Upload_MultipartStep(t *testing.T) {
+	var gotField string
+	var gotBytes []byte
+	uploadSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, r.ParseMultipartForm(10<<20))
+		for name, files := range r.MultipartForm.File {
+			gotField = name
+			f, _ := files[0].Open()
+			defer func() { _ = f.Close() }()
+			gotBytes, _ = io.ReadAll(f)
+		}
+		_, _ = w.Write([]byte(`{"id":"m1"}`))
+	}))
+	defer uploadSrv.Close()
+
+	analyzeSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer analyzeSrv.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":          analyzeSrv.URL,
+		"req_template": `{"file":"$FILE_ID"}`,
+		"upload": map[string]any{
+			"uri":       uploadSrv.URL,
+			"multipart": map[string]any{"file_field": "upload", "filename": "x.png"},
+			"capture":   map[string]any{"FILE_ID": "$.id"},
+		},
+	})
+	require.NoError(t, err)
+
+	conv := convWithImage("classify", "image/png", smallPNG)
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.NoError(t, err)
+	assert.Equal(t, "upload", gotField)
+	assert.Equal(t, smallPNG, gotBytes)
+}
+
+func TestRestGenerator_Upload_NoImageErrors(t *testing.T) {
+	g, err := NewRest(registry.Config{
+		"uri": "http://analyze.invalid",
+		"upload": map[string]any{
+			"uri":       "http://upload.invalid",
+			"body_mode": "raw_binary",
+			"capture":   map[string]any{"FILE_ID": "$.id"},
+		},
+	})
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("no image")
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "upload")
+	assert.Contains(t, err.Error(), "image")
+}
+
+func TestRestGenerator_Upload_UploadFailurePropagates(t *testing.T) {
+	uploadSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer uploadSrv.Close()
+
+	g, err := NewRest(registry.Config{
+		"uri":          "http://analyze.invalid",
+		"req_template": `{"file":"$FILE_ID"}`,
+		"upload": map[string]any{
+			"uri":       uploadSrv.URL,
+			"body_mode": "raw_binary",
+			"capture":   map[string]any{"FILE_ID": "$.id"},
+		},
+	})
+	require.NoError(t, err)
+
+	conv := convWithImage("hi", "image/png", smallPNG)
+	_, err = g.Generate(context.Background(), conv, 1)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "upload")
+}
+
+func TestRestGenerator_SupportsVision_Upload(t *testing.T) {
+	g, err := NewRest(registry.Config{
+		"uri":          "http://analyze.invalid",
+		"req_template": `{"file":"$FILE_ID"}`, // main request has NO $IMAGE_
+		"upload": map[string]any{
+			"uri":       "http://upload.invalid",
+			"body_mode": "raw_binary",
+			"capture":   map[string]any{"FILE_ID": "$.id"},
+		},
+	})
+	require.NoError(t, err)
+	assert.True(t, g.(*Rest).SupportsVision())
+}

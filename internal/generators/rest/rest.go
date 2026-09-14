@@ -19,6 +19,7 @@ import (
 	"net/textproto"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -79,6 +80,10 @@ var (
 // raw HTTP request body (e.g. for endpoints that accept image/* directly).
 const bodyModeRawBinary = "raw_binary"
 
+// validCaptureKey restricts upload capture variable names to uppercase
+// alphanumeric and underscores, matching the runtime hook-var key rule.
+var validCaptureKey = regexp.MustCompile(`^[A-Z0-9_]+$`)
+
 // multipartConfig describes how to send the request as multipart/form-data.
 // The probe's image is attached as a file part under fileField; any additional
 // text fields are populated from templates (supporting $INPUT, $KEY, hook vars).
@@ -86,6 +91,30 @@ type multipartConfig struct {
 	fileField string
 	filename  string
 	fields    map[string]string
+}
+
+// requestSpec carries the per-request fields the builders need, so the same
+// builders serve both the main ("analyze") request and the pre-request upload.
+type requestSpec struct {
+	uri         string
+	method      string
+	headers     map[string]string
+	reqTemplate string
+	bodyMode    string
+	multipart   *multipartConfig
+}
+
+// mainSpec returns the requestSpec for the generator's primary request,
+// populated from the top-level configuration.
+func (r *Rest) mainSpec() requestSpec {
+	return requestSpec{
+		uri:         r.uri,
+		method:      r.method,
+		headers:     r.headers,
+		reqTemplate: r.reqTemplate,
+		bodyMode:    r.bodyMode,
+		multipart:   r.multipart,
+	}
 }
 
 // Rest is a generic REST API generator that makes HTTP requests to configured endpoints.
@@ -119,6 +148,10 @@ type Rest struct {
 	// Multimodal image transport
 	bodyMode  string           // "" (template) or bodyModeRawBinary
 	multipart *multipartConfig // non-nil when sending multipart/form-data
+
+	// Two-step upload flow: when set, an upload pre-request runs before the main
+	// request, capturing values substituted into it via $VAR placeholders.
+	upload *uploadConfig
 
 	// Raw response storage for runtime hooks
 	mu          sync.Mutex // protects lastRawResp
@@ -319,6 +352,11 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 		return nil, err
 	}
 
+	// Optional: two-step upload flow.
+	if err := r.configureUpload(cfg); err != nil {
+		return nil, err
+	}
+
 	// Optional: Rate limiting (requests per second)
 	// Supports both float64 (from JSON) and int
 	if rateLimit, ok := cfg["rate_limit"].(float64); ok && rateLimit > 0 {
@@ -382,9 +420,27 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 		img = &pm.Images[0]
 	}
 
+	// Two-step flow: upload the image first, capture handle(s) into the var map,
+	// then send the main request with the image omitted (it was consumed above).
+	if r.upload != nil {
+		captured, err := r.doUpload(ctx, conv, prompt, hookVars, img)
+		if err != nil {
+			return attempt.Message{}, err
+		}
+		merged := make(map[string]string, len(hookVars)+len(captured))
+		for k, v := range hookVars {
+			merged[k] = v
+		}
+		for k, v := range captured {
+			merged[k] = v // captured values win on key collision
+		}
+		hookVars = merged
+		img = nil
+	}
+
 	// Build the HTTP request body and content type according to the configured
 	// wire mode (raw binary, multipart, or JSON template).
-	req, err := r.buildRequest(ctx, conv, prompt, hookVars, img)
+	req, err := r.buildRequest(ctx, r.mainSpec(), conv, prompt, hookVars, img)
 	if err != nil {
 		return attempt.Message{}, err
 	}
@@ -454,24 +510,27 @@ func (r *Rest) callAPI(ctx context.Context, conv *attempt.Conversation) (attempt
 	return msg, nil
 }
 
-// buildRequest constructs the outgoing HTTP request for a single call,
-// dispatching on the configured image-transport mode. Image bytes (when an
-// image is attached) are placed on the wire per mode; img.Bytes()/ToBase64()
-// errors are surfaced (wrapped), never silently dropped.
+// buildRequest constructs an outgoing HTTP request for spec, dispatching on the
+// spec's image-transport mode. The spec's URI is run through populateTemplate so
+// $INPUT/$KEY/hook/captured vars (e.g. /analyze/$FILE_ID) resolve. Image bytes
+// (when an image is attached) are placed on the wire per mode; encode errors are
+// surfaced (wrapped), never silently dropped.
 func (r *Rest) buildRequest(
 	ctx context.Context,
+	spec requestSpec,
 	conv *attempt.Conversation,
 	prompt string,
 	hookVars map[string]string,
 	img *attempt.Image,
 ) (*http.Request, error) {
+	spec.uri = r.populateTemplate(spec.uri, prompt, hookVars)
 	switch {
-	case r.bodyMode == bodyModeRawBinary:
-		return r.buildRawBinaryRequest(ctx, prompt, hookVars, img)
-	case r.multipart != nil:
-		return r.buildMultipartRequest(ctx, prompt, hookVars, img)
+	case spec.bodyMode == bodyModeRawBinary:
+		return r.buildRawBinaryRequest(ctx, spec, prompt, hookVars, img)
+	case spec.multipart != nil:
+		return r.buildMultipartRequest(ctx, spec, prompt, hookVars, img)
 	default:
-		return r.buildTemplateRequest(ctx, conv, prompt, hookVars, img)
+		return r.buildTemplateRequest(ctx, spec, conv, prompt, hookVars, img)
 	}
 }
 
@@ -481,20 +540,17 @@ func (r *Rest) buildRequest(
 // and MIME values are JSON-safe, so no additional escaping is applied.
 func (r *Rest) buildTemplateRequest(
 	ctx context.Context,
+	spec requestSpec,
 	conv *attempt.Conversation,
 	prompt string,
 	hookVars map[string]string,
 	img *attempt.Image,
 ) (*http.Request, error) {
-	body := r.populateTemplate(r.reqTemplate, prompt, hookVars)
+	body := r.populateTemplate(spec.reqTemplate, prompt, hookVars)
 
-	// Replace $MESSAGES with full conversation as a JSON array of
-	// {"role","content"} objects. Enables multi-turn probes to send
-	// conversation history to REST endpoints.
-	// Template usage: "messages": $MESSAGES  (no quotes — raw JSON)
-	// Replaced after populateTemplate to prevent $INPUT/$KEY substitution
-	// inside message content.
-	if strings.Contains(body, "$MESSAGES") {
+	// Replace $MESSAGES with the full conversation as a JSON array. Guarded on a
+	// non-nil conv because the upload pre-request may build without one.
+	if conv != nil && strings.Contains(body, "$MESSAGES") {
 		body = strings.ReplaceAll(body, "$MESSAGES", conversationToJSON(conv))
 	}
 
@@ -510,17 +566,16 @@ func (r *Rest) buildTemplateRequest(
 
 	var req *http.Request
 	var err error
-	if r.method == "GET" {
-		// For GET requests, append to URL as query params
-		req, err = http.NewRequestWithContext(ctx, r.method, r.uri+"?"+body, nil)
+	if spec.method == "GET" {
+		req, err = http.NewRequestWithContext(ctx, spec.method, spec.uri+"?"+body, nil)
 	} else {
-		req, err = http.NewRequestWithContext(ctx, r.method, r.uri, bytes.NewBufferString(body))
+		req, err = http.NewRequestWithContext(ctx, spec.method, spec.uri, bytes.NewBufferString(body))
 	}
 	if err != nil {
 		return nil, fmt.Errorf("rest: failed to create request: %w", err)
 	}
 
-	r.applyHeaders(req, prompt, hookVars)
+	r.applyHeaders(req, spec.headers, prompt, hookVars)
 	return req, nil
 }
 
@@ -530,6 +585,7 @@ func (r *Rest) buildTemplateRequest(
 // can override it. $INPUT/$MESSAGES template population is skipped.
 func (r *Rest) buildRawBinaryRequest(
 	ctx context.Context,
+	spec requestSpec,
 	prompt string,
 	hookVars map[string]string,
 	img *attempt.Image,
@@ -543,13 +599,13 @@ func (r *Rest) buildRawBinaryRequest(
 		return nil, fmt.Errorf("rest: read image bytes: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, r.method, r.uri, bytes.NewReader(data))
+	req, err := http.NewRequestWithContext(ctx, spec.method, spec.uri, bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("rest: failed to create request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", img.MimeType)
-	r.applyHeaders(req, prompt, hookVars)
+	r.applyHeaders(req, spec.headers, prompt, hookVars)
 	return req, nil
 }
 
@@ -561,6 +617,7 @@ func (r *Rest) buildRawBinaryRequest(
 // the actual body.
 func (r *Rest) buildMultipartRequest(
 	ctx context.Context,
+	spec requestSpec,
 	prompt string,
 	hookVars map[string]string,
 	img *attempt.Image,
@@ -568,13 +625,13 @@ func (r *Rest) buildMultipartRequest(
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
 
-	keys := make([]string, 0, len(r.multipart.fields))
-	for k := range r.multipart.fields {
+	keys := make([]string, 0, len(spec.multipart.fields))
+	for k := range spec.multipart.fields {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		value := r.populateTemplate(r.multipart.fields[k], prompt, hookVars)
+		value := r.populateTemplate(spec.multipart.fields[k], prompt, hookVars)
 		if err := writer.WriteField(k, value); err != nil {
 			return nil, fmt.Errorf("rest: write multipart field %q: %w", k, err)
 		}
@@ -587,7 +644,7 @@ func (r *Rest) buildMultipartRequest(
 		}
 		header := textproto.MIMEHeader{}
 		header.Set("Content-Disposition", fmt.Sprintf(
-			`form-data; name=%q; filename=%q`, r.multipart.fileField, r.multipart.filename))
+			`form-data; name=%q; filename=%q`, spec.multipart.fileField, spec.multipart.filename))
 		header.Set("Content-Type", img.MimeType)
 		part, err := writer.CreatePart(header)
 		if err != nil {
@@ -602,20 +659,19 @@ func (r *Rest) buildMultipartRequest(
 		return nil, fmt.Errorf("rest: close multipart writer: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, r.method, r.uri, &buf)
+	req, err := http.NewRequestWithContext(ctx, spec.method, spec.uri, &buf)
 	if err != nil {
 		return nil, fmt.Errorf("rest: failed to create request: %w", err)
 	}
 
-	r.applyHeaders(req, prompt, hookVars)
-	// Set the multipart Content-Type (with boundary) last so it matches the body.
+	r.applyHeaders(req, spec.headers, prompt, hookVars)
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	return req, nil
 }
 
-// applyHeaders sets the configured headers on req, substituting templates.
-func (r *Rest) applyHeaders(req *http.Request, prompt string, hookVars map[string]string) {
-	for k, v := range r.headers {
+// applyHeaders sets the given headers on req, substituting templates.
+func (r *Rest) applyHeaders(req *http.Request, headers map[string]string, prompt string, hookVars map[string]string) {
+	for k, v := range headers {
 		req.Header.Set(k, r.populateTemplate(v, prompt, hookVars))
 	}
 }
@@ -677,15 +733,25 @@ func conversationToJSON(conv *attempt.Conversation) string {
 	return string(data)
 }
 
-// jsonEscape escapes a string for use in JSON.
+// jsonEscape escapes a string for use in JSON (quotes, backslashes, control
+// characters). HTML escaping is deliberately disabled — json.Marshal's default
+// SetEscapeHTML(true) rewrites the raw bytes '&', '<', '>' to the Unicode
+// escape sequences \u0026, \u003c, \u003e, which is harmless in a JSON body
+// (the server JSON-decodes it back to the original byte) but corrupts values
+// substituted into a request HEADER or URI, where there is no decode step.
+// Raw '&<>' are valid inside a JSON string, valid in header values, and
+// correct in URL query strings, so disabling HTML escaping fixes header/URI
+// substitution without breaking JSON bodies.
 func jsonEscape(s string) string {
-	// Use json.Marshal and trim the surrounding quotes
-	data, err := json.Marshal(s)
-	if err != nil {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(s); err != nil {
 		return s
 	}
-	// Remove surrounding quotes
-	return string(data[1 : len(data)-1])
+	out := buf.String()
+	// enc.Encode wraps in quotes and appends a trailing newline; strip both.
+	return out[1 : len(out)-2]
 }
 
 // parseResponse extracts the response content based on configuration.
@@ -1040,38 +1106,42 @@ func (r *Rest) Description() string {
 // the configured wire shape can actually carry the image: raw-binary body,
 // multipart file part, or a JSON template containing an $IMAGE_ placeholder.
 func (r *Rest) SupportsVision() bool {
+	if r.upload != nil && r.upload.carriesImage() {
+		return true
+	}
 	return r.bodyMode == bodyModeRawBinary ||
 		r.multipart != nil ||
 		strings.Contains(r.reqTemplate, "$IMAGE_")
 }
 
-// configureImageTransport parses the optional body_mode and multipart settings
-// that control how a probe's image is placed on the wire. body_mode raw_binary
-// and multipart are mutually exclusive.
-func (r *Rest) configureImageTransport(cfg registry.Config) error {
-	if mode, ok := cfg["body_mode"].(string); ok && mode != "" {
+// parseImageTransport reads the optional body_mode and multipart settings from a
+// config sub-map and returns the resulting transport. body_mode raw_binary and
+// multipart are mutually exclusive. Used for both the top-level request and the
+// upload pre-request.
+func parseImageTransport(m map[string]any) (string, *multipartConfig, error) {
+	var bodyMode string
+	if mode, ok := m["body_mode"].(string); ok && mode != "" {
 		if mode != bodyModeRawBinary {
-			return fmt.Errorf("rest: invalid body_mode %q (only %q is supported)", mode, bodyModeRawBinary)
+			return "", nil, fmt.Errorf("rest: invalid body_mode %q (only %q is supported)", mode, bodyModeRawBinary)
 		}
-		r.bodyMode = mode
+		bodyMode = mode
 	}
 
-	raw, ok := cfg["multipart"]
+	raw, ok := m["multipart"]
 	if !ok {
-		return nil
+		return bodyMode, nil, nil
 	}
 	mpRaw, ok := raw.(map[string]any)
 	if !ok {
-		return fmt.Errorf("rest: multipart must be an object")
+		return "", nil, fmt.Errorf("rest: multipart must be an object")
 	}
-
-	if r.bodyMode == bodyModeRawBinary {
-		return fmt.Errorf("rest: body_mode %q and multipart are mutually exclusive", bodyModeRawBinary)
+	if bodyMode == bodyModeRawBinary {
+		return "", nil, fmt.Errorf("rest: body_mode %q and multipart are mutually exclusive", bodyModeRawBinary)
 	}
 
 	fileField, _ := mpRaw["file_field"].(string)
 	if fileField == "" {
-		return fmt.Errorf("rest: multipart requires a non-empty file_field")
+		return "", nil, fmt.Errorf("rest: multipart requires a non-empty file_field")
 	}
 
 	filename := "image.png"
@@ -1088,10 +1158,233 @@ func (r *Rest) configureImageTransport(cfg registry.Config) error {
 		}
 	}
 
-	r.multipart = &multipartConfig{
-		fileField: fileField,
-		filename:  filename,
-		fields:    fields,
+	return bodyMode, &multipartConfig{fileField: fileField, filename: filename, fields: fields}, nil
+}
+
+// configureImageTransport parses the top-level body_mode and multipart settings
+// that control how a probe's image is placed on the wire.
+func (r *Rest) configureImageTransport(cfg registry.Config) error {
+	bodyMode, mp, err := parseImageTransport(cfg)
+	if err != nil {
+		return err
 	}
+	r.bodyMode = bodyMode
+	r.multipart = mp
 	return nil
+}
+
+// uploadConfig describes the pre-request "upload" step of a two-step multimodal
+// flow: it sends the probe's image to an upload endpoint and captures named
+// values from the response for substitution into the main ("analyze") request.
+type uploadConfig struct {
+	uri         string
+	method      string
+	headers     map[string]string
+	reqTemplate string
+	bodyMode    string
+	multipart   *multipartConfig
+	// capture maps a variable name (^[A-Z0-9_]+$) to a source: a JSONPath into
+	// the response body ("$.data.id"), or "header:Name" for a response header.
+	capture map[string]string
+}
+
+// toRequestSpec adapts the upload config to the shared requestSpec used by the
+// request builders.
+func (u *uploadConfig) toRequestSpec() requestSpec {
+	return requestSpec{
+		uri:         u.uri,
+		method:      u.method,
+		headers:     u.headers,
+		reqTemplate: u.reqTemplate,
+		bodyMode:    u.bodyMode,
+		multipart:   u.multipart,
+	}
+}
+
+// carriesImage reports whether the upload step is configured with somewhere for
+// the image to go (raw-binary body, multipart file part, or an $IMAGE_ template).
+func (u *uploadConfig) carriesImage() bool {
+	return u.bodyMode == bodyModeRawBinary ||
+		u.multipart != nil ||
+		strings.Contains(u.reqTemplate, "$IMAGE_")
+}
+
+// configureUpload parses and validates the optional "upload" config block.
+func (r *Rest) configureUpload(cfg registry.Config) error {
+	raw, ok := cfg["upload"]
+	if !ok {
+		return nil
+	}
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return fmt.Errorf("rest: upload must be an object")
+	}
+
+	u := &uploadConfig{
+		method:  "POST",
+		headers: make(map[string]string),
+		capture: make(map[string]string),
+	}
+
+	uri, _ := m["uri"].(string)
+	if uri == "" {
+		return fmt.Errorf("rest: upload requires a non-empty uri")
+	}
+	u.uri = uri
+
+	if method, ok := m["method"].(string); ok && method != "" {
+		u.method = strings.ToUpper(method)
+	}
+
+	if headers, ok := m["headers"].(map[string]any); ok {
+		for k, v := range headers {
+			if vs, ok := v.(string); ok {
+				u.headers[k] = vs
+			}
+		}
+	}
+
+	if tmpl, ok := m["req_template"].(string); ok {
+		u.reqTemplate = tmpl
+	}
+
+	bodyMode, mp, err := parseImageTransport(m)
+	if err != nil {
+		return err
+	}
+	u.bodyMode = bodyMode
+	u.multipart = mp
+
+	if !u.carriesImage() {
+		return fmt.Errorf("rest: upload requires an image transport mode " +
+			"(body_mode raw_binary, multipart, or a req_template containing $IMAGE_)")
+	}
+
+	// The capture map is mandatory: a two-step flow exists to pull a handle out
+	// of the upload response and substitute it into the main request. A missing,
+	// wrong-typed, or empty capture is a config error, not a silent skip — else
+	// the upload would run and the main request would fire with placeholders like
+	// $FILE_ID unresolved, defeating the fail-loud contract.
+	rawCaptureAny, hasCapture := m["capture"]
+	if !hasCapture {
+		return fmt.Errorf("rest: upload requires a capture map " +
+			"(a two-step flow must capture at least one handle to substitute into the main request)")
+	}
+	rawCapture, ok := rawCaptureAny.(map[string]any)
+	if !ok {
+		return fmt.Errorf("rest: upload capture must be an object mapping NAME to a source " +
+			"($jsonpath into the body or header:Name)")
+	}
+	for k, v := range rawCapture {
+		vs, ok := v.(string)
+		if !ok {
+			return fmt.Errorf("rest: upload capture %q must be a string", k)
+		}
+		if !validCaptureKey.MatchString(k) {
+			return fmt.Errorf("rest: upload capture key %q must match ^[A-Z0-9_]+$", k)
+		}
+		if vs == "" {
+			return fmt.Errorf("rest: upload capture %q must have a non-empty source", k)
+		}
+		if strings.HasPrefix(vs, captureHeaderPrefix) && strings.TrimPrefix(vs, captureHeaderPrefix) == "" {
+			return fmt.Errorf("rest: upload capture %q: header source must name a header (got %q)", k, vs)
+		}
+		u.capture[k] = vs
+	}
+	if len(u.capture) == 0 {
+		return fmt.Errorf("rest: upload capture must define at least one entry")
+	}
+
+	r.upload = u
+	return nil
+}
+
+// captureHeaderPrefix marks a capture source that reads a response header
+// ("header:Location") rather than a JSONPath into the response body.
+const captureHeaderPrefix = "header:"
+
+// parseCapture applies the upload step's capture rules to the upload response,
+// returning variable name -> captured value. Body captures use the JSON field /
+// JSONPath engine; "header:Name" captures read a response header. A declared
+// capture that resolves to an empty value is an error (fail-loud: never let the
+// main request proceed with a missing handle).
+func (r *Rest) parseCapture(resp *http.Response, body []byte) (map[string]string, error) {
+	out := make(map[string]string, len(r.upload.capture))
+
+	// Decode the body once, only if a body capture is present.
+	var decoded any
+	var decodedErr error
+	var decodedOnce bool
+	ensureDecoded := func() error {
+		if !decodedOnce {
+			decodedOnce = true
+			decodedErr = json.Unmarshal(body, &decoded)
+		}
+		return decodedErr
+	}
+
+	for name, source := range r.upload.capture {
+		if strings.HasPrefix(source, captureHeaderPrefix) {
+			headerName := strings.TrimPrefix(source, captureHeaderPrefix)
+			val := resp.Header.Get(headerName)
+			if val == "" {
+				return nil, fmt.Errorf("rest: upload capture %q: response header %q is empty or absent", name, headerName)
+			}
+			out[name] = val
+			continue
+		}
+
+		if err := ensureDecoded(); err != nil {
+			return nil, fmt.Errorf("rest: upload capture %q: parse response JSON: %w", name, err)
+		}
+		val, err := r.extractField(decoded, source)
+		if err != nil {
+			return nil, fmt.Errorf("rest: upload capture %q: %w", name, err)
+		}
+		if val == "" {
+			return nil, fmt.Errorf("rest: upload capture %q resolved to an empty value at %q", name, source)
+		}
+		out[name] = val
+	}
+
+	return out, nil
+}
+
+// doUpload runs the two-step flow's pre-request: it sends the probe's image to
+// the upload endpoint and returns the captured variables. Any non-2xx status or
+// an unresolved capture is an error, so the main request never proceeds with a
+// missing handle.
+func (r *Rest) doUpload(
+	ctx context.Context,
+	conv *attempt.Conversation,
+	prompt string,
+	hookVars map[string]string,
+	img *attempt.Image,
+) (map[string]string, error) {
+	if img == nil {
+		return nil, fmt.Errorf("rest: upload flow requires an image attachment")
+	}
+
+	req, err := r.buildRequest(ctx, r.upload.toRequestSpec(), conv, prompt, hookVars, img)
+	if err != nil {
+		return nil, fmt.Errorf("rest: build upload request: %w", err)
+	}
+
+	resp, err := r.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("rest: upload request failed: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("rest: upload returned non-2xx status: %d %s", resp.StatusCode, resp.Status)
+	}
+
+	const maxResponseSize = 10 * 1024 * 1024
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseSize))
+	if err != nil {
+		return nil, fmt.Errorf("rest: read upload response: %w", err)
+	}
+
+	return r.parseCapture(resp, body)
 }
