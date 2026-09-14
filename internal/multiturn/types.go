@@ -132,6 +132,23 @@ func ExtractExtendedJSON(s string) *QuestionResult { return parse.ExtractExtende
 // TruncateStr shortens a string to maxLen with ellipsis.
 func TruncateStr(s string, maxLen int) string { return parse.TruncateStr(s, maxLen) }
 
+// DetectPlateau returns true if the last 3 turns in history all scored within
+// ±threshold of each other, indicating the attacker is stuck. Returns the
+// approximate score level if plateau is detected.
+func DetectPlateau(history []TurnRecord, threshold float64) (bool, float64) {
+	if len(history) < 3 {
+		return false, 0
+	}
+	last3 := history[len(history)-3:]
+	base := last3[0].JudgeScore
+	for _, t := range last3 {
+		if t.JudgeScore > base+threshold || t.JudgeScore < base-threshold {
+			return false, 0
+		}
+	}
+	return true, base
+}
+
 // ParseRefusalResponse extracts the refusal verdict from judge output.
 func ParseRefusalResponse(output string) bool { return parse.ParseRefusalResponse(output) }
 

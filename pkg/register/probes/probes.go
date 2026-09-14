@@ -35,6 +35,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/latentinjection"
 	_ "github.com/praetorian-inc/augustus/internal/probes/leakreplay"
 	_ "github.com/praetorian-inc/augustus/internal/probes/lmrc"
+	_ "github.com/praetorian-inc/augustus/internal/probes/lrmagent"
 	_ "github.com/praetorian-inc/augustus/internal/probes/malwaregen"
 	_ "github.com/praetorian-inc/augustus/internal/probes/mcpconfig"
 	_ "github.com/praetorian-inc/augustus/internal/probes/mcpprimitive"
