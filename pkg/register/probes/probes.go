@@ -52,6 +52,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/probes/poetry"
 	_ "github.com/praetorian-inc/augustus/internal/probes/prefix"
 	_ "github.com/praetorian-inc/augustus/internal/probes/promptinject"
+	_ "github.com/praetorian-inc/augustus/internal/probes/ragembed"
 	_ "github.com/praetorian-inc/augustus/internal/probes/ragpoisoning"
 	_ "github.com/praetorian-inc/augustus/internal/probes/realtoxicityprompts"
 	_ "github.com/praetorian-inc/augustus/internal/probes/reasoning"
