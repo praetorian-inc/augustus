@@ -233,7 +233,7 @@ func setDiff(live, documented []string) (added, removed []string) {
 }
 
 func registeredNameSet() map[string]struct{} {
-	names := slices.Concat(probes.List(), recon.List(), generators.List())
+	names := slices.Concat(probes.List(), recon.List(), generators.List(), detectors.List())
 	set := make(map[string]struct{}, len(names))
 	for _, n := range names {
 		set[n] = struct{}{}
