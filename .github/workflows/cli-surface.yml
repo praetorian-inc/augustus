@@ -1,0 +1,25 @@
+name: CLI Surface Drift
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  cli-surface:
+    uses: praetorian-inc/public-workflows/.github/workflows/cli-surface-drift.yml@0e6d6f5fd153d7ccddf417a41e4273caeb27cd0b  # v2.19.11
+    permissions:
+      contents: read
+    with:
+      gate-test-cmd: "go test ./cmd/augustus -run TestCLISurface -count=1 -v"
+      expected-tests: "TestCLISurface,TestCLISurfaceDocLint,TestCLISurfaceGateDetectsRename"
+      doc-paths: "docs README.md"
+      timeout-minutes: 15
