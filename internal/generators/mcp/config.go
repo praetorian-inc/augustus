@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -173,10 +175,8 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 
 	// Mode.
 	cfg.Mode = registry.GetString(m, "mode", cfg.Mode)
-	switch cfg.Mode {
-	case ModeToolCall, ModeListTools:
-	default:
-		return cfg, fmt.Errorf("mcp: mode must be %q or %q, got %q", ModeToolCall, ModeListTools, cfg.Mode)
+	if !slices.Contains(Modes(), cfg.Mode) {
+		return cfg, fmt.Errorf("mcp: mode must be %s, got %q", quotedList(Modes()), cfg.Mode)
 	}
 
 	// tool_call parameters. These are validated lazily (in callTool) rather than
@@ -204,28 +204,28 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 // infers the streamable HTTP transport from the presence of 'endpoint'. All
 // supported transports are network transports; none launches a subprocess.
 func resolveTransport(cfg *Config) error {
-	switch cfg.Transport {
-	case TransportHTTP:
-		if cfg.Endpoint == "" {
-			return fmt.Errorf("mcp: transport %q requires 'endpoint'", TransportHTTP)
-		}
-	case TransportSSE:
-		if cfg.Endpoint == "" {
-			return fmt.Errorf("mcp: transport %q requires 'endpoint' (the /sse URL)", TransportSSE)
-		}
-	case TransportAuto:
-		if cfg.Endpoint == "" {
-			return fmt.Errorf("mcp: transport %q requires 'endpoint' (an http/https URL)", TransportAuto)
-		}
-	case "":
+	if cfg.Transport == "" {
 		if cfg.Endpoint == "" {
 			return fmt.Errorf("mcp: no transport configured; set 'endpoint' (http/https URL)")
 		}
 		cfg.Transport = TransportHTTP
-	default:
-		return fmt.Errorf("mcp: transport must be %q, %q, or %q, got %q", TransportHTTP, TransportSSE, TransportAuto, cfg.Transport)
+		return nil
+	}
+	if !slices.Contains(Transports(), cfg.Transport) {
+		return fmt.Errorf("mcp: transport must be %s, got %q", quotedList(Transports()), cfg.Transport)
+	}
+	if cfg.Endpoint == "" {
+		return fmt.Errorf("mcp: transport %q requires 'endpoint'", cfg.Transport)
 	}
 	return nil
+}
+
+func quotedList(names []string) string {
+	quoted := make([]string, len(names))
+	for i, n := range names {
+		quoted[i] = fmt.Sprintf("%q", n)
+	}
+	return strings.Join(quoted, ", ")
 }
 
 // parseRateLimit reads a non-negative rate_limit accepting int or float.
