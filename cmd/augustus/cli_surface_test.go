@@ -50,7 +50,7 @@ type mcpVocab struct {
 
 // docTokenRe matches documented family.Name tokens. Only a subset is gated —
 // see isGatedDocToken.
-var docTokenRe = regexp.MustCompile(`\b((?:mcptool|mcptransport|mcpconfig|mcpprimitive|recon|mcp)\.[A-Za-z0-9_]+)\b`)
+var docTokenRe = regexp.MustCompile(`\b((?:mcptool|mcptransport|mcpconfig|mcpprimitive|mcpsecrets|recon|mcp)\.[A-Za-z0-9_]+)\b`)
 
 func TestCLISurface(t *testing.T) {
 	root := repoRoot(t)
@@ -152,20 +152,25 @@ func snapshotSurface() cliSurface {
 		Recons:        productionNames(recon.List()),
 		MCP: mcpVocab{
 			Generator:  "mcp.MCP",
-			Transports: []string{mcpgen.TransportHTTP, mcpgen.TransportSSE, mcpgen.TransportAuto},
-			Modes:      []string{mcpgen.ModeToolCall, mcpgen.ModeListTools},
-			Required:   []string{"endpoint"},
+			Transports: mcpgen.Transports(),
+			Modes:      mcpgen.Modes(),
+			Required:   mcpgen.RequiredKeys(),
 		},
 	}
 }
 
 // productionNames drops test-only registrations (e.g. recon.fakeOK from
-// recon_scan_test.go init). Production names are family.ExportedIdent.
+// recon_scan_test.go init, or test.ProbeCfgLeakSentinel whose local part is
+// exported). Production names are family.ExportedIdent, excluding family
+// "test" (package-test registrations that pollute List() under -shuffle).
 func productionNames(names []string) []string {
 	out := make([]string, 0, len(names))
 	for _, n := range names {
-		_, local, ok := strings.Cut(n, ".")
+		family, local, ok := strings.Cut(n, ".")
 		if !ok || local == "" || local[0] < 'A' || local[0] > 'Z' {
+			continue
+		}
+		if family == "test" {
 			continue
 		}
 		out = append(out, n)
@@ -242,7 +247,7 @@ func registeredNameSet() map[string]struct{} {
 }
 
 // isGatedDocToken reports whether a regex match looks like a registered CLI
-// name. Family prefixes (mcptool./mcptransport./mcpconfig./mcpprimitive./recon.)
+// name. Family prefixes (mcptool./mcptransport./mcpconfig./mcpprimitive./mcpsecrets./recon.)
 // and the exact generator mcp.MCP are gated; other mcp.* tokens (SDK types)
 // are not. The local part must be ExportedIdent so filenames (mcpconfig.yaml,
 // recon.go) and config keys (recon.settings) are ignored. recon.* package APIs
@@ -257,7 +262,7 @@ func isGatedDocToken(tok string) bool {
 		return false
 	}
 	switch family {
-	case "mcptool", "mcptransport", "mcpconfig", "mcpprimitive":
+	case "mcptool", "mcptransport", "mcpconfig", "mcpprimitive", "mcpsecrets":
 		return true
 	case "recon":
 		return strings.HasPrefix(name, "MCP")
