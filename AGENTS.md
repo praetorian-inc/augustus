@@ -15,9 +15,10 @@ make lint                  # pinned golangci-lint v2.13.1 via go run
 golangci-lint fmt ./...    # gofumpt + goimports — plain go fmt fails CI
 make generate              # pkg/register blank-imports from internal/
 make generate-check
+go test ./cmd/augustus -run TestCLISurface -update   # rewrite docs/cli-surface.json
 ```
 
-Lint is `.golangci.yml` (v2 `standard` linters plus `gofumpt`/`goimports`). CI is `.github/workflows/ci.yml`. After adding a package under `internal/`, run `make generate` or the binary will not see it. Run `make generate-check` separately to verify generated registration files are current; `make test` does not.
+Lint is `.golangci.yml` (v2 `standard` linters plus `gofumpt`/`goimports`). CI is `.github/workflows/ci.yml`. After adding a package under `internal/`, run `make generate` or the binary will not see it. Run `make generate-check` separately to verify generated registration files are current; `make test` does not. After adding or renaming a generator, probe, detector, buff, harness, or recon module, rewrite `docs/cli-surface.json` with the `-update` command above or the `cli-surface` workflow fails.
 
 ## Scanner contracts
 

@@ -103,6 +103,74 @@ func TestConfigFromMap_Errors(t *testing.T) {
 	}
 }
 
+func TestConfigFromMap_VocabIsAllowlist(t *testing.T) {
+	for _, transport := range Transports() {
+		t.Run("transport/"+transport, func(t *testing.T) {
+			cfg, err := ConfigFromMap(registry.Config{
+				"transport": transport,
+				"endpoint":  "http://x/mcp",
+				"tool_name": "t",
+				"arg_name":  "q",
+			})
+			if err != nil {
+				t.Fatalf("ConfigFromMap() error = %v", err)
+			}
+			if cfg.Transport != transport {
+				t.Errorf("Transport = %q, want %q", cfg.Transport, transport)
+			}
+		})
+	}
+
+	for _, mode := range Modes() {
+		t.Run("mode/"+mode, func(t *testing.T) {
+			cfg, err := ConfigFromMap(registry.Config{
+				"endpoint":  "http://x/mcp",
+				"mode":      mode,
+				"tool_name": "t",
+				"arg_name":  "q",
+			})
+			if err != nil {
+				t.Fatalf("ConfigFromMap() error = %v", err)
+			}
+			if cfg.Mode != mode {
+				t.Errorf("Mode = %q, want %q", cfg.Mode, mode)
+			}
+		})
+	}
+
+	t.Run("unknown transport lists Transports()", func(t *testing.T) {
+		_, err := ConfigFromMap(registry.Config{
+			"transport": "websocket",
+			"endpoint":  "http://x/mcp",
+		})
+		if err == nil {
+			t.Fatal(`ConfigFromMap() expected error for transport "websocket", got nil`)
+		}
+		msg := err.Error()
+		for _, name := range Transports() {
+			if !strings.Contains(msg, name) {
+				t.Errorf("error = %q, want substring %q (every Transports() name)", msg, name)
+			}
+		}
+	})
+
+	t.Run("unknown mode lists Modes()", func(t *testing.T) {
+		_, err := ConfigFromMap(registry.Config{
+			"endpoint": "http://x/mcp",
+			"mode":     "telepathy",
+		})
+		if err == nil {
+			t.Fatal(`ConfigFromMap() expected error for mode "telepathy", got nil`)
+		}
+		msg := err.Error()
+		for _, name := range Modes() {
+			if !strings.Contains(msg, name) {
+				t.Errorf("error = %q, want substring %q (every Modes() name)", msg, name)
+			}
+		}
+	})
+}
+
 func TestConfigFromMap_Defaults(t *testing.T) {
 	cfg, err := ConfigFromMap(registry.Config{"endpoint": "http://x/mcp", "tool_name": "t", "arg_name": "q"})
 	if err != nil {
