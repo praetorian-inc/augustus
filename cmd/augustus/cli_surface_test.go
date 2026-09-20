@@ -96,7 +96,7 @@ func TestCLISurfaceDocLint(t *testing.T) {
 				if _, ok := registered[tok]; ok {
 					continue
 				}
-				issues = append(issues, fmt.Sprintf("%s:%d: %s is not a registered probe, recon module, or generator", rel, i+1, tok))
+				issues = append(issues, fmt.Sprintf("%s:%d: %s is not a registered probe, recon module, generator, or detector", rel, i+1, tok))
 			}
 		}
 	}
@@ -161,8 +161,10 @@ func snapshotSurface() cliSurface {
 
 // productionNames drops test-only registrations (e.g. recon.fakeOK from
 // recon_scan_test.go init, or test.ProbeCfgLeakSentinel whose local part is
-// exported). Production names are family.ExportedIdent, excluding family
-// "test" (package-test registrations that pollute List() under -shuffle).
+// exported). Production names are family.ExportedIdent; family "test" names
+// are kept unless the local part contains "Sentinel" (test-file sentinels
+// that pollute List() under -shuffle). Public CLI names such as test.Blank
+// and test.Repeat stay in the snapshot.
 func productionNames(names []string) []string {
 	out := make([]string, 0, len(names))
 	for _, n := range names {
@@ -170,7 +172,7 @@ func productionNames(names []string) []string {
 		if !ok || local == "" || local[0] < 'A' || local[0] > 'Z' {
 			continue
 		}
-		if family == "test" {
+		if family == "test" && strings.Contains(local, "Sentinel") {
 			continue
 		}
 		out = append(out, n)
