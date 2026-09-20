@@ -45,6 +45,21 @@ const (
 	ModeListTools = "list_tools"
 )
 
+// Transports returns the MCP generator's supported transport names.
+func Transports() []string {
+	return []string{TransportHTTP, TransportSSE, TransportAuto}
+}
+
+// Modes returns the MCP generator's supported Generate modes.
+func Modes() []string {
+	return []string{ModeToolCall, ModeListTools}
+}
+
+// RequiredKeys returns config keys every MCP transport requires.
+func RequiredKeys() []string {
+	return []string{"endpoint"}
+}
+
 // Config holds typed configuration for the MCP generator.
 //
 // The configuration vocabulary intentionally overlaps the REST and WebSocket
