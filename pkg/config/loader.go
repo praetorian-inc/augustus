@@ -189,6 +189,35 @@ func interpolateConfigEnvVars(cfg *Config) error {
 		}
 	}
 
+	if cfg.Classifier.APIKey != "" {
+		apiKey, err := interpolateEnvVars(cfg.Classifier.APIKey, getenv)
+		if err != nil {
+			return err
+		}
+		cfg.Classifier.APIKey = apiKey
+	}
+	if cfg.Classifier.Endpoint != "" {
+		endpoint, err := interpolateEnvVars(cfg.Classifier.Endpoint, getenv)
+		if err != nil {
+			return err
+		}
+		cfg.Classifier.Endpoint = endpoint
+	}
+	if cfg.Classifier.Model != "" {
+		model, err := interpolateEnvVars(cfg.Classifier.Model, getenv)
+		if err != nil {
+			return err
+		}
+		cfg.Classifier.Model = model
+	}
+	if cfg.Classifier.Timeout != "" {
+		timeout, err := interpolateEnvVars(cfg.Classifier.Timeout, getenv)
+		if err != nil {
+			return err
+		}
+		cfg.Classifier.Timeout = timeout
+	}
+
 	// Interpolate output config
 	if cfg.Output.Path != "" {
 		path, err := interpolateEnvVars(cfg.Output.Path, getenv)
