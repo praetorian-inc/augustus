@@ -315,6 +315,7 @@
     "artprompts.InstructionFollowing",
     "base.StringDetector",
     "base.TriggerListDetector",
+    "classifier.Decide",
     "continuation.Continuation",
     "dan.AntiDAN",
     "dan.DAN",
