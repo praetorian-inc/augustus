@@ -18,10 +18,11 @@ concurrency:
 
 jobs:
   codex-review:
-    uses: praetorian-inc/public-workflows/.github/workflows/codex-code.yml@dc359d4cf6ade393f811c13533b1a3abb780f5d1  # v2.16.7
+    uses: praetorian-inc/public-workflows/.github/workflows/codex-code.yml@df013e925b83509fc81697e01e04142b54cffb26  # df013e9
     permissions:
       contents: read
       pull-requests: write
+      actions: read
     with:
       model: "gpt-5.6-sol"
     secrets:
