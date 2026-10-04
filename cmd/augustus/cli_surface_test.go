@@ -56,6 +56,8 @@ type configKeys struct {
 	Optional []string `json:"optional"`
 	// Aliases maps a required key to the optional keys accepted in its place.
 	Aliases map[string][]string `json:"aliases,omitempty"`
+	// EnvFallbacks maps a required key to the environment variable accepted in its place.
+	EnvFallbacks map[string]string `json:"envFallbacks,omitempty"`
 }
 
 type mcpVocab struct {
@@ -76,7 +78,8 @@ var docTokenRe = regexp.MustCompile(`\b((?:mcptool|mcptransport|mcpconfig|mcppri
 // names files that parse an out-of-scope generator's config. skipFuncs names
 // functions ("Name" or "Recv.Method") whose reads are not the production parse
 // path: they are excluded from the equality check but must exist and read only
-// allowlisted keys. aliases is nil for a parser with no aliased required key.
+// allowlisted keys. aliases is nil for a parser with no aliased required key;
+// envFallbacks is nil for a parser with no env-satisfiable required key.
 var configParsers = []struct {
 	names              []string
 	dir                string
@@ -84,15 +87,16 @@ var configParsers = []struct {
 	skipFuncs          []string
 	required, optional func() []string
 	aliases            func() map[string][]string
+	envFallbacks       func() map[string]string
 }{
-	{[]string{"litellm.LiteLLM"}, "internal/generators/litellm", nil, nil, litellmgen.RequiredKeys, litellmgen.OptionalKeys, litellmgen.KeyAliases},
-	{[]string{"mcp.MCP"}, "internal/generators/mcp", nil, nil, mcpgen.RequiredKeys, mcpgen.OptionalKeys, mcpgen.KeyAliases},
-	{[]string{"ollama.Ollama", "ollama.OllamaChat"}, "internal/generators/ollama", nil, nil, ollamagen.RequiredKeys, ollamagen.OptionalKeys, nil},
+	{[]string{"litellm.LiteLLM"}, "internal/generators/litellm", nil, nil, litellmgen.RequiredKeys, litellmgen.OptionalKeys, litellmgen.KeyAliases, nil},
+	{[]string{"mcp.MCP"}, "internal/generators/mcp", nil, nil, mcpgen.RequiredKeys, mcpgen.OptionalKeys, mcpgen.KeyAliases, nil},
+	{[]string{"ollama.Ollama", "ollama.OllamaChat"}, "internal/generators/ollama", nil, nil, ollamagen.RequiredKeys, ollamagen.OptionalKeys, nil, nil},
 	// openai.OpenAIReasoning (reasoning*.go) has its own parser and is not documented by using-augustus (out of scope for ENG-8420).
-	{[]string{"openai.OpenAI"}, "internal/generators/openai", []string{"reasoning.go", "reasoning_config.go"}, nil, openaigen.RequiredKeys, openaigen.OptionalKeys, nil},
+	{[]string{"openai.OpenAI"}, "internal/generators/openai", []string{"reasoning.go", "reasoning_config.go"}, nil, openaigen.RequiredKeys, openaigen.OptionalKeys, nil, openaigen.KeyEnvFallbacks},
 	// ConfigFromMap has no production caller; NewRest is the parser, so its
 	// overlapping reads must not mask a key NewRest stops reading.
-	{[]string{"rest.Rest"}, "internal/generators/rest", nil, []string{"ConfigFromMap"}, restgen.RequiredKeys, restgen.OptionalKeys, restgen.KeyAliases},
+	{[]string{"rest.Rest"}, "internal/generators/rest", nil, []string{"ConfigFromMap"}, restgen.RequiredKeys, restgen.OptionalKeys, restgen.KeyAliases, nil},
 }
 
 func TestCLISurface(t *testing.T) {
@@ -124,8 +128,8 @@ func TestCLISurface(t *testing.T) {
 // requireAllowlistsMatchParsers fails when a parser reads a key its allowlist
 // omits (or lists a key it never reads) outside its skipFuncs, when a skipped
 // function is absent or reads a non-allowlisted key, or when a key is both required and
-// optional, or when an alias maps a non-required key or names a key outside
-// the optional list, so the snapshot cannot be rewritten from a stale allowlist.
+// optional, when an alias maps a non-required key or names a key outside
+// the optional list, or when an env fallback maps a non-required key, so the snapshot cannot be rewritten from a stale allowlist.
 func requireAllowlistsMatchParsers(t *testing.T, root string) {
 	t.Helper()
 	for _, p := range configParsers {
@@ -160,6 +164,10 @@ func requireAllowlistsMatchParsers(t *testing.T, root string) {
 			for _, a := range aliases[k] {
 				require.Containsf(t, optional, a, "%v: alias %q of %q is not optional", p.names, a, k)
 			}
+		}
+		fallbacks := cloneEnvFallbacks(p.envFallbacks)
+		for _, k := range slices.Sorted(maps.Keys(fallbacks)) {
+			require.Containsf(t, required, k, "%v: env-satisfiable key %q is not required", p.names, k)
 		}
 	}
 }
@@ -258,6 +266,26 @@ func TestCLISurfaceGateDetectsRename(t *testing.T) {
 		require.Contains(t, report, "generatorConfig mcp.MCP aliases: added [endpoint="+old+"_renamed]; removed [endpoint="+old+"]")
 	})
 
+	t.Run("generator config env fallback", func(t *testing.T) {
+		documented := snapshotSurface()
+		require.Equal(t, "OPENAI_API_KEY", documented.GeneratorConfig["openai.OpenAI"].EnvFallbacks["api_key"],
+			"need an openai.OpenAI api_key env fallback for a rename to be observable")
+
+		renamed := snapshotSurface()
+		keys := renamed.GeneratorConfig["openai.OpenAI"]
+		keys.EnvFallbacks = map[string]string{"api_key": "OPENAI_API_KEY_RENAMED"}
+		renamed.GeneratorConfig["openai.OpenAI"] = keys
+		require.Contains(t, surfaceDrift(renamed, documented),
+			"generatorConfig openai.OpenAI envFallbacks: added [api_key=OPENAI_API_KEY_RENAMED]; removed [api_key=OPENAI_API_KEY]")
+
+		dropped := snapshotSurface()
+		keys = dropped.GeneratorConfig["openai.OpenAI"]
+		keys.EnvFallbacks = nil
+		dropped.GeneratorConfig["openai.OpenAI"] = keys
+		require.Contains(t, surfaceDrift(dropped, documented),
+			"generatorConfig openai.OpenAI envFallbacks: added []; removed [api_key=OPENAI_API_KEY]")
+	})
+
 	// The per-entry key diff iterates live names only, so a generator dropped
 	// from configParsers must still surface through the entry-name diff.
 	t.Run("generator config entry dropped", func(t *testing.T) {
@@ -294,9 +322,10 @@ func generatorConfig() map[string]configKeys {
 	out := make(map[string]configKeys)
 	for _, p := range configParsers {
 		keys := configKeys{
-			Required: slices.Sorted(slices.Values(p.required())),
-			Optional: slices.Sorted(slices.Values(p.optional())),
-			Aliases:  sortedAliases(p.aliases),
+			Required:     slices.Sorted(slices.Values(p.required())),
+			Optional:     slices.Sorted(slices.Values(p.optional())),
+			Aliases:      sortedAliases(p.aliases),
+			EnvFallbacks: cloneEnvFallbacks(p.envFallbacks),
 		}
 		for _, name := range p.names {
 			out[name] = keys
@@ -325,6 +354,26 @@ func aliasPairs(aliases map[string][]string) []string {
 		for _, a := range v {
 			out = append(out, k+"="+a)
 		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// cloneEnvFallbacks copies a parser's env fallback map, or returns nil when
+// the parser declares no env fallbacks.
+func cloneEnvFallbacks(fallbacks func() map[string]string) map[string]string {
+	if fallbacks == nil {
+		return nil
+	}
+	return maps.Clone(fallbacks())
+}
+
+// envFallbackPairs flattens an env fallback map to sorted "key=VAR" strings
+// for setDiff.
+func envFallbackPairs(fallbacks map[string]string) []string {
+	var out []string
+	for k, v := range fallbacks {
+		out = append(out, k+"="+v)
 	}
 	slices.Sort(out)
 	return out
@@ -392,6 +441,7 @@ func surfaceDrift(live, documented cliSurface) string {
 		check("generatorConfig "+name+" required", live.GeneratorConfig[name].Required, doc.Required)
 		check("generatorConfig "+name+" optional", live.GeneratorConfig[name].Optional, doc.Optional)
 		check("generatorConfig "+name+" aliases", aliasPairs(live.GeneratorConfig[name].Aliases), aliasPairs(doc.Aliases))
+		check("generatorConfig "+name+" envFallbacks", envFallbackPairs(live.GeneratorConfig[name].EnvFallbacks), envFallbackPairs(doc.EnvFallbacks))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

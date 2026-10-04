@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -295,7 +296,7 @@ func (p *SSESessionHijack) sampleOne(ctx context.Context, client *http.Client, e
 	req, err := http.NewRequestWithContext(streamCtx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		cancel()
-		a.SetError(err)
+		a.SetError(mcpprobe.RedactURLError(err))
 		return nil, noop, a
 	}
 	req.Header.Set("Accept", "text/event-stream")
@@ -303,7 +304,7 @@ func (p *SSESessionHijack) sampleOne(ctx context.Context, client *http.Client, e
 	resp, err := client.Do(req)
 	if err != nil {
 		cancel()
-		a.SetError(err)
+		a.SetError(mcpprobe.RedactURLError(err))
 		return nil, noop, a
 	}
 	// closeStream is idempotent — see the `once` pattern below.
@@ -366,13 +367,15 @@ func fingerprintID(id string) string {
 }
 
 // redactSessionID replaces the session_id query parameter's value with the
-// literal string "<redacted>" so logs / reports / Burp captures don't retain
-// the live bearer token.
+// literal string "<redacted>" and drops any userinfo (inherited from the
+// operator's base URL on a same-host resolve) so logs / reports / Burp
+// captures don't retain a live bearer token.
 func redactSessionID(postURL string) string {
 	u, err := url.Parse(postURL)
 	if err != nil {
 		return "<unparseable>"
 	}
+	u.User = nil
 	q := u.Query()
 	if q.Get("session_id") != "" {
 		q.Set("session_id", "<redacted>")
@@ -551,13 +554,13 @@ func (p *SSESessionHijack) replayPostClose(ctx context.Context, client *http.Cli
 func (p *SSESessionHijack) postInitialize(ctx context.Context, client *http.Client, postURL string) (int, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, postURL, bytes.NewBufferString(mcpInitializePayload))
 	if err != nil {
-		return 0, "", err
+		return 0, "", mcpprobe.RedactURLError(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, "", err
+		return 0, "", mcpprobe.RedactURLError(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8*1024))

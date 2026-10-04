@@ -6,8 +6,8 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
-// Config keys accepted by ConfigFromMap. api_key is read by
-// registry.GetAPIKeyWithEnv, which falls back to OPENAI_API_KEY.
+// Config keys accepted by ConfigFromMap. api_key is required, but
+// registry.GetAPIKeyWithEnv lets envAPIKey satisfy it instead.
 const (
 	keyModel            = "model"
 	keyAPIKey           = "api_key"
@@ -20,15 +20,25 @@ const (
 	keyStop             = "stop"
 )
 
-// RequiredKeys returns the config keys ConfigFromMap requires.
+// envAPIKey is the environment variable that can satisfy keyAPIKey.
+const envAPIKey = "OPENAI_API_KEY"
+
+// RequiredKeys returns the config keys ConfigFromMap requires. An entry in
+// KeyEnvFallbacks can satisfy its key from the environment instead.
 func RequiredKeys() []string {
-	return []string{keyModel}
+	return []string{keyModel, keyAPIKey}
+}
+
+// KeyEnvFallbacks returns the required keys an environment variable can
+// satisfy instead, mapped to that variable.
+func KeyEnvFallbacks() map[string]string {
+	return map[string]string{keyAPIKey: envAPIKey}
 }
 
 // OptionalKeys returns the config keys ConfigFromMap accepts but does not require.
 func OptionalKeys() []string {
 	return []string{
-		keyAPIKey, keyBaseURL, keyTemperature, keyMaxTokens, keyTopP,
+		keyBaseURL, keyTemperature, keyMaxTokens, keyTopP,
 		keyFrequencyPenalty, keyPresencePenalty, keyStop,
 	}
 }
@@ -68,8 +78,8 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	}
 	cfg.Model = model
 
-	// API key: from config or env var
-	cfg.APIKey, err = registry.GetAPIKeyWithEnv(m, "OPENAI_API_KEY", "openai")
+	// Required: api_key, from config or envAPIKey
+	cfg.APIKey, err = registry.GetAPIKeyWithEnv(m, envAPIKey, "openai")
 	if err != nil {
 		return cfg, err
 	}

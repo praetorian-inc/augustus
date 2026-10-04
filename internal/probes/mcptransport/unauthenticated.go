@@ -149,7 +149,7 @@ func (p *UnauthenticatedAccess) Probe(ctx context.Context, gen types.Generator) 
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		slog.Warn("mcptransport.UnauthenticatedAccess: skipping non-HTTP transport; the credential boundary this probe tests is an HTTP request-path property",
-			"endpoint", endpoint, "scheme", u.Scheme)
+			"endpoint", mcpprobe.RedactEndpoint(endpoint), "scheme", u.Scheme)
 		return nil, nil
 	}
 
@@ -158,7 +158,7 @@ func (p *UnauthenticatedAccess) Probe(ctx context.Context, gen types.Generator) 
 	rep, ok := gen.(mcpprobe.CredentialReporter)
 	if !ok {
 		slog.Warn("mcptransport.UnauthenticatedAccess: skipping — target cannot report whether credentials were configured, so an anonymous success would be uninterpretable (an open server and a server whose auth layer never runs are indistinguishable). This is NOT a clean result.",
-			"target", gen.Name(), "endpoint", endpoint)
+			"target", gen.Name(), "endpoint", mcpprobe.RedactEndpoint(endpoint))
 		return nil, nil
 	}
 	credHeaders := rep.ConfiguredCredentialHeaders()
@@ -178,7 +178,7 @@ func (p *UnauthenticatedAccess) Probe(ctx context.Context, gen types.Generator) 
 			return p.probeDeclaredOpen(ctx, end, endpoint, u, oauth)
 		}
 		slog.Warn("mcptransport.UnauthenticatedAccess: skipping — no credentials are configured for this target and it publishes no OAuth protected-resource metadata, so there is no authentication boundary to test. Anonymous access will trivially succeed and proves nothing. Configure the target's credentials (e.g. headers: {Authorization: 'Bearer $KEY'} with api_key) to assess whether they are actually enforced. This is NOT a clean result.",
-			"target", gen.Name(), "endpoint", endpoint)
+			"target", gen.Name(), "endpoint", mcpprobe.RedactEndpoint(endpoint))
 		return nil, nil
 	}
 
@@ -227,7 +227,7 @@ func (p *UnauthenticatedAccess) Probe(ctx context.Context, gen types.Generator) 
 
 	if !authOK {
 		slog.Warn("mcptransport.UnauthenticatedAccess: the authenticated control failed; anonymous results will be reported inconclusive rather than as a confident verdict",
-			"endpoint", endpoint, "error", authErr)
+			"endpoint", mcpprobe.RedactEndpoint(endpoint), "error", authErr)
 	}
 
 	// --- B. Anonymous enumeration -------------------------------------------
@@ -241,7 +241,7 @@ func (p *UnauthenticatedAccess) Probe(ctx context.Context, gen types.Generator) 
 		enum.Complete()
 		attempts = append(attempts, stamp(enum, mcpprobe.AuthClassAnonEnumeration, false))
 		slog.Info("mcptransport.UnauthenticatedAccess: anonymous session refused; the configured boundary is enforced at the transport",
-			"endpoint", endpoint, "error", connErr)
+			"endpoint", mcpprobe.RedactEndpoint(endpoint), "error", connErr)
 		return attempts, nil
 	}
 	defer sess.Close()
@@ -281,7 +281,7 @@ func (p *UnauthenticatedAccess) Probe(ctx context.Context, gen types.Generator) 
 	tool := p.pickInvocationTool(anonTools)
 	if tool == nil {
 		slog.Warn("mcptransport.UnauthenticatedAccess: no read-only tool available for the anonymous invocation proof; reporting the enumeration finding only. Set allow_destructive=true (or tool_allowlist) to widen it — but only against infrastructure where a state change is acceptable.",
-			"endpoint", endpoint, "tools", len(anonTools))
+			"endpoint", mcpprobe.RedactEndpoint(endpoint), "tools", len(anonTools))
 		return attempts, nil
 	}
 
@@ -299,7 +299,7 @@ func (p *UnauthenticatedAccess) Probe(ctx context.Context, gen types.Generator) 
 		// the server refusing an anonymous caller, which is a false clean on the
 		// exact class this probe exists to catch.
 		slog.Warn("mcptransport.UnauthenticatedAccess: could not read the chosen tool's parameter schema, so the anonymous invocation proof was NOT attempted; reporting the enumeration finding only. This is NOT a clean result for invocation.",
-			"endpoint", endpoint, "tool", name)
+			"endpoint", mcpprobe.RedactEndpoint(endpoint), "tool", name)
 		return attempts, nil
 	}
 	args := mcpprobe.BenignArgs(sigs[0], nil)

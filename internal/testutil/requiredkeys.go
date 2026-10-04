@@ -60,6 +60,26 @@ func RequireAliasesSatisfy(t *testing.T, required []string, aliases map[string][
 	}
 }
 
+// RequireEnvSatisfies proves each environment variable stands in for its
+// required key: with the required keys set except that key, parsing fails
+// while the variable is empty and succeeds once it is set.
+func RequireEnvSatisfies(t testing.TB, required []string, fallbacks map[string]string, parse func(registry.Config) error) {
+	t.Helper()
+	require.NotEmpty(t, fallbacks, "no env fallbacks to prove")
+	base := requiredBase(required)
+	for _, k := range slices.Sorted(maps.Keys(fallbacks)) {
+		v := fallbacks[k]
+		require.Containsf(t, required, k, "env-satisfiable key %q is not required", k)
+
+		without := maps.Clone(base)
+		delete(without, k)
+		t.Setenv(v, "")
+		assert.Errorf(t, parse(without), "parser accepted config without %q while %s is empty", k, v)
+		t.Setenv(v, "x")
+		assert.NoErrorf(t, parse(without), "env var %s must satisfy required key %q", v, k)
+	}
+}
+
 func requiredBase(required []string) registry.Config {
 	base := registry.Config{}
 	for _, k := range required {

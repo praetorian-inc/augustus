@@ -280,7 +280,7 @@ func (m *MCP) connectTransport(ctx context.Context, transport mcpsdk.Transport) 
 	case r := <-ch:
 		if r.err != nil {
 			sessCancel()
-			return nil, nil, fmt.Errorf("mcp: connect to %s failed: %w", m.target(), r.err)
+			return nil, nil, fmt.Errorf("mcp: connect to %s failed: %w", m.target(), mcpprobe.RedactURLError(r.err))
 		}
 		return r.sess, sessCancel, nil
 	case <-timer.C:
@@ -313,7 +313,7 @@ func (m *MCP) connectAuto(ctx context.Context) (*mcpsdk.ClientSession, context.C
 		sess, cancel, err := m.connectTransport(ctx, transport)
 		if err == nil {
 			m.setDetected(kind)
-			slog.Info("mcp: auto-detected transport", "transport", kind, "endpoint", m.cfg.Endpoint)
+			slog.Info("mcp: auto-detected transport", "transport", kind, "endpoint", mcpprobe.RedactEndpoint(m.cfg.Endpoint))
 			return sess, cancel, nil
 		}
 		if ctx.Err() != nil {
@@ -322,8 +322,8 @@ func (m *MCP) connectAuto(ctx context.Context) (*mcpsdk.ClientSession, context.C
 			return nil, nil, err
 		}
 		slog.Debug("mcp: auto transport attempt failed; trying next",
-			"transport", kind, "endpoint", m.cfg.Endpoint, "error", err)
-		errs = append(errs, fmt.Errorf("%s: %w", kind, err))
+			"transport", kind, "endpoint", mcpprobe.RedactEndpoint(m.cfg.Endpoint), "error", err)
+		errs = append(errs, fmt.Errorf("%s: %w", kind, mcpprobe.RedactURLError(err)))
 	}
 	return nil, nil, fmt.Errorf("mcp: auto transport detection to %s failed (tried %s): %w",
 		m.target(), strings.Join(order, ", "), errors.Join(errs...))
@@ -418,7 +418,7 @@ func (m *MCP) httpClient() *http.Client {
 	if m.cfg.InsecureSkipVerify {
 		// #nosec G402 -- InsecureSkipVerify is opt-in via insecure_skip_verify; targets are operator-chosen test endpoints
 		base.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-		slog.Warn("mcp: TLS certificate verification disabled (insecure_skip_verify=true)", "endpoint", m.cfg.Endpoint)
+		slog.Warn("mcp: TLS certificate verification disabled (insecure_skip_verify=true)", "endpoint", mcpprobe.RedactEndpoint(m.cfg.Endpoint))
 	}
 
 	if len(m.cfg.Headers) == 0 {
@@ -476,7 +476,7 @@ func (m *MCP) callTool(ctx context.Context, sess *mcpsdk.ClientSession, conv *at
 		Arguments: args,
 	})
 	if err != nil {
-		return attempt.Message{}, fmt.Errorf("mcp: tools/call %q failed: %w", m.cfg.ToolName, err)
+		return attempt.Message{}, fmt.Errorf("mcp: tools/call %q failed: %w", m.cfg.ToolName, mcpprobe.RedactURLError(err))
 	}
 
 	m.storeRawJSON(result)
@@ -504,7 +504,7 @@ func (m *MCP) listAllTools(ctx context.Context, sess *mcpsdk.ClientSession) ([]*
 		return res.Tools, res.NextCursor, nil
 	})
 	if err != nil && !errors.Is(err, errListTruncated) {
-		return nil, false, fmt.Errorf("mcp: tools/list failed: %w", err)
+		return nil, false, fmt.Errorf("mcp: tools/list failed: %w", mcpprobe.RedactURLError(err))
 	}
 
 	truncated := errors.Is(err, errListTruncated)
@@ -614,7 +614,7 @@ func (m *MCP) CallTool(ctx context.Context, name string, args map[string]any) (t
 		defer cancel()
 		result, err := sess.CallTool(callCtx, &mcpsdk.CallToolParams{Name: name, Arguments: args})
 		if err != nil {
-			return fmt.Errorf("mcp: tools/call %q failed: %w", name, mcpprobe.ClassifyCallError(err))
+			return fmt.Errorf("mcp: tools/call %q failed: %w", name, mcpprobe.RedactURLError(mcpprobe.ClassifyCallError(err)))
 		}
 		raw, _ := json.Marshal(result)
 		m.rawMu.Lock()
@@ -754,10 +754,10 @@ func (m *MCP) Description() string {
 	return "Model Context Protocol generator (streamable HTTP and legacy SSE transports; tool_call and list_tools modes)"
 }
 
-// target returns a human-readable identifier of the connection endpoint for
-// error messages.
+// target returns a human-readable, userinfo-free identifier of the connection
+// endpoint for error messages.
 func (m *MCP) target() string {
-	return m.cfg.Endpoint
+	return mcpprobe.RedactEndpoint(m.cfg.Endpoint)
 }
 
 // EndpointURL implements types.MCPEndpoint. It surfaces the configured HTTP

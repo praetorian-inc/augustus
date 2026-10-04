@@ -8,6 +8,7 @@ import (
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
@@ -31,7 +32,7 @@ func (m *MCP) ReadResource(ctx context.Context, uri string) (types.MCPResourceRe
 		defer cancel()
 		result, err := sess.ReadResource(callCtx, &mcpsdk.ReadResourceParams{URI: uri})
 		if err != nil {
-			return fmt.Errorf("mcp: resources/read %q failed: %w", uri, err)
+			return fmt.Errorf("mcp: resources/read %q failed: %w", uri, mcpprobe.RedactURLError(err))
 		}
 		raw, _ := json.Marshal(result)
 		m.rawMu.Lock()
@@ -65,7 +66,7 @@ func (m *MCP) GetPrompt(ctx context.Context, name string, args map[string]string
 		defer cancel()
 		result, err := sess.GetPrompt(callCtx, &mcpsdk.GetPromptParams{Name: name, Arguments: args})
 		if err != nil {
-			return fmt.Errorf("mcp: prompts/get %q failed: %w", name, err)
+			return fmt.Errorf("mcp: prompts/get %q failed: %w", name, mcpprobe.RedactURLError(err))
 		}
 		raw, _ := json.Marshal(result)
 		m.rawMu.Lock()

@@ -573,10 +573,10 @@
     },
     "openai.OpenAI": {
       "required": [
+        "api_key",
         "model"
       ],
       "optional": [
-        "api_key",
         "base_url",
         "frequency_penalty",
         "max_tokens",
@@ -584,7 +584,10 @@
         "stop",
         "temperature",
         "top_p"
-      ]
+      ],
+      "envFallbacks": {
+        "api_key": "OPENAI_API_KEY"
+      }
     },
     "rest.Rest": {
       "required": [
