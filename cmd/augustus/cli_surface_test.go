@@ -73,21 +73,26 @@ var docTokenRe = regexp.MustCompile(`\b((?:mcptool|mcptransport|mcpconfig|mcppri
 // production parser package (relative to the repo root) and allowlists that
 // back each generatorConfig entry. Every non-test file in the package is
 // scanned, so a parser helper moved into a new file stays covered; exclude
-// names files that parse an out-of-scope generator's config. aliases is nil
-// for a parser with no aliased required key.
+// names files that parse an out-of-scope generator's config. skipFuncs names
+// functions ("Name" or "Recv.Method") whose reads are not the production parse
+// path: they are excluded from the equality check but must exist and read only
+// allowlisted keys. aliases is nil for a parser with no aliased required key.
 var configParsers = []struct {
 	names              []string
 	dir                string
 	exclude            []string
+	skipFuncs          []string
 	required, optional func() []string
 	aliases            func() map[string][]string
 }{
-	{[]string{"litellm.LiteLLM"}, "internal/generators/litellm", nil, litellmgen.RequiredKeys, litellmgen.OptionalKeys, litellmgen.KeyAliases},
-	{[]string{"mcp.MCP"}, "internal/generators/mcp", nil, mcpgen.RequiredKeys, mcpgen.OptionalKeys, mcpgen.KeyAliases},
-	{[]string{"ollama.Ollama", "ollama.OllamaChat"}, "internal/generators/ollama", nil, ollamagen.RequiredKeys, ollamagen.OptionalKeys, nil},
-	// openai.OpenAIReasoning (reasoning*.go) has its own parser and is not documented.
-	{[]string{"openai.OpenAI"}, "internal/generators/openai", []string{"reasoning.go", "reasoning_config.go"}, openaigen.RequiredKeys, openaigen.OptionalKeys, nil},
-	{[]string{"rest.Rest"}, "internal/generators/rest", nil, restgen.RequiredKeys, restgen.OptionalKeys, restgen.KeyAliases},
+	{[]string{"litellm.LiteLLM"}, "internal/generators/litellm", nil, nil, litellmgen.RequiredKeys, litellmgen.OptionalKeys, litellmgen.KeyAliases},
+	{[]string{"mcp.MCP"}, "internal/generators/mcp", nil, nil, mcpgen.RequiredKeys, mcpgen.OptionalKeys, mcpgen.KeyAliases},
+	{[]string{"ollama.Ollama", "ollama.OllamaChat"}, "internal/generators/ollama", nil, nil, ollamagen.RequiredKeys, ollamagen.OptionalKeys, nil},
+	// openai.OpenAIReasoning (reasoning*.go) has its own parser and is not documented by using-augustus (out of scope for ENG-8420).
+	{[]string{"openai.OpenAI"}, "internal/generators/openai", []string{"reasoning.go", "reasoning_config.go"}, nil, openaigen.RequiredKeys, openaigen.OptionalKeys, nil},
+	// ConfigFromMap has no production caller; NewRest is the parser, so its
+	// overlapping reads must not mask a key NewRest stops reading.
+	{[]string{"rest.Rest"}, "internal/generators/rest", nil, []string{"ConfigFromMap"}, restgen.RequiredKeys, restgen.OptionalKeys, restgen.KeyAliases},
 }
 
 func TestCLISurface(t *testing.T) {
@@ -117,7 +122,8 @@ func TestCLISurface(t *testing.T) {
 }
 
 // requireAllowlistsMatchParsers fails when a parser reads a key its allowlist
-// omits (or lists a key it never reads), or when a key is both required and
+// omits (or lists a key it never reads) outside its skipFuncs, when a skipped
+// function is absent or reads a non-allowlisted key, or when a key is both required and
 // optional, or when an alias maps a non-required key or names a key outside
 // the optional list, so the snapshot cannot be rewritten from a stale allowlist.
 func requireAllowlistsMatchParsers(t *testing.T, root string) {
@@ -125,11 +131,26 @@ func requireAllowlistsMatchParsers(t *testing.T, root string) {
 	for _, p := range configParsers {
 		files, err := testutil.PackageSources(filepath.Join(root, p.dir), p.exclude...)
 		require.NoError(t, err)
-		read, err := testutil.ConfigKeysRead(files...)
+		byFunc, err := testutil.ConfigKeysReadByFunc(files...)
 		require.NoError(t, err)
 		required, optional := p.required(), p.optional()
-		require.ElementsMatchf(t, slices.Concat(required, optional), read,
-			"%v: RequiredKeys()+OptionalKeys() must equal the keys %s reads", p.names, p.dir)
+		allowed := slices.Concat(required, optional)
+		read := map[string]struct{}{}
+		for fn, keys := range byFunc {
+			if slices.Contains(p.skipFuncs, fn) {
+				continue
+			}
+			for _, k := range keys {
+				read[k] = struct{}{}
+			}
+		}
+		require.ElementsMatchf(t, allowed, slices.Collect(maps.Keys(read)),
+			"%v: RequiredKeys()+OptionalKeys() must equal the keys %s reads outside %v", p.names, p.dir, p.skipFuncs)
+		for _, fn := range p.skipFuncs {
+			keys, ok := byFunc[fn]
+			require.Truef(t, ok, "%v: skipped function %s reads no config key in %s (stale skipFuncs entry)", p.names, fn, p.dir)
+			require.Subsetf(t, allowed, keys, "%v: skipped function %s in %s reads a key outside RequiredKeys()+OptionalKeys()", p.names, fn, p.dir)
+		}
 		for _, k := range required {
 			require.NotContainsf(t, optional, k, "%v: key %q is both required and optional", p.names, k)
 		}

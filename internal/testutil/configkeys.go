@@ -54,12 +54,32 @@ var registryAPIKeyReaders = map[string]bool{
 // a config map; config maps reached through struct fields or function-literal
 // parameters; a config map converted to another type (var a any = m, &m, an
 // any-typed or generic helper parameter, a local alias of the map type); and
-// pkg/registry imported under another name (the type check matches the
-// package name, not the import path). Every map[string]any parameter counts
+// pkg/registry imported under another name (the parameter-type match is
+// syntactic on `registry.Config`, not by import path). Every map[string]any parameter counts
 // as a config map, so a non-config JSON helper in a scanned file must live in
 // an excluded file. Imports are stubbed, so only package-local identifiers
 // resolve; type errors from the stubs are ignored.
 func ConfigKeysRead(files ...string) ([]string, error) {
+	byFunc, err := ConfigKeysReadByFunc(files...)
+	if err != nil {
+		return nil, err
+	}
+	union := map[string]struct{}{}
+	for _, keys := range byFunc {
+		for _, k := range keys {
+			union[k] = struct{}{}
+		}
+	}
+	return slices.Sorted(maps.Keys(union)), nil
+}
+
+// ConfigKeysReadByFunc applies the ConfigKeysRead scan and guard, but returns
+// the sorted, de-duplicated keys per function declaration that reads at least
+// one, keyed by function name or "Recv.Method" for methods. A key belongs to
+// the declaration in which its constant appears: a pass-through helper's
+// call-site key is the caller's, while a helper that reads a constant key
+// directly owns that key. Errors are as for ConfigKeysRead.
+func ConfigKeysReadByFunc(files ...string) (map[string][]string, error) {
 	fset := token.NewFileSet()
 	parsed := make([]*ast.File, 0, len(files))
 	for _, p := range files {
@@ -74,7 +94,7 @@ func ConfigKeysRead(files ...string) ([]string, error) {
 	conf := types.Config{Importer: stubImporter{}, Error: func(error) {}}
 	pkg, _ := conf.Check("configkeys", fset, parsed, info) // stub imports always yield type errors
 
-	c := &keyCollector{fset: fset, info: info, pkg: pkg, keys: map[string]struct{}{}}
+	c := &keyCollector{fset: fset, info: info, pkg: pkg, keys: map[string]map[string]struct{}{}}
 	for _, f := range parsed {
 		for _, decl := range f.Decls {
 			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Body != nil {
@@ -85,7 +105,11 @@ func ConfigKeysRead(files ...string) ([]string, error) {
 	if len(c.errs) > 0 {
 		return nil, errors.Join(c.errs...)
 	}
-	return slices.Sorted(maps.Keys(c.keys)), nil
+	out := make(map[string][]string, len(c.keys))
+	for name, keys := range c.keys {
+		out[name] = slices.Sorted(maps.Keys(keys))
+	}
+	return out, nil
 }
 
 // PackageSources returns the non-test .go files in dir minus the named
@@ -132,7 +156,8 @@ type keyCollector struct {
 	fset *token.FileSet
 	info *types.Info
 	pkg  *types.Package
-	keys map[string]struct{}
+	keys map[string]map[string]struct{} // function name -> keys it reads
+	cur  string                         // function declaration being scanned
 	errs []error
 }
 
@@ -154,6 +179,7 @@ func (c *keyCollector) funcDecl(fn *ast.FuncDecl) {
 	if len(s.config) == 0 {
 		return
 	}
+	c.cur = funcName(fn)
 	writes := map[*ast.IndexExpr]bool{}
 	ast.Inspect(fn.Body, func(n ast.Node) bool {
 		switch n := n.(type) {
@@ -231,7 +257,7 @@ func (c *keyCollector) registryCall(s *funcScope, n *ast.CallExpr, name string) 
 	case registryKeyAt1[name] && len(n.Args) > 1:
 		c.key(s, n.Args[1], n.Fun)
 	case registryAPIKeyReaders[name]:
-		c.keys["api_key"] = struct{}{}
+		c.addKey("api_key")
 	default:
 		c.errorf(n, "unhandled registry.%s reads config", name)
 	}
@@ -248,7 +274,7 @@ func (c *keyCollector) key(s *funcScope, e ast.Expr, at ast.Expr) {
 		switch obj := c.info.Uses[e].(type) {
 		case *types.Const:
 			if obj.Parent() == c.pkg.Scope() && obj.Val().Kind() == constant.String {
-				c.keys[constant.StringVal(obj.Val())] = struct{}{}
+				c.addKey(constant.StringVal(obj.Val()))
 				return
 			}
 		case *types.Var:
@@ -258,6 +284,14 @@ func (c *keyCollector) key(s *funcScope, e ast.Expr, at ast.Expr) {
 		}
 	}
 	c.errorf(e, "%s: config key %s is not a package-level string constant", types.ExprString(at), types.ExprString(e))
+}
+
+// addKey attributes a key to the function declaration being scanned.
+func (c *keyCollector) addKey(k string) {
+	if c.keys[c.cur] == nil {
+		c.keys[c.cur] = map[string]struct{}{}
+	}
+	c.keys[c.cur][k] = struct{}{}
 }
 
 // params collects config-map parameters and the remaining (pass-through key)
@@ -314,6 +348,25 @@ func isConfigType(t ast.Expr) bool {
 		}
 	}
 	return false
+}
+
+// funcName returns a declaration's name, or "Recv.Method" for a method, with
+// the receiver's pointer and type parameters dropped.
+func funcName(fn *ast.FuncDecl) string {
+	if fn.Recv == nil || len(fn.Recv.List) == 0 {
+		return fn.Name.Name
+	}
+	t := fn.Recv.List[0].Type
+	if star, ok := t.(*ast.StarExpr); ok {
+		t = star.X
+	}
+	switch g := t.(type) {
+	case *ast.IndexExpr:
+		t = g.X
+	case *ast.IndexListExpr:
+		t = g.X
+	}
+	return types.ExprString(t) + "." + fn.Name.Name
 }
 
 func identOf(e ast.Expr) *ast.Ident {

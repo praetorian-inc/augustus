@@ -37,7 +37,10 @@ func EnvProxyFor(rawURL string, explicit *url.URL) (*url.URL, error) {
 	}
 	u, err := url.Parse(rawURL)
 	if err != nil {
-		return nil, fmt.Errorf("websocket: parse target url %q: %w", rawURL, err)
+		// Neither url.Parse's error nor its inner error is safe to echo:
+		// both can quote user:password (a password with no '@' parses as
+		// the port), so report a fixed message.
+		return nil, errors.New("websocket: invalid target url (malformed URL)")
 	}
 	probe := *u
 	switch u.Scheme {
@@ -168,7 +171,10 @@ const MaxFrameBytes = 10 * 1024 * 1024
 func BuildHandshakeConfig(uri, origin string, headers map[string]string, subprotocols []string, insecure bool) (*websocket.Config, error) {
 	loc, err := url.ParseRequestURI(uri)
 	if err != nil {
-		return nil, fmt.Errorf("websocket: invalid uri %q: %w", uri, err)
+		// Neither url.Parse's error nor its inner error is safe to echo:
+		// both can quote user:password (a password with no '@' parses as
+		// the port), so report a fixed message.
+		return nil, errors.New("websocket: invalid uri (malformed URL)")
 	}
 	if loc.Scheme != "ws" && loc.Scheme != "wss" {
 		return nil, fmt.Errorf("websocket: uri scheme must be ws or wss, got %q", loc.Scheme)

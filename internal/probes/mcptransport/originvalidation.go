@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -319,9 +320,12 @@ func (p *OriginValidation) Probe(ctx context.Context, gen types.Generator) ([]*a
 	if endpoint == "" {
 		return nil, nil
 	}
+	// Neither url.Parse's error nor its inner error is safe to echo: both can
+	// quote user:password (a password with no '@' parses as the port), so report
+	// a fixed message.
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("mcptransport.OriginValidation: parse endpoint %q: %w", endpoint, err)
+		return nil, errors.New("mcptransport.OriginValidation: invalid endpoint (malformed URL)")
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		slog.Warn("mcptransport.OriginValidation: skipping non-HTTP transport", "endpoint", endpoint)

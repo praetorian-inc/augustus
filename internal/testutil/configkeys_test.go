@@ -219,3 +219,95 @@ func testOnly(m registry.Config) any { return m["test_only"] }
 	require.Error(t, err, "a stale exclusion must fail rather than silently match nothing")
 	assert.Contains(t, err.Error(), "gone.go")
 }
+
+func TestConfigKeysReadByFuncAttributesKeysPerDeclaration(t *testing.T) {
+	path := writeSource(t, `package p
+
+import "github.com/praetorian-inc/augustus/pkg/registry"
+
+const (
+	keyModel = "model"
+	keyHost  = "host"
+	keyMode  = "mode"
+	keyFirst = "first"
+	keyAlias = "alias"
+	keyOwn   = "own"
+)
+
+type Gen struct{}
+
+func NewGen(m registry.Config) {
+	_, _ = registry.RequireString(m, keyModel)
+	_ = registry.GetOptionalAPIKeyWithEnv(m, "ENV_VAR_IS_NOT_A_KEY")
+	_ = pick(m, keyFirst, keyAlias)
+}
+
+func ConfigFromMap(m registry.Config) {
+	_, _ = registry.RequireString(m, keyModel)
+	_ = registry.GetString(m, keyHost, "")
+}
+
+func (g *Gen) configure(m registry.Config) {
+	_ = m[keyMode]
+	_ = owned(m)
+}
+
+func pick(m registry.Config, keys ...string) string {
+	for _, k := range keys {
+		if v := registry.GetString(m, k, ""); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+func owned(m registry.Config) any { return m[keyOwn] }
+
+func noConfig(s string) string { return s }
+`)
+
+	byFunc, err := ConfigKeysReadByFunc(path)
+	require.NoError(t, err)
+	// Pass-through call-site keys belong to the caller; pick reads no constant
+	// of its own, so it has no entry. A helper reading a constant owns it.
+	assert.Equal(t, map[string][]string{
+		"NewGen":        {"alias", "api_key", "first", "model"},
+		"ConfigFromMap": {"host", "model"},
+		"Gen.configure": {"mode"},
+		"owned":         {"own"},
+	}, byFunc)
+
+	union, err := ConfigKeysRead(path)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"alias", "api_key", "first", "host", "mode", "model", "own"}, union)
+}
+
+func TestConfigKeysReadByFuncNamesValueReceiverMethods(t *testing.T) {
+	path := writeSource(t, `package p
+
+const keyMode = "mode"
+
+type reader struct{}
+
+func (reader) get(m map[string]any) any { return m[keyMode] }
+`)
+	byFunc, err := ConfigKeysReadByFunc(path)
+	require.NoError(t, err)
+	assert.Equal(t, map[string][]string{"reader.get": {"mode"}}, byFunc)
+}
+
+func TestConfigKeysReadByFuncReturnsNilOnGuardError(t *testing.T) {
+	path := writeSource(t, `package p
+
+const keyMode = "mode"
+
+func parse(m map[string]any) {
+	_ = m[keyMode]
+	_ = m["sneaky"]
+}
+`)
+	byFunc, err := ConfigKeysReadByFunc(path)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `"sneaky"`)
+	assert.Nil(t, byFunc, "a guard error must not return partial per-function keys")
+}

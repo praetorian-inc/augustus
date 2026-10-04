@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -142,9 +143,12 @@ func (p *SSESessionHijack) Probe(ctx context.Context, gen types.Generator) ([]*a
 	if endpoint == "" {
 		return nil, nil
 	}
+	// Neither url.Parse's error nor its inner error is safe to echo: both can
+	// quote user:password (a password with no '@' parses as the port), so report
+	// a fixed message.
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("mcptransport.SSESessionHijack: parse endpoint %q: %w", endpoint, err)
+		return nil, errors.New("mcptransport.SSESessionHijack: invalid endpoint (malformed URL)")
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return nil, nil
@@ -660,13 +664,16 @@ func extractSessionID(dataLine string) string {
 // admin endpoint, or downgrade https→http. Returns ("", err) on any
 // mismatch; callers MUST treat the error as a hard stop.
 func resolvePostURL(base, endpointPath string) (string, error) {
+	// Neither url.Parse's error nor its inner error is safe to echo: both can
+	// quote user:password (a password with no '@' parses as the port), so report
+	// a fixed message.
 	b, err := url.Parse(base)
 	if err != nil {
-		return "", fmt.Errorf("parse base %q: %w", base, err)
+		return "", errors.New("invalid base URL (malformed URL)")
 	}
 	rel, err := url.Parse(endpointPath)
 	if err != nil {
-		return "", fmt.Errorf("parse endpoint path %q: %w", endpointPath, err)
+		return "", errors.New("invalid endpoint path (malformed URL)")
 	}
 	resolved := b.ResolveReference(rel)
 	if resolved.Scheme != b.Scheme || resolved.Host != b.Host {

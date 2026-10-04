@@ -56,9 +56,12 @@ func ConnectAnonymous(ctx context.Context, end types.MCPEndpoint, timeout time.D
 	if endpoint == "" {
 		return nil, errors.New("mcpprobe: target exposes no endpoint URL; cannot open an anonymous session")
 	}
+	// Neither url.Parse's error nor its inner error is safe to echo: both can
+	// quote user:password (a password with no '@' parses as the port), so report
+	// a fixed message.
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("mcpprobe: parse endpoint %q: %w", endpoint, err)
+		return nil, errors.New("mcpprobe: invalid endpoint (malformed URL)")
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return nil, fmt.Errorf("mcpprobe: endpoint %q is not HTTP-based; anonymous session unsupported", endpoint)

@@ -140,9 +140,12 @@ func (p *UnauthenticatedAccess) Probe(ctx context.Context, gen types.Generator) 
 	if endpoint == "" {
 		return nil, fmt.Errorf("mcptransport.UnauthenticatedAccess: target %q reports no endpoint URL; cannot assess unauthenticated access", gen.Name())
 	}
+	// Neither url.Parse's error nor its inner error is safe to echo: both can
+	// quote user:password (a password with no '@' parses as the port), so report
+	// a fixed message.
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		return nil, fmt.Errorf("mcptransport.UnauthenticatedAccess: parse endpoint %q: %w", endpoint, err)
+		return nil, errors.New("mcptransport.UnauthenticatedAccess: invalid endpoint (malformed URL)")
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		slog.Warn("mcptransport.UnauthenticatedAccess: skipping non-HTTP transport; the credential boundary this probe tests is an HTTP request-path property",
