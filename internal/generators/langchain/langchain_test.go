@@ -152,3 +152,16 @@ func TestLangChain_Description(t *testing.T) {
 	assert.NotEmpty(t, desc)
 	assert.Contains(t, desc, "LangChain")
 }
+
+func TestNewLangChain_InvalidURIRedactsCredentials(t *testing.T) {
+	for _, uri := range []string{
+		"http://user:s3cret@host:bad",
+		"http://user:s3cret", // no '@': url.Parse reads the password as the port
+	} {
+		gen, err := NewLangChain(registry.Config{"uri": uri})
+		require.ErrorContainsf(t, err, "langchain: invalid URI", "input %q", uri)
+		assert.Nil(t, gen)
+		assert.NotContains(t, err.Error(), "s3cret", "error leaks the URL password")
+		assert.NotContains(t, err.Error(), "user:", "error leaks the URL userinfo")
+	}
+}

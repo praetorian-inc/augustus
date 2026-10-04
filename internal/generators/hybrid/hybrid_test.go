@@ -729,3 +729,16 @@ func TestHybrid_ReuseConnectionFalseReconnectsEachTurn(t *testing.T) {
 	assert.Equal(t, 1, s.conversations, "HTTP once-step must run only once (captures persist)")
 	assert.Equal(t, len(prompts), s.handshakes, "WS must reconnect and re-run setup every turn")
 }
+
+func TestNewHybrid_InvalidProxyRedactsCredentials(t *testing.T) {
+	for _, proxy := range []string{
+		"http://user:s3cret@host:bad",
+		"http://user:s3cret", // no '@': url.Parse reads the password as the port
+	} {
+		gen, err := NewHybrid(registry.Config{"steps": minimalSteps(), "proxy": proxy})
+		require.ErrorContainsf(t, err, "hybrid: invalid proxy url", "input %q", proxy)
+		assert.Nil(t, gen)
+		assert.NotContains(t, err.Error(), "s3cret", "error leaks the URL password")
+		assert.NotContains(t, err.Error(), "user:", "error leaks the URL userinfo")
+	}
+}

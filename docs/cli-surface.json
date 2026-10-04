@@ -507,7 +507,12 @@
         "suppressed_params",
         "temperature",
         "top_p"
-      ]
+      ],
+      "aliases": {
+        "proxy_url": [
+          "api_base"
+        ]
+      }
     },
     "mcp.MCP": {
       "required": [
@@ -532,7 +537,13 @@
         "transport",
         "uri",
         "url"
-      ]
+      ],
+      "aliases": {
+        "endpoint": [
+          "uri",
+          "url"
+        ]
+      }
     },
     "ollama.Ollama": {
       "required": [
@@ -603,7 +614,12 @@
         "sse_filter_value",
         "sse_mode",
         "sse_text_field"
-      ]
+      ],
+      "aliases": {
+        "uri": [
+          "endpoint"
+        ]
+      }
     }
   }
 }

@@ -281,3 +281,16 @@ func TestLangChainServe_ClearHistory(t *testing.T) {
 	// ClearHistory should not panic (it's a no-op for stateless generators)
 	gen.ClearHistory()
 }
+
+func TestNewLangChainServe_InvalidBaseURLRedactsCredentials(t *testing.T) {
+	for _, baseURL := range []string{
+		"http://user:s3cret@host:bad",
+		"http://user:s3cret", // no '@': url.Parse reads the password as the port
+	} {
+		gen, err := NewLangChainServe(registry.Config{"base_url": baseURL})
+		require.ErrorContainsf(t, err, "langchain_serve: invalid base_url", "input %q", baseURL)
+		assert.Nil(t, gen)
+		assert.NotContains(t, err.Error(), "s3cret", "error leaks the URL password")
+		assert.NotContains(t, err.Error(), "user:", "error leaks the URL userinfo")
+	}
+}

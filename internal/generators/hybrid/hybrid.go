@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -93,7 +94,7 @@ func NewHybrid(cfg registry.Config) (generators.Generator, error) {
 	if parsed.Proxy != "" {
 		u, err := url.Parse(parsed.Proxy)
 		if err != nil {
-			return nil, fmt.Errorf("hybrid: invalid proxy url %q: %w", parsed.Proxy, err)
+			return nil, errors.New("hybrid: invalid proxy url (malformed URL)")
 		}
 		proxyURL = u
 		transport.Proxy = http.ProxyURL(u)

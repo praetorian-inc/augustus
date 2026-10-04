@@ -54,6 +54,8 @@ type cliSurface struct {
 type configKeys struct {
 	Required []string `json:"required"`
 	Optional []string `json:"optional"`
+	// Aliases maps a required key to the optional keys accepted in its place.
+	Aliases map[string][]string `json:"aliases,omitempty"`
 }
 
 type mcpVocab struct {
@@ -71,19 +73,21 @@ var docTokenRe = regexp.MustCompile(`\b((?:mcptool|mcptransport|mcpconfig|mcppri
 // production parser package (relative to the repo root) and allowlists that
 // back each generatorConfig entry. Every non-test file in the package is
 // scanned, so a parser helper moved into a new file stays covered; exclude
-// names files that parse an out-of-scope generator's config.
+// names files that parse an out-of-scope generator's config. aliases is nil
+// for a parser with no aliased required key.
 var configParsers = []struct {
 	names              []string
 	dir                string
 	exclude            []string
 	required, optional func() []string
+	aliases            func() map[string][]string
 }{
-	{[]string{"litellm.LiteLLM"}, "internal/generators/litellm", nil, litellmgen.RequiredKeys, litellmgen.OptionalKeys},
-	{[]string{"mcp.MCP"}, "internal/generators/mcp", nil, mcpgen.RequiredKeys, mcpgen.OptionalKeys},
-	{[]string{"ollama.Ollama", "ollama.OllamaChat"}, "internal/generators/ollama", nil, ollamagen.RequiredKeys, ollamagen.OptionalKeys},
+	{[]string{"litellm.LiteLLM"}, "internal/generators/litellm", nil, litellmgen.RequiredKeys, litellmgen.OptionalKeys, litellmgen.KeyAliases},
+	{[]string{"mcp.MCP"}, "internal/generators/mcp", nil, mcpgen.RequiredKeys, mcpgen.OptionalKeys, mcpgen.KeyAliases},
+	{[]string{"ollama.Ollama", "ollama.OllamaChat"}, "internal/generators/ollama", nil, ollamagen.RequiredKeys, ollamagen.OptionalKeys, nil},
 	// openai.OpenAIReasoning (reasoning*.go) has its own parser and is not documented.
-	{[]string{"openai.OpenAI"}, "internal/generators/openai", []string{"reasoning.go", "reasoning_config.go"}, openaigen.RequiredKeys, openaigen.OptionalKeys},
-	{[]string{"rest.Rest"}, "internal/generators/rest", nil, restgen.RequiredKeys, restgen.OptionalKeys},
+	{[]string{"openai.OpenAI"}, "internal/generators/openai", []string{"reasoning.go", "reasoning_config.go"}, openaigen.RequiredKeys, openaigen.OptionalKeys, nil},
+	{[]string{"rest.Rest"}, "internal/generators/rest", nil, restgen.RequiredKeys, restgen.OptionalKeys, restgen.KeyAliases},
 }
 
 func TestCLISurface(t *testing.T) {
@@ -114,7 +118,8 @@ func TestCLISurface(t *testing.T) {
 
 // requireAllowlistsMatchParsers fails when a parser reads a key its allowlist
 // omits (or lists a key it never reads), or when a key is both required and
-// optional, so the snapshot cannot be rewritten from a stale allowlist.
+// optional, or when an alias maps a non-required key or names a key outside
+// the optional list, so the snapshot cannot be rewritten from a stale allowlist.
 func requireAllowlistsMatchParsers(t *testing.T, root string) {
 	t.Helper()
 	for _, p := range configParsers {
@@ -127,6 +132,13 @@ func requireAllowlistsMatchParsers(t *testing.T, root string) {
 			"%v: RequiredKeys()+OptionalKeys() must equal the keys %s reads", p.names, p.dir)
 		for _, k := range required {
 			require.NotContainsf(t, optional, k, "%v: key %q is both required and optional", p.names, k)
+		}
+		aliases := sortedAliases(p.aliases)
+		for _, k := range slices.Sorted(maps.Keys(aliases)) {
+			require.Containsf(t, required, k, "%v: aliased key %q is not required", p.names, k)
+			for _, a := range aliases[k] {
+				require.Containsf(t, optional, a, "%v: alias %q of %q is not optional", p.names, a, k)
+			}
 		}
 	}
 }
@@ -210,6 +222,21 @@ func TestCLISurfaceGateDetectsRename(t *testing.T) {
 		require.Contains(t, report, "generatorConfig mcp.MCP optional: added ["+old+"_renamed]; removed ["+old+"]")
 	})
 
+	t.Run("generator config alias", func(t *testing.T) {
+		documented := snapshotSurface()
+		live := snapshotSurface()
+		keys := live.GeneratorConfig["mcp.MCP"]
+		require.NotEmpty(t, keys.Aliases["endpoint"], "need an mcp.MCP endpoint alias for a rename to be observable")
+		old := keys.Aliases["endpoint"][0]
+		renamed := slices.Clone(keys.Aliases["endpoint"])
+		renamed[0] = old + "_renamed"
+		keys.Aliases = map[string][]string{"endpoint": renamed}
+		live.GeneratorConfig["mcp.MCP"] = keys
+
+		report := surfaceDrift(live, documented)
+		require.Contains(t, report, "generatorConfig mcp.MCP aliases: added [endpoint="+old+"_renamed]; removed [endpoint="+old+"]")
+	})
+
 	// The per-entry key diff iterates live names only, so a generator dropped
 	// from configParsers must still surface through the entry-name diff.
 	t.Run("generator config entry dropped", func(t *testing.T) {
@@ -248,11 +275,37 @@ func generatorConfig() map[string]configKeys {
 		keys := configKeys{
 			Required: slices.Sorted(slices.Values(p.required())),
 			Optional: slices.Sorted(slices.Values(p.optional())),
+			Aliases:  sortedAliases(p.aliases),
 		}
 		for _, name := range p.names {
 			out[name] = keys
 		}
 	}
+	return out
+}
+
+// sortedAliases copies a parser's alias map with each alias list sorted, or
+// returns nil when the parser declares no aliases.
+func sortedAliases(aliases func() map[string][]string) map[string][]string {
+	if aliases == nil {
+		return nil
+	}
+	out := make(map[string][]string)
+	for k, v := range aliases() {
+		out[k] = slices.Sorted(slices.Values(v))
+	}
+	return out
+}
+
+// aliasPairs flattens an alias map to sorted "key=alias" strings for setDiff.
+func aliasPairs(aliases map[string][]string) []string {
+	var out []string
+	for k, v := range aliases {
+		for _, a := range v {
+			out = append(out, k+"="+a)
+		}
+	}
+	slices.Sort(out)
 	return out
 }
 
@@ -317,6 +370,7 @@ func surfaceDrift(live, documented cliSurface) string {
 		}
 		check("generatorConfig "+name+" required", live.GeneratorConfig[name].Required, doc.Required)
 		check("generatorConfig "+name+" optional", live.GeneratorConfig[name].Optional, doc.Optional)
+		check("generatorConfig "+name+" aliases", aliasPairs(live.GeneratorConfig[name].Aliases), aliasPairs(doc.Aliases))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

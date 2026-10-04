@@ -81,9 +81,15 @@ const (
 	keyArgumentsTemplate    = "arguments_template"
 )
 
-// RequiredKeys returns config keys every MCP transport requires.
+// RequiredKeys returns config keys every MCP transport requires. A required
+// key may be satisfied by one of its KeyAliases() instead.
 func RequiredKeys() []string {
 	return []string{keyEndpoint}
+}
+
+// KeyAliases maps a required key to the keys ConfigFromMap accepts in its place.
+func KeyAliases() map[string][]string {
+	return map[string][]string{keyEndpoint: {keyURI, keyURL}}
 }
 
 // OptionalKeys returns config keys ConfigFromMap accepts but does not require.
@@ -197,7 +203,7 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 			// Neither url.Parse's error nor its inner error is safe to echo:
 			// both can quote user:password (a password with no '@' parses as
 			// the port), so report a fixed message.
-			return cfg, errors.New("mcp: invalid proxy URL (check scheme, host and port)")
+			return cfg, errors.New("mcp: invalid proxy URL (malformed URL)")
 		}
 		cfg.ProxyURL = parsed
 	}

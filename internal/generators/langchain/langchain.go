@@ -8,6 +8,7 @@ package langchain
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -41,7 +42,7 @@ func NewLangChain(cfg registry.Config) (generators.Generator, error) {
 	if uri, ok := cfg["uri"].(string); ok && uri != "" {
 		// Validate URI
 		if _, err := url.Parse(uri); err != nil {
-			return nil, fmt.Errorf("langchain: invalid URI: %w", err)
+			return nil, errors.New("langchain: invalid URI (malformed URL)")
 		}
 		l.uri = uri
 	} else {

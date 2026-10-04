@@ -35,9 +35,15 @@ const (
 	keySuppressedParams = "suppressed_params"
 )
 
-// RequiredKeys returns the config keys ConfigFromMap requires.
+// RequiredKeys returns the config keys ConfigFromMap requires. A required key
+// may be satisfied by one of its KeyAliases() instead.
 func RequiredKeys() []string {
 	return []string{keyProxyURL, keyModel}
+}
+
+// KeyAliases maps a required key to the keys ConfigFromMap accepts in its place.
+func KeyAliases() map[string][]string {
+	return map[string][]string{keyProxyURL: {keyAPIBase}}
 }
 
 // OptionalKeys returns the config keys ConfigFromMap accepts but does not require.

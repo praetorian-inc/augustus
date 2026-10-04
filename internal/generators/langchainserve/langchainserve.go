@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -47,7 +48,7 @@ func NewLangChainServe(cfg registry.Config) (generators.Generator, error) {
 
 	// Validate base_url
 	if _, err := url.Parse(baseURL); err != nil {
-		return nil, fmt.Errorf("langchain_serve: invalid base_url: %w", err)
+		return nil, errors.New("langchain_serve: invalid base_url (malformed URL)")
 	}
 	ls.baseURL = baseURL
 

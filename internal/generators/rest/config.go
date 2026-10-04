@@ -39,9 +39,16 @@ const (
 	keyMultipart             = "multipart"
 )
 
-// RequiredKeys returns the config keys NewRest requires.
+// RequiredKeys returns the config keys NewRest requires. A required key may be
+// satisfied by one of its KeyAliases() instead.
 func RequiredKeys() []string {
 	return []string{keyURI}
+}
+
+// KeyAliases maps a required key to the keys NewRest and ConfigFromMap accept in
+// its place.
+func KeyAliases() map[string][]string {
+	return map[string][]string{keyURI: {keyEndpoint}}
 }
 
 // OptionalKeys returns the config keys NewRest accepts but does not require.
@@ -105,8 +112,7 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 		}
 		uri = endpoint
 	} else if endpoint, _ := registry.RequireString(m, keyEndpoint); endpoint != "" && endpoint != uri {
-		slog.Warn("both 'uri' and 'endpoint' specified; using 'uri'",
-			"uri", uri, "endpoint", endpoint)
+		slog.Warn("both 'uri' and 'endpoint' specified; using 'uri'")
 	}
 	cfg.URI = uri
 

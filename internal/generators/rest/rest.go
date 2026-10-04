@@ -141,8 +141,7 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 	if uri, ok := cfg[keyURI].(string); ok && uri != "" {
 		r.uri = uri
 		if endpoint, ok := cfg[keyEndpoint].(string); ok && endpoint != "" && endpoint != uri {
-			slog.Warn("both 'uri' and 'endpoint' specified; using 'uri'",
-				"uri", uri, "endpoint", endpoint)
+			slog.Warn("both 'uri' and 'endpoint' specified; using 'uri'")
 		}
 	} else if endpoint, ok := cfg[keyEndpoint].(string); ok && endpoint != "" {
 		r.uri = endpoint
@@ -274,7 +273,7 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 			// Neither url.Parse's error nor its inner error is safe to echo:
 			// both can quote user:password (a password with no '@' parses as
 			// the port), so report a fixed message.
-			return nil, errors.New("invalid proxy URL (check scheme, host and port)")
+			return nil, errors.New("invalid proxy URL (malformed URL)")
 		}
 	} else {
 		// Fall back to environment variables (check both case variants)

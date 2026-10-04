@@ -15,3 +15,12 @@ func TestRequiredKeysAreRequired(t *testing.T) {
 		return err
 	})
 }
+
+// TestKeyAliasesSatisfyRequired proves each KeyAliases entry can stand in for
+// its required key, and that the key is still needed when no alias is set.
+func TestKeyAliasesSatisfyRequired(t *testing.T) {
+	testutil.RequireAliasesSatisfy(t, RequiredKeys(), KeyAliases(), func(m registry.Config) error {
+		_, err := ConfigFromMap(m)
+		return err
+	})
+}
