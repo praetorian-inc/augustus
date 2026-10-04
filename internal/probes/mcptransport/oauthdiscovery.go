@@ -179,7 +179,7 @@ func discoverOAuthProtection(ctx context.Context, client *http.Client, endpoint 
 func (p *UnauthenticatedAccess) probeDeclaredOpen(ctx context.Context, end types.MCPEndpoint, endpoint string, u *url.URL, oauth oauthDeclaration) ([]*attempt.Attempt, error) {
 	targetClass := classifyTargetHost(ctx, u.Host)
 	slog.Info("mcptransport.UnauthenticatedAccess: target declares itself authorization-gated; assessing the credential-free session against that declaration",
-		"endpoint", mcpprobe.RedactEndpoint(endpoint), "class", string(targetClass), "declaration", oauth.evidence())
+		"endpoint", endpoint, "class", string(targetClass), "declaration", oauth.evidence())
 
 	a := attempt.New("anonymous session against a target that publicly declares itself authorization-gated: " + oauth.evidence())
 	a.Probe = p.Name()

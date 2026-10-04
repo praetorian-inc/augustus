@@ -10,7 +10,6 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -141,7 +140,8 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 	if uri, ok := cfg[keyURI].(string); ok && uri != "" {
 		r.uri = uri
 		if endpoint, ok := cfg[keyEndpoint].(string); ok && endpoint != "" && endpoint != uri {
-			slog.Warn("both 'uri' and 'endpoint' specified; using 'uri'")
+			slog.Warn("both 'uri' and 'endpoint' specified; using 'uri'",
+				"uri", uri, "endpoint", endpoint)
 		}
 	} else if endpoint, ok := cfg[keyEndpoint].(string); ok && endpoint != "" {
 		r.uri = endpoint
@@ -270,10 +270,7 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 		var err error
 		proxyURL, err = url.Parse(proxyStr)
 		if err != nil {
-			// Neither url.Parse's error nor its inner error is safe to echo:
-			// both can quote user:password (a password with no '@' parses as
-			// the port), so report a fixed message.
-			return nil, errors.New("invalid proxy URL (malformed URL)")
+			return nil, fmt.Errorf("invalid proxy URL: %w", err)
 		}
 	} else {
 		// Fall back to environment variables (check both case variants)

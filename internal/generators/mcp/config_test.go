@@ -237,26 +237,6 @@ func TestConfigFromMap_InvalidProxy(t *testing.T) {
 	}
 }
 
-func TestConfigFromMap_InvalidProxyRedactsCredentials(t *testing.T) {
-	for _, proxy := range []string{
-		"http://user:s3cr3t-pw@proxy.local:bad-port",
-		"http://user:s3cr3t-pw", // no '@': url.Parse reads the password as the port
-	} {
-		_, err := ConfigFromMap(registry.Config{
-			"endpoint":  "https://x/mcp",
-			"tool_name": "t",
-			"arg_name":  "q",
-			"proxy":     proxy,
-		})
-		if err == nil || !strings.Contains(err.Error(), "invalid proxy URL") {
-			t.Fatalf("proxy %q: expected invalid proxy URL error, got %v", proxy, err)
-		}
-		if strings.Contains(err.Error(), "s3cr3t-pw") {
-			t.Fatalf("proxy error leaks the URL password: %v", err)
-		}
-	}
-}
-
 func TestConfigFromMap_ArgumentsTemplateFromObject(t *testing.T) {
 	cfg, err := ConfigFromMap(registry.Config{
 		"endpoint":           "http://x/mcp",

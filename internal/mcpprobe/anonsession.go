@@ -56,15 +56,12 @@ func ConnectAnonymous(ctx context.Context, end types.MCPEndpoint, timeout time.D
 	if endpoint == "" {
 		return nil, errors.New("mcpprobe: target exposes no endpoint URL; cannot open an anonymous session")
 	}
-	// Neither url.Parse's error nor its inner error is safe to echo: both can
-	// quote user:password (a password with no '@' parses as the port), so report
-	// a fixed message.
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		return nil, errors.New("mcpprobe: invalid endpoint (malformed URL)")
+		return nil, fmt.Errorf("mcpprobe: parse endpoint %q: %w", endpoint, err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		return nil, fmt.Errorf("mcpprobe: endpoint %q is not HTTP-based; anonymous session unsupported", RedactEndpoint(endpoint))
+		return nil, fmt.Errorf("mcpprobe: endpoint %q is not HTTP-based; anonymous session unsupported", endpoint)
 	}
 	if timeout <= 0 {
 		timeout = 30 * time.Second
@@ -81,11 +78,11 @@ func ConnectAnonymous(ctx context.Context, end types.MCPEndpoint, timeout time.D
 		// The caller's own cancellation is not an "unsupported transport" signal;
 		// surface it instead of masking it behind another attempt.
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("mcpprobe: anonymous connect to %s cancelled: %w", RedactEndpoint(endpoint), ctx.Err())
+			return nil, fmt.Errorf("mcpprobe: anonymous connect to %s cancelled: %w", endpoint, ctx.Err())
 		}
-		errs = append(errs, fmt.Errorf("%s: %w", kind, RedactURLError(err)))
+		errs = append(errs, fmt.Errorf("%s: %w", kind, err))
 	}
-	return nil, fmt.Errorf("mcpprobe: anonymous connect to %s failed: %w", RedactEndpoint(endpoint), errors.Join(errs...))
+	return nil, fmt.Errorf("mcpprobe: anonymous connect to %s failed: %w", endpoint, errors.Join(errs...))
 }
 
 // anonTransportOrder returns the transports to attempt, in order. An explicit

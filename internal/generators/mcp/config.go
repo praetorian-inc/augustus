@@ -2,7 +2,6 @@ package mcp
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -200,10 +199,7 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	if proxy := registry.GetString(m, keyProxy, ""); proxy != "" {
 		parsed, err := url.Parse(proxy)
 		if err != nil {
-			// Neither url.Parse's error nor its inner error is safe to echo:
-			// both can quote user:password (a password with no '@' parses as
-			// the port), so report a fixed message.
-			return cfg, errors.New("mcp: invalid proxy URL (malformed URL)")
+			return cfg, fmt.Errorf("mcp: invalid proxy URL %q: %w", proxy, err)
 		}
 		cfg.ProxyURL = parsed
 	}

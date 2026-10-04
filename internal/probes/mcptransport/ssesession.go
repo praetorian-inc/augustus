@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -17,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -144,12 +142,9 @@ func (p *SSESessionHijack) Probe(ctx context.Context, gen types.Generator) ([]*a
 	if endpoint == "" {
 		return nil, nil
 	}
-	// Neither url.Parse's error nor its inner error is safe to echo: both can
-	// quote user:password (a password with no '@' parses as the port), so report
-	// a fixed message.
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		return nil, errors.New("mcptransport.SSESessionHijack: invalid endpoint (malformed URL)")
+		return nil, fmt.Errorf("mcptransport.SSESessionHijack: parse endpoint %q: %w", endpoint, err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return nil, nil
@@ -296,7 +291,7 @@ func (p *SSESessionHijack) sampleOne(ctx context.Context, client *http.Client, e
 	req, err := http.NewRequestWithContext(streamCtx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		cancel()
-		a.SetError(mcpprobe.RedactURLError(err))
+		a.SetError(err)
 		return nil, noop, a
 	}
 	req.Header.Set("Accept", "text/event-stream")
@@ -304,7 +299,7 @@ func (p *SSESessionHijack) sampleOne(ctx context.Context, client *http.Client, e
 	resp, err := client.Do(req)
 	if err != nil {
 		cancel()
-		a.SetError(mcpprobe.RedactURLError(err))
+		a.SetError(err)
 		return nil, noop, a
 	}
 	// closeStream is idempotent — see the `once` pattern below.
@@ -366,15 +361,20 @@ func fingerprintID(id string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// redactSessionID replaces the session_id query parameter's value (and every
-// other query value) with the literal string "<redacted>" and drops any
-// userinfo (inherited from the operator's base URL on a same-host resolve) so
-// logs / reports / Burp captures don't retain a live bearer token.
+// redactSessionID replaces the session_id query parameter's value with the
+// literal string "<redacted>" so logs / reports / Burp captures don't retain
+// the live bearer token.
 func redactSessionID(postURL string) string {
-	if _, err := url.Parse(postURL); err != nil {
+	u, err := url.Parse(postURL)
+	if err != nil {
 		return "<unparseable>"
 	}
-	return mcpprobe.RedactEndpoint(postURL)
+	q := u.Query()
+	if q.Get("session_id") != "" {
+		q.Set("session_id", "<redacted>")
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 // controlUnknownID is a control test: post a made-up session ID and confirm
@@ -547,13 +547,13 @@ func (p *SSESessionHijack) replayPostClose(ctx context.Context, client *http.Cli
 func (p *SSESessionHijack) postInitialize(ctx context.Context, client *http.Client, postURL string) (int, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, postURL, bytes.NewBufferString(mcpInitializePayload))
 	if err != nil {
-		return 0, "", mcpprobe.RedactURLError(err)
+		return 0, "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, "", mcpprobe.RedactURLError(err)
+		return 0, "", err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 8*1024))
@@ -660,16 +660,13 @@ func extractSessionID(dataLine string) string {
 // admin endpoint, or downgrade https→http. Returns ("", err) on any
 // mismatch; callers MUST treat the error as a hard stop.
 func resolvePostURL(base, endpointPath string) (string, error) {
-	// Neither url.Parse's error nor its inner error is safe to echo: both can
-	// quote user:password (a password with no '@' parses as the port), so report
-	// a fixed message.
 	b, err := url.Parse(base)
 	if err != nil {
-		return "", errors.New("invalid base URL (malformed URL)")
+		return "", fmt.Errorf("parse base %q: %w", base, err)
 	}
 	rel, err := url.Parse(endpointPath)
 	if err != nil {
-		return "", errors.New("invalid endpoint path (malformed URL)")
+		return "", fmt.Errorf("parse endpoint path %q: %w", endpointPath, err)
 	}
 	resolved := b.ResolveReference(rel)
 	if resolved.Scheme != b.Scheme || resolved.Host != b.Host {

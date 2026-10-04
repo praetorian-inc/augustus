@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -14,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -321,15 +319,12 @@ func (p *OriginValidation) Probe(ctx context.Context, gen types.Generator) ([]*a
 	if endpoint == "" {
 		return nil, nil
 	}
-	// Neither url.Parse's error nor its inner error is safe to echo: both can
-	// quote user:password (a password with no '@' parses as the port), so report
-	// a fixed message.
 	u, err := url.Parse(endpoint)
 	if err != nil {
-		return nil, errors.New("mcptransport.OriginValidation: invalid endpoint (malformed URL)")
+		return nil, fmt.Errorf("mcptransport.OriginValidation: parse endpoint %q: %w", endpoint, err)
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
-		slog.Warn("mcptransport.OriginValidation: skipping non-HTTP transport", "endpoint", mcpprobe.RedactEndpoint(endpoint))
+		slog.Warn("mcptransport.OriginValidation: skipping non-HTTP transport", "endpoint", endpoint)
 		return nil, nil
 	}
 	// Pick the request shape from the transport. The security question is the
@@ -380,7 +375,7 @@ func (p *OriginValidation) Probe(ctx context.Context, gen types.Generator) ([]*a
 	attempts = append(attempts, base)
 	baselineAccepted := metaBool(base, attempt.MetadataKeyOriginValidationAccepted)
 	if !baselineAccepted {
-		slog.Info("mcptransport.OriginValidation: baseline (no Origin) not accepted; refusals are not attributable to Origin validation", "endpoint", mcpprobe.RedactEndpoint(endpoint), "transport", transport)
+		slog.Info("mcptransport.OriginValidation: baseline (no Origin) not accepted; refusals are not attributable to Origin validation", "endpoint", endpoint, "transport", transport)
 	}
 
 	// 2-4. The bypass sweep. Every variant below asks the SAME question — does
@@ -630,7 +625,7 @@ func renderSweepEvidence(endpoint, transport string, accepted, rejected, errored
 	var b strings.Builder
 	total := len(accepted) + len(rejected) + len(errored)
 
-	fmt.Fprintf(&b, "MCP Origin/Host validation sweep against %s (%s transport)\n", mcpprobe.RedactEndpoint(endpoint), transport)
+	fmt.Fprintf(&b, "MCP Origin/Host validation sweep against %s (%s transport)\n", endpoint, transport)
 	fmt.Fprintf(&b, "%d of %d crafted Origin/Host values were accepted. A spec-compliant\n", len(accepted), total)
 	fmt.Fprintf(&b, "allowlist validator would have refused all %d.\n\n", total)
 
@@ -802,7 +797,7 @@ func (p *OriginValidation) sendVariantOnce(ctx context.Context, client *http.Cli
 		if transport == "sse" && resp != nil {
 			// Fall through to classify below.
 		} else {
-			return v.fail(fmt.Errorf("%s %s: %w", method, mcpprobe.RedactEndpoint(endpoint), mcpprobe.RedactURLError(err)))
+			return v.fail(fmt.Errorf("%s %s: %w", method, endpoint, err))
 		}
 	}
 	defer func() {
@@ -828,7 +823,7 @@ func (p *OriginValidation) sendVariantOnce(ctx context.Context, client *http.Cli
 			body, _ = io.ReadAll(io.LimitReader(resp.Body, 8*1024))
 		}
 	}
-	v.transcript = fmt.Sprintf("%s %s -> HTTP %d\nContent-Type: %s\n%s", method, mcpprobe.RedactEndpoint(endpoint), status, contentType, string(body))
+	v.transcript = fmt.Sprintf("%s %s -> HTTP %d\nContent-Type: %s\n%s", method, endpoint, status, contentType, string(body))
 	v.result = fmt.Sprintf("HTTP %d, %s", status, contentTypeOrNone(contentType))
 
 	if transport == "sse" {
@@ -908,7 +903,7 @@ func (p *OriginValidation) probePreflight(ctx context.Context, client *http.Clie
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodOptions, endpoint, nil)
 	if err != nil {
-		a.SetError(mcpprobe.RedactURLError(err))
+		a.SetError(err)
 		return a
 	}
 	req.Header.Set("Origin", origin)
@@ -917,7 +912,7 @@ func (p *OriginValidation) probePreflight(ctx context.Context, client *http.Clie
 
 	resp, err := client.Do(req)
 	if err != nil {
-		a.SetError(mcpprobe.RedactURLError(err))
+		a.SetError(err)
 		return a
 	}
 	defer func() { _ = resp.Body.Close() }()

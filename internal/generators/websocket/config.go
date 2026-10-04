@@ -91,7 +91,7 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 		}
 		uri = endpoint
 	} else if endpoint, _ := registry.RequireString(m, "endpoint"); endpoint != "" && endpoint != uri {
-		slog.Warn("both 'uri' and 'endpoint' specified; using 'uri'")
+		slog.Warn("both 'uri' and 'endpoint' specified; using 'uri'", "uri", uri, "endpoint", endpoint)
 	}
 	cfg.URI = uri
 
