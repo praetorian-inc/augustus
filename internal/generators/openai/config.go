@@ -21,7 +21,7 @@ const (
 )
 
 // envAPIKey is the environment variable that can satisfy keyAPIKey.
-const envAPIKey = "OPENAI_API_KEY"
+const envAPIKey = "OPENAI_API_KEY" // #nosec G101 -- environment variable name, not a credential
 
 // RequiredKeys returns the config keys ConfigFromMap requires. An entry in
 // KeyEnvFallbacks can satisfy its key from the environment instead.
