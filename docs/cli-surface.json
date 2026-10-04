@@ -490,5 +490,139 @@
     "required": [
       "endpoint"
     ]
+  },
+  "generatorConfig": {
+    "litellm.LiteLLM": {
+      "required": [
+        "model",
+        "proxy_url"
+      ],
+      "optional": [
+        "api_base",
+        "api_key",
+        "frequency_penalty",
+        "max_tokens",
+        "presence_penalty",
+        "stop",
+        "suppressed_params",
+        "temperature",
+        "top_p"
+      ],
+      "aliases": {
+        "proxy_url": [
+          "api_base"
+        ]
+      }
+    },
+    "mcp.MCP": {
+      "required": [
+        "endpoint"
+      ],
+      "optional": [
+        "api_key",
+        "arg_name",
+        "arguments",
+        "arguments_template",
+        "client_name",
+        "client_version",
+        "disable_standalone_sse",
+        "headers",
+        "insecure_skip_verify",
+        "mode",
+        "persistent",
+        "proxy",
+        "rate_limit",
+        "request_timeout",
+        "tool_name",
+        "transport",
+        "uri",
+        "url"
+      ],
+      "aliases": {
+        "endpoint": [
+          "uri",
+          "url"
+        ]
+      }
+    },
+    "ollama.Ollama": {
+      "required": [
+        "model"
+      ],
+      "optional": [
+        "host",
+        "num_predict",
+        "temperature",
+        "timeout",
+        "top_k",
+        "top_p"
+      ]
+    },
+    "ollama.OllamaChat": {
+      "required": [
+        "model"
+      ],
+      "optional": [
+        "host",
+        "num_predict",
+        "temperature",
+        "timeout",
+        "top_k",
+        "top_p"
+      ]
+    },
+    "openai.OpenAI": {
+      "required": [
+        "api_key",
+        "model"
+      ],
+      "optional": [
+        "base_url",
+        "frequency_penalty",
+        "max_tokens",
+        "presence_penalty",
+        "stop",
+        "temperature",
+        "top_p"
+      ],
+      "envFallbacks": {
+        "api_key": "OPENAI_API_KEY"
+      }
+    },
+    "rest.Rest": {
+      "required": [
+        "uri"
+      ],
+      "optional": [
+        "api_key",
+        "body",
+        "body_mode",
+        "endpoint",
+        "headers",
+        "insecure_skip_verify",
+        "method",
+        "multipart",
+        "proxy",
+        "rate_limit",
+        "ratelimit_codes",
+        "reasoning_path",
+        "req_template",
+        "req_template_json_object",
+        "request_timeout",
+        "response_json",
+        "response_json_field",
+        "response_path",
+        "skip_codes",
+        "sse_filter_field",
+        "sse_filter_value",
+        "sse_mode",
+        "sse_text_field"
+      ],
+      "aliases": {
+        "uri": [
+          "endpoint"
+        ]
+      }
+    }
   }
 }

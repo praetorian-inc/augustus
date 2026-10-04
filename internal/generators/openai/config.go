@@ -6,6 +6,43 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
+// Config keys accepted by ConfigFromMap. api_key is required, but
+// registry.GetAPIKeyWithEnv lets envAPIKey satisfy it instead.
+const (
+	keyModel            = "model"
+	keyAPIKey           = "api_key"
+	keyBaseURL          = "base_url"
+	keyTemperature      = "temperature"
+	keyMaxTokens        = "max_tokens"
+	keyTopP             = "top_p"
+	keyFrequencyPenalty = "frequency_penalty"
+	keyPresencePenalty  = "presence_penalty"
+	keyStop             = "stop"
+)
+
+// envAPIKey is the environment variable that can satisfy keyAPIKey.
+const envAPIKey = "OPENAI_API_KEY" // #nosec G101 -- environment variable name, not a credential
+
+// RequiredKeys returns the config keys ConfigFromMap requires. An entry in
+// KeyEnvFallbacks can satisfy its key from the environment instead.
+func RequiredKeys() []string {
+	return []string{keyModel, keyAPIKey}
+}
+
+// KeyEnvFallbacks returns the required keys an environment variable can
+// satisfy instead, mapped to that variable.
+func KeyEnvFallbacks() map[string]string {
+	return map[string]string{keyAPIKey: envAPIKey}
+}
+
+// OptionalKeys returns the config keys ConfigFromMap accepts but does not require.
+func OptionalKeys() []string {
+	return []string{
+		keyBaseURL, keyTemperature, keyMaxTokens, keyTopP,
+		keyFrequencyPenalty, keyPresencePenalty, keyStop,
+	}
+}
+
 // Config holds typed configuration for the OpenAI generator.
 type Config struct {
 	// Required
@@ -35,26 +72,26 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg := DefaultConfig()
 
 	// Required: model
-	model, err := registry.RequireString(m, "model")
+	model, err := registry.RequireString(m, keyModel)
 	if err != nil {
 		return cfg, fmt.Errorf("openai generator requires 'model' configuration")
 	}
 	cfg.Model = model
 
-	// API key: from config or env var
-	cfg.APIKey, err = registry.GetAPIKeyWithEnv(m, "OPENAI_API_KEY", "openai")
+	// Required: api_key, from config or envAPIKey
+	cfg.APIKey, err = registry.GetAPIKeyWithEnv(m, envAPIKey, "openai")
 	if err != nil {
 		return cfg, err
 	}
 
 	// Optional parameters
-	cfg.BaseURL = registry.GetString(m, "base_url", "")
-	cfg.Temperature = registry.GetFloat32(m, "temperature", cfg.Temperature)
-	cfg.MaxTokens = registry.GetInt(m, "max_tokens", cfg.MaxTokens)
-	cfg.TopP = registry.GetFloat32(m, "top_p", cfg.TopP)
-	cfg.FrequencyPenalty = registry.GetFloat32(m, "frequency_penalty", cfg.FrequencyPenalty)
-	cfg.PresencePenalty = registry.GetFloat32(m, "presence_penalty", cfg.PresencePenalty)
-	cfg.Stop = registry.GetStringSlice(m, "stop", nil)
+	cfg.BaseURL = registry.GetString(m, keyBaseURL, "")
+	cfg.Temperature = registry.GetFloat32(m, keyTemperature, cfg.Temperature)
+	cfg.MaxTokens = registry.GetInt(m, keyMaxTokens, cfg.MaxTokens)
+	cfg.TopP = registry.GetFloat32(m, keyTopP, cfg.TopP)
+	cfg.FrequencyPenalty = registry.GetFloat32(m, keyFrequencyPenalty, cfg.FrequencyPenalty)
+	cfg.PresencePenalty = registry.GetFloat32(m, keyPresencePenalty, cfg.PresencePenalty)
+	cfg.Stop = registry.GetStringSlice(m, keyStop, nil)
 
 	return cfg, nil
 }
