@@ -76,6 +76,16 @@ Unlike research-oriented tools, Augustus is built for production security testin
 
 > **Warning**: The `lmrc` probe uses profane and offensive language as part of its jailbreak testing. Use only in authorized testing environments.
 
+> **Note**: The `exploitation.UntrustedFileExecution` probe requires an **auxiliary file upload**. Before scanning, upload a file carrying your test content into the target agent's workspace; the probe's prompts reference that file by name and drive the agent to rename and run it. Set the name with the `upload_filename` config key (default `notes.txt`):
+>
+> ```bash
+> augustus scan rest.Rest \
+>   --probe exploitation.UntrustedFileExecution \
+>   --config '{"uri":"<TARGET-URL>","upload_filename":"report.txt"}'
+> ```
+>
+> Without the upload the probe still exercises the agent's willingness to author and run local content, but against a target that only executes genuinely uploaded files it will under-report.
+
 ## Quick Start
 
 ### Installation
