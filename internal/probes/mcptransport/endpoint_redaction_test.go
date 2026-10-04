@@ -136,6 +136,29 @@ func TestRenderSweepEvidence_OmitsEndpointUserinfo(t *testing.T) {
 	}
 }
 
+// TestRenderSweepEvidence_OmitsQueryToken: a token carried as a query value
+// must not reach the sweep evidence either.
+func TestRenderSweepEvidence_OmitsQueryToken(t *testing.T) {
+	accepted := []variantResult{{class: classSweep, origin: "http://evil.test", accepted: true, result: "HTTP 200"}}
+	out := renderSweepEvidence("https://mcp.example.test/mcp?access_token=s3cret", "http", accepted, nil, nil, corsPresent, true)
+	require.Contains(t, out, "MCP Origin/Host validation sweep against")
+	assert.Contains(t, out, "mcp.example.test")
+	assert.Contains(t, out, "access_token")
+	assert.NotContains(t, out, "s3cret")
+}
+
+// TestRedactSessionID_RedactsEveryQueryValue: a POST URL can carry a token in a
+// parameter other than session_id; that value must go too.
+func TestRedactSessionID_RedactsEveryQueryValue(t *testing.T) {
+	got := redactSessionID("http://127.0.0.1:1/messages?session_id=abc&token=s3cret")
+	assert.NotContains(t, got, "s3cret")
+	assert.NotContains(t, got, "abc")
+	u, err := url.Parse(got)
+	require.NoError(t, err)
+	assert.Equal(t, "<redacted>", u.Query().Get("session_id"))
+	assert.Equal(t, "<redacted>", u.Query().Get("token"))
+}
+
 // TestRedactSessionID_DropsUserinfo: the POST URL inherits the base URL's
 // userinfo, so the redacted form must drop it along with the session id.
 func TestRedactSessionID_DropsUserinfo(t *testing.T) {
@@ -188,4 +211,29 @@ func TestSSESession_BaselineOmitsEndpointUserinfo(t *testing.T) {
 			assertNoUserinfo(t, out, host)
 		})
 	}
+}
+
+// TestSSESession_BaselineOmitsEndpointQueryToken: a base endpoint carrying a
+// query token must not leak it into any attempt's outputs or endpoint metadata.
+func TestSSESession_BaselineOmitsEndpointQueryToken(t *testing.T) {
+	srv := newSSETestServer(t, func(int) string { return "9b1deb4d3b7d4bad9bdd2b0d7b3dcb6d" }, func(string) bool { return false })
+	defer srv.Close()
+
+	endpoint := srv.URL + "/sse?access_token=s3cret"
+	p := newSSESessionProbe(t, registry.Config{"endpoint": endpoint})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: endpoint, transport: "sse"})
+	require.NoError(t, err)
+
+	var baseline *attempt.Attempt
+	for _, a := range attempts {
+		if class, _ := a.Metadata[attempt.MetadataKeySSESessionClass].(string); class == string(sseClassBaseline) {
+			baseline = a
+		}
+		assert.NotContains(t, strings.Join(a.Outputs, "\n"), "s3cret")
+		if meta, ok := a.Metadata[attempt.MetadataKeySSESessionEndpoint].(string); ok {
+			assert.NotContains(t, meta, "s3cret")
+		}
+	}
+	require.NotNil(t, baseline, "the server must have accepted the tokened endpoint")
+	require.Empty(t, baseline.Error)
 }

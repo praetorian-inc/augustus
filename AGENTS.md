@@ -18,7 +18,7 @@ make generate-check
 go test ./cmd/augustus -run TestCLISurface -update   # rewrite docs/cli-surface.json
 ```
 
-Lint is `.golangci.yml` (v2 `standard` linters plus `gofumpt`/`goimports`). CI is `.github/workflows/ci.yml`. After adding a package under `internal/`, run `make generate` or the binary will not see it. Run `make generate-check` separately to verify generated registration files are current; `make test` does not. After adding or renaming a generator, probe, detector, buff, harness, or recon module, or changing the config keys a generator's parser accepts (its `RequiredKeys()`/`OptionalKeys()` allowlist or `KeyAliases()`), rewrite `docs/cli-surface.json` with the `-update` command above or the `cli-surface` workflow fails.
+Lint is `.golangci.yml` (v2 `standard` linters plus `gofumpt`/`goimports`). CI is `.github/workflows/ci.yml`. After adding a package under `internal/`, run `make generate` or the binary will not see it. Run `make generate-check` separately to verify generated registration files are current; `make test` does not. After adding or renaming a generator, probe, detector, buff, harness, or recon module, or changing the config keys a generator's parser accepts (its `RequiredKeys()`/`OptionalKeys()` allowlist, `KeyAliases()`, or `KeyEnvFallbacks()`), rewrite `docs/cli-surface.json` with the `-update` command above or the `cli-surface` workflow fails.
 
 ## Scanner contracts
 

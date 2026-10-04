@@ -6,14 +6,29 @@ import (
 	"strings"
 )
 
-// RedactEndpoint returns raw with all userinfo removed, for errors and logs.
-// The whole userinfo goes, not just the password: a bare username is often a token.
+// RedactEndpoint returns raw with credential carriers removed, for errors,
+// logs and reports. The whole userinfo goes, not just the password: a bare
+// username is often a token. Query values become "<redacted>" (names are kept
+// so the target's shape stays visible): servers accept tokens such as
+// ?access_token= there. The fragment goes for the same reason.
 func RedactEndpoint(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil {
 		return "(malformed URL)"
 	}
 	u.User = nil
+	if u.RawQuery != "" {
+		q, qerr := url.ParseQuery(u.RawQuery)
+		if qerr != nil {
+			u.RawQuery = "<redacted>"
+		} else {
+			for k := range q {
+				q[k] = []string{"<redacted>"}
+			}
+			u.RawQuery = q.Encode()
+		}
+	}
+	u.Fragment, u.RawFragment = "", ""
 	return u.String()
 }
 

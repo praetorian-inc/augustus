@@ -22,7 +22,12 @@ func TestRedactEndpoint(t *testing.T) {
 		// A bare username is often a token; url.URL.Redacted would keep it.
 		{"bare-username token", "https://ghp_tok@host/mcp", "https://host/mcp"},
 		{"no userinfo is unchanged", "http://host:8080/mcp", "http://host:8080/mcp"},
-		{"query string preserved", "http://ghp_tok:s3cret@host/mcp?session=1&x=y", "http://host/mcp?session=1&x=y"},
+		{"query token value redacted, name kept", "https://host/mcp?access_token=s3cret", "https://host/mcp?access_token=%3Credacted%3E"},
+		{"every param value redacted", "https://host/mcp?b=s3cret&a=ghp_tok", "https://host/mcp?a=%3Credacted%3E&b=%3Credacted%3E"},
+		{"repeated key collapses to one redacted value", "https://host/mcp?token=s3cret&token=ghp_tok", "https://host/mcp?token=%3Credacted%3E"},
+		{"invalid query encoding redacted whole", "https://host/mcp?a=%zz&access_token=s3cret", "https://host/mcp?<redacted>"},
+		{"fragment dropped", "https://host/mcp#access_token=s3cret", "https://host/mcp"},
+		{"userinfo and query together", "http://ghp_tok:s3cret@host/mcp?session=s3cret&x=ghp_tok", "http://host/mcp?session=%3Credacted%3E&x=%3Credacted%3E"},
 		{"non-HTTP scheme", "ws://ghp_tok:s3cret@host/", "ws://host/"},
 	}
 	for _, tt := range tests {
@@ -31,6 +36,7 @@ func TestRedactEndpoint(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 			assert.NotContains(t, got, "ghp_tok")
 			assert.NotContains(t, got, "s3cret")
+			assert.NotContains(t, got, "%zz")
 		})
 	}
 }
@@ -137,4 +143,21 @@ func TestRedactURLError_PreservesWrappedSentinel(t *testing.T) {
 	assert.Same(t, ue, gotUE)
 	assert.NotContains(t, got.Error(), "ghp_tok")
 	assert.Contains(t, got.Error(), "sentinel")
+}
+
+// TestRedactURLError_RemovesQueryToken: a token carried as a query value, with
+// no userinfo, must not survive in net/http's error text.
+func TestRedactURLError_RemovesQueryToken(t *testing.T) {
+	orig := realURLError(t, fmt.Sprintf("http://127.0.0.1:%d/x?access_token=s3cret", closedPort(t)))
+	require.Contains(t, orig.Error(), "s3cret", "precondition: net/http's error quotes the query")
+
+	got := RedactURLError(orig)
+	msg := got.Error()
+	assert.NotContains(t, msg, "s3cret")
+	assert.Contains(t, msg, "access_token")
+	assert.Contains(t, msg, "127.0.0.1")
+
+	var ue *url.Error
+	require.ErrorAs(t, got, &ue, "the *url.Error must stay reachable")
+	assert.ErrorIs(t, got, orig)
 }

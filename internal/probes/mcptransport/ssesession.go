@@ -366,22 +366,15 @@ func fingerprintID(id string) string {
 	return hex.EncodeToString(sum[:8])
 }
 
-// redactSessionID replaces the session_id query parameter's value with the
-// literal string "<redacted>" and drops any userinfo (inherited from the
-// operator's base URL on a same-host resolve) so logs / reports / Burp
-// captures don't retain a live bearer token.
+// redactSessionID replaces the session_id query parameter's value (and every
+// other query value) with the literal string "<redacted>" and drops any
+// userinfo (inherited from the operator's base URL on a same-host resolve) so
+// logs / reports / Burp captures don't retain a live bearer token.
 func redactSessionID(postURL string) string {
-	u, err := url.Parse(postURL)
-	if err != nil {
+	if _, err := url.Parse(postURL); err != nil {
 		return "<unparseable>"
 	}
-	u.User = nil
-	q := u.Query()
-	if q.Get("session_id") != "" {
-		q.Set("session_id", "<redacted>")
-	}
-	u.RawQuery = q.Encode()
-	return u.String()
+	return mcpprobe.RedactEndpoint(postURL)
 }
 
 // controlUnknownID is a control test: post a made-up session ID and confirm
