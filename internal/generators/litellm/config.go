@@ -18,6 +18,36 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
+// Config keys accepted by ConfigFromMap. api_base is an alias for proxy_url;
+// api_key is read by registry.GetOptionalAPIKeyWithEnv, which falls back to
+// LITELLM_API_KEY.
+const (
+	keyProxyURL         = "proxy_url"
+	keyAPIBase          = "api_base"
+	keyModel            = "model"
+	keyAPIKey           = "api_key"
+	keyTemperature      = "temperature"
+	keyMaxTokens        = "max_tokens"
+	keyTopP             = "top_p"
+	keyFrequencyPenalty = "frequency_penalty"
+	keyPresencePenalty  = "presence_penalty"
+	keyStop             = "stop"
+	keySuppressedParams = "suppressed_params"
+)
+
+// RequiredKeys returns the config keys ConfigFromMap requires.
+func RequiredKeys() []string {
+	return []string{keyProxyURL, keyModel}
+}
+
+// OptionalKeys returns the config keys ConfigFromMap accepts but does not require.
+func OptionalKeys() []string {
+	return []string{
+		keyAPIBase, keyAPIKey, keyTemperature, keyMaxTokens, keyTopP,
+		keyFrequencyPenalty, keyPresencePenalty, keyStop, keySuppressedParams,
+	}
+}
+
 // Config holds typed configuration for the LiteLLM generator.
 type Config struct {
 	// Required
@@ -47,9 +77,9 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg := DefaultConfig()
 
 	// Required: proxy_url
-	proxyURL := registry.GetString(m, "proxy_url", "")
+	proxyURL := registry.GetString(m, keyProxyURL, "")
 	if proxyURL == "" {
-		proxyURL = registry.GetString(m, "api_base", "") // Alternative key
+		proxyURL = registry.GetString(m, keyAPIBase, "") // Alternative key
 	}
 	if proxyURL == "" {
 		return cfg, fmt.Errorf("litellm generator requires 'proxy_url' configuration")
@@ -57,7 +87,7 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg.ProxyURL = proxyURL
 
 	// Required: model
-	model, err := registry.RequireString(m, "model")
+	model, err := registry.RequireString(m, keyModel)
 	if err != nil {
 		return cfg, fmt.Errorf("litellm generator requires 'model' configuration")
 	}
@@ -70,13 +100,13 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	}
 
 	// Optional parameters
-	cfg.Temperature = registry.GetFloat32(m, "temperature", cfg.Temperature)
-	cfg.MaxTokens = registry.GetInt(m, "max_tokens", cfg.MaxTokens)
-	cfg.TopP = registry.GetFloat32(m, "top_p", cfg.TopP)
-	cfg.FrequencyPenalty = registry.GetFloat32(m, "frequency_penalty", cfg.FrequencyPenalty)
-	cfg.PresencePenalty = registry.GetFloat32(m, "presence_penalty", cfg.PresencePenalty)
-	cfg.Stop = registry.GetStringSlice(m, "stop", nil)
-	cfg.SuppressedParams = registry.GetStringSlice(m, "suppressed_params", nil)
+	cfg.Temperature = registry.GetFloat32(m, keyTemperature, cfg.Temperature)
+	cfg.MaxTokens = registry.GetInt(m, keyMaxTokens, cfg.MaxTokens)
+	cfg.TopP = registry.GetFloat32(m, keyTopP, cfg.TopP)
+	cfg.FrequencyPenalty = registry.GetFloat32(m, keyFrequencyPenalty, cfg.FrequencyPenalty)
+	cfg.PresencePenalty = registry.GetFloat32(m, keyPresencePenalty, cfg.PresencePenalty)
+	cfg.Stop = registry.GetStringSlice(m, keyStop, nil)
+	cfg.SuppressedParams = registry.GetStringSlice(m, keySuppressedParams, nil)
 
 	return cfg, nil
 }

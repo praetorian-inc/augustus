@@ -10,6 +10,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -137,20 +138,20 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 	}
 
 	// Required: URI (also accept "endpoint" as alias for compatibility with GeneratorConfig)
-	if uri, ok := cfg["uri"].(string); ok && uri != "" {
+	if uri, ok := cfg[keyURI].(string); ok && uri != "" {
 		r.uri = uri
-		if endpoint, ok := cfg["endpoint"].(string); ok && endpoint != "" && endpoint != uri {
+		if endpoint, ok := cfg[keyEndpoint].(string); ok && endpoint != "" && endpoint != uri {
 			slog.Warn("both 'uri' and 'endpoint' specified; using 'uri'",
 				"uri", uri, "endpoint", endpoint)
 		}
-	} else if endpoint, ok := cfg["endpoint"].(string); ok && endpoint != "" {
+	} else if endpoint, ok := cfg[keyEndpoint].(string); ok && endpoint != "" {
 		r.uri = endpoint
 	} else {
 		return nil, fmt.Errorf("rest generator requires 'uri' or 'endpoint' configuration")
 	}
 
 	// Optional: HTTP method
-	if method, ok := cfg["method"].(string); ok && method != "" {
+	if method, ok := cfg[keyMethod].(string); ok && method != "" {
 		r.method = strings.ToUpper(method)
 		// Validate method
 		validMethods := map[string]bool{
@@ -163,7 +164,7 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 	}
 
 	// Optional: Headers
-	if headers, ok := cfg["headers"].(map[string]any); ok {
+	if headers, ok := cfg[keyHeaders].(map[string]any); ok {
 		for k, v := range headers {
 			if vs, ok := v.(string); ok {
 				r.headers[k] = vs
@@ -172,18 +173,18 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 	}
 
 	// Optional: Request template (also accept "body" as alias for compatibility with GeneratorConfig)
-	if tmpl, ok := cfg["req_template"].(string); ok {
+	if tmpl, ok := cfg[keyReqTemplate].(string); ok {
 		r.reqTemplate = tmpl
-		if body, ok := cfg["body"].(string); ok && body != tmpl {
+		if body, ok := cfg[keyBody].(string); ok && body != tmpl {
 			slog.Warn("both 'req_template' and 'body' specified; using 'req_template'",
 				"req_template", tmpl, "body", body)
 		}
-	} else if body, ok := cfg["body"].(string); ok {
+	} else if body, ok := cfg[keyBody].(string); ok {
 		r.reqTemplate = body
 	}
 
 	// Optional: JSON request template object
-	if tmplObj, ok := cfg["req_template_json_object"].(map[string]any); ok {
+	if tmplObj, ok := cfg[keyReqTemplateJSONObject].(map[string]any); ok {
 		data, err := json.Marshal(tmplObj)
 		if err == nil {
 			r.reqTemplate = string(data)
@@ -191,17 +192,17 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 	}
 
 	// Optional: Response parsing
-	_, responseJSONExplicit := cfg["response_json"].(bool)
-	if responseJSON, ok := cfg["response_json"].(bool); ok {
+	_, responseJSONExplicit := cfg[keyResponseJSON].(bool)
+	if responseJSON, ok := cfg[keyResponseJSON].(bool); ok {
 		r.responseJSON = responseJSON
 	}
-	if responseJSONField, ok := cfg["response_json_field"].(string); ok {
+	if responseJSONField, ok := cfg[keyResponseJSONField].(string); ok {
 		r.responseJSONField = responseJSONField
-		if responsePath, ok := cfg["response_path"].(string); ok && responsePath != responseJSONField {
+		if responsePath, ok := cfg[keyResponsePath].(string); ok && responsePath != responseJSONField {
 			slog.Warn("both 'response_json_field' and 'response_path' specified; using 'response_json_field'",
 				"response_json_field", responseJSONField, "response_path", responsePath)
 		}
-	} else if responsePath, ok := cfg["response_path"].(string); ok {
+	} else if responsePath, ok := cfg[keyResponsePath].(string); ok {
 		r.responseJSONField = responsePath
 		if responseJSONExplicit && !r.responseJSON {
 			slog.Warn("'response_path' would enable JSON parsing, but 'response_json' is explicitly false; respecting 'response_json: false'",
@@ -214,7 +215,7 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 	// Optional: Reasoning extraction path (for reasoning models).
 	// An empty string is treated as unset (no-op) so it doesn't silently
 	// force JSON parsing on a target that returns plain text.
-	if reasoningPath, ok := cfg["reasoning_path"].(string); ok && reasoningPath != "" {
+	if reasoningPath, ok := cfg[keyReasoningPath].(string); ok && reasoningPath != "" {
 		r.reasoningJSONField = reasoningPath
 		// Reasoning extraction requires JSON parsing
 		if !r.responseJSON {
@@ -230,14 +231,14 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 	}
 
 	// Optional: Timeout
-	if timeout, ok := cfg["request_timeout"].(float64); ok {
+	if timeout, ok := cfg[keyRequestTimeout].(float64); ok {
 		r.requestTimeout = time.Duration(timeout * float64(time.Second))
-	} else if timeout, ok := cfg["request_timeout"].(int); ok {
+	} else if timeout, ok := cfg[keyRequestTimeout].(int); ok {
 		r.requestTimeout = time.Duration(timeout) * time.Second
 	}
 
 	// Optional: Rate limit codes
-	if codes, ok := cfg["ratelimit_codes"].([]any); ok {
+	if codes, ok := cfg[keyRateLimitCodes].([]any); ok {
 		r.rateLimitCodes = make(map[int]bool)
 		for _, c := range codes {
 			if code, ok := c.(int); ok {
@@ -249,7 +250,7 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 	}
 
 	// Optional: Skip codes
-	if codes, ok := cfg["skip_codes"].([]any); ok {
+	if codes, ok := cfg[keySkipCodes].([]any); ok {
 		for _, c := range codes {
 			if code, ok := c.(int); ok {
 				r.skipCodes[code] = true
@@ -260,17 +261,20 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 	}
 
 	// Optional: API key
-	if apiKey, ok := cfg["api_key"].(string); ok {
+	if apiKey, ok := cfg[keyAPIKey].(string); ok {
 		r.apiKey = apiKey
 	}
 
 	// Optional: Proxy configuration
 	var proxyURL *url.URL
-	if proxyStr, ok := cfg["proxy"].(string); ok && proxyStr != "" {
+	if proxyStr, ok := cfg[keyProxy].(string); ok && proxyStr != "" {
 		var err error
 		proxyURL, err = url.Parse(proxyStr)
 		if err != nil {
-			return nil, fmt.Errorf("invalid proxy URL: %w", err)
+			// Neither url.Parse's error nor its inner error is safe to echo:
+			// both can quote user:password (a password with no '@' parses as
+			// the port), so report a fixed message.
+			return nil, errors.New("invalid proxy URL (check scheme, host and port)")
 		}
 	} else {
 		// Fall back to environment variables (check both case variants)
@@ -287,15 +291,15 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 	r.proxyURL = proxyURL
 
 	// Optional: Insecure skip verify
-	if insecure, ok := cfg["insecure_skip_verify"].(bool); ok {
+	if insecure, ok := cfg[keyInsecureSkipVerify].(bool); ok {
 		r.insecureSkipVerify = insecure
 	}
 
 	// Optional: SSE configuration
-	if sseTextField, ok := cfg["sse_text_field"].(string); ok {
+	if sseTextField, ok := cfg[keySSETextField].(string); ok {
 		r.sseTextField = sseTextField
 	}
-	if sseMode, ok := cfg["sse_mode"].(string); ok && sseMode != "" {
+	if sseMode, ok := cfg[keySSEMode].(string); ok && sseMode != "" {
 		if sseMode != "delta" && sseMode != "last" {
 			return nil, fmt.Errorf("sse_mode must be \"delta\" or \"last\", got %q", sseMode)
 		}
@@ -304,10 +308,10 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 	if r.sseTextField != "" && r.sseMode == "" {
 		r.sseMode = "delta"
 	}
-	if sseFilterField, ok := cfg["sse_filter_field"].(string); ok {
+	if sseFilterField, ok := cfg[keySSEFilterField].(string); ok {
 		r.sseFilterField = sseFilterField
 	}
-	if sseFilterValue, ok := cfg["sse_filter_value"].(string); ok {
+	if sseFilterValue, ok := cfg[keySSEFilterValue].(string); ok {
 		r.sseFilterValue = sseFilterValue
 	}
 	if (r.sseFilterField != "") != (r.sseFilterValue != "") {
@@ -321,7 +325,7 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 
 	// Optional: Rate limiting (requests per second)
 	// Supports both float64 (from JSON) and int
-	if rateLimit, ok := cfg["rate_limit"].(float64); ok && rateLimit > 0 {
+	if rateLimit, ok := cfg[keyRateLimit].(float64); ok && rateLimit > 0 {
 		// Token bucket: capacity must be >= 1.0 to allow at least one request
 		// For rates < 1.0, we still need capacity for 1 token, but refill slowly
 		capacity := rateLimit
@@ -329,7 +333,7 @@ func NewRest(cfg registry.Config) (generators.Generator, error) {
 			capacity = 1.0 // Ensure we can always make at least one request
 		}
 		r.limiter = ratelimit.NewLimiter(capacity, rateLimit)
-	} else if rateLimit, ok := cfg["rate_limit"].(int); ok && rateLimit > 0 {
+	} else if rateLimit, ok := cfg[keyRateLimit].(int); ok && rateLimit > 0 {
 		r.limiter = ratelimit.NewLimiter(float64(rateLimit), float64(rateLimit))
 	}
 
@@ -1049,14 +1053,14 @@ func (r *Rest) SupportsVision() bool {
 // that control how a probe's image is placed on the wire. body_mode raw_binary
 // and multipart are mutually exclusive.
 func (r *Rest) configureImageTransport(cfg registry.Config) error {
-	if mode, ok := cfg["body_mode"].(string); ok && mode != "" {
+	if mode, ok := cfg[keyBodyMode].(string); ok && mode != "" {
 		if mode != bodyModeRawBinary {
 			return fmt.Errorf("rest: invalid body_mode %q (only %q is supported)", mode, bodyModeRawBinary)
 		}
 		r.bodyMode = mode
 	}
 
-	raw, ok := cfg["multipart"]
+	raw, ok := cfg[keyMultipart]
 	if !ok {
 		return nil
 	}

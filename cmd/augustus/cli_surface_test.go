@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,7 +16,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	litellmgen "github.com/praetorian-inc/augustus/internal/generators/litellm"
 	mcpgen "github.com/praetorian-inc/augustus/internal/generators/mcp"
+	ollamagen "github.com/praetorian-inc/augustus/internal/generators/ollama"
+	openaigen "github.com/praetorian-inc/augustus/internal/generators/openai"
+	restgen "github.com/praetorian-inc/augustus/internal/generators/rest"
+	"github.com/praetorian-inc/augustus/internal/testutil"
 	"github.com/praetorian-inc/augustus/pkg/buffs"
 	"github.com/praetorian-inc/augustus/pkg/detectors"
 	"github.com/praetorian-inc/augustus/pkg/generators"
@@ -28,8 +34,10 @@ var updateSurface = flag.Bool("update", false, "rewrite docs/cli-surface.json fr
 
 const cliSurfaceSchemaVersion = 1
 
-// cliSurface is the golden snapshot of registered CLI names plus the MCP
-// generator's config vocabulary. List() already returns sorted names.
+// cliSurface is the golden snapshot of registered CLI names, the MCP
+// generator's config vocabulary, and the config keys each documented
+// generator's production parser accepts. List() already returns sorted names.
+// Help and error wording is deliberately absent: only key names are pinned.
 type cliSurface struct {
 	SchemaVersion int      `json:"schemaVersion"`
 	Generators    []string `json:"generators"`
@@ -39,6 +47,13 @@ type cliSurface struct {
 	Harnesses     []string `json:"harnesses"`
 	Recons        []string `json:"recons"`
 	MCP           mcpVocab `json:"mcp"`
+	// GeneratorConfig maps a registered generator name to its parser's keys.
+	GeneratorConfig map[string]configKeys `json:"generatorConfig"`
+}
+
+type configKeys struct {
+	Required []string `json:"required"`
+	Optional []string `json:"optional"`
 }
 
 type mcpVocab struct {
@@ -52,8 +67,28 @@ type mcpVocab struct {
 // see isGatedDocToken.
 var docTokenRe = regexp.MustCompile(`\b((?:mcptool|mcptransport|mcpconfig|mcpprimitive|mcpsecrets|recon|mcp)\.[A-Za-z0-9_]+)\b`)
 
+// configParsers lists the generators using-augustus documents, with the
+// production parser package (relative to the repo root) and allowlists that
+// back each generatorConfig entry. Every non-test file in the package is
+// scanned, so a parser helper moved into a new file stays covered; exclude
+// names files that parse an out-of-scope generator's config.
+var configParsers = []struct {
+	names              []string
+	dir                string
+	exclude            []string
+	required, optional func() []string
+}{
+	{[]string{"litellm.LiteLLM"}, "internal/generators/litellm", nil, litellmgen.RequiredKeys, litellmgen.OptionalKeys},
+	{[]string{"mcp.MCP"}, "internal/generators/mcp", nil, mcpgen.RequiredKeys, mcpgen.OptionalKeys},
+	{[]string{"ollama.Ollama", "ollama.OllamaChat"}, "internal/generators/ollama", nil, ollamagen.RequiredKeys, ollamagen.OptionalKeys},
+	// openai.OpenAIReasoning (reasoning*.go) has its own parser and is not documented.
+	{[]string{"openai.OpenAI"}, "internal/generators/openai", []string{"reasoning.go", "reasoning_config.go"}, openaigen.RequiredKeys, openaigen.OptionalKeys},
+	{[]string{"rest.Rest"}, "internal/generators/rest", nil, restgen.RequiredKeys, restgen.OptionalKeys},
+}
+
 func TestCLISurface(t *testing.T) {
 	root := repoRoot(t)
+	requireAllowlistsMatchParsers(t, root)
 	live := snapshotSurface()
 	path := filepath.Join(root, "docs", "cli-surface.json")
 
@@ -74,6 +109,25 @@ func TestCLISurface(t *testing.T) {
 
 	if report := surfaceDrift(live, documented); report != "" {
 		require.Fail(t, "CLI surface drift; re-run with -update", report)
+	}
+}
+
+// requireAllowlistsMatchParsers fails when a parser reads a key its allowlist
+// omits (or lists a key it never reads), or when a key is both required and
+// optional, so the snapshot cannot be rewritten from a stale allowlist.
+func requireAllowlistsMatchParsers(t *testing.T, root string) {
+	t.Helper()
+	for _, p := range configParsers {
+		files, err := testutil.PackageSources(filepath.Join(root, p.dir), p.exclude...)
+		require.NoError(t, err)
+		read, err := testutil.ConfigKeysRead(files...)
+		require.NoError(t, err)
+		required, optional := p.required(), p.optional()
+		require.ElementsMatchf(t, slices.Concat(required, optional), read,
+			"%v: RequiredKeys()+OptionalKeys() must equal the keys %s reads", p.names, p.dir)
+		for _, k := range required {
+			require.NotContainsf(t, optional, k, "%v: key %q is both required and optional", p.names, k)
+		}
 	}
 }
 
@@ -128,17 +182,45 @@ func TestCLISurfaceDocLint(t *testing.T) {
 }
 
 func TestCLISurfaceGateDetectsRename(t *testing.T) {
-	live := snapshotSurface()
-	require.NotEmpty(t, live.Probes, "need at least one registered probe for a rename to be observable")
+	t.Run("probe name", func(t *testing.T) {
+		live := snapshotSurface()
+		require.NotEmpty(t, live.Probes, "need at least one registered probe for a rename to be observable")
 
-	documented := slices.Clone(live.Probes)
-	mutated := slices.Clone(live.Probes)
-	old := mutated[0]
-	mutated[0] = old + "Renamed"
+		documented := slices.Clone(live.Probes)
+		mutated := slices.Clone(live.Probes)
+		old := mutated[0]
+		mutated[0] = old + "Renamed"
 
-	added, removed := setDiff(mutated, documented)
-	require.Contains(t, removed, old, "rename must report the old name as removed from live")
-	require.Contains(t, added, old+"Renamed", "rename must report the renamed name as added vs documented")
+		added, removed := setDiff(mutated, documented)
+		require.Contains(t, removed, old, "rename must report the old name as removed from live")
+		require.Contains(t, added, old+"Renamed", "rename must report the renamed name as added vs documented")
+	})
+
+	t.Run("generator config key", func(t *testing.T) {
+		documented := snapshotSurface()
+		live := snapshotSurface()
+		keys := live.GeneratorConfig["mcp.MCP"]
+		require.NotEmpty(t, keys.Optional, "need at least one optional mcp.MCP key for a rename to be observable")
+		old := keys.Optional[0]
+		keys.Optional = slices.Clone(keys.Optional)
+		keys.Optional[0] = old + "_renamed"
+		live.GeneratorConfig["mcp.MCP"] = keys
+
+		report := surfaceDrift(live, documented)
+		require.Contains(t, report, "generatorConfig mcp.MCP optional: added ["+old+"_renamed]; removed ["+old+"]")
+	})
+
+	// The per-entry key diff iterates live names only, so a generator dropped
+	// from configParsers must still surface through the entry-name diff.
+	t.Run("generator config entry dropped", func(t *testing.T) {
+		documented := snapshotSurface()
+		live := snapshotSurface()
+		require.Contains(t, live.GeneratorConfig, "rest.Rest")
+		delete(live.GeneratorConfig, "rest.Rest")
+
+		report := surfaceDrift(live, documented)
+		require.Contains(t, report, "generatorConfig: added []; removed [rest.Rest]")
+	})
 }
 
 func snapshotSurface() cliSurface {
@@ -156,7 +238,22 @@ func snapshotSurface() cliSurface {
 			Modes:      mcpgen.Modes(),
 			Required:   mcpgen.RequiredKeys(),
 		},
+		GeneratorConfig: generatorConfig(),
 	}
+}
+
+func generatorConfig() map[string]configKeys {
+	out := make(map[string]configKeys)
+	for _, p := range configParsers {
+		keys := configKeys{
+			Required: slices.Sorted(slices.Values(p.required())),
+			Optional: slices.Sorted(slices.Values(p.optional())),
+		}
+		for _, name := range p.names {
+			out[name] = keys
+		}
+	}
+	return out
 }
 
 // productionNames drops test-only registrations (e.g. recon.fakeOK from
@@ -211,6 +308,15 @@ func surfaceDrift(live, documented cliSurface) string {
 		!slices.Equal(live.MCP.Modes, documented.MCP.Modes) ||
 		!slices.Equal(live.MCP.Required, documented.MCP.Required) {
 		fmt.Fprintf(&b, "mcp: live %+v; documented %+v\n", live.MCP, documented.MCP)
+	}
+	check("generatorConfig", slices.Sorted(maps.Keys(live.GeneratorConfig)), slices.Sorted(maps.Keys(documented.GeneratorConfig)))
+	for _, name := range slices.Sorted(maps.Keys(live.GeneratorConfig)) {
+		doc, ok := documented.GeneratorConfig[name]
+		if !ok {
+			continue
+		}
+		check("generatorConfig "+name+" required", live.GeneratorConfig[name].Required, doc.Required)
+		check("generatorConfig "+name+" optional", live.GeneratorConfig[name].Optional, doc.Optional)
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

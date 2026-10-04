@@ -6,6 +6,33 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
+// Config keys accepted by ConfigFromMap. api_key is read by
+// registry.GetAPIKeyWithEnv, which falls back to OPENAI_API_KEY.
+const (
+	keyModel            = "model"
+	keyAPIKey           = "api_key"
+	keyBaseURL          = "base_url"
+	keyTemperature      = "temperature"
+	keyMaxTokens        = "max_tokens"
+	keyTopP             = "top_p"
+	keyFrequencyPenalty = "frequency_penalty"
+	keyPresencePenalty  = "presence_penalty"
+	keyStop             = "stop"
+)
+
+// RequiredKeys returns the config keys ConfigFromMap requires.
+func RequiredKeys() []string {
+	return []string{keyModel}
+}
+
+// OptionalKeys returns the config keys ConfigFromMap accepts but does not require.
+func OptionalKeys() []string {
+	return []string{
+		keyAPIKey, keyBaseURL, keyTemperature, keyMaxTokens, keyTopP,
+		keyFrequencyPenalty, keyPresencePenalty, keyStop,
+	}
+}
+
 // Config holds typed configuration for the OpenAI generator.
 type Config struct {
 	// Required
@@ -35,7 +62,7 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg := DefaultConfig()
 
 	// Required: model
-	model, err := registry.RequireString(m, "model")
+	model, err := registry.RequireString(m, keyModel)
 	if err != nil {
 		return cfg, fmt.Errorf("openai generator requires 'model' configuration")
 	}
@@ -48,13 +75,13 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	}
 
 	// Optional parameters
-	cfg.BaseURL = registry.GetString(m, "base_url", "")
-	cfg.Temperature = registry.GetFloat32(m, "temperature", cfg.Temperature)
-	cfg.MaxTokens = registry.GetInt(m, "max_tokens", cfg.MaxTokens)
-	cfg.TopP = registry.GetFloat32(m, "top_p", cfg.TopP)
-	cfg.FrequencyPenalty = registry.GetFloat32(m, "frequency_penalty", cfg.FrequencyPenalty)
-	cfg.PresencePenalty = registry.GetFloat32(m, "presence_penalty", cfg.PresencePenalty)
-	cfg.Stop = registry.GetStringSlice(m, "stop", nil)
+	cfg.BaseURL = registry.GetString(m, keyBaseURL, "")
+	cfg.Temperature = registry.GetFloat32(m, keyTemperature, cfg.Temperature)
+	cfg.MaxTokens = registry.GetInt(m, keyMaxTokens, cfg.MaxTokens)
+	cfg.TopP = registry.GetFloat32(m, keyTopP, cfg.TopP)
+	cfg.FrequencyPenalty = registry.GetFloat32(m, keyFrequencyPenalty, cfg.FrequencyPenalty)
+	cfg.PresencePenalty = registry.GetFloat32(m, keyPresencePenalty, cfg.PresencePenalty)
+	cfg.Stop = registry.GetStringSlice(m, keyStop, nil)
 
 	return cfg, nil
 }

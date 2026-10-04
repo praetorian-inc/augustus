@@ -932,6 +932,21 @@ func TestRestGenerator_ProxyInvalidURL(t *testing.T) {
 	}
 }
 
+func TestRestGenerator_ProxyInvalidURLRedactsCredentials(t *testing.T) {
+	for _, proxy := range []string{
+		"http://user:s3cr3t-pw@proxy.local:bad-port",
+		"http://user:s3cr3t-pw", // no '@': url.Parse reads the password as the port
+	} {
+		_, err := NewRest(registry.Config{
+			"uri":   "http://127.0.0.1:1/",
+			"proxy": proxy,
+		})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid proxy URL")
+		assert.NotContains(t, err.Error(), "s3cr3t-pw")
+	}
+}
+
 func TestRestGenerator_SSEResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

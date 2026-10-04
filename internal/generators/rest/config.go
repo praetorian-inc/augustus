@@ -8,6 +8,54 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
+// Config keys accepted by NewRest (the registered constructor) and
+// ConfigFromMap. endpoint is an alias for uri, body for req_template, and
+// response_path for response_json_field. multipart's sub-keys (file_field,
+// filename, fields) are nested, not top-level.
+const (
+	keyURI                   = "uri"
+	keyEndpoint              = "endpoint"
+	keyMethod                = "method"
+	keyHeaders               = "headers"
+	keyReqTemplate           = "req_template"
+	keyBody                  = "body"
+	keyReqTemplateJSONObject = "req_template_json_object"
+	keyResponseJSON          = "response_json"
+	keyResponseJSONField     = "response_json_field"
+	keyResponsePath          = "response_path"
+	keyReasoningPath         = "reasoning_path"
+	keyRequestTimeout        = "request_timeout"
+	keyRateLimitCodes        = "ratelimit_codes"
+	keySkipCodes             = "skip_codes"
+	keyAPIKey                = "api_key"
+	keyRateLimit             = "rate_limit"
+	keyProxy                 = "proxy"
+	keyInsecureSkipVerify    = "insecure_skip_verify"
+	keySSETextField          = "sse_text_field"
+	keySSEMode               = "sse_mode"
+	keySSEFilterField        = "sse_filter_field"
+	keySSEFilterValue        = "sse_filter_value"
+	keyBodyMode              = "body_mode"
+	keyMultipart             = "multipart"
+)
+
+// RequiredKeys returns the config keys NewRest requires.
+func RequiredKeys() []string {
+	return []string{keyURI}
+}
+
+// OptionalKeys returns the config keys NewRest accepts but does not require.
+func OptionalKeys() []string {
+	return []string{
+		keyEndpoint, keyMethod, keyHeaders, keyReqTemplate, keyBody,
+		keyReqTemplateJSONObject, keyResponseJSON, keyResponseJSONField,
+		keyResponsePath, keyReasoningPath, keyRequestTimeout, keyRateLimitCodes,
+		keySkipCodes, keyAPIKey, keyRateLimit, keyProxy, keyInsecureSkipVerify,
+		keySSETextField, keySSEMode, keySSEFilterField, keySSEFilterValue,
+		keyBodyMode, keyMultipart,
+	}
+}
+
 // Config holds typed configuration for the REST generator.
 type Config struct {
 	// Required
@@ -49,24 +97,24 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg := DefaultConfig()
 
 	// Required: URI (also accept "endpoint" as alias for compatibility with GeneratorConfig)
-	uri, err := registry.RequireString(m, "uri")
+	uri, err := registry.RequireString(m, keyURI)
 	if err != nil {
-		endpoint, endpointErr := registry.RequireString(m, "endpoint")
+		endpoint, endpointErr := registry.RequireString(m, keyEndpoint)
 		if endpointErr != nil {
 			return cfg, fmt.Errorf("rest generator requires 'uri' or 'endpoint' configuration")
 		}
 		uri = endpoint
-	} else if endpoint, _ := registry.RequireString(m, "endpoint"); endpoint != "" && endpoint != uri {
+	} else if endpoint, _ := registry.RequireString(m, keyEndpoint); endpoint != "" && endpoint != uri {
 		slog.Warn("both 'uri' and 'endpoint' specified; using 'uri'",
 			"uri", uri, "endpoint", endpoint)
 	}
 	cfg.URI = uri
 
 	// Optional: method
-	cfg.Method = registry.GetString(m, "method", cfg.Method)
+	cfg.Method = registry.GetString(m, keyMethod, cfg.Method)
 
 	// Optional: headers
-	if headers, ok := m["headers"].(map[string]any); ok {
+	if headers, ok := m[keyHeaders].(map[string]any); ok {
 		cfg.Headers = make(map[string]string)
 		for k, v := range headers {
 			if vs, ok := v.(string); ok {
@@ -76,25 +124,25 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	}
 
 	// Optional: request template (also accept "body" as alias for compatibility with GeneratorConfig)
-	cfg.ReqTemplate = registry.GetString(m, "req_template", cfg.ReqTemplate)
-	if _, hasReqTemplate := m["req_template"]; !hasReqTemplate {
-		if body := registry.GetString(m, "body", ""); body != "" {
+	cfg.ReqTemplate = registry.GetString(m, keyReqTemplate, cfg.ReqTemplate)
+	if _, hasReqTemplate := m[keyReqTemplate]; !hasReqTemplate {
+		if body := registry.GetString(m, keyBody, ""); body != "" {
 			cfg.ReqTemplate = body
 		}
-	} else if body := registry.GetString(m, "body", ""); body != "" && body != cfg.ReqTemplate {
+	} else if body := registry.GetString(m, keyBody, ""); body != "" && body != cfg.ReqTemplate {
 		slog.Warn("both 'req_template' and 'body' specified; using 'req_template'",
 			"req_template", cfg.ReqTemplate, "body", body)
 	}
 
 	// Optional: response JSON parsing
-	_, responseJSONExplicit := m["response_json"].(bool)
-	if responseJSON, ok := m["response_json"].(bool); ok {
+	_, responseJSONExplicit := m[keyResponseJSON].(bool)
+	if responseJSON, ok := m[keyResponseJSON].(bool); ok {
 		cfg.ResponseJSON = responseJSON
 	}
-	cfg.ResponseJSONField = registry.GetString(m, "response_json_field", "")
+	cfg.ResponseJSONField = registry.GetString(m, keyResponseJSONField, "")
 	// Also accept "response_path" as alias for compatibility with GeneratorConfig
 	if cfg.ResponseJSONField == "" {
-		if responsePath := registry.GetString(m, "response_path", ""); responsePath != "" {
+		if responsePath := registry.GetString(m, keyResponsePath, ""); responsePath != "" {
 			cfg.ResponseJSONField = responsePath
 			if responseJSONExplicit && !cfg.ResponseJSON {
 				slog.Warn("'response_path' would enable JSON parsing, but 'response_json' is explicitly false; respecting 'response_json: false'",
@@ -103,7 +151,7 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 				cfg.ResponseJSON = true
 			}
 		}
-	} else if responsePath := registry.GetString(m, "response_path", ""); responsePath != "" && responsePath != cfg.ResponseJSONField {
+	} else if responsePath := registry.GetString(m, keyResponsePath, ""); responsePath != "" && responsePath != cfg.ResponseJSONField {
 		slog.Warn("both 'response_json_field' and 'response_path' specified; using 'response_json_field'",
 			"response_json_field", cfg.ResponseJSONField, "response_path", responsePath)
 	}
@@ -114,14 +162,14 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	}
 
 	// Optional: timeout
-	if timeout, ok := m["request_timeout"].(float64); ok {
+	if timeout, ok := m[keyRequestTimeout].(float64); ok {
 		cfg.RequestTimeout = time.Duration(timeout * float64(time.Second))
-	} else if timeout, ok := m["request_timeout"].(int); ok {
+	} else if timeout, ok := m[keyRequestTimeout].(int); ok {
 		cfg.RequestTimeout = time.Duration(timeout) * time.Second
 	}
 
 	// Optional: rate limit codes
-	if codes, ok := m["ratelimit_codes"].([]any); ok {
+	if codes, ok := m[keyRateLimitCodes].([]any); ok {
 		cfg.RateLimitCodes = make(map[int]bool)
 		for _, c := range codes {
 			if code, ok := c.(int); ok {
@@ -133,7 +181,7 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	}
 
 	// Optional: skip codes
-	if codes, ok := m["skip_codes"].([]any); ok {
+	if codes, ok := m[keySkipCodes].([]any); ok {
 		cfg.SkipCodes = make(map[int]bool)
 		for _, c := range codes {
 			if code, ok := c.(int); ok {
@@ -145,15 +193,15 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	}
 
 	// Optional: API key
-	cfg.APIKey = registry.GetString(m, "api_key", "")
+	cfg.APIKey = registry.GetString(m, keyAPIKey, "")
 
 	// Optional: Rate limit (requests per second)
-	if rateLimit, ok := m["rate_limit"].(float64); ok {
+	if rateLimit, ok := m[keyRateLimit].(float64); ok {
 		if rateLimit < 0 {
 			return cfg, fmt.Errorf("rate_limit must be non-negative, got %f", rateLimit)
 		}
 		cfg.RateLimit = rateLimit
-	} else if rateLimit, ok := m["rate_limit"].(int); ok {
+	} else if rateLimit, ok := m[keyRateLimit].(int); ok {
 		if rateLimit < 0 {
 			return cfg, fmt.Errorf("rate_limit must be non-negative, got %d", rateLimit)
 		}
@@ -161,10 +209,10 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	}
 
 	// Optional: SSE configuration
-	cfg.SSETextField = registry.GetString(m, "sse_text_field", "")
-	cfg.SSEMode = registry.GetString(m, "sse_mode", "delta")
-	cfg.SSEFilterField = registry.GetString(m, "sse_filter_field", "")
-	cfg.SSEFilterValue = registry.GetString(m, "sse_filter_value", "")
+	cfg.SSETextField = registry.GetString(m, keySSETextField, "")
+	cfg.SSEMode = registry.GetString(m, keySSEMode, "delta")
+	cfg.SSEFilterField = registry.GetString(m, keySSEFilterField, "")
+	cfg.SSEFilterValue = registry.GetString(m, keySSEFilterValue, "")
 
 	// Validate SSE mode
 	if cfg.SSEMode != "delta" && cfg.SSEMode != "last" {
