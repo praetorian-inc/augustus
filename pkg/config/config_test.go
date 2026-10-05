@@ -955,12 +955,108 @@ func TestResolveDetectorConfig(t *testing.T) {
 				"judge_config":         map[string]any{"model": "gpt-4o-mini"},
 			},
 		},
+		{
+			name: "global classifier config flows to detector config",
+			config: Config{
+				Classifier: ClassifierGlobalConfig{
+					Type:     "typesafe",
+					Endpoint: "https://api.typesafe.ai/v1/systemone",
+					Model:    "jev-latest",
+					APIKey:   "ts-key",
+					Timeout:  "8s",
+					Hi:       0.8,
+					Lo:       0.2,
+				},
+			},
+			detectorName: "classifier.Decide",
+			wantKeys: map[string]any{
+				"classifier_type": "typesafe",
+				"endpoint":        "https://api.typesafe.ai/v1/systemone",
+				"model":           "jev-latest",
+				"api_key":         "ts-key",
+				"timeout":         "8s",
+				"hi":              0.8,
+				"lo":              0.2,
+			},
+		},
+		{
+			name: "per-detector settings override global classifier type/hi",
+			config: Config{
+				Classifier: ClassifierGlobalConfig{
+					Type: "typesafe",
+					Hi:   0.8,
+				},
+				Detectors: DetectorConfig{
+					Settings: map[string]map[string]any{
+						"classifier.Decide": {
+							"classifier_type": "other",
+							"hi":              0.9,
+						},
+					},
+				},
+			},
+			detectorName: "classifier.Decide",
+			wantKeys: map[string]any{
+				"classifier_type": "other",
+				"hi":              0.9,
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := tt.config.ResolveDetectorConfig(tt.detectorName)
 			assert.Equal(t, tt.wantKeys, result)
+		})
+	}
+}
+
+func TestValidateClassifier(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     ClassifierGlobalConfig
+		wantErr string
+	}{
+		{
+			name: "empty is valid",
+			cfg:  ClassifierGlobalConfig{},
+		},
+		{
+			name: "valid hi lo",
+			cfg:  ClassifierGlobalConfig{Hi: 0.8, Lo: 0.2},
+		},
+		{
+			name:    "hi less than lo",
+			cfg:     ClassifierGlobalConfig{Hi: 0.2, Lo: 0.8},
+			wantErr: "classifier.hi must be greater than classifier.lo",
+		},
+		{
+			name:    "hi equals lo",
+			cfg:     ClassifierGlobalConfig{Hi: 0.5, Lo: 0.5},
+			wantErr: "classifier.hi must be greater than classifier.lo",
+		},
+		{
+			name:    "bad timeout",
+			cfg:     ClassifierGlobalConfig{Timeout: "not-a-duration"},
+			wantErr: "invalid classifier.timeout",
+		},
+		{
+			name:    "hi out of range",
+			cfg:     ClassifierGlobalConfig{Hi: 1.5, Lo: 0.2},
+			wantErr: "classifier.hi must be in (0,1]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &Config{Classifier: tt.cfg}
+			err := cfg.Validate()
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
 		})
 	}
 }
