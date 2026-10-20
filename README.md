@@ -4,7 +4,7 @@
 
 > Test large language models against 210+ adversarial attacks covering prompt injection, jailbreaks, encoding exploits, and data extraction.
 
-[![CI](https://github.com/praetorian-inc/augustus/actions/workflows/ci.yaml/badge.svg)](https://github.com/praetorian-inc/augustus/actions/workflows/ci.yaml)
+[![CI](https://github.com/praetorian-inc/augustus/actions/workflows/ci.yml/badge.svg)](https://github.com/praetorian-inc/augustus/actions/workflows/ci.yml)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/praetorian-inc/augustus)](go.mod)
 [![License](https://img.shields.io/github/license/praetorian-inc/augustus)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/praetorian-inc/augustus)](https://goreportcard.com/report/github.com/praetorian-inc/augustus)
