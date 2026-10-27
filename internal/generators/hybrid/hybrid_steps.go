@@ -189,7 +189,14 @@ func (h *Hybrid) execWSConnect(ctx context.Context, st step, sess *session) erro
 	origin := render(st.Origin, sess.vars)
 	headers := renderMap(st.Headers, sess.vars)
 
-	wsCfg, err := wsutil.BuildHandshakeConfig(url, origin, headers, []string{st.Subprotocol}, st.InsecureSkipVerify)
+	// An empty subprotocol means offer none. A one-element slice of "" still
+	// has length 1, and x/net/websocket would then write a malformed
+	// Sec-WebSocket-Protocol header with an empty value.
+	var subprotocols []string
+	if st.Subprotocol != "" {
+		subprotocols = []string{st.Subprotocol}
+	}
+	wsCfg, err := wsutil.BuildHandshakeConfig(url, origin, headers, subprotocols, st.InsecureSkipVerify)
 	if err != nil {
 		return err
 	}

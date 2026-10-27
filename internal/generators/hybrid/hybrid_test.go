@@ -413,6 +413,46 @@ func TestHybrid_HTTPPollFormFallback(t *testing.T) {
 	assert.Equal(t, "fallback-answer", resp[0].Content)
 }
 
+// TestExecWSConnect_SubprotocolHeader proves an empty subprotocol omits
+// Sec-WebSocket-Protocol, while a named value is offered. Header.Get is not
+// enough: it returns "" both when the header is absent and when its value is empty.
+func TestExecWSConnect_SubprotocolHeader(t *testing.T) {
+	tests := []struct {
+		name     string
+		protocol string
+		want     string
+		absent   bool
+	}{
+		{name: "empty omits header", protocol: "", absent: true},
+		{name: "named value is offered", protocol: "chat", want: "chat"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var hdr http.Header
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hdr = r.Header.Clone()
+				http.Error(w, "no upgrade", http.StatusBadRequest)
+			}))
+			t.Cleanup(srv.Close)
+			wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/"
+
+			err := (&Hybrid{}).execWSConnect(context.Background(), step{
+				WSURL:       wsURL,
+				Origin:      "https://example.com",
+				Subprotocol: tt.protocol,
+			}, &session{})
+			require.Error(t, err)
+
+			_, present := hdr["Sec-Websocket-Protocol"]
+			if tt.absent {
+				assert.False(t, present)
+				return
+			}
+			assert.Equal(t, tt.want, hdr.Get("Sec-Websocket-Protocol"))
+		})
+	}
+}
+
 // TestHybrid_PureWS proves the request+response can both be WebSocket.
 func TestHybrid_PureWS(t *testing.T) {
 	srv := httptest.NewServer(xwebsocket.Handler(func(ws *xwebsocket.Conn) {
