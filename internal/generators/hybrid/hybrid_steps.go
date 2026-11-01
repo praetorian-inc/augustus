@@ -310,15 +310,26 @@ func (h *Hybrid) execWSStream(ctx context.Context, st step, sess *session) error
 		}
 
 		rawFrames = append(rawFrames, frame)
-		if text, ok := wsutil.ExtractFirst(frame, st.ResponseFields); ok {
-			parts = append(parts, text)
-			lastNonEmpty = text
+
+		matchFilter := true
+		if st.FilterField != "" {
+			val, err := wsutil.ExtractField(frame, st.FilterField)
+			matchFilter = (err == nil && val == st.FilterValue)
+		}
+
+		if matchFilter {
+			if text, ok := wsutil.ExtractFirst(frame, st.ResponseFields); ok {
+				parts = append(parts, text)
+				lastNonEmpty = text
+			}
 		}
 
 		if st.CompleteField != "" {
 			if val, err := wsutil.ExtractField(frame, st.CompleteField); err == nil && val == st.CompleteValue {
-				if text, ok := wsutil.ExtractFirst(frame, st.ResponseFields); ok {
-					lastNonEmpty = text
+				if matchFilter {
+					if text, ok := wsutil.ExtractFirst(frame, st.ResponseFields); ok {
+						lastNonEmpty = text
+					}
 				}
 				finish(frame)
 				return nil

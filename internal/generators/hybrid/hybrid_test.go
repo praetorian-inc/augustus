@@ -729,3 +729,56 @@ func TestHybrid_ReuseConnectionFalseReconnectsEachTurn(t *testing.T) {
 	assert.Equal(t, 1, s.conversations, "HTTP once-step must run only once (captures persist)")
 	assert.Equal(t, len(prompts), s.handshakes, "WS must reconnect and re-run setup every turn")
 }
+
+// TestHybrid_WSStream_FrameTypeFilter proves filter_field and filter_value filter
+// frames so non-matching frame deltas (e.g. tool-call args) do not contaminate
+// the assembled response.
+func TestHybrid_WSStream_FrameTypeFilter(t *testing.T) {
+	srv := httptest.NewServer(xwebsocket.Handler(func(ws *xwebsocket.Conn) {
+		var msg string
+		if xwebsocket.Message.Receive(ws, &msg) != nil {
+			return
+		}
+		frames := []string{
+			`{"type":"RUN_STARTED"}`,
+			`{"type":"TEXT_MESSAGE_CONTENT","delta":"Hello "}`,
+			`{"type":"TOOL_CALL_START","toolCallName":"getCaseDetails"}`,
+			`{"type":"TOOL_CALL_ARGS","delta":"{\"caseId\":34251730}"}`,
+			`{"type":"TOOL_CALL_END"}`,
+			`{"type":"TEXT_MESSAGE_CONTENT","delta":"world"}`,
+			`{"type":"TEXT_MESSAGE_END"}`,
+			`{"type":"RUN_FINISHED"}`,
+		}
+		for _, f := range frames {
+			_ = xwebsocket.Message.Send(ws, f)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+
+	g, err := NewHybrid(registry.Config{
+		"persistent":   false,
+		"idle_timeout": 5,
+		"steps": []any{
+			map[string]any{"name": "c", "type": "ws_connect", "url": wsURL, "origin": "http://test"},
+			map[string]any{"name": "send", "type": "ws_send", "frame": "$INPUT"},
+			map[string]any{
+				"name":           "answer",
+				"type":           "ws_stream",
+				"answer":         true,
+				"filter_field":   "$.type",
+				"filter_value":   "TEXT_MESSAGE_CONTENT",
+				"response_field": "$.delta",
+				"complete_field": "$.type",
+				"complete_value": "RUN_FINISHED",
+				"assembly":       "concat",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	resp, err := g.Generate(context.Background(), convWith("test"), 1)
+	require.NoError(t, err)
+	require.Len(t, resp, 1)
+	assert.Equal(t, "Hello world", resp[0].Content)
+}
