@@ -782,3 +782,50 @@ func TestHybrid_WSStream_FrameTypeFilter(t *testing.T) {
 	require.Len(t, resp, 1)
 	assert.Equal(t, "Hello world", resp[0].Content)
 }
+
+// TestHybrid_WSStream_FrameTypeFilter_NoMatchReturnsError verifies that if no
+// response frames match the filter before completion, Generate returns an error
+// rather than succeeding with an empty message.
+func TestHybrid_WSStream_FrameTypeFilter_NoMatchReturnsError(t *testing.T) {
+	srv := httptest.NewServer(xwebsocket.Handler(func(ws *xwebsocket.Conn) {
+		var msg string
+		if xwebsocket.Message.Receive(ws, &msg) != nil {
+			return
+		}
+		frames := []string{
+			`{"type":"RUN_STARTED"}`,
+			`{"type":"UNEXPECTED_EVENT","delta":"schema changed"}`,
+			`{"type":"RUN_FINISHED"}`,
+		}
+		for _, f := range frames {
+			_ = xwebsocket.Message.Send(ws, f)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http")
+
+	g, err := NewHybrid(registry.Config{
+		"persistent":   false,
+		"idle_timeout": 5,
+		"steps": []any{
+			map[string]any{"name": "c", "type": "ws_connect", "url": wsURL, "origin": "http://test"},
+			map[string]any{"name": "send", "type": "ws_send", "frame": "$INPUT"},
+			map[string]any{
+				"name":           "answer",
+				"type":           "ws_stream",
+				"answer":         true,
+				"filter_field":   "$.type",
+				"filter_value":   "TEXT_MESSAGE_CONTENT",
+				"response_field": "$.delta",
+				"complete_field": "$.type",
+				"complete_value": "RUN_FINISHED",
+				"assembly":       "concat",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	_, err = g.Generate(context.Background(), convWith("test"), 1)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no response frames matched filter")
+}

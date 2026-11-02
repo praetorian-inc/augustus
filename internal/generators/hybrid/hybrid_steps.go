@@ -260,8 +260,12 @@ func (h *Hybrid) execWSStream(ctx context.Context, st step, sess *session) error
 	var parts []string
 	var lastNonEmpty string
 	var rawFrames [][]byte
+	var extractedCount int
 
-	finish := func(final []byte) {
+	finish := func(final []byte) error {
+		if st.FilterField != "" && extractedCount == 0 {
+			return fmt.Errorf("no response frames matched filter %s==%q", st.FilterField, st.FilterValue)
+		}
 		if st.Assembly == AssemblyConcat {
 			sess.answer = strings.Join(parts, "")
 			h.storeRaw(wsutil.JoinRaw(rawFrames))
@@ -274,6 +278,7 @@ func (h *Hybrid) execWSStream(ctx context.Context, st step, sess *session) error
 			}
 		}
 		sess.gotAnswer = true
+		return nil
 	}
 
 	for {
@@ -284,8 +289,7 @@ func (h *Hybrid) execWSStream(ctx context.Context, st step, sess *session) error
 			}
 			if errors.Is(err, io.EOF) || wsutil.IsTimeout(err) {
 				if st.Assembly == AssemblyConcat {
-					finish(nil) // server closed / idle gap ends a delta stream
-					return nil
+					return finish(nil) // server closed / idle gap ends a delta stream
 				}
 				return fmt.Errorf("stream ended before completion signal")
 			}
@@ -305,8 +309,7 @@ func (h *Hybrid) execWSStream(ctx context.Context, st step, sess *session) error
 			if st.Assembly == AssemblyFinal {
 				return fmt.Errorf("stream completed before terminal frame (%s==%q)", st.CompleteField, st.CompleteValue)
 			}
-			finish(nil)
-			return nil
+			return finish(nil)
 		}
 
 		rawFrames = append(rawFrames, frame)
@@ -321,6 +324,7 @@ func (h *Hybrid) execWSStream(ctx context.Context, st step, sess *session) error
 			if text, ok := wsutil.ExtractFirst(frame, st.ResponseFields); ok {
 				parts = append(parts, text)
 				lastNonEmpty = text
+				extractedCount++
 			}
 		}
 
@@ -329,10 +333,10 @@ func (h *Hybrid) execWSStream(ctx context.Context, st step, sess *session) error
 				if matchFilter {
 					if text, ok := wsutil.ExtractFirst(frame, st.ResponseFields); ok {
 						lastNonEmpty = text
+						extractedCount++
 					}
 				}
-				finish(frame)
-				return nil
+				return finish(frame)
 			}
 		}
 	}
