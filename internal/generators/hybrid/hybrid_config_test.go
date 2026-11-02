@@ -123,6 +123,18 @@ func TestHybridConfig_CompletePairing(t *testing.T) {
 	assert.Contains(t, err.Error(), "both be set")
 }
 
+func TestHybridConfig_FilterPairing(t *testing.T) {
+	_, err := HybridConfigFromMap(registry.Config{"steps": []any{
+		map[string]any{"name": "c", "type": "ws_connect", "url": "wss://x/ws"},
+		map[string]any{
+			"name": "ans", "type": "ws_stream", "answer": true,
+			"response_field": "$.m", "filter_field": "$.t",
+		},
+	}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "both be set")
+}
+
 func TestHybridConfig_CreateRequiresIDField(t *testing.T) {
 	_, err := HybridConfigFromMap(registry.Config{"steps": []any{
 		map[string]any{
