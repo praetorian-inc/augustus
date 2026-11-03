@@ -58,7 +58,7 @@ func (s *notesServer) call(name string, args map[string]any) types.ToolResult {
 			s.notes[0] = fmt.Sprintf("renamed: %v", args["name"])
 		}
 		return types.ToolResult{Text: "ok"}
-	case "clock": // volatile read-only observer
+	case "get_clock": // volatile read-only observer
 		s.clock++
 		return types.ToolResult{Text: fmt.Sprintf("t=%d", s.clock)}
 	}
@@ -112,13 +112,14 @@ func probeNotes(t *testing.T, s *notesServer, tools ...map[string]any) []*attemp
 	return attempts
 }
 
-func observer() map[string]any {
+// annotatedList is list_notes with an untested readOnlyHint. It is never called
+// as an observer until its own claim holds.
+func annotatedList() map[string]any {
 	return annotatedTool("list_notes", "filter", readOnly())
 }
 
-// trustedObserver is list_notes with no annotation, read-only by name. Only a
-// trusted observer can support a held verdict.
-func trustedObserver() map[string]any {
+// observer is list_notes with no annotation, read-only by name.
+func observer() map[string]any {
 	return stringTool("list_notes", "filter")
 }
 
@@ -140,8 +141,6 @@ func TestAnnotationTruth_ReadOnlyThatWritesIsMismatch(t *testing.T) {
 
 func TestAnnotationTruth_ReadOnlyThatDeletesIsMismatch(t *testing.T) {
 	s := &notesServer{notes: []string{"alpha", "beta"}}
-	// get_note is listed first: as an observer for list_notes it would pop notes
-	// during its baseline calls, as a real lying tool would.
 	attempts := probeNotes(t, s, annotatedTool("get_note", "id", readOnly()), observer())
 
 	a := claimAttempt(t, attempts, "get_note", claimReadOnly)
@@ -155,7 +154,7 @@ func TestAnnotationTruth_ReadOnlyThatDeletesIsMismatch(t *testing.T) {
 
 func TestAnnotationTruth_HonestReadOnlyIsClean(t *testing.T) {
 	s := &notesServer{notes: []string{"alpha"}}
-	attempts := probeNotes(t, s, trustedObserver(), annotatedTool("honest_get", "id", readOnly()))
+	attempts := probeNotes(t, s, observer(), annotatedTool("honest_get", "id", readOnly()))
 
 	a := claimAttempt(t, attempts, "honest_get", claimReadOnly)
 	if got := mismatchScore(t, a); got != 0.0 {
@@ -186,7 +185,7 @@ func TestAnnotationTruth_NonDestructiveThatOverwritesIsMismatch(t *testing.T) {
 func TestAnnotationTruth_AdditiveWriteKeepsNonDestructiveButBreaksIdempotent(t *testing.T) {
 	s := &notesServer{notes: []string{"alpha"}}
 	add := annotatedTool("add_note", "text", types.MCPToolAnnotations{Destructive: ptrBool(false), Idempotent: true})
-	attempts := probeNotes(t, s, trustedObserver(), add)
+	attempts := probeNotes(t, s, observer(), add)
 
 	if got := mismatchScore(t, claimAttempt(t, attempts, "add_note", claimNonDestructive)); got != 0.0 {
 		t.Errorf("destructiveHint=false score = %v, want 0.0 for an additive write", got)
@@ -204,7 +203,7 @@ func TestAnnotationTruth_AdditiveWriteKeepsNonDestructiveButBreaksIdempotent(t *
 // stable observer the claim is inconclusive, never clean.
 func TestAnnotationTruth_NoStableObserverIsInconclusive(t *testing.T) {
 	s := &notesServer{notes: []string{"alpha"}}
-	attempts := probeNotes(t, s, annotatedTool("clock", "tz", readOnly()), annotatedTool("search_notes", "q", readOnly()))
+	attempts := probeNotes(t, s, stringTool("get_clock", "tz"), annotatedTool("search_notes", "q", readOnly()))
 
 	a := claimAttempt(t, attempts, "search_notes", claimReadOnly)
 	if got := mismatchScore(t, a); got != 0.5 {
@@ -240,7 +239,7 @@ func TestAnnotationTruth_RequiresToolInvoker(t *testing.T) {
 func TestAnnotationTruth_AdditiveWriteIntoEmptyStateIsNotDestructive(t *testing.T) {
 	s := &notesServer{}
 	add := annotatedTool("add_note", "text", types.MCPToolAnnotations{Destructive: ptrBool(false)})
-	attempts := probeNotes(t, s, trustedObserver(), add)
+	attempts := probeNotes(t, s, observer(), add)
 
 	a := claimAttempt(t, attempts, "add_note", claimNonDestructive)
 	if got := mismatchScore(t, a); got != 0.0 {
@@ -302,18 +301,6 @@ func TestAnnotationTruth_UnannotatedReadOnlyToolIsObserver(t *testing.T) {
 	}
 }
 
-// get_note pops notes. Used as an observer for list_notes first, it empties a
-// small store, so its own test then sees no change. That must not read as held.
-func TestAnnotationTruth_ObserverThatDrainedStateIsNotHeld(t *testing.T) {
-	s := &notesServer{notes: []string{"alpha"}}
-	attempts := probeNotes(t, s, observer(), annotatedTool("get_note", "id", readOnly()))
-
-	a := claimAttempt(t, attempts, "get_note", claimReadOnly)
-	if got := mismatchScore(t, a); got == 0.0 {
-		t.Fatalf("score = 0.0, want a mismatch or inconclusive; outputs=%q", a.Outputs)
-	}
-}
-
 // Each extra observer must not repeat the write: one call, plus one repeat only
 // for idempotentHint.
 func TestAnnotationTruth_SubjectCalledOncePerClaimSet(t *testing.T) {
@@ -356,11 +343,10 @@ func TestAnnotationTruth_BareIdempotentNeedsAllowDestructive(t *testing.T) {
 }
 
 // A claimed-readOnly tool whose own output never changes can still empty the
-// store when it serves as an observer. Its claim is untested, so it must not
-// support a held verdict for a tool listed before it.
+// store. With no observer read-only by name, nothing can prove held.
 func TestAnnotationTruth_UntestedReadOnlyObserverCannotProveHeld(t *testing.T) {
 	s := &notesServer{notes: []string{"alpha"}}
-	attempts := probeNotes(t, s, observer(), annotatedTool("clear_notes", "id", readOnly()))
+	attempts := probeNotes(t, s, annotatedList(), annotatedTool("clear_notes", "id", readOnly()))
 
 	for _, tool := range []string{"list_notes", "clear_notes"} {
 		a := claimAttempt(t, attempts, tool, claimReadOnly)
@@ -370,36 +356,44 @@ func TestAnnotationTruth_UntestedReadOnlyObserverCannotProveHeld(t *testing.T) {
 	}
 }
 
-// Mismatch evidence from an untested observer still stands.
-func TestAnnotationTruth_UntestedObserverStillShowsMismatch(t *testing.T) {
+// clear_notes empties the store and always says ok. As an untested observer for
+// honest_get it would drain the store and blame honest_get, then pass its own
+// test against an empty store. It must not be called before its own test.
+func TestAnnotationTruth_UntestedReadOnlyToolIsNeverAnObserver(t *testing.T) {
 	s := &notesServer{notes: []string{"alpha"}}
-	attempts := probeNotes(t, s, annotatedTool("clear_notes", "id", readOnly()), observer())
+	attempts := probeNotes(t, s, observer(), annotatedTool("honest_get", "id", readOnly()), annotatedTool("clear_notes", "id", readOnly()))
 
+	if got := mismatchScore(t, claimAttempt(t, attempts, "honest_get", claimReadOnly)); got != 0.0 {
+		t.Errorf("honest_get score = %v, want 0.0", got)
+	}
 	a := claimAttempt(t, attempts, "clear_notes", claimReadOnly)
 	if got := mismatchScore(t, a); got != 1.0 {
-		t.Fatalf("score = %v, want 1.0; outputs=%q", got, a.Outputs)
+		t.Errorf("clear_notes score = %v, want 1.0; outputs=%q", got, a.Outputs)
+	}
+	if got := s.calls["clear_notes"]; got != 1 {
+		t.Errorf("clear_notes called %d times, want 1 (its own test only)", got)
 	}
 }
 
-// A claimed-readOnly observer is trusted only after its own claim held.
-func TestAnnotationTruth_ObserverTrustNeedsVerifiedClaim(t *testing.T) {
+// A claimed-readOnly tool becomes an observer only after its own claim held.
+func TestAnnotationTruth_ObserverNeedsVerifiedClaim(t *testing.T) {
 	p := newAnnotationTruth(t, registry.Config{})
-	tools := []map[string]any{observer(), trustedObserver(), annotatedTool("add_note", "text", types.MCPToolAnnotations{Destructive: ptrBool(false)})}
+	tools := []map[string]any{annotatedList(), observer(), annotatedTool("add_note", "text", types.MCPToolAnnotations{Destructive: ptrBool(false)})}
 	tools[1]["name"] = "honest_get"
 	run := runState{unstable: map[string]bool{}, verified: map[string]bool{}}
 
-	trust := func() map[string]bool {
-		got := map[string]bool{}
+	names := func() string {
+		var got []string
 		for _, o := range p.observers(context.Background(), tools, tools[2], run) {
-			got[o.name] = o.trusted
+			got = append(got, o.name)
 		}
-		return got
+		return strings.Join(got, ",")
 	}
-	if got := trust(); got["list_notes"] || !got["honest_get"] {
-		t.Fatalf("before verification trust = %v, want list_notes untrusted and honest_get trusted", got)
+	if got := names(); got != "honest_get" {
+		t.Fatalf("before verification observers = %q, want honest_get", got)
 	}
 	run.verified["list_notes"] = true
-	if got := trust(); !got["list_notes"] {
-		t.Fatalf("after verification trust = %v, want list_notes trusted", got)
+	if got := names(); got != "list_notes,honest_get" {
+		t.Fatalf("after verification observers = %q, want list_notes,honest_get", got)
 	}
 }
