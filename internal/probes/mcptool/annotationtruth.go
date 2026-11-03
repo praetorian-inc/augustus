@@ -44,15 +44,15 @@ const maxObservers = 5
 // use the same hints to auto-approve calls.
 //
 // The oracle is a state diff. Other read-only tools act as observers: a tool
-// with no annotation and a read-only name, or a tool whose own readOnlyHint
-// already held in this run. An observer counts only if
-// two baseline calls return identical output. The probe then calls the tool
-// under test once (string parameters with no known value carry a unique canary)
-// and calls each observer again:
+// with a read-only name and no behavioral annotation, or a tool whose own
+// readOnlyHint already held in this run. An observer counts only if two
+// baseline calls return identical output that is not a tool-level error. The
+// probe then calls the tool under test once (string parameters with no known
+// value carry a unique canary) and calls each observer again:
 //
 //	readOnlyHint=true      any change in observer output is a mismatch
-//	destructiveHint=false  a line that existed and is now gone is a mismatch
-//	                       (the spec allows additive updates only)
+//	destructiveHint=false  a line or JSON item that existed and is now gone is
+//	                       a mismatch (the spec allows additive updates only)
 //	idempotentHint=true    a second identical call that changes observer
 //	                       output again is a mismatch
 //
@@ -61,6 +61,12 @@ const maxObservers = 5
 // that other observers read while its own output stays constant, which gives
 // both false mismatches and false held verdicts. So a server that annotates
 // every read tool and has no tool read-only by name alone gives inconclusive.
+// Observers come from the tools the policy lets through, so a tool_allowlist
+// that names only the tool under test also gives inconclusive.
+//
+// Tools are tested in turn against shared server state that the probe does not
+// restore. A tool that empties the state an observer reads can hide what a
+// later tool does, so a held verdict is a lower bound, not proof.
 //
 // The shared toolpolicy gate runs first. A tool whose only claim is
 // idempotentHint is destructive by MCP default, so it is tested only with
@@ -110,7 +116,7 @@ func (p *AnnotationTruth) RiskInfo() types.RiskInfo {
 		Verification: "## How this is confirmed\n\n" +
 			"Augustus calls stable read-only observer tools before and after it invokes the tool under test. A change in an observer's output after the call proves the tool changed state, which contradicts readOnlyHint. Content that disappeared contradicts destructiveHint=false. A change after a second identical call contradicts idempotentHint.\n\n" +
 			"## Reproduce\n\n" +
-			"Re-run the `mcptool.AnnotationTruth` probe against the affected endpoint through the `mcp.MCP` generator. The finding names the tool, the false annotation, the observer, and the lines added or removed.",
+			"Re-run the `mcptool.AnnotationTruth` probe against the affected endpoint through the `mcp.MCP` generator. The finding names the tool, the false annotation, the observer, and the items added or removed.",
 	}
 }
 
@@ -181,9 +187,13 @@ func (c toolCall) run(ctx context.Context, inv types.ToolInvoker) (types.ToolRes
 	return inv.CallTool(ctx, c.name, c.args)
 }
 
-// text calls c and returns only the response text.
-func (c toolCall) text(ctx context.Context, inv types.ToolInvoker) (string, error) {
+// read calls c as an observer and returns the response text. A tool-level
+// error result reads no state, so it is an error here.
+func (c toolCall) read(ctx context.Context, inv types.ToolInvoker) (string, error) {
 	res, err := c.run(ctx, inv)
+	if err == nil && res.IsError {
+		err = fmt.Errorf("%s returned a tool-level error", c.name)
+	}
 	return res.Text, err
 }
 
@@ -195,9 +205,11 @@ func (c toolCall) runSubject(ctx context.Context, inv types.ToolInvoker) (bool, 
 }
 
 // observers returns up to maxObservers other read-only tools that were not seen
-// unstable, each with benign arguments. Read-only means mcpprobe.IsReadOnlyTool
-// with no annotation (a read-only name, because most servers ship no hints), or a
-// readOnlyHint that already held in this run.
+// unstable, each with benign arguments. Read-only means a readOnlyHint that
+// already held in this run, or mcpprobe.IsReadOnlyTool with no behavioral
+// annotation (a read-only name, because most servers ship no hints). A
+// destructiveHint=false or idempotentHint tool may still write, so it is never
+// an observer.
 // ponytail: a tool read-only by name is taken at its name; a lying unannotated
 // list_* tool can still drain state. Seed state per subject if that matters.
 func (p *AnnotationTruth) observers(ctx context.Context, tools []map[string]any, subject map[string]any, run runState) []toolCall {
@@ -207,8 +219,12 @@ func (p *AnnotationTruth) observers(ctx context.Context, tools []map[string]any,
 		if !mcpprobe.IsReadOnlyTool(tm) || name == "" || name == subject["name"] || run.unstable[name] {
 			continue
 		}
-		if ann, ok := tm["annotations"].(types.MCPToolAnnotations); ok && ann.ReadOnly && !run.verified[name] {
-			continue
+		if ann, ok := tm["annotations"].(types.MCPToolAnnotations); ok {
+			untestedReadOnly := ann.ReadOnly && !run.verified[name]
+			mayWrite := !ann.ReadOnly && len(annotationClaims(tm)) > 0
+			if untestedReadOnly || mayWrite {
+				continue
+			}
 		}
 		args := map[string]any{}
 		if sigs := toolSignatures(tm, p.valueChain(ctx, name)); len(sigs) > 0 {
@@ -255,14 +271,14 @@ type observation struct {
 }
 
 // stableObservers calls each observer twice and keeps those with identical
-// output. Each one that differs or fails is added to unstableSet and returned by
-// name.
+// output. Each one that differs or fails (a tool-level error included) is added
+// to unstableSet and returned by name.
 func stableObservers(ctx context.Context, inv types.ToolInvoker, observers []toolCall, unstableSet map[string]bool) ([]observation, []string) {
 	var obs []observation
 	var unstable []string
 	for _, o := range observers {
-		before, err1 := o.text(ctx, inv)
-		again, err2 := o.text(ctx, inv)
+		before, err1 := o.read(ctx, inv)
+		again, err2 := o.read(ctx, inv)
 		if err1 != nil || err2 != nil || before != again {
 			unstable = append(unstable, o.name)
 			unstableSet[o.name] = true
@@ -274,14 +290,18 @@ func stableObservers(ctx context.Context, inv types.ToolInvoker, observers []too
 }
 
 // reread calls every observer again and stores the output with set. An observer
-// that fails is dropped and returned by name.
-func reread(ctx context.Context, inv types.ToolInvoker, obs []observation, set func(*observation, string)) ([]observation, []string) {
+// that fails is returned by name, and is dropped when drop is true. Otherwise it
+// is kept unchanged, so the evidence of its earlier reads still counts.
+func reread(ctx context.Context, inv types.ToolInvoker, obs []observation, drop bool, set func(*observation, string)) ([]observation, []string) {
 	kept := make([]observation, 0, len(obs))
 	var failed []string
 	for _, o := range obs {
-		out, err := o.call.text(ctx, inv)
+		out, err := o.call.read(ctx, inv)
 		if err != nil {
 			failed = append(failed, o.call.name)
+			if !drop {
+				kept = append(kept, o)
+			}
 			continue
 		}
 		set(&o, out)
@@ -303,25 +323,28 @@ func (p *AnnotationTruth) testTool(ctx context.Context, inv types.ToolInvoker, t
 	}
 
 	obs, unstable := stableObservers(ctx, inv, observers, run.unstable)
-	var subjectErr error
 	subjectToolError := false
-	callSubject := func() bool {
+	callSubject := func() error {
 		isErr, err := subject.runSubject(ctx, inv)
 		subjectToolError = subjectToolError || isErr
-		subjectErr = err
-		return err == nil
+		return err
 	}
+	// firstErr fails every claim. repeatErr fails only idempotentHint, because
+	// the other claims are judged on the first call alone.
+	var firstErr, repeatErr error
 	if len(obs) > 0 {
-		if callSubject() {
-			var failed []string
-			obs, failed = reread(ctx, inv, obs, func(o *observation, out string) { o.after = out })
-			unstable = append(unstable, failed...)
-			if wantRepeat && len(obs) > 0 && callSubject() {
-				obs, failed = reread(ctx, inv, obs, func(o *observation, out string) { o.repeat, o.repeated = out, true })
-				unstable = append(unstable, failed...)
-			}
-		} else {
+		if firstErr = callSubject(); firstErr != nil {
 			obs = nil
+		} else {
+			var failed []string
+			obs, failed = reread(ctx, inv, obs, true, func(o *observation, out string) { o.after = out })
+			unstable = append(unstable, failed...)
+			if wantRepeat && len(obs) > 0 {
+				if repeatErr = callSubject(); repeatErr == nil {
+					obs, failed = reread(ctx, inv, obs, false, func(o *observation, out string) { o.repeat, o.repeated = out, true })
+					unstable = append(unstable, failed...)
+				}
+			}
 		}
 	}
 
@@ -332,8 +355,13 @@ func (p *AnnotationTruth) testTool(ctx context.Context, inv types.ToolInvoker, t
 		a.Detector = p.GetPrimaryDetector()
 		a.Metadata[mcpprobe.MetaAnnotationTool] = subject.name
 		a.Metadata[mcpprobe.MetaAnnotationClaim] = claim
+		subjectErr := firstErr
+		if claim == claimIdempotent && subjectErr == nil {
+			subjectErr = repeatErr
+		}
 		// Evidence gathered before a later call failed still stands. Only a claim
-		// with no contradiction needs every subject call to have run cleanly.
+		// with no contradiction needs every subject call it depends on to have run
+		// cleanly.
 		switch {
 		case len(obs) > 0 && judge(a, claim, subject.name, canary, obs):
 			a.Complete()
@@ -342,6 +370,8 @@ func (p *AnnotationTruth) testTool(ctx context.Context, inv types.ToolInvoker, t
 			a.Metadata[attempt.MetadataKeyInconclusive] = true
 			a.Metadata[attempt.MetadataKeyInconclusiveReason] = a.Metadata[attempt.MetadataKeyNotTestedReason]
 			a.SetError(subjectErr)
+		case claim == claimIdempotent && len(obs) > 0 && !anyRepeated(obs):
+			inconclusive(a, claim, "no observer could be read again after the second call to the tool under test")
 		case len(obs) == 0:
 			inconclusive(a, claim, fmt.Sprintf("no stable read-only observer tool to diff state against (%d candidate(s) changed between baseline calls or failed: %s)",
 				len(unstable), strings.Join(unstable, ", ")))
@@ -368,6 +398,15 @@ func inconclusive(a *attempt.Attempt, claim, reason string) {
 	a.Complete()
 }
 
+func anyRepeated(obs []observation) bool {
+	for _, o := range obs {
+		if o.repeated {
+			return true
+		}
+	}
+	return false
+}
+
 func observerNames(obs []observation) string {
 	names := make([]string, len(obs))
 	for i, o := range obs {
@@ -388,7 +427,7 @@ func judge(a *attempt.Attempt, claim, tool, canary string, obs []observation) bo
 					tool, o.call.name, describeDiff(o.before, o.after, canary)))
 			}
 		case claimNonDestructive:
-			if _, removed := lineDiff(o.before, o.after); len(removed) > 0 {
+			if _, removed := contentDiff(o.before, o.after); len(removed) > 0 {
 				evidence = append(evidence, fmt.Sprintf("after one call to %s, existing content in the output of observer %s was modified or deleted: %s",
 					tool, o.call.name, describeDiff(o.before, o.after, canary)))
 			}
@@ -409,9 +448,9 @@ func judge(a *attempt.Attempt, claim, tool, canary string, obs []observation) bo
 	return true
 }
 
-// describeDiff renders the added and removed lines between two outputs.
+// describeDiff renders the added and removed items between two outputs.
 func describeDiff(before, after, canary string) string {
-	added, removed := lineDiff(before, after)
+	added, removed := contentDiff(before, after)
 	var parts []string
 	for _, l := range added {
 		part := fmt.Sprintf("added %q", mcpprobe.TruncateResponse(l))
@@ -423,27 +462,28 @@ func describeDiff(before, after, canary string) string {
 	for _, l := range removed {
 		parts = append(parts, fmt.Sprintf("removed %q", mcpprobe.TruncateResponse(l)))
 	}
+	if len(parts) == 0 {
+		return "no item was added or removed (only order or whitespace changed)"
+	}
 	return strings.Join(parts, "; ")
 }
 
-// lineDiff returns the non-blank lines of after that are not in before, and the
-// non-blank lines of before that are not in after, counting duplicates. Blank
-// lines are dropped: an empty output splits to one blank line, which would
-// otherwise read as content that was removed.
-func lineDiff(before, after string) (added, removed []string) {
-	beforeLines, afterLines := nonBlankLines(before), nonBlankLines(after)
+// contentDiff returns the items of after that are not in before, and the items
+// of before that are not in after, counting duplicates.
+func contentDiff(before, after string) (added, removed []string) {
+	beforeItems, afterItems := contentItems(before), contentItems(after)
 	left := map[string]int{}
-	for _, l := range beforeLines {
+	for _, l := range beforeItems {
 		left[l]++
 	}
-	for _, l := range afterLines {
+	for _, l := range afterItems {
 		if left[l] > 0 {
 			left[l]--
 			continue
 		}
 		added = append(added, l)
 	}
-	for _, l := range beforeLines {
+	for _, l := range beforeItems {
 		if left[l] > 0 {
 			left[l]--
 			removed = append(removed, l)
@@ -452,11 +492,16 @@ func lineDiff(before, after string) (added, removed []string) {
 	return added, removed
 }
 
-func nonBlankLines(s string) []string {
+// contentItems splits s at line breaks and JSON delimiters, so an item added to
+// a one-line JSON list does not read as the old line being removed. Blank items
+// are dropped: an empty output would otherwise read as content that was removed.
+// ponytail: a value changed in place (a counter) still reads as removed; diff
+// parsed JSON leaves if real servers report counts beside their items.
+func contentItems(s string) []string {
 	var out []string
-	for l := range strings.SplitSeq(s, "\n") {
-		if strings.TrimSpace(l) != "" {
-			out = append(out, l)
+	for _, item := range strings.FieldsFunc(s, func(r rune) bool { return strings.ContainsRune("\n,[]{}", r) }) {
+		if item = strings.TrimSpace(item); item != "" {
+			out = append(out, item)
 		}
 	}
 	return out

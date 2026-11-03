@@ -2,6 +2,7 @@ package mcptool
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -58,6 +59,13 @@ func (s *notesServer) call(name string, args map[string]any) types.ToolResult {
 			s.notes[0] = fmt.Sprintf("renamed: %v", args["name"])
 		}
 		return types.ToolResult{Text: "ok"}
+	case "list_json": // the notes as one line of JSON
+		b, _ := json.Marshal(s.notes)
+		return types.ToolResult{Text: string(b)}
+	case "get_version": // constant read-only observer
+		return types.ToolResult{Text: "v1"}
+	case "list_denied": // read-only by name, but always refuses
+		return types.ToolResult{Text: "access denied", IsError: true}
 	case "get_clock": // volatile read-only observer
 		s.clock++
 		return types.ToolResult{Text: fmt.Sprintf("t=%d", s.clock)}
@@ -264,18 +272,8 @@ func TestAnnotationTruth_MismatchSurvivesLaterTransportFailure(t *testing.T) {
 	s := &notesServer{notes: []string{"alpha"}}
 	target := s.target(observer(), annotatedTool("honest_get", "id", readOnly()),
 		annotatedTool("search_notes", "q", types.MCPToolAnnotations{ReadOnly: true, Idempotent: true}))
-	searches := 0
-	// Fail only the second call to search_notes as the tool under test (the repeat
-	// for idempotentHint). Only subject calls carry the canary.
-	target.callErr = func(name string, args map[string]any) error {
-		if q, _ := args["q"].(string); name != "search_notes" || !strings.HasPrefix(q, "augustus-annotation-") {
-			return nil
-		}
-		if searches++; searches > 1 {
-			return fmt.Errorf("connection reset")
-		}
-		return nil
-	}
+	// Fail the repeat call to search_notes for idempotentHint.
+	target.callErr = subjectFailsAfter("search_notes", "q", 1)
 	attempts, err := newAnnotationTruth(t, registry.Config{}).Probe(context.Background(), target)
 	if err != nil {
 		t.Fatalf("Probe: %v", err)
@@ -395,5 +393,110 @@ func TestAnnotationTruth_ObserverNeedsVerifiedClaim(t *testing.T) {
 	run.verified["list_notes"] = true
 	if got := names(); got != "list_notes,honest_get" {
 		t.Fatalf("after verification observers = %q, want list_notes,honest_get", got)
+	}
+}
+
+// A tool that claims destructiveHint=false but not readOnlyHint may still write,
+// so a read-only name does not make it an observer.
+func TestAnnotationTruth_NonDestructiveClaimIsNotAnObserver(t *testing.T) {
+	s := &notesServer{notes: []string{"alpha"}}
+	list := annotatedTool("list_notes", "filter", types.MCPToolAnnotations{Destructive: ptrBool(false)})
+	attempts := probeNotes(t, s, list, annotatedTool("search_notes", "q", readOnly()))
+
+	a := claimAttempt(t, attempts, "search_notes", claimReadOnly)
+	if got := mismatchScore(t, a); got != 0.5 {
+		t.Fatalf("score = %v, want 0.5 (no trusted observer); outputs=%q", got, a.Outputs)
+	}
+}
+
+// An observer that answers with a stable tool-level error reads no state, so it
+// cannot show that a claim held.
+func TestAnnotationTruth_ErrorObserverCannotProveHeld(t *testing.T) {
+	s := &notesServer{notes: []string{"alpha"}}
+	attempts := probeNotes(t, s, stringTool("list_denied", "filter"), annotatedTool("search_notes", "q", readOnly()))
+
+	a := claimAttempt(t, attempts, "search_notes", claimReadOnly)
+	if got := mismatchScore(t, a); got != 0.5 {
+		t.Fatalf("score = %v, want 0.5; outputs=%q", got, a.Outputs)
+	}
+}
+
+// One-line JSON grows in place: the old line is gone, but no old item is.
+func TestAnnotationTruth_AdditiveWriteInOneLineJSONIsNotDestructive(t *testing.T) {
+	s := &notesServer{notes: []string{"alpha"}}
+	add := annotatedTool("add_note", "text", types.MCPToolAnnotations{Destructive: ptrBool(false)})
+	attempts := probeNotes(t, s, stringTool("list_json", "filter"), add)
+
+	a := claimAttempt(t, attempts, "add_note", claimNonDestructive)
+	if got := mismatchScore(t, a); got != 0.0 {
+		t.Fatalf("score = %v, want 0.0; outputs=%q", got, a.Outputs)
+	}
+}
+
+// subjectFailsAfter fails every call to tool as the tool under test after the
+// first n. Only subject calls carry the canary.
+func subjectFailsAfter(tool, param string, n int) func(string, map[string]any) error {
+	calls := 0
+	return func(name string, args map[string]any) error {
+		if v, _ := args[param].(string); name != tool || !strings.HasPrefix(v, "augustus-annotation-") {
+			return nil
+		}
+		if calls++; calls > n {
+			return fmt.Errorf("connection reset")
+		}
+		return nil
+	}
+}
+
+// A failed observer read after the repeat call must not erase what that
+// observer saw after the first call.
+func TestAnnotationTruth_FailedRepeatReadKeepsFirstCallEvidence(t *testing.T) {
+	s := &notesServer{notes: []string{"alpha"}}
+	target := s.target(observer(), stringTool("get_version", "id"),
+		annotatedTool("search_notes", "q", types.MCPToolAnnotations{ReadOnly: true, Idempotent: true}))
+	reads := 0
+	target.callErr = func(name string, _ map[string]any) error {
+		if name != "list_notes" {
+			return nil
+		}
+		if reads++; reads > 3 { // two baselines and the read after the first call
+			return fmt.Errorf("connection reset")
+		}
+		return nil
+	}
+	attempts, err := newAnnotationTruth(t, registry.Config{}).Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	a := claimAttempt(t, attempts, "search_notes", claimReadOnly)
+	if got := mismatchScore(t, a); got != 1.0 {
+		t.Fatalf("score = %v, want 1.0; outputs=%q", got, a.Outputs)
+	}
+}
+
+// A failed repeat call leaves idempotentHint untested, but the single-call
+// claim already ran cleanly and holds.
+func TestAnnotationTruth_FailedRepeatCallKeepsSingleCallVerdict(t *testing.T) {
+	s := &notesServer{notes: []string{"alpha"}}
+	target := s.target(observer(), annotatedTool("honest_get", "id", types.MCPToolAnnotations{ReadOnly: true, Idempotent: true}))
+	target.callErr = subjectFailsAfter("honest_get", "id", 1)
+	attempts, err := newAnnotationTruth(t, registry.Config{}).Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	ro := claimAttempt(t, attempts, "honest_get", claimReadOnly)
+	if got := mismatchScore(t, ro); got != 0.0 || ro.Metadata[attempt.MetadataKeyInconclusive] == true {
+		t.Fatalf("readOnlyHint: score = %v, metadata=%v, want clean; outputs=%q", got, ro.Metadata, ro.Outputs)
+	}
+	idem := claimAttempt(t, attempts, "honest_get", claimIdempotent)
+	if idem.Metadata[attempt.MetadataKeyInconclusive] != true {
+		t.Fatalf("idempotentHint: want inconclusive; outputs=%q", idem.Outputs)
+	}
+}
+
+// A change that only moves whitespace still gets evidence text.
+func TestDescribeDiff_WhitespaceOnlyChangeIsDescribed(t *testing.T) {
+	if got := describeDiff("a\n", "a\n\n", "canary"); got == "" {
+		t.Fatal("describeDiff returned empty evidence for a changed output")
 	}
 }
