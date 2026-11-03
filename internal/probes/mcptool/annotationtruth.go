@@ -55,7 +55,11 @@ const maxObservers = 5
 //	idempotentHint=true    a second identical call that changes observer
 //	                       output again is a mismatch
 //
-// With no stable observer the claim is inconclusive, never clean.
+// With no stable observer the claim is inconclusive, never clean. A held
+// verdict also needs a trusted observer: one read-only by name with no
+// annotation, or one whose own readOnlyHint already held in this run. An
+// observer trusted only by its own untested readOnlyHint can show a mismatch,
+// but it may empty the state it reads while its own output stays constant.
 //
 // The shared toolpolicy gate runs first. A tool whose only claim is
 // idempotentHint is destructive by MCP default, so it is tested only with
@@ -121,9 +125,7 @@ func (p *AnnotationTruth) Probe(ctx context.Context, gen types.Generator) ([]*at
 	}
 	tools = p.policy.Filter(p.Name(), tools)
 
-	// Observers seen unstable are not called again: a lying read-only tool would
-	// otherwise mutate state as an observer for every subject.
-	unstable := map[string]bool{}
+	run := runState{unstable: map[string]bool{}, verified: map[string]bool{}}
 	var attempts []*attempt.Attempt
 	for _, tool := range tools {
 		claims := annotationClaims(tool)
@@ -133,7 +135,7 @@ func (p *AnnotationTruth) Probe(ctx context.Context, gen types.Generator) ([]*at
 		if err := ctx.Err(); err != nil {
 			return attempts, err
 		}
-		attempts = append(attempts, p.testTool(ctx, inv, tool, claims, p.observers(ctx, tools, tool, unstable), unstable)...)
+		attempts = append(attempts, p.testTool(ctx, inv, tool, claims, p.observers(ctx, tools, tool, run), run)...)
 	}
 	return attempts, nil
 }
@@ -158,10 +160,25 @@ func annotationClaims(tool map[string]any) []string {
 	return claims
 }
 
+// runState is what one Probe run learns about tools as observers.
+type runState struct {
+	// unstable holds observers whose output changed between two baseline calls.
+	// They are not called again: a lying read-only tool would otherwise mutate
+	// state as an observer for every subject.
+	unstable map[string]bool
+	// verified holds tools whose own readOnlyHint held in this run.
+	verified map[string]bool
+}
+
 // toolCall is one tool name with the exact arguments it is invoked with.
 type toolCall struct {
 	name string
 	args map[string]any
+	// trusted is false for an observer whose read-only status rests only on its
+	// own readOnlyHint, not yet checked in this run. Such an observer can show a
+	// mismatch but cannot support a held verdict: it may empty the state it reads
+	// while its own output stays constant.
+	trusted bool
 }
 
 func (c toolCall) run(ctx context.Context, inv types.ToolInvoker) (types.ToolResult, error) {
@@ -185,18 +202,19 @@ func (c toolCall) runSubject(ctx context.Context, inv types.ToolInvoker) (bool, 
 // unstable, each with benign arguments. Read-only means mcpprobe.IsReadOnlyTool:
 // a readOnlyHint, or no annotation and a read-only name, because most servers
 // ship no hints.
-func (p *AnnotationTruth) observers(ctx context.Context, tools []map[string]any, subject map[string]any, unstable map[string]bool) []toolCall {
+func (p *AnnotationTruth) observers(ctx context.Context, tools []map[string]any, subject map[string]any, run runState) []toolCall {
 	var out []toolCall
 	for _, tm := range tools {
 		name, _ := tm["name"].(string)
-		if !mcpprobe.IsReadOnlyTool(tm) || name == "" || name == subject["name"] || unstable[name] {
+		if !mcpprobe.IsReadOnlyTool(tm) || name == "" || name == subject["name"] || run.unstable[name] {
 			continue
 		}
 		args := map[string]any{}
 		if sigs := toolSignatures(tm, p.valueChain(ctx, name)); len(sigs) > 0 {
 			args = sigs[0].withShape(p.shapeMode()).benignArgsFor()
 		}
-		out = append(out, toolCall{name: name, args: args})
+		ann, _ := tm["annotations"].(types.MCPToolAnnotations)
+		out = append(out, toolCall{name: name, args: args, trusted: !ann.ReadOnly || run.verified[name]})
 		if len(out) == maxObservers {
 			break
 		}
@@ -276,7 +294,7 @@ func reread(ctx context.Context, inv types.ToolInvoker, obs []observation, set f
 // that proved unstable to the shared unstable set. It takes every observer
 // baseline, calls the subject once (twice for idempotentHint), and re-reads every
 // observer after each call.
-func (p *AnnotationTruth) testTool(ctx context.Context, inv types.ToolInvoker, tool map[string]any, claims []string, observers []toolCall, unstableSet map[string]bool) []*attempt.Attempt {
+func (p *AnnotationTruth) testTool(ctx context.Context, inv types.ToolInvoker, tool map[string]any, claims []string, observers []toolCall, run runState) []*attempt.Attempt {
 	canary := "augustus-annotation-" + mcpprobe.RandToken()
 	subject := p.subjectCall(ctx, tool, canary)
 	// A tool that changed its own output as an observer earlier in this run may
@@ -284,13 +302,13 @@ func (p *AnnotationTruth) testTool(ctx context.Context, inv types.ToolInvoker, t
 	// ponytail: covers only the subject draining its own test; a different lying
 	// observer that drained a tiny store can still hide a later subject. Seed
 	// state per subject if that matters on real servers.
-	drainedEarlier := unstableSet[subject.name]
+	drainedEarlier := run.unstable[subject.name]
 	wantRepeat := false
 	for _, c := range claims {
 		wantRepeat = wantRepeat || c == claimIdempotent
 	}
 
-	obs, unstable := stableObservers(ctx, inv, observers, unstableSet)
+	obs, unstable := stableObservers(ctx, inv, observers, run.unstable)
 	var subjectErr error
 	subjectToolError := false
 	callSubject := func() bool {
@@ -337,10 +355,15 @@ func (p *AnnotationTruth) testTool(ctx context.Context, inv types.ToolInvoker, t
 			inconclusive(a, claim, "the tool under test returned a tool-level error, so it may not have run the code its annotation describes")
 		case drainedEarlier:
 			inconclusive(a, claim, fmt.Sprintf("%s returned different output for two identical calls when it served as an observer earlier in this run, so it may already have changed the state its own test reads", subject.name))
+		case !anyTrusted(obs):
+			inconclusive(a, claim, fmt.Sprintf("the only stable observer(s) (%s) are read-only by their own untested readOnlyHint, so they may have changed the state they read", observerNames(obs)))
 		default:
 			a.AddOutput(fmt.Sprintf("%s held for %s: no contradicting change in %d stable observer(s): %s",
 				claim, subject.name, len(obs), observerNames(obs)))
 			a.Complete()
+			if claim == claimReadOnly {
+				run.verified[subject.name] = true
+			}
 		}
 		attempts = append(attempts, a)
 	}
@@ -353,6 +376,15 @@ func inconclusive(a *attempt.Attempt, claim, reason string) {
 	a.Metadata[attempt.MetadataKeyInconclusiveReason] = reason
 	a.AddOutput(claim + " not verified: " + reason)
 	a.Complete()
+}
+
+func anyTrusted(obs []observation) bool {
+	for _, o := range obs {
+		if o.call.trusted {
+			return true
+		}
+	}
+	return false
 }
 
 func observerNames(obs []observation) string {
