@@ -20,6 +20,7 @@ import (
 type notesServer struct {
 	notes []string
 	clock int
+	calls map[string]int
 }
 
 func readOnly() types.MCPToolAnnotations { return types.MCPToolAnnotations{ReadOnly: true} }
@@ -29,6 +30,10 @@ func (s *notesServer) target(tools ...map[string]any) *mockTarget {
 }
 
 func (s *notesServer) call(name string, args map[string]any) types.ToolResult {
+	if s.calls == nil {
+		s.calls = map[string]int{}
+	}
+	s.calls[name]++
 	switch name {
 	case "list_notes", "honest_get":
 		return types.ToolResult{Text: strings.Join(s.notes, "\n")}
@@ -250,10 +255,10 @@ func TestAnnotationTruth_SubjectToolErrorIsInconclusive(t *testing.T) {
 func TestAnnotationTruth_MismatchSurvivesLaterTransportFailure(t *testing.T) {
 	s := &notesServer{notes: []string{"alpha"}}
 	target := s.target(observer(), annotatedTool("honest_get", "id", readOnly()),
-		annotatedTool("search_notes", "q", readOnly()))
+		annotatedTool("search_notes", "q", types.MCPToolAnnotations{ReadOnly: true, Idempotent: true}))
 	searches := 0
-	// Fail only the second call to search_notes as the tool under test, which is
-	// the call that carries the canary. Its calls as an observer use "test".
+	// Fail only the second call to search_notes as the tool under test (the repeat
+	// for idempotentHint). Only subject calls carry the canary.
 	target.callErr = func(name string, args map[string]any) error {
 		if q, _ := args["q"].(string); name != "search_notes" || !strings.HasPrefix(q, "augustus-annotation-") {
 			return nil
@@ -270,5 +275,73 @@ func TestAnnotationTruth_MismatchSurvivesLaterTransportFailure(t *testing.T) {
 	a := claimAttempt(t, attempts, "search_notes", claimReadOnly)
 	if got := mismatchScore(t, a); got != 1.0 {
 		t.Fatalf("score = %v, want 1.0; outputs=%q", got, a.Outputs)
+	}
+}
+
+// Most servers ship no annotations, so an unannotated tool with a read-only name
+// must still serve as the observer.
+func TestAnnotationTruth_UnannotatedReadOnlyToolIsObserver(t *testing.T) {
+	s := &notesServer{notes: []string{"alpha"}}
+	attempts := probeNotes(t, s, stringTool("list_notes", "filter"), annotatedTool("search_notes", "q", readOnly()))
+
+	a := claimAttempt(t, attempts, "search_notes", claimReadOnly)
+	if got := mismatchScore(t, a); got != 1.0 {
+		t.Fatalf("score = %v, want 1.0; outputs=%q", got, a.Outputs)
+	}
+	if !strings.Contains(strings.Join(a.Outputs, "\n"), "list_notes") {
+		t.Errorf("evidence does not name the observer list_notes: %q", a.Outputs)
+	}
+}
+
+// get_note pops notes. Used as an observer for list_notes first, it empties a
+// small store, so its own test then sees no change. That must not read as held.
+func TestAnnotationTruth_ObserverThatDrainedStateIsNotHeld(t *testing.T) {
+	s := &notesServer{notes: []string{"alpha"}}
+	attempts := probeNotes(t, s, observer(), annotatedTool("get_note", "id", readOnly()))
+
+	a := claimAttempt(t, attempts, "get_note", claimReadOnly)
+	if got := mismatchScore(t, a); got == 0.0 {
+		t.Fatalf("score = 0.0, want a mismatch or inconclusive; outputs=%q", a.Outputs)
+	}
+}
+
+// Each extra observer must not repeat the write: one call, plus one repeat only
+// for idempotentHint.
+func TestAnnotationTruth_SubjectCalledOncePerClaimSet(t *testing.T) {
+	s := &notesServer{notes: []string{"alpha"}}
+	add := annotatedTool("add_note", "text", types.MCPToolAnnotations{Destructive: ptrBool(false)})
+	probeNotes(t, s, observer(), annotatedTool("honest_get", "id", readOnly()), add)
+	if got := s.calls["add_note"]; got != 1 {
+		t.Errorf("add_note called %d times, want 1", got)
+	}
+
+	s = &notesServer{notes: []string{"alpha"}}
+	add = annotatedTool("add_note", "text", types.MCPToolAnnotations{Destructive: ptrBool(false), Idempotent: true})
+	probeNotes(t, s, observer(), annotatedTool("honest_get", "id", readOnly()), add)
+	if got := s.calls["add_note"]; got != 2 {
+		t.Errorf("idempotent add_note called %d times, want 2", got)
+	}
+}
+
+// A bare idempotentHint (no readOnlyHint, no destructiveHint=false) means
+// destructive by MCP default, so the shared safety gate skips it unless
+// allow_destructive is set.
+func TestAnnotationTruth_BareIdempotentNeedsAllowDestructive(t *testing.T) {
+	bare := func() map[string]any {
+		return annotatedTool("add_note", "text", types.MCPToolAnnotations{Idempotent: true})
+	}
+	for _, a := range probeNotes(t, &notesServer{}, observer(), bare()) {
+		if a.Metadata[mcpprobe.MetaAnnotationTool] == "add_note" {
+			t.Fatalf("bare idempotent tool tested without allow_destructive")
+		}
+	}
+
+	s := &notesServer{notes: []string{"alpha"}}
+	attempts, err := newAnnotationTruth(t, registry.Config{"allow_destructive": true}).Probe(context.Background(), s.target(observer(), bare()))
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if got := mismatchScore(t, claimAttempt(t, attempts, "add_note", claimIdempotent)); got != 1.0 {
+		t.Errorf("score = %v, want 1.0 with allow_destructive", got)
 	}
 }

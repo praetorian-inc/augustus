@@ -33,7 +33,7 @@ const (
 	claimIdempotent     = "idempotentHint=true"
 )
 
-// ponytail: fixed cap keeps calls per tested tool to about 6 per observer; make
+// ponytail: fixed cap keeps calls per tested tool to about 4 per observer; make
 // it a config key if real servers need wider state coverage.
 const maxObservers = 5
 
@@ -43,10 +43,11 @@ const maxObservers = 5
 // destructiveHint=false passes the destructive-tool safety gate, and MCP clients
 // use the same hints to auto-approve calls.
 //
-// The oracle is a state diff. Other tools that declare readOnlyHint act as
-// observers. An observer counts only if two baseline calls return identical
-// output. The probe then calls the tool under test once (string parameters with
-// no known value carry a unique canary) and calls each observer again:
+// The oracle is a state diff. Other read-only tools (readOnlyHint, or no
+// annotation and a read-only name) act as observers. An observer counts only if
+// two baseline calls return identical output. The probe then calls the tool
+// under test once (string parameters with no known value carry a unique canary)
+// and calls each observer again:
 //
 //	readOnlyHint=true      any change in observer output is a mismatch
 //	destructiveHint=false  a line that existed and is now gone is a mismatch
@@ -55,6 +56,10 @@ const maxObservers = 5
 //	                       output again is a mismatch
 //
 // With no stable observer the claim is inconclusive, never clean.
+//
+// The shared toolpolicy gate runs first. A tool whose only claim is
+// idempotentHint is destructive by MCP default, so it is tested only with
+// allow_destructive=true.
 //
 // SIDE EFFECTS: the probe invokes the tools under test, which is the point: a
 // tool that lies about being read-only will perform its write. The shared
@@ -176,14 +181,15 @@ func (c toolCall) runSubject(ctx context.Context, inv types.ToolInvoker) (bool, 
 	return res.IsError, err
 }
 
-// observers returns up to maxObservers other tools that declare readOnlyHint and
-// were not seen unstable, each with benign arguments.
+// observers returns up to maxObservers other read-only tools that were not seen
+// unstable, each with benign arguments. Read-only means mcpprobe.IsReadOnlyTool:
+// a readOnlyHint, or no annotation and a read-only name, because most servers
+// ship no hints.
 func (p *AnnotationTruth) observers(ctx context.Context, tools []map[string]any, subject map[string]any, unstable map[string]bool) []toolCall {
 	var out []toolCall
 	for _, tm := range tools {
-		ann, ok := tm["annotations"].(types.MCPToolAnnotations)
 		name, _ := tm["name"].(string)
-		if !ok || !ann.ReadOnly || name == "" || name == subject["name"] || unstable[name] {
+		if !mcpprobe.IsReadOnlyTool(tm) || name == "" || name == subject["name"] || unstable[name] {
 			continue
 		}
 		args := map[string]any{}
@@ -223,35 +229,19 @@ func (p *AnnotationTruth) subjectCall(ctx context.Context, tool map[string]any, 
 
 // observation is one observer's output around the calls to the tool under test.
 type observation struct {
-	observer string
+	call     toolCall
 	before   string // identical across two baseline calls
 	after    string // after the first call to the subject
-	repeat   string // after the second identical call; set only for idempotentHint
+	repeat   string // after the second identical call, when repeated is true
+	repeated bool
 }
 
-// testTool returns one attempt per claim the tool makes, and adds each observer
-// that proved unstable to the shared unstable set.
-// ponytail: a lying read-only tool still runs twice as an observer before it is
-// marked unstable, so on a server with very little state it can drain that state
-// before its own test and hide itself.
-func (p *AnnotationTruth) testTool(ctx context.Context, inv types.ToolInvoker, tool map[string]any, claims []string, observers []toolCall, unstableSet map[string]bool) []*attempt.Attempt {
-	canary := "augustus-annotation-" + mcpprobe.RandToken()
-	subject := p.subjectCall(ctx, tool, canary)
-	wantRepeat := false
-	for _, c := range claims {
-		wantRepeat = wantRepeat || c == claimIdempotent
-	}
-
+// stableObservers calls each observer twice and keeps those with identical
+// output. Each one that differs or fails is added to unstableSet and returned by
+// name.
+func stableObservers(ctx context.Context, inv types.ToolInvoker, observers []toolCall, unstableSet map[string]bool) ([]observation, []string) {
 	var obs []observation
 	var unstable []string
-	var subjectErr error
-	subjectToolError := false
-	callSubject := func() error {
-		isErr, err := subject.runSubject(ctx, inv)
-		subjectToolError = subjectToolError || isErr
-		subjectErr = err
-		return err
-	}
 	for _, o := range observers {
 		before, err1 := o.text(ctx, inv)
 		again, err2 := o.text(ctx, inv)
@@ -260,25 +250,67 @@ func (p *AnnotationTruth) testTool(ctx context.Context, inv types.ToolInvoker, t
 			unstableSet[o.name] = true
 			continue
 		}
-		ob := observation{observer: o.name, before: before}
-		var err error
-		if callSubject() != nil {
-			break
-		}
-		if ob.after, err = o.text(ctx, inv); err != nil {
-			unstable = append(unstable, o.name)
+		obs = append(obs, observation{call: o, before: before})
+	}
+	return obs, unstable
+}
+
+// reread calls every observer again and stores the output with set. An observer
+// that fails is dropped and returned by name.
+func reread(ctx context.Context, inv types.ToolInvoker, obs []observation, set func(*observation, string)) ([]observation, []string) {
+	kept := make([]observation, 0, len(obs))
+	var failed []string
+	for _, o := range obs {
+		out, err := o.call.text(ctx, inv)
+		if err != nil {
+			failed = append(failed, o.call.name)
 			continue
 		}
-		if wantRepeat {
-			if callSubject() != nil {
-				break
+		set(&o, out)
+		kept = append(kept, o)
+	}
+	return kept, failed
+}
+
+// testTool returns one attempt per claim the tool makes, and adds each observer
+// that proved unstable to the shared unstable set. It takes every observer
+// baseline, calls the subject once (twice for idempotentHint), and re-reads every
+// observer after each call.
+func (p *AnnotationTruth) testTool(ctx context.Context, inv types.ToolInvoker, tool map[string]any, claims []string, observers []toolCall, unstableSet map[string]bool) []*attempt.Attempt {
+	canary := "augustus-annotation-" + mcpprobe.RandToken()
+	subject := p.subjectCall(ctx, tool, canary)
+	// A tool that changed its own output as an observer earlier in this run may
+	// already have consumed the state its own test reads.
+	// ponytail: covers only the subject draining its own test; a different lying
+	// observer that drained a tiny store can still hide a later subject. Seed
+	// state per subject if that matters on real servers.
+	drainedEarlier := unstableSet[subject.name]
+	wantRepeat := false
+	for _, c := range claims {
+		wantRepeat = wantRepeat || c == claimIdempotent
+	}
+
+	obs, unstable := stableObservers(ctx, inv, observers, unstableSet)
+	var subjectErr error
+	subjectToolError := false
+	callSubject := func() bool {
+		isErr, err := subject.runSubject(ctx, inv)
+		subjectToolError = subjectToolError || isErr
+		subjectErr = err
+		return err == nil
+	}
+	if len(obs) > 0 {
+		if callSubject() {
+			var failed []string
+			obs, failed = reread(ctx, inv, obs, func(o *observation, out string) { o.after = out })
+			unstable = append(unstable, failed...)
+			if wantRepeat && len(obs) > 0 && callSubject() {
+				obs, failed = reread(ctx, inv, obs, func(o *observation, out string) { o.repeat, o.repeated = out, true })
+				unstable = append(unstable, failed...)
 			}
-			if ob.repeat, err = o.text(ctx, inv); err != nil {
-				unstable = append(unstable, o.name)
-				continue
-			}
+		} else {
+			obs = nil
 		}
-		obs = append(obs, ob)
 	}
 
 	attempts := make([]*attempt.Attempt, 0, len(claims))
@@ -293,20 +325,22 @@ func (p *AnnotationTruth) testTool(ctx context.Context, inv types.ToolInvoker, t
 		switch {
 		case len(obs) > 0 && judge(a, claim, subject.name, canary, obs):
 			a.Complete()
-		case len(obs) > 0 && subjectErr == nil && !subjectToolError:
-			a.AddOutput(fmt.Sprintf("%s held for %s: no contradicting change in %d stable observer(s): %s",
-				claim, subject.name, len(obs), observerNames(obs)))
-			a.Complete()
 		case subjectErr != nil:
 			mcpprobe.MarkNotTested(a, "call to the tool under test failed: "+subjectErr.Error())
 			a.Metadata[attempt.MetadataKeyInconclusive] = true
 			a.Metadata[attempt.MetadataKeyInconclusiveReason] = a.Metadata[attempt.MetadataKeyNotTestedReason]
 			a.SetError(subjectErr)
-		case len(obs) > 0:
-			inconclusive(a, claim, "the tool under test returned a tool-level error, so it may not have run the code its annotation describes")
-		default:
+		case len(obs) == 0:
 			inconclusive(a, claim, fmt.Sprintf("no stable read-only observer tool to diff state against (%d candidate(s) changed between baseline calls or failed: %s)",
 				len(unstable), strings.Join(unstable, ", ")))
+		case subjectToolError:
+			inconclusive(a, claim, "the tool under test returned a tool-level error, so it may not have run the code its annotation describes")
+		case drainedEarlier:
+			inconclusive(a, claim, fmt.Sprintf("%s returned different output for two identical calls when it served as an observer earlier in this run, so it may already have changed the state its own test reads", subject.name))
+		default:
+			a.AddOutput(fmt.Sprintf("%s held for %s: no contradicting change in %d stable observer(s): %s",
+				claim, subject.name, len(obs), observerNames(obs)))
+			a.Complete()
 		}
 		attempts = append(attempts, a)
 	}
@@ -324,7 +358,7 @@ func inconclusive(a *attempt.Attempt, claim, reason string) {
 func observerNames(obs []observation) string {
 	names := make([]string, len(obs))
 	for i, o := range obs {
-		names[i] = o.observer
+		names[i] = o.call.name
 	}
 	return strings.Join(names, ", ")
 }
@@ -338,17 +372,17 @@ func judge(a *attempt.Attempt, claim, tool, canary string, obs []observation) bo
 		case claimReadOnly:
 			if o.after != o.before {
 				evidence = append(evidence, fmt.Sprintf("after one call to %s, the output of read-only observer %s changed: %s",
-					tool, o.observer, describeDiff(o.before, o.after, canary)))
+					tool, o.call.name, describeDiff(o.before, o.after, canary)))
 			}
 		case claimNonDestructive:
 			if _, removed := lineDiff(o.before, o.after); len(removed) > 0 {
 				evidence = append(evidence, fmt.Sprintf("after one call to %s, existing content in the output of observer %s was modified or deleted: %s",
-					tool, o.observer, describeDiff(o.before, o.after, canary)))
+					tool, o.call.name, describeDiff(o.before, o.after, canary)))
 			}
 		case claimIdempotent:
-			if o.repeat != o.after {
+			if o.repeated && o.repeat != o.after {
 				evidence = append(evidence, fmt.Sprintf("a second identical call to %s changed the output of observer %s again: %s",
-					tool, o.observer, describeDiff(o.after, o.repeat, canary)))
+					tool, o.call.name, describeDiff(o.after, o.repeat, canary)))
 			}
 		}
 	}
