@@ -117,6 +117,21 @@ func TestExtractPackageReferences(t *testing.T) {
 			expected: []string{"os", "requests"},
 		},
 		{
+			name:     "semicolon inside string does not split",
+			input:    `print("#"); import totally_fake_pkg_xyz`,
+			expected: []string{"totally_fake_pkg_xyz"},
+		},
+		{
+			name:     "import mention inside string is ignored",
+			input:    `print("note; import totally_fake_pkg_xyz")`,
+			expected: []string{},
+		},
+		{
+			name:     "hash inside string is not a comment",
+			input:    `x = "# not a comment"; import requests`,
+			expected: []string{"requests"},
+		},
+		{
 			name:     "trailing comment",
 			input:    "import requests  # HTTP client, see docs",
 			expected: []string{"requests"},

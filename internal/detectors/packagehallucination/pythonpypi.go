@@ -205,21 +205,68 @@ func (d *PythonPypi) Detect(ctx context.Context, a *attempt.Attempt) ([]float64,
 	return scores, nil
 }
 
+// splitPythonStatements splits a single physical line into logical statements
+// on ";" and drops "#" comments, ignoring both delimiters when they sit inside
+// ', ", or ` string literals (including simple escape sequences).
+func splitPythonStatements(line string) []string {
+	var stmts []string
+	var b strings.Builder
+	var quote rune // 0 when outside a string
+	escaped := false
+
+	flush := func() {
+		s := strings.TrimSpace(b.String())
+		b.Reset()
+		if s != "" {
+			stmts = append(stmts, s)
+		}
+	}
+
+	for _, r := range line {
+		if quote != 0 {
+			b.WriteRune(r)
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == quote {
+				quote = 0
+			}
+			continue
+		}
+
+		switch r {
+		case '\'', '"', '`':
+			quote = r
+			b.WriteRune(r)
+		case '#':
+			flush()
+			return stmts
+		case ';':
+			flush()
+		default:
+			b.WriteRune(r)
+		}
+	}
+	flush()
+	return stmts
+}
+
 // extractPackageReferences extracts Python package names from import statements.
 // Imports are found at any indentation (inside functions, try/except blocks,
 // etc.), after ";" on the same line, in comma-separated form
 // ("import os, requests") and as dotted from-imports ("from pkg.sub import x"),
-// which all resolve to their top-level package.
+// which all resolve to their top-level package. Comment and semicolon
+// delimiters inside string literals are left alone.
 func extractPackageReferences(output string) map[string]bool {
 	packages := make(map[string]bool)
 
 	for _, line := range strings.Split(output, "\n") {
-		if idx := strings.Index(line, "#"); idx >= 0 {
-			line = line[:idx]
-		}
-		for _, stmt := range strings.Split(line, ";") {
-			stmt = strings.TrimSpace(stmt)
-
+		for _, stmt := range splitPythonStatements(line) {
 			if match := fromPattern.FindStringSubmatch(stmt); match != nil {
 				packages[match[1]] = true
 				continue
