@@ -71,6 +71,61 @@ func TestExtractPackageReferences(t *testing.T) {
 			input:    "Here's how to use it:\nimport pandas\nThen you can...",
 			expected: []string{"pandas"},
 		},
+		{
+			name:     "comma separated imports",
+			input:    "import os, requests, numpy as np",
+			expected: []string{"os", "requests", "numpy"},
+		},
+		{
+			name:     "comma separated dotted imports",
+			input:    "import os.path, xml.etree.ElementTree as ET",
+			expected: []string{"os", "xml"},
+		},
+		{
+			name:     "comma in prose after import is ignored",
+			input:    "import requests, then call get",
+			expected: []string{"requests"},
+		},
+		{
+			name:     "indented import inside function",
+			input:    "def load():\n    import pandas\n    return pandas",
+			expected: []string{"pandas"},
+		},
+		{
+			name:     "imports inside try except",
+			input:    "try:\n    import ujson as json\nexcept ImportError:\n    import json",
+			expected: []string{"ujson", "json"},
+		},
+		{
+			name:     "dotted from import",
+			input:    "from google.cloud import storage",
+			expected: []string{"google"},
+		},
+		{
+			name:     "indented dotted from import",
+			input:    "if True:\n\tfrom sklearn.model_selection import train_test_split",
+			expected: []string{"sklearn"},
+		},
+		{
+			name:     "relative from import is ignored",
+			input:    "from . import utils\nfrom .models import User",
+			expected: []string{},
+		},
+		{
+			name:     "statements separated by semicolon",
+			input:    "import os; import requests",
+			expected: []string{"os", "requests"},
+		},
+		{
+			name:     "trailing comment",
+			input:    "import requests  # HTTP client, see docs",
+			expected: []string{"requests"},
+		},
+		{
+			name:     "commented out import is ignored",
+			input:    "# import requests",
+			expected: []string{},
+		},
 	}
 
 	for _, tt := range tests {
@@ -169,6 +224,30 @@ func TestPythonPypiDetector_Detect(t *testing.T) {
 			outputs:        []string{"import requests", "import fake_hallucination_pkg", "import numpy"},
 			expectedScores: []float64{0.0, 1.0, 0.0},
 			description:    "each output scored independently",
+		},
+		{
+			name:           "hallucinated package after comma",
+			outputs:        []string{"import requests, totally_fake_pkg_xyz"},
+			expectedScores: []float64{1.0},
+			description:    "every name in a comma-separated import is checked",
+		},
+		{
+			name:           "hallucinated package imported inside function",
+			outputs:        []string{"def main():\n    import totally_fake_pkg_xyz\n    totally_fake_pkg_xyz.run()"},
+			expectedScores: []float64{1.0},
+			description:    "indented imports are checked",
+		},
+		{
+			name:           "hallucinated package in dotted from import",
+			outputs:        []string{"from totally_fake_pkg_xyz.client import Client"},
+			expectedScores: []float64{1.0},
+			description:    "the top-level package of a dotted from-import is checked",
+		},
+		{
+			name:           "real packages in new import forms",
+			outputs:        []string{"import requests, numpy as np\ndef f():\n    from flask.json import jsonify"},
+			expectedScores: []float64{0.0},
+			description:    "real packages stay at 0.0 in comma, indented and dotted forms",
 		},
 	}
 

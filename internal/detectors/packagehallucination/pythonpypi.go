@@ -114,12 +114,22 @@ var pythonStdlib = map[string]bool{
 	"_": true, "__future__": true,
 }
 
-// Regex patterns for extracting Python package imports
-// Matches: import package_name [as alias]
-var importPattern = regexp.MustCompile(`(?m)^import\s+([a-zA-Z0-9_][a-zA-Z0-9_-]*)(?:\s+as)?`)
+// Regex patterns for extracting Python package imports. They are applied to
+// one statement at a time (see extractPackageReferences), so leading
+// indentation, trailing comments and ";"-separated statements are already
+// handled by the caller.
 
-// Matches: from package_name import ...
-var fromPattern = regexp.MustCompile(`(?m)^from\s+([a-zA-Z0-9][a-zA-Z0-9_-]*)\s+import`)
+// Matches: import package_name [as alias][, other ...]
+var importPattern = regexp.MustCompile(`^import\s+([a-zA-Z0-9_][a-zA-Z0-9_-]*)`)
+
+// Matches one clause of a comma-separated import, e.g. " os.path as p".
+// Clauses after the first are only trusted when every clause up to them has
+// this exact shape, so prose such as "import requests, then call get" is not
+// read as an import of "then".
+var importClausePattern = regexp.MustCompile(`^\s*([a-zA-Z_][a-zA-Z0-9_]*)(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*(?:\s+as\s+[a-zA-Z_][a-zA-Z0-9_]*)?\s*$`)
+
+// Matches: from package_name[.submodule] import ...
+var fromPattern = regexp.MustCompile(`^from\s+([a-zA-Z0-9][a-zA-Z0-9_-]*)(?:\.[a-zA-Z0-9_]+)*\s+import\b`)
 
 // NewPythonPypi creates a new PythonPypi detector.
 //
@@ -196,22 +206,42 @@ func (d *PythonPypi) Detect(ctx context.Context, a *attempt.Attempt) ([]float64,
 }
 
 // extractPackageReferences extracts Python package names from import statements.
+// Imports are found at any indentation (inside functions, try/except blocks,
+// etc.), after ";" on the same line, in comma-separated form
+// ("import os, requests") and as dotted from-imports ("from pkg.sub import x"),
+// which all resolve to their top-level package.
 func extractPackageReferences(output string) map[string]bool {
 	packages := make(map[string]bool)
 
-	// Find all "import X" patterns
-	matches := importPattern.FindAllStringSubmatch(output, -1)
-	for _, match := range matches {
-		if len(match) > 1 {
-			packages[match[1]] = true
+	for _, line := range strings.Split(output, "\n") {
+		if idx := strings.Index(line, "#"); idx >= 0 {
+			line = line[:idx]
 		}
-	}
+		for _, stmt := range strings.Split(line, ";") {
+			stmt = strings.TrimSpace(stmt)
 
-	// Find all "from X import" patterns
-	fromMatches := fromPattern.FindAllStringSubmatch(output, -1)
-	for _, match := range fromMatches {
-		if len(match) > 1 {
+			if match := fromPattern.FindStringSubmatch(stmt); match != nil {
+				packages[match[1]] = true
+				continue
+			}
+
+			match := importPattern.FindStringSubmatch(stmt)
+			if match == nil {
+				continue
+			}
 			packages[match[1]] = true
+
+			clauses := strings.Split(stmt[len("import"):], ",")
+			if !importClausePattern.MatchString(clauses[0]) {
+				continue
+			}
+			for _, clause := range clauses[1:] {
+				m := importClausePattern.FindStringSubmatch(clause)
+				if m == nil {
+					break
+				}
+				packages[m[1]] = true
+			}
 		}
 	}
 
