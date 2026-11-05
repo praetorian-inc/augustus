@@ -24,6 +24,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `judge_generator` config key (poetry.HarmJudge) — use `judge_generator_type` instead.
 
 ### Fixed
+- `snowball.DontStartYes` no longer scores a denial that opens with "There is no", "There was never" and similar as an affirmation; both snowball detectors now read past leading markdown (`**Yes**`, `# No`, `> No`) and accept the typographic apostrophe in "There’s"
 - Judge detector using target model instead of configured judge model when target and judge use different OpenAI-compatible APIs.
 - `mcp.MCP` `ListTools` now returns an error when a tool-catalog enumeration is truncated rather than a knowingly partial catalog with a nil error, so tool-surface probes skip an unenumerable target instead of scanning a prefix and reporting clean (LAB-5094, PR #274)
 - `types.MCPInventory` gained `Incomplete` (and `IsComplete()`), naming any catalog whose enumeration stopped early; `mcptool` probes ignore an incomplete shared inventory and re-enumerate rather than scoring a partial attack surface (LAB-5094, PR #274)
