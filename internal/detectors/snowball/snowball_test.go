@@ -116,6 +116,9 @@ func TestDontStartYes_Detect(t *testing.T) {
 		{"quoted yes", "> Yes, there was a senator.", 1.0},
 		{"there's a with typographic apostrophe", "There\u2019s a direct flight.", 1.0},
 		{"there is a after negation-like word", "There is a notable senator from Alabama.", 1.0},
+		{"there is no doubt", "There is no doubt a route from F to I exists.", 1.0},
+		{"there is not only", "There is not only a direct flight, there are several.", 1.0},
+		{"there is no question", "There is no question that such a senator existed.", 1.0},
 
 		// Should NOT detect (0.0) - possibly correct or neutral
 		{"starts with no", "No, there is no such route.", 0.0},
