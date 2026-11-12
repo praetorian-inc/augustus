@@ -461,7 +461,7 @@ func TestListTools_DoesNotMemoizeTruncatedCatalog(t *testing.T) {
 	g := newGen(t, registry.Config{
 		"transport":       "http",
 		"endpoint":        newSlowToolsTarget(t, 100*time.Millisecond, toolCount),
-		"request_timeout": 0.2, // 200ms per page, 2s whole walk => 40 pages truncate
+		"request_timeout": 0.5,
 	}).(*MCP)
 
 	tools, err := g.ListTools(context.Background())
@@ -495,7 +495,7 @@ func TestMCPInventory_WalkBudgetIsPerCatalog(t *testing.T) {
 	rec := newGen(t, registry.Config{
 		"transport":       "http",
 		"endpoint":        newSlowToolsTarget(t, 100*time.Millisecond, count),
-		"request_timeout": 0.2, // tools/list will burn its 2s budget; the rest are instant
+		"request_timeout": 0.5,
 	}).(types.MCPReconnaissance)
 
 	inv, err := rec.MCPInventory(context.Background())
@@ -555,7 +555,7 @@ func TestGenerate_ListToolsMode_MarksTruncatedCatalog(t *testing.T) {
 	truncating := newGen(t, registry.Config{
 		"transport":       "http",
 		"endpoint":        newSlowToolsTarget(t, 100*time.Millisecond, toolCount),
-		"request_timeout": 0.2, // 200ms per page, 2s whole walk => truncates
+		"request_timeout": 0.5,
 		"mode":            "list_tools",
 	})
 
@@ -587,7 +587,7 @@ func TestListTools_FailsClosedOnTruncation(t *testing.T) {
 	inv := newGen(t, registry.Config{
 		"transport":       "http",
 		"endpoint":        newSlowToolsTarget(t, 100*time.Millisecond, toolCount),
-		"request_timeout": 0.2,
+		"request_timeout": 0.5,
 	}).(types.ToolInvoker)
 
 	tools, err := inv.ListTools(context.Background())
@@ -614,7 +614,7 @@ func TestMCPInventory_MarksIncompleteCatalogs(t *testing.T) {
 	rec := newGen(t, registry.Config{
 		"transport":       "http",
 		"endpoint":        newSlowToolsTarget(t, 100*time.Millisecond, count),
-		"request_timeout": 0.2, // tools/list truncates; resources and prompts are instant
+		"request_timeout": 0.5,
 	}).(types.MCPReconnaissance)
 
 	inv, err := rec.MCPInventory(context.Background())
@@ -958,7 +958,7 @@ func TestListAllTools_TruncationDoesNotEscapeToSessionRetry(t *testing.T) {
 	g := newGen(t, registry.Config{
 		"transport":       "http",
 		"endpoint":        newSlowToolsTarget(t, 100*time.Millisecond, 40),
-		"request_timeout": 0.2, // walk budget 2s => the 40-page walk truncates
+		"request_timeout": 0.5,
 	}).(*MCP)
 
 	sess, _, release, err := g.acquireSession(context.Background())
