@@ -189,28 +189,24 @@ func (h *Hybrid) runPipeline(ctx context.Context, conv *attempt.Conversation) (a
 	sess := &session{vars: h.seedVars(conv), conn: h.conn}
 	h.mu.Unlock()
 
-	// Watcher: closing the (possibly mid-pipeline opened) connection unblocks any
-	// pending WS Send/Receive when the request is cancelled or times out.
-	done := make(chan struct{})
-	go func() {
-		select {
-		case <-reqCtx.Done():
-			sess.closeConn()
-		case <-done:
-		}
-	}()
-	defer close(done)
+	// Closing the (possibly mid-pipeline opened) connection unblocks any pending
+	// WS Send/Receive when the request is cancelled or times out.
+	stop := context.AfterFunc(reqCtx, sess.closeConn)
+	defer stop()
 
 	if err := h.executeSteps(reqCtx, sess, reusing); err != nil {
-		// Drop the WS session so a stale/half-open socket is not reused.
-		h.mu.Lock()
-		if h.conn == sess.getConn() {
-			h.conn = nil
-		}
-		h.initialized = false
-		h.mu.Unlock()
-		sess.closeConn()
+		h.dropSession(sess)
 		return attempt.Message{}, err
+	}
+
+	// stop reports false when cancellation already fired closeConn, so the socket
+	// is (or is about to be) closed and must not be persisted for the next turn.
+	if !stop() {
+		h.dropSession(sess)
+		if !sess.gotAnswer {
+			return attempt.Message{}, fmt.Errorf("hybrid: request cancelled: %w", reqCtx.Err())
+		}
+		return attempt.NewAssistantMessage(sess.answer), nil
 	}
 
 	if !sess.gotAnswer {
@@ -219,6 +215,18 @@ func (h *Hybrid) runPipeline(ctx context.Context, conv *attempt.Conversation) (a
 
 	h.persistSession(sess)
 	return attempt.NewAssistantMessage(sess.answer), nil
+}
+
+// dropSession forgets the WS session and closes its socket so a stale or
+// half-open connection is not reused; the next turn rebuilds the session.
+func (h *Hybrid) dropSession(sess *session) {
+	h.mu.Lock()
+	if h.conn == sess.getConn() {
+		h.conn = nil
+	}
+	h.initialized = false
+	h.mu.Unlock()
+	sess.closeConn()
 }
 
 // executeSteps walks the step list, skipping once-steps (and reusing the open
