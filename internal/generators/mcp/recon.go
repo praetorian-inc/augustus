@@ -144,7 +144,7 @@ func capabilitiesFrom(c *mcpsdk.ServerCapabilities) types.MCPCapabilities {
 	caps.Tools = c.Tools != nil
 	caps.Resources = c.Resources != nil
 	caps.Prompts = c.Prompts != nil
-	caps.Logging = c.Logging != nil
+	caps.Logging = c.Logging != nil //nolint:staticcheck // deprecated in 2026-07-28 (SEP-2577) but still functional; report it while it exists
 	caps.Completions = c.Completions != nil
 	caps.Experimental = sortedKeys(c.Experimental)
 	caps.Extensions = sortedKeys(c.Extensions)
