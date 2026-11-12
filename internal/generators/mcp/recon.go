@@ -18,9 +18,11 @@ import (
 var _ types.MCPReconnaissance = (*MCP)(nil)
 
 // MCPInventory implements types.MCPReconnaissance. It reads the connected
-// session's InitializeResult (declared capabilities, negotiated protocol
-// version, server instructions/info) and enumerates the tool, resource,
-// resource-template, and prompt catalog into a raw, JSON-serializable inventory.
+// session's handshake result — InitializeResult from server/discover on
+// 2026-07-28 servers, or from the legacy initialize on older ones — to get
+// declared capabilities, negotiated protocol version, server instructions/info,
+// and enumerates the tool, resource, resource-template, and prompt catalog into
+// a raw, JSON-serializable inventory.
 //
 // It assembles ONLY raw data: suspicious-pattern scanning is the probe/detector
 // layer's job, so Flags is left empty here. Catalog enumeration is gated on the
@@ -142,7 +144,7 @@ func capabilitiesFrom(c *mcpsdk.ServerCapabilities) types.MCPCapabilities {
 	caps.Tools = c.Tools != nil
 	caps.Resources = c.Resources != nil
 	caps.Prompts = c.Prompts != nil
-	caps.Logging = c.Logging != nil
+	caps.Logging = c.Logging != nil //nolint:staticcheck // deprecated in 2026-07-28 (SEP-2577) but still functional; report it while it exists
 	caps.Completions = c.Completions != nil
 	caps.Experimental = sortedKeys(c.Experimental)
 	caps.Extensions = sortedKeys(c.Extensions)

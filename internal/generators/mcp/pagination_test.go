@@ -297,9 +297,9 @@ func TestPagination_WholeWalkIsTimeBounded(t *testing.T) {
 	t.Parallel()
 
 	const (
-		requestTimeout = 0.5                    // seconds => 500ms per page, 5s whole walk
-		perPageDelay   = 200 * time.Millisecond // 2.5x headroom under the per-page budget
-		toolCount      = 40                     // 8s of pages against a 5s walk budget
+		requestTimeout = 1.0                    // seconds => 1s per page, 10s whole walk
+		perPageDelay   = 400 * time.Millisecond // 2.5x headroom under the per-page budget
+		toolCount      = 40                     // 16s of pages against a 10s walk budget
 	)
 
 	handler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server {
@@ -460,8 +460,8 @@ func TestListTools_DoesNotMemoizeTruncatedCatalog(t *testing.T) {
 	const toolCount = 40
 	g := newGen(t, registry.Config{
 		"transport":       "http",
-		"endpoint":        newSlowToolsTarget(t, 100*time.Millisecond, toolCount),
-		"request_timeout": 0.2, // 200ms per page, 2s whole walk => 40 pages truncate
+		"endpoint":        newSlowToolsTarget(t, 400*time.Millisecond, toolCount),
+		"request_timeout": 1.0, // 1s per page, 10s walk budget; 40pp × 400ms = 16s => truncates
 	}).(*MCP)
 
 	tools, err := g.ListTools(context.Background())
@@ -494,8 +494,8 @@ func TestMCPInventory_WalkBudgetIsPerCatalog(t *testing.T) {
 	const count = 40
 	rec := newGen(t, registry.Config{
 		"transport":       "http",
-		"endpoint":        newSlowToolsTarget(t, 100*time.Millisecond, count),
-		"request_timeout": 0.2, // tools/list will burn its 2s budget; the rest are instant
+		"endpoint":        newSlowToolsTarget(t, 400*time.Millisecond, count),
+		"request_timeout": 1.0, // 1s per page, 10s walk budget; 40pp × 400ms = 16s => truncates tools only
 	}).(types.MCPReconnaissance)
 
 	inv, err := rec.MCPInventory(context.Background())
@@ -554,8 +554,8 @@ func TestGenerate_ListToolsMode_MarksTruncatedCatalog(t *testing.T) {
 	const toolCount = 40
 	truncating := newGen(t, registry.Config{
 		"transport":       "http",
-		"endpoint":        newSlowToolsTarget(t, 100*time.Millisecond, toolCount),
-		"request_timeout": 0.2, // 200ms per page, 2s whole walk => truncates
+		"endpoint":        newSlowToolsTarget(t, 400*time.Millisecond, toolCount),
+		"request_timeout": 1.0, // 1s per page, 10s walk budget; 40pp × 400ms = 16s => truncates
 		"mode":            "list_tools",
 	})
 
@@ -586,8 +586,8 @@ func TestListTools_FailsClosedOnTruncation(t *testing.T) {
 	const toolCount = 40
 	inv := newGen(t, registry.Config{
 		"transport":       "http",
-		"endpoint":        newSlowToolsTarget(t, 100*time.Millisecond, toolCount),
-		"request_timeout": 0.2,
+		"endpoint":        newSlowToolsTarget(t, 400*time.Millisecond, toolCount),
+		"request_timeout": 1.0, // 1s per page, 10s walk budget; 40pp × 400ms = 16s => truncates
 	}).(types.ToolInvoker)
 
 	tools, err := inv.ListTools(context.Background())
@@ -613,8 +613,8 @@ func TestMCPInventory_MarksIncompleteCatalogs(t *testing.T) {
 	const count = 40
 	rec := newGen(t, registry.Config{
 		"transport":       "http",
-		"endpoint":        newSlowToolsTarget(t, 100*time.Millisecond, count),
-		"request_timeout": 0.2, // tools/list truncates; resources and prompts are instant
+		"endpoint":        newSlowToolsTarget(t, 400*time.Millisecond, count),
+		"request_timeout": 1.0, // 1s per page, 10s walk budget; tools truncate, resources/prompts instant
 	}).(types.MCPReconnaissance)
 
 	inv, err := rec.MCPInventory(context.Background())
@@ -957,8 +957,8 @@ func TestListAllTools_TruncationDoesNotEscapeToSessionRetry(t *testing.T) {
 
 	g := newGen(t, registry.Config{
 		"transport":       "http",
-		"endpoint":        newSlowToolsTarget(t, 100*time.Millisecond, 40),
-		"request_timeout": 0.2, // walk budget 2s => the 40-page walk truncates
+		"endpoint":        newSlowToolsTarget(t, 400*time.Millisecond, 40),
+		"request_timeout": 1.0, // 1s per page, 10s walk budget; 40pp × 400ms = 16s => truncates
 	}).(*MCP)
 
 	sess, _, release, err := g.acquireSession(context.Background())
