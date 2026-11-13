@@ -256,7 +256,17 @@ func isInconclusive(a *attempt.Attempt) bool {
 }
 
 func isMCPInconclusive(a *attempt.Attempt) bool {
-	return strings.HasPrefix(a.Detector, "mcptool.") || strings.HasPrefix(a.Detector, "mcptransport.")
+	for name, scores := range a.DetectorResults {
+		if !strings.HasPrefix(name, "mcptool.") && !strings.HasPrefix(name, "mcptransport.") {
+			continue
+		}
+		for _, s := range scores {
+			if s >= attempt.DefaultVulnerabilityThreshold {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // ToAttemptResult converts a single attempt to a simplified AttemptResult.

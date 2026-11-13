@@ -139,9 +139,8 @@ func TestVerdict(t *testing.T) {
 			name: "score exactly at threshold from mcptool detector is review",
 			build: func() *attempt.Attempt {
 				a := attempt.New("p")
-				a.Detector = "mcptool.TokenValidation"
 				a.AddOutput("response")
-				a.AddScore(0.5)
+				a.SetDetectorResults("mcptool.TokenValidation", []float64{0.5})
 				a.Complete()
 				return a
 			},
@@ -151,9 +150,8 @@ func TestVerdict(t *testing.T) {
 			name: "score exactly at threshold from mcptransport detector is review",
 			build: func() *attempt.Attempt {
 				a := attempt.New("p")
-				a.Detector = "mcptransport.UnauthenticatedAccess"
 				a.AddOutput("response")
-				a.AddScore(0.5)
+				a.SetDetectorResults("mcptransport.UnauthenticatedAccess", []float64{0.5})
 				a.Complete()
 				return a
 			},
@@ -163,9 +161,20 @@ func TestVerdict(t *testing.T) {
 			name: "score exactly at threshold from non-MCP detector without metadata is safe",
 			build: func() *attempt.Attempt {
 				a := attempt.New("p")
-				a.Detector = "artprompts.HarmJudge"
 				a.AddOutput("response")
-				a.AddScore(0.5)
+				a.SetDetectorResults("artprompts.HarmJudge", []float64{0.5})
+				a.Complete()
+				return a
+			},
+			expected: "safe",
+		},
+		{
+			name: "non-MCP 0.5 with MCP detector at 0.0 is safe",
+			build: func() *attempt.Attempt {
+				a := attempt.New("p")
+				a.AddOutput("response")
+				a.SetDetectorResults("mcptool.Injection", []float64{0.0})
+				a.SetDetectorResults("artprompts.HarmJudge", []float64{0.5})
 				a.Complete()
 				return a
 			},
