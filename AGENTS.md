@@ -40,7 +40,7 @@ Implementations live under `internal/`, not `pkg/`. Ignore `CONTRIBUTING.md` pat
 - Keyword detectors: `internal/ahocorasick/`
 - Rate limit: `pkg/ratelimit/`; retry: `pkg/retry/`
 - Embed `types.UsageCounter`; `AddTokens` only when the provider reports usage
-- Verdict is max score across detectors (`attempt.GetEffectiveScores`); at-threshold (0.5) scores classify as REVIEW when metadata opts in (visible-multimodal, inconclusive flag, or MCP detector name)
+- Verdict logic: `Verdict()` in `pkg/results/results.go` (four-way: error/vuln/review/safe)
 
 ## Commit Convention
 
