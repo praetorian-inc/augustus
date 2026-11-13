@@ -135,6 +135,42 @@ func TestVerdict(t *testing.T) {
 			},
 			expected: "safe",
 		},
+		{
+			name: "score exactly at threshold from mcptool detector is review",
+			build: func() *attempt.Attempt {
+				a := attempt.New("p")
+				a.Detector = "mcptool.TokenValidation"
+				a.AddOutput("response")
+				a.AddScore(0.5)
+				a.Complete()
+				return a
+			},
+			expected: "review",
+		},
+		{
+			name: "score exactly at threshold from mcptransport detector is review",
+			build: func() *attempt.Attempt {
+				a := attempt.New("p")
+				a.Detector = "mcptransport.UnauthenticatedAccess"
+				a.AddOutput("response")
+				a.AddScore(0.5)
+				a.Complete()
+				return a
+			},
+			expected: "review",
+		},
+		{
+			name: "score exactly at threshold from non-MCP detector without metadata is safe",
+			build: func() *attempt.Attempt {
+				a := attempt.New("p")
+				a.Detector = "artprompts.HarmJudge"
+				a.AddOutput("response")
+				a.AddScore(0.5)
+				a.Complete()
+				return a
+			},
+			expected: "safe",
+		},
 	}
 
 	for _, tt := range tests {
