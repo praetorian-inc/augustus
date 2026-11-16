@@ -36,7 +36,7 @@ type MCPInventory struct {
 	Transport string `json:"transport"`
 	// ProtocolVersion is the MCP protocol version the server negotiated.
 	ProtocolVersion string `json:"protocol_version,omitempty"`
-	// Instructions is the server-provided usage hint (InitializeResult.Instructions).
+	// Instructions is the server-provided usage hint from the handshake result.
 	Instructions string `json:"instructions,omitempty"`
 	// ServerName / ServerVersion identify the server implementation.
 	ServerName    string `json:"server_name,omitempty"`
@@ -146,7 +146,8 @@ type MCPObjectRef struct {
 }
 
 // MCPCapabilities records which capability blocks the server advertised in its
-// InitializeResult, as booleans plus the raw experimental/extension keys.
+// handshake result (InitializeResult from server/discover or legacy initialize),
+// as booleans plus the raw experimental/extension keys.
 type MCPCapabilities struct {
 	Tools       bool `json:"tools"`
 	Resources   bool `json:"resources"`
