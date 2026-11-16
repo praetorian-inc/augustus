@@ -114,12 +114,22 @@ var pythonStdlib = map[string]bool{
 	"_": true, "__future__": true,
 }
 
-// Regex patterns for extracting Python package imports
-// Matches: import package_name [as alias]
-var importPattern = regexp.MustCompile(`(?m)^import\s+([a-zA-Z0-9_][a-zA-Z0-9_-]*)(?:\s+as)?`)
+// Regex patterns for extracting Python package imports. They are applied to
+// one statement at a time (see extractPackageReferences), so leading
+// indentation, trailing comments and ";"-separated statements are already
+// handled by the caller.
 
-// Matches: from package_name import ...
-var fromPattern = regexp.MustCompile(`(?m)^from\s+([a-zA-Z0-9][a-zA-Z0-9_-]*)\s+import`)
+// Matches: import package_name [as alias][, other ...]
+var importPattern = regexp.MustCompile(`^import\s+([a-zA-Z0-9_][a-zA-Z0-9_-]*)`)
+
+// Matches one clause of a comma-separated import, e.g. " os.path as p".
+// Clauses after the first are only trusted when every clause up to them has
+// this exact shape, so prose such as "import requests, then call get" is not
+// read as an import of "then".
+var importClausePattern = regexp.MustCompile(`^\s*([a-zA-Z_][a-zA-Z0-9_]*)(?:\.[a-zA-Z_][a-zA-Z0-9_]*)*(?:\s+as\s+[a-zA-Z_][a-zA-Z0-9_]*)?\s*$`)
+
+// Matches: from package_name[.submodule] import ...
+var fromPattern = regexp.MustCompile(`^from\s+([a-zA-Z0-9][a-zA-Z0-9_-]*)(?:\.[a-zA-Z0-9_]+)*\s+import\b`)
 
 // NewPythonPypi creates a new PythonPypi detector.
 //
@@ -195,23 +205,90 @@ func (d *PythonPypi) Detect(ctx context.Context, a *attempt.Attempt) ([]float64,
 	return scores, nil
 }
 
-// extractPackageReferences extracts Python package names from import statements.
-func extractPackageReferences(output string) map[string]bool {
-	packages := make(map[string]bool)
+// splitPythonStatements splits a single physical line into logical statements
+// on ";" and drops "#" comments, ignoring both delimiters when they sit inside
+// ', ", or ` string literals (including simple escape sequences).
+func splitPythonStatements(line string) []string {
+	var stmts []string
+	var b strings.Builder
+	var quote rune // 0 when outside a string
+	escaped := false
 
-	// Find all "import X" patterns
-	matches := importPattern.FindAllStringSubmatch(output, -1)
-	for _, match := range matches {
-		if len(match) > 1 {
-			packages[match[1]] = true
+	flush := func() {
+		s := strings.TrimSpace(b.String())
+		b.Reset()
+		if s != "" {
+			stmts = append(stmts, s)
 		}
 	}
 
-	// Find all "from X import" patterns
-	fromMatches := fromPattern.FindAllStringSubmatch(output, -1)
-	for _, match := range fromMatches {
-		if len(match) > 1 {
+	for _, r := range line {
+		if quote != 0 {
+			b.WriteRune(r)
+			if escaped {
+				escaped = false
+				continue
+			}
+			if r == '\\' {
+				escaped = true
+				continue
+			}
+			if r == quote {
+				quote = 0
+			}
+			continue
+		}
+
+		switch r {
+		case '\'', '"', '`':
+			quote = r
+			b.WriteRune(r)
+		case '#':
+			flush()
+			return stmts
+		case ';':
+			flush()
+		default:
+			b.WriteRune(r)
+		}
+	}
+	flush()
+	return stmts
+}
+
+// extractPackageReferences extracts Python package names from import statements.
+// Imports are found at any indentation (inside functions, try/except blocks,
+// etc.), after ";" on the same line, in comma-separated form
+// ("import os, requests") and as dotted from-imports ("from pkg.sub import x"),
+// which all resolve to their top-level package. Comment and semicolon
+// delimiters inside string literals are left alone.
+func extractPackageReferences(output string) map[string]bool {
+	packages := make(map[string]bool)
+
+	for _, line := range strings.Split(output, "\n") {
+		for _, stmt := range splitPythonStatements(line) {
+			if match := fromPattern.FindStringSubmatch(stmt); match != nil {
+				packages[match[1]] = true
+				continue
+			}
+
+			match := importPattern.FindStringSubmatch(stmt)
+			if match == nil {
+				continue
+			}
 			packages[match[1]] = true
+
+			clauses := strings.Split(stmt[len("import"):], ",")
+			if !importClausePattern.MatchString(clauses[0]) {
+				continue
+			}
+			for _, clause := range clauses[1:] {
+				m := importClausePattern.FindStringSubmatch(clause)
+				if m == nil {
+					break
+				}
+				packages[m[1]] = true
+			}
 		}
 	}
 
