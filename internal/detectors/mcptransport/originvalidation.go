@@ -85,6 +85,8 @@ func (d *OriginValidationDetector) Detect(_ context.Context, a *attempt.Attempt)
 			score = 1.0
 		case "public", "unresolvable":
 			score = InconclusiveScore
+			a.Metadata[attempt.MetadataKeyPartialEvidence] = true
+			a.Metadata[attempt.MetadataKeyPartialEvidenceReason] = "origin validation bypass confirmed on " + targetClass + " target, exploitability deployment-dependent"
 		default:
 			score = 1.0
 		}

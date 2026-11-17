@@ -298,6 +298,22 @@ const (
 	// assess ID entropy".
 	MetadataKeyInconclusiveReason = "mcptool.inconclusive_reason"
 
+	// MetadataKeyPartialEvidence (bool) marks an attempt where the detector
+	// confirmed a spec violation or security-relevant behaviour but cannot
+	// prove full exploitation from this vantage point. Unlike
+	// MetadataKeyInconclusive (which signals "the probe couldn't test"),
+	// this signals "the detector found something — a human should verify
+	// whether it is exploitable in the deployment context."
+	//
+	// Set by DETECTORS, not probes. The detector is the component that
+	// decides whether its evidence meets the partial-evidence bar.
+	MetadataKeyPartialEvidence = "augustus.partial_evidence"
+	// MetadataKeyPartialEvidenceReason (string) — human-readable explanation
+	// paired with MetadataKeyPartialEvidence, e.g. "guard bypass confirmed,
+	// file write unverified" or "origin validation bypass confirmed,
+	// exploitability deployment-dependent".
+	MetadataKeyPartialEvidenceReason = "augustus.partial_evidence_reason"
+
 	// MetadataKeyPrimitiveCanaries holds the []string of computed-arithmetic
 	// canary markers a mcpprimitive probe expects to see in returned content if
 	// the server evaluated an injected payload (e.g. a prompt template rendered

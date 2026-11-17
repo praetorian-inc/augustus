@@ -89,6 +89,8 @@ func (d *PathTraversalDetector) Detect(_ context.Context, a *attempt.Attempt) ([
 		if !matched {
 			if guardBypassed {
 				scores[i] = InconclusiveScore
+				a.Metadata[attempt.MetadataKeyPartialEvidence] = true
+				a.Metadata[attempt.MetadataKeyPartialEvidenceReason] = "guard bypass confirmed, file content unverified"
 			}
 			continue
 		}
@@ -97,6 +99,8 @@ func (d *PathTraversalDetector) Detect(_ context.Context, a *attempt.Attempt) ([
 		}
 		if isWrite {
 			scores[i] = InconclusiveScore
+			a.Metadata[attempt.MetadataKeyPartialEvidence] = true
+			a.Metadata[attempt.MetadataKeyPartialEvidenceReason] = "server reported write success, no independent verification"
 		} else {
 			scores[i] = 1.0
 		}

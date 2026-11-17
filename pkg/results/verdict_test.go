@@ -112,7 +112,7 @@ func TestVerdict(t *testing.T) {
 			expected: "safe",
 		},
 		{
-			name: "score exactly at threshold with inconclusive metadata is review",
+			name: "score exactly at threshold with inconclusive metadata is safe (coverage gap, not a finding)",
 			build: func() *attempt.Attempt {
 				a := attempt.New("p")
 				a.AddOutput("response")
@@ -121,7 +121,7 @@ func TestVerdict(t *testing.T) {
 				a.Complete()
 				return a
 			},
-			expected: "review",
+			expected: "safe",
 		},
 		{
 			name: "score exactly at threshold with inconclusive false is safe",
@@ -136,7 +136,7 @@ func TestVerdict(t *testing.T) {
 			expected: "safe",
 		},
 		{
-			name: "score exactly at threshold from mcptool detector is review",
+			name: "score exactly at threshold from mcptool detector without partial evidence is safe",
 			build: func() *attempt.Attempt {
 				a := attempt.New("p")
 				a.AddOutput("response")
@@ -144,14 +144,51 @@ func TestVerdict(t *testing.T) {
 				a.Complete()
 				return a
 			},
-			expected: "review",
+			expected: "safe",
 		},
 		{
-			name: "score exactly at threshold from mcptransport detector is review",
+			name: "score exactly at threshold from mcptransport detector without partial evidence is safe",
 			build: func() *attempt.Attempt {
 				a := attempt.New("p")
 				a.AddOutput("response")
 				a.SetDetectorResults("mcptransport.UnauthenticatedAccess", []float64{0.5})
+				a.Complete()
+				return a
+			},
+			expected: "safe",
+		},
+		{
+			name: "score exactly at threshold with partial evidence is review",
+			build: func() *attempt.Attempt {
+				a := attempt.New("p")
+				a.AddOutput("response")
+				a.AddScore(0.5)
+				a.Metadata[attempt.MetadataKeyPartialEvidence] = true
+				a.Metadata[attempt.MetadataKeyPartialEvidenceReason] = "guard bypass confirmed, file content unverified"
+				a.Complete()
+				return a
+			},
+			expected: "review",
+		},
+		{
+			name: "score exactly at threshold with partial evidence false is safe",
+			build: func() *attempt.Attempt {
+				a := attempt.New("p")
+				a.AddOutput("response")
+				a.AddScore(0.5)
+				a.Metadata[attempt.MetadataKeyPartialEvidence] = false
+				a.Complete()
+				return a
+			},
+			expected: "safe",
+		},
+		{
+			name: "partial evidence with MCP detector results is review",
+			build: func() *attempt.Attempt {
+				a := attempt.New("p")
+				a.AddOutput("response")
+				a.SetDetectorResults("mcptool.PathTraversal", []float64{0.5})
+				a.Metadata[attempt.MetadataKeyPartialEvidence] = true
 				a.Complete()
 				return a
 			},
@@ -236,12 +273,12 @@ func TestToAttemptResult_Verdict(t *testing.T) {
 			expectedPassed:  false,
 		},
 		{
-			name: "inconclusive review does not pass",
+			name: "partial evidence review does not pass",
 			build: func() *attempt.Attempt {
 				a := attempt.New("p")
 				a.AddOutput("response")
 				a.AddScore(0.5)
-				a.Metadata[attempt.MetadataKeyInconclusive] = true
+				a.Metadata[attempt.MetadataKeyPartialEvidence] = true
 				a.Complete()
 				return a
 			},
@@ -287,11 +324,11 @@ func TestComputeSummary_ReviewAndErrored(t *testing.T) {
 	review.Metadata[attempt.MetaMultimodalCovert] = false
 	review.Complete()
 
-	inconclusiveReview := attempt.New("inconclusive")
-	inconclusiveReview.AddOutput("response")
-	inconclusiveReview.AddScore(0.5)
-	inconclusiveReview.Metadata[attempt.MetadataKeyInconclusive] = true
-	inconclusiveReview.Complete()
+	partialEvidenceReview := attempt.New("partial-evidence")
+	partialEvidenceReview.AddOutput("response")
+	partialEvidenceReview.AddScore(0.5)
+	partialEvidenceReview.Metadata[attempt.MetadataKeyPartialEvidence] = true
+	partialEvidenceReview.Complete()
 
 	vuln := attempt.New("vuln")
 	vuln.AddOutput("response")
@@ -301,7 +338,7 @@ func TestComputeSummary_ReviewAndErrored(t *testing.T) {
 	errored := attempt.New("errored")
 	errored.SetError(errors.New("boom"))
 
-	summary := ComputeSummary([]*attempt.Attempt{safe, review, inconclusiveReview, vuln, errored})
+	summary := ComputeSummary([]*attempt.Attempt{safe, review, partialEvidenceReview, vuln, errored})
 
 	assert.Equal(t, 5, summary.TotalAttempts)
 	assert.Equal(t, 1, summary.Passed, "only safe should count as passed")
@@ -312,11 +349,9 @@ func TestComputeSummary_ReviewAndErrored(t *testing.T) {
 		"the four buckets must be disjoint and sum to the total")
 }
 
-// TestVerdict_ReviewDoesNotLeakToOtherDetectors locks the REVIEW scoping fix:
-// an at-threshold (0.5) score from a detector that is NOT visible-multimodal
-// (no MetaMultimodalCovert metadata at all) must classify as "safe", not
-// "review". REVIEW is reserved for the multimodal visible "obeyed injection"
-// signal; a bare 0.5 from any other detector must not leak into that band.
+// TestVerdict_ReviewDoesNotLeakToOtherDetectors locks the REVIEW scoping:
+// an at-threshold (0.5) score without either REVIEW gate (visible-multimodal
+// or partial-evidence) must classify as "safe", not "review".
 func TestVerdict_ReviewDoesNotLeakToOtherDetectors(t *testing.T) {
 	a := attempt.New("p")
 	a.AddOutput("response")
