@@ -288,9 +288,11 @@ const (
 	// broke a connection-lifetime assumption, a transient network error
 	// during sampling, insufficient samples for statistical classification,
 	// etc. The corresponding detector emits a non-zero score (see the
-	// InconclusiveScore constant in the mcptool detectors) so reports don't
-	// hide these under a green SAFE verdict; a reviewer must confirm the
-	// finding out-of-band.
+	// InconclusiveScore constant in the mcptool/mcptransport detectors);
+	// however, the verdict remains "safe" because an inability to test is
+	// a coverage gap, not a finding. The flag is preserved in attempt
+	// metadata so reports and summaries can surface coverage holes
+	// separately from confirmed results.
 	MetadataKeyInconclusive = "mcptool.inconclusive"
 	// MetadataKeyInconclusiveReason (string) — human-readable explanation
 	// paired with MetadataKeyInconclusive, e.g. "proxy in path: keepalive

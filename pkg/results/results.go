@@ -102,9 +102,11 @@ type Summary struct {
 	// the vulnerability threshold). Errored attempts are counted in Errored, not here.
 	Failed int `json:"failed"`
 
-	// Review is the number of attempts with verdict "review" — the multimodal
-	// visible "obeyed injection" case (a detection AT the vulnerability threshold
-	// on a visible-channel multimodal attempt) that warrants manual verification.
+	// Review is the number of attempts with verdict "review" — either (1) the
+	// multimodal visible "obeyed injection" case (a detection AT the
+	// vulnerability threshold on a visible-channel multimodal attempt) or
+	// (2) a partial-evidence finding (a confirmed spec violation whose
+	// exploitability could not be proven). Both warrant manual verification.
 	// This is its own disjoint bucket, counted in neither Passed nor Failed.
 	Review int `json:"review"`
 
@@ -204,8 +206,8 @@ func IsErrored(status attempt.Status) bool {
 //     MetadataKeyInconclusive (probe couldn't test), which are coverage
 //     gaps, not findings.
 //   - "safe"   — completed with no threshold-level detection (max score below
-//     the threshold), or an at-threshold score outside the visible-multimodal
-//     case above.
+//     the threshold), or an at-threshold score without a REVIEW gate
+//     (visible-multimodal or partial-evidence).
 func Verdict(a *attempt.Attempt) string {
 	if IsErrored(a.Status) {
 		return "error"
