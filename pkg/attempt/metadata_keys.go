@@ -291,8 +291,8 @@ const (
 	// InconclusiveScore constant in the mcptool/mcptransport detectors);
 	// however, the verdict remains "safe" because an inability to test is
 	// a coverage gap, not a finding. The flag is preserved in attempt
-	// metadata so reports and summaries can surface coverage holes
-	// separately from confirmed results.
+	// metadata so downstream consumers (reports, dashboards) can surface
+	// coverage gaps separately from confirmed results.
 	MetadataKeyInconclusive = "mcptool.inconclusive"
 	// MetadataKeyInconclusiveReason (string) — human-readable explanation
 	// paired with MetadataKeyInconclusive, e.g. "proxy in path: keepalive

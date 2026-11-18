@@ -195,6 +195,18 @@ func TestVerdict(t *testing.T) {
 			expected: "review",
 		},
 		{
+			name: "score above threshold with partial evidence is vuln (vuln takes precedence)",
+			build: func() *attempt.Attempt {
+				a := attempt.New("p")
+				a.AddOutput("response")
+				a.AddScore(0.7)
+				a.Metadata[attempt.MetadataKeyPartialEvidence] = true
+				a.Complete()
+				return a
+			},
+			expected: "vuln",
+		},
+		{
 			name: "score exactly at threshold from non-MCP detector without metadata is safe",
 			build: func() *attempt.Attempt {
 				a := attempt.New("p")
