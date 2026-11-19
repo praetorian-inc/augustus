@@ -956,7 +956,7 @@ func TestResolveDetectorConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "global classifier config flows to detector config",
+			name: "global classifier config flows nested under classifier_config",
 			config: Config{
 				Classifier: ClassifierGlobalConfig{
 					Type:     "typesafe",
@@ -971,12 +971,30 @@ func TestResolveDetectorConfig(t *testing.T) {
 			detectorName: "classifier.Decide",
 			wantKeys: map[string]any{
 				"classifier_type": "typesafe",
-				"endpoint":        "https://api.typesafe.ai/v1/systemone",
-				"model":           "jev-latest",
-				"api_key":         "ts-key",
-				"timeout":         "8s",
-				"hi":              0.8,
-				"lo":              0.2,
+				"classifier_config": map[string]any{
+					"endpoint": "https://api.typesafe.ai/v1/systemone",
+					"model":    "jev-latest",
+					"api_key":  "ts-key",
+					"timeout":  "8s",
+					"hi":       0.8,
+					"lo":       0.2,
+				},
+			},
+		},
+		{
+			name: "classifier credentials are not flattened onto other detectors",
+			config: Config{
+				Classifier: ClassifierGlobalConfig{
+					Type:   "typesafe",
+					APIKey: "ts-key",
+				},
+			},
+			detectorName: "perspective.Perspective",
+			wantKeys: map[string]any{
+				"classifier_type": "typesafe",
+				"classifier_config": map[string]any{
+					"api_key": "ts-key",
+				},
 			},
 		},
 		{
@@ -990,7 +1008,9 @@ func TestResolveDetectorConfig(t *testing.T) {
 					Settings: map[string]map[string]any{
 						"classifier.Decide": {
 							"classifier_type": "other",
-							"hi":              0.9,
+							"classifier_config": map[string]any{
+								"hi": 0.9,
+							},
 						},
 					},
 				},
@@ -998,7 +1018,9 @@ func TestResolveDetectorConfig(t *testing.T) {
 			detectorName: "classifier.Decide",
 			wantKeys: map[string]any{
 				"classifier_type": "other",
-				"hi":              0.9,
+				"classifier_config": map[string]any{
+					"hi": 0.9,
+				},
 			},
 		},
 	}
@@ -1024,6 +1046,14 @@ func TestValidateClassifier(t *testing.T) {
 		{
 			name: "valid hi lo",
 			cfg:  ClassifierGlobalConfig{Hi: 0.8, Lo: 0.2},
+		},
+		{
+			name: "hi alone is valid against default lo",
+			cfg:  ClassifierGlobalConfig{Hi: 0.9},
+		},
+		{
+			name: "lo alone is valid against default hi",
+			cfg:  ClassifierGlobalConfig{Lo: 0.1},
 		},
 		{
 			name:    "hi less than lo",
@@ -1480,4 +1510,50 @@ func TestInterpolateEnvVars_GeneratorExtraMissingVarNamesTheGenerator(t *testing
 	if !strings.Contains(err.Error(), "AUG_TEST_GEN_ABSENT") {
 		t.Errorf("error %q does not name the variable", err)
 	}
+}
+
+func TestMergeClassifier(t *testing.T) {
+	base := &Config{Classifier: ClassifierGlobalConfig{
+		Type: "typesafe",
+		Hi:   0.8,
+		Lo:   0.2,
+	}}
+	overlay := &Config{Classifier: ClassifierGlobalConfig{
+		APIKey: "new-key",
+		Hi:     0.9,
+	}}
+	base.Merge(overlay)
+
+	assert.Equal(t, "typesafe", base.Classifier.Type)
+	assert.Equal(t, "new-key", base.Classifier.APIKey)
+	assert.Equal(t, 0.9, base.Classifier.Hi)
+	assert.Equal(t, 0.2, base.Classifier.Lo)
+}
+
+func TestApplyProfileClassifier(t *testing.T) {
+	cfg := &Config{
+		Classifier: ClassifierGlobalConfig{Type: "typesafe", Lo: 0.2},
+		Profiles: map[string]Profile{
+			"strict": {Classifier: ClassifierGlobalConfig{Hi: 0.9}},
+		},
+	}
+	require.NoError(t, cfg.ApplyProfile("strict"))
+	assert.Equal(t, "typesafe", cfg.Classifier.Type)
+	assert.Equal(t, 0.9, cfg.Classifier.Hi)
+	assert.Equal(t, 0.2, cfg.Classifier.Lo)
+}
+
+func TestInterpolateEnvVars_Classifier(t *testing.T) {
+	t.Setenv("AUG_TEST_TS_KEY", "ts-secret")
+	cfg := &Config{Classifier: ClassifierGlobalConfig{
+		APIKey:   "${AUG_TEST_TS_KEY}",
+		Endpoint: "https://api.example.com",
+		Model:    "jev-latest",
+		Timeout:  "8s",
+	}}
+	require.NoError(t, interpolateConfigEnvVars(cfg))
+	assert.Equal(t, "ts-secret", cfg.Classifier.APIKey)
+	assert.Equal(t, "https://api.example.com", cfg.Classifier.Endpoint)
+	assert.Equal(t, "jev-latest", cfg.Classifier.Model)
+	assert.Equal(t, "8s", cfg.Classifier.Timeout)
 }

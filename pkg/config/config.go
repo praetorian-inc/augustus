@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 // Config represents the complete Augustus configuration
@@ -183,28 +184,34 @@ func (c *Config) injectJudgeConfig(cfg map[string]any) {
 }
 
 // injectClassifierConfig injects global classifier config into a registry config map.
-// Only non-zero / non-empty fields are set so detector defaults still apply.
+// classifier_type stays top-level (like judge_generator_type). Credentials and
+// tunables are nested under classifier_config so they are never flattened onto
+// unrelated detectors (Perspective reads a top-level api_key).
 func (c *Config) injectClassifierConfig(cfg map[string]any) {
 	if c.Classifier.Type != "" {
 		cfg["classifier_type"] = c.Classifier.Type
 	}
+	clCfg := make(map[string]any)
 	if c.Classifier.Endpoint != "" {
-		cfg["endpoint"] = c.Classifier.Endpoint
+		clCfg["endpoint"] = c.Classifier.Endpoint
 	}
 	if c.Classifier.Model != "" {
-		cfg["model"] = c.Classifier.Model
+		clCfg["model"] = c.Classifier.Model
 	}
 	if c.Classifier.APIKey != "" {
-		cfg["api_key"] = c.Classifier.APIKey
+		clCfg["api_key"] = c.Classifier.APIKey
 	}
 	if c.Classifier.Timeout != "" {
-		cfg["timeout"] = c.Classifier.Timeout
+		clCfg["timeout"] = c.Classifier.Timeout
 	}
 	if c.Classifier.Hi != 0 {
-		cfg["hi"] = c.Classifier.Hi
+		clCfg["hi"] = c.Classifier.Hi
 	}
 	if c.Classifier.Lo != 0 {
-		cfg["lo"] = c.Classifier.Lo
+		clCfg["lo"] = c.Classifier.Lo
+	}
+	if len(clCfg) > 0 {
+		cfg["classifier_config"] = clCfg
 	}
 }
 
@@ -403,21 +410,32 @@ func (c *Config) validateClassifier() error {
 			return fmt.Errorf("invalid classifier.timeout: %w", err)
 		}
 	}
-	if c.Classifier.Hi != 0 || c.Classifier.Lo != 0 {
-		if err := validateClassifierBound("hi", c.Classifier.Hi); err != nil {
-			return err
-		}
-		if err := validateClassifierBound("lo", c.Classifier.Lo); err != nil {
-			return err
-		}
-		if c.Classifier.Hi <= c.Classifier.Lo {
-			return fmt.Errorf("classifier.hi must be greater than classifier.lo, got hi=%f lo=%f", c.Classifier.Hi, c.Classifier.Lo)
-		}
+	if err := validateClassifierBound("hi", c.Classifier.Hi); err != nil {
+		return err
+	}
+	if err := validateClassifierBound("lo", c.Classifier.Lo); err != nil {
+		return err
+	}
+	hi, lo := c.Classifier.Hi, c.Classifier.Lo
+	if hi == 0 && lo == 0 {
+		return nil
+	}
+	if hi == 0 {
+		hi = types.DefaultClassifierHi
+	}
+	if lo == 0 {
+		lo = types.DefaultClassifierLo
+	}
+	if hi <= lo {
+		return fmt.Errorf("classifier.hi must be greater than classifier.lo, got hi=%f lo=%f", hi, lo)
 	}
 	return nil
 }
 
 func validateClassifierBound(name string, v float64) error {
+	if v == 0 {
+		return nil
+	}
 	if v <= 0 || v > 1 {
 		return fmt.Errorf("classifier.%s must be in (0,1], got: %f", name, v)
 	}

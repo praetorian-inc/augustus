@@ -48,8 +48,6 @@ func TestClassify_HappyPath(t *testing.T) {
 		Endpoint:   srv.URL,
 		APIKey:     "test-key",
 		HTTPClient: srv.Client(),
-		Hi:         types.DefaultClassifierHi,
-		Lo:         types.DefaultClassifierLo,
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -70,8 +68,8 @@ func TestClassify_HappyPath(t *testing.T) {
 	if result.P != 0.91 {
 		t.Errorf("P = %v, want 0.91", result.P)
 	}
-	if result.Verdict != types.VerdictVulnerable {
-		t.Errorf("Verdict = %s, want vulnerable", result.Verdict)
+	if result.Verdict != 0 {
+		t.Errorf("Verdict = %s, want zero (detector remaps via VerdictFromP)", result.Verdict)
 	}
 }
 
@@ -122,8 +120,6 @@ func mustClient(t *testing.T, srv *httptest.Server) *Client {
 		Endpoint:   srv.URL,
 		APIKey:     "test-key",
 		HTTPClient: srv.Client(),
-		Hi:         types.DefaultClassifierHi,
-		Lo:         types.DefaultClassifierLo,
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)

@@ -36,14 +36,21 @@ type Decide struct {
 }
 
 // NewDecide creates a Decide detector from registry config.
+// Credentials and tunables are read from the nested classifier_config map;
+// classifier_type stays at the top level.
 func NewDecide(cfg registry.Config) (detectors.Detector, error) {
-	hi := registry.GetFloat64(cfg, "hi", types.DefaultClassifierHi)
-	lo := registry.GetFloat64(cfg, "lo", types.DefaultClassifierLo)
-	if hi <= lo {
-		return nil, fmt.Errorf("classifier hi (%v) must be greater than lo (%v)", hi, lo)
+	clCfg := registry.Config{}
+	if nested, ok := cfg["classifier_config"].(map[string]any); ok {
+		clCfg = nested
 	}
 
-	timeoutStr := registry.GetString(cfg, "timeout", defaultTimeout)
+	hi := registry.GetFloat64(clCfg, "hi", types.DefaultClassifierHi)
+	lo := registry.GetFloat64(clCfg, "lo", types.DefaultClassifierLo)
+	if lo <= 0 || hi <= lo || hi > 1 {
+		return nil, fmt.Errorf("classifier thresholds must satisfy 0 < lo < hi <= 1, got hi=%v lo=%v", hi, lo)
+	}
+
+	timeoutStr := registry.GetString(clCfg, "timeout", defaultTimeout)
 	if timeoutStr == "" {
 		timeoutStr = defaultTimeout
 	}
@@ -55,7 +62,7 @@ func NewDecide(cfg registry.Config) (detectors.Detector, error) {
 	classifierType := registry.GetString(cfg, "classifier_type", "typesafe")
 	detectorGoal := registry.GetString(cfg, "detector_goal", "")
 
-	c, err := newClassifier(cfg, classifierType, timeout, hi, lo)
+	c, err := newClassifier(clCfg, classifierType, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +74,7 @@ func NewDecideWithClassifier(c types.Classifier, hi, lo float64) *Decide {
 	return &Decide{classifier: c, hi: hi, lo: lo}
 }
 
-func newClassifier(cfg registry.Config, classifierType string, timeout time.Duration, hi, lo float64) (types.Classifier, error) {
+func newClassifier(cfg registry.Config, classifierType string, timeout time.Duration) (types.Classifier, error) {
 	switch classifierType {
 	case "typesafe":
 		apiKey := registry.GetString(cfg, "api_key", "")
@@ -82,16 +89,15 @@ func newClassifier(cfg registry.Config, classifierType string, timeout time.Dura
 			Model:    registry.GetString(cfg, "model", ""),
 			APIKey:   apiKey,
 			Timeout:  timeout,
-			Hi:       hi,
-			Lo:       lo,
 		})
 	default:
 		return nil, fmt.Errorf("unknown classifier type %q", classifierType)
 	}
 }
 
-// Detect scores each output. Empty outputs are not_vulnerable (P=0) without a
-// classifier call. Transport or parse failures are returned as errors.
+// Detect scores each output. Empty outputs with no tool calls are
+// not_vulnerable (P=0) without a classifier call. Empty output plus tool
+// calls is still classified. Transport or parse failures are returned as errors.
 func (d *Decide) Detect(ctx context.Context, a *attempt.Attempt) ([]float64, error) {
 	scores := make([]float64, len(a.Outputs))
 	verdicts := make([]string, len(a.Outputs))
@@ -123,10 +129,11 @@ func (d *Decide) Description() string {
 }
 
 func (d *Decide) classifyOutput(ctx context.Context, a *attempt.Attempt, goal, output string) (types.Verdict, float64, error) {
-	if output == "" {
+	toolCalls := metadataValue(a, attempt.MetadataKeyToolCalls)
+	if output == "" && toolCalls == nil {
 		return types.VerdictNotVulnerable, 0, nil
 	}
-	q := buildQuestion(goal, a.Prompt, output, metadataValue(a, attempt.MetadataKeyToolCalls))
+	q := buildQuestion(goal, a.Prompt, output, toolCalls)
 	result, err := d.classifier.Classify(ctx, q)
 	if err != nil {
 		return 0, 0, err

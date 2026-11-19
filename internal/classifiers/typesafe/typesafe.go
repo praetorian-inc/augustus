@@ -28,15 +28,12 @@ type Config struct {
 	APIKey     string
 	Timeout    time.Duration
 	HTTPClient *http.Client // optional, for tests
-	Hi         float64
-	Lo         float64
 }
 
 // Client is a TypeSafe SystemOne classifier.
 type Client struct {
 	endpoint string
 	model    string
-	hi, lo   float64
 	http     *libhttp.Client
 }
 
@@ -87,14 +84,6 @@ func New(cfg Config) (*Client, error) {
 	if timeout == 0 {
 		timeout = defaultTimeout
 	}
-	hi := cfg.Hi
-	if hi == 0 {
-		hi = types.DefaultClassifierHi
-	}
-	lo := cfg.Lo
-	if lo == 0 {
-		lo = types.DefaultClassifierLo
-	}
 
 	opts := []libhttp.Option{libhttp.WithBearerToken(cfg.APIKey)}
 	if cfg.HTTPClient != nil {
@@ -106,13 +95,11 @@ func New(cfg Config) (*Client, error) {
 	return &Client{
 		endpoint: endpoint,
 		model:    model,
-		hi:       hi,
-		lo:       lo,
 		http:     libhttp.NewClient(opts...),
 	}, nil
 }
 
-// Classify asks SystemOne for P(vulnerable) and maps it with the client's hi/lo.
+// Classify asks SystemOne for P(vulnerable). Verdict mapping is the detector's job.
 func (c *Client) Classify(ctx context.Context, q types.Question) (types.Result, error) {
 	body := systemOneRequest{
 		Model: c.model,
@@ -138,10 +125,7 @@ func (c *Client) Classify(ctx context.Context, q types.Question) (types.Result, 
 	if err != nil {
 		return types.Result{}, err
 	}
-	return types.Result{
-		P:       p,
-		Verdict: types.VerdictFromP(p, c.hi, c.lo),
-	}, nil
+	return types.Result{P: p}, nil
 }
 
 func parseNoul(resp *libhttp.Response) (float64, error) {
