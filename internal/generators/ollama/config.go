@@ -9,6 +9,28 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
+// Config keys accepted by ConfigFromMap, shared by ollama.Ollama and
+// ollama.OllamaChat.
+const (
+	keyModel       = "model"
+	keyHost        = "host"
+	keyTimeout     = "timeout"
+	keyTemperature = "temperature"
+	keyTopP        = "top_p"
+	keyTopK        = "top_k"
+	keyNumPredict  = "num_predict"
+)
+
+// RequiredKeys returns the config keys ConfigFromMap requires.
+func RequiredKeys() []string {
+	return []string{keyModel}
+}
+
+// OptionalKeys returns the config keys ConfigFromMap accepts but does not require.
+func OptionalKeys() []string {
+	return []string{keyHost, keyTimeout, keyTemperature, keyTopP, keyTopK, keyNumPredict}
+}
+
 // Config holds typed configuration for the Ollama generator.
 type Config struct {
 	// Required
@@ -39,14 +61,14 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg := DefaultConfig()
 
 	// Required: model
-	model, err := registry.RequireString(m, "model")
+	model, err := registry.RequireString(m, keyModel)
 	if err != nil {
 		return cfg, fmt.Errorf("ollama generator requires 'model' configuration")
 	}
 	cfg.Model = model
 
 	// Optional: host from config or env var
-	cfg.Host = registry.GetString(m, "host", "")
+	cfg.Host = registry.GetString(m, keyHost, "")
 	if cfg.Host == "" {
 		if envHost := os.Getenv("OLLAMA_HOST"); envHost != "" {
 			cfg.Host = envHost
@@ -59,25 +81,25 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg.Host = strings.TrimSuffix(cfg.Host, "/")
 
 	// Optional: timeout (in seconds)
-	timeout := registry.GetInt(m, "timeout", 0)
+	timeout := registry.GetInt(m, keyTimeout, 0)
 	if timeout > 0 {
 		cfg.Timeout = time.Duration(timeout) * time.Second
 	}
 
 	// Optional generation parameters (use pointers to distinguish unset from zero)
-	if temp, ok := m["temperature"].(float64); ok {
+	if temp, ok := m[keyTemperature].(float64); ok {
 		cfg.Temperature = &temp
 	}
 
-	if topP, ok := m["top_p"].(float64); ok {
+	if topP, ok := m[keyTopP].(float64); ok {
 		cfg.TopP = &topP
 	}
 
-	if topK := registry.GetInt(m, "top_k", 0); topK != 0 {
+	if topK := registry.GetInt(m, keyTopK, 0); topK != 0 {
 		cfg.TopK = &topK
 	}
 
-	if numPredict := registry.GetInt(m, "num_predict", 0); numPredict != 0 {
+	if numPredict := registry.GetInt(m, keyNumPredict, 0); numPredict != 0 {
 		cfg.NumPredict = &numPredict
 	}
 

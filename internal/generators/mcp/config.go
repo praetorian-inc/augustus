@@ -57,9 +57,48 @@ func Modes() []string {
 	return []string{ModeToolCall, ModeListTools}
 }
 
-// RequiredKeys returns config keys every MCP transport requires.
+// Config keys accepted by ConfigFromMap. uri and url are aliases for endpoint.
+const (
+	keyEndpoint             = "endpoint"
+	keyURI                  = "uri"
+	keyURL                  = "url"
+	keyClientName           = "client_name"
+	keyClientVersion        = "client_version"
+	keyAPIKey               = "api_key"
+	keyRequestTimeout       = "request_timeout"
+	keyPersistent           = "persistent"
+	keyRateLimit            = "rate_limit"
+	keyHeaders              = "headers"
+	keyInsecureSkipVerify   = "insecure_skip_verify"
+	keyDisableStandaloneSSE = "disable_standalone_sse"
+	keyProxy                = "proxy"
+	keyTransport            = "transport"
+	keyMode                 = "mode"
+	keyToolName             = "tool_name"
+	keyArgName              = "arg_name"
+	keyArguments            = "arguments"
+	keyArgumentsTemplate    = "arguments_template"
+)
+
+// RequiredKeys returns config keys every MCP transport requires. A required
+// key may be satisfied by one of its KeyAliases() instead.
 func RequiredKeys() []string {
-	return []string{"endpoint"}
+	return []string{keyEndpoint}
+}
+
+// KeyAliases maps a required key to the keys ConfigFromMap accepts in its place.
+func KeyAliases() map[string][]string {
+	return map[string][]string{keyEndpoint: {keyURI, keyURL}}
+}
+
+// OptionalKeys returns config keys ConfigFromMap accepts but does not require.
+func OptionalKeys() []string {
+	return []string{
+		keyURI, keyURL, keyClientName, keyClientVersion, keyAPIKey,
+		keyRequestTimeout, keyPersistent, keyRateLimit, keyHeaders,
+		keyInsecureSkipVerify, keyDisableStandaloneSSE, keyProxy, keyTransport,
+		keyMode, keyToolName, keyArgName, keyArguments, keyArgumentsTemplate,
+	}
 }
 
 // Config holds typed configuration for the MCP generator.
@@ -127,12 +166,12 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg := DefaultConfig()
 
 	// Client identity.
-	cfg.ClientName = registry.GetString(m, "client_name", cfg.ClientName)
-	cfg.ClientVersion = registry.GetString(m, "client_version", cfg.ClientVersion)
+	cfg.ClientName = registry.GetString(m, keyClientName, cfg.ClientName)
+	cfg.ClientVersion = registry.GetString(m, keyClientVersion, cfg.ClientVersion)
 
 	// Common: api_key, timeouts, rate limit, persistence.
-	cfg.APIKey = registry.GetString(m, "api_key", "")
-	if timeout, ok := durationSeconds(m, "request_timeout"); ok {
+	cfg.APIKey = registry.GetString(m, keyAPIKey, "")
+	if timeout, ok := durationSeconds(m, keyRequestTimeout); ok {
 		// A non-positive value must not be taken literally. Elsewhere in Augustus
 		// 0 means "no timeout", but here it would be applied as an already-expired
 		// deadline: every request and every catalog page would fail instantly and the
@@ -145,7 +184,7 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 			cfg.RequestTimeout = timeout
 		}
 	}
-	cfg.Persistent = registry.GetBool(m, "persistent", cfg.Persistent)
+	cfg.Persistent = registry.GetBool(m, keyPersistent, cfg.Persistent)
 	if rl, err := parseRateLimit(m); err != nil {
 		return cfg, err
 	} else {
@@ -153,11 +192,11 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	}
 
 	// Transport connection details.
-	cfg.Endpoint = firstString(m, "endpoint", "uri", "url")
-	cfg.Headers = stringMap(m, "headers")
-	cfg.InsecureSkipVerify = registry.GetBool(m, "insecure_skip_verify", false)
-	cfg.DisableStandaloneSSE = registry.GetBool(m, "disable_standalone_sse", false)
-	if proxy := registry.GetString(m, "proxy", ""); proxy != "" {
+	cfg.Endpoint = firstString(m, keyEndpoint, keyURI, keyURL)
+	cfg.Headers = stringMap(m, keyHeaders)
+	cfg.InsecureSkipVerify = registry.GetBool(m, keyInsecureSkipVerify, false)
+	cfg.DisableStandaloneSSE = registry.GetBool(m, keyDisableStandaloneSSE, false)
+	if proxy := registry.GetString(m, keyProxy, ""); proxy != "" {
 		parsed, err := url.Parse(proxy)
 		if err != nil {
 			return cfg, fmt.Errorf("mcp: invalid proxy URL %q: %w", proxy, err)
@@ -168,13 +207,13 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	// Transport: explicit if given, otherwise inferred from which connection
 	// details are present. Inference keeps simple configs terse while still
 	// erroring on an ambiguous or empty setup.
-	cfg.Transport = registry.GetString(m, "transport", "")
+	cfg.Transport = registry.GetString(m, keyTransport, "")
 	if err := resolveTransport(&cfg); err != nil {
 		return cfg, err
 	}
 
 	// Mode.
-	cfg.Mode = registry.GetString(m, "mode", cfg.Mode)
+	cfg.Mode = registry.GetString(m, keyMode, cfg.Mode)
 	if !slices.Contains(Modes(), cfg.Mode) {
 		return cfg, fmt.Errorf("mcp: mode must be %s, got %q", quotedList(Modes()), cfg.Mode)
 	}
@@ -185,10 +224,10 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	// mcptool probe drives the generator without ever touching the tool_call
 	// Generate path, so requiring them at construction would break that use.
 	if cfg.Mode == ModeToolCall {
-		cfg.ToolName = registry.GetString(m, "tool_name", "")
-		cfg.ArgName = registry.GetString(m, "arg_name", "")
-		cfg.Arguments = anyMap(m, "arguments")
-		if tmpl, ok := m["arguments_template"]; ok {
+		cfg.ToolName = registry.GetString(m, keyToolName, "")
+		cfg.ArgName = registry.GetString(m, keyArgName, "")
+		cfg.Arguments = anyMap(m, keyArguments)
+		if tmpl, ok := m[keyArgumentsTemplate]; ok {
 			s, err := templateString(tmpl)
 			if err != nil {
 				return cfg, err
@@ -206,7 +245,7 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 func resolveTransport(cfg *Config) error {
 	if cfg.Transport == "" {
 		if cfg.Endpoint == "" {
-			return fmt.Errorf("mcp: no transport configured; set 'endpoint' (http/https URL)")
+			return fmt.Errorf("mcp: no transport configured; set '%s' (http/https URL)", keyEndpoint)
 		}
 		cfg.Transport = TransportHTTP
 		return nil
@@ -215,7 +254,7 @@ func resolveTransport(cfg *Config) error {
 		return fmt.Errorf("mcp: transport must be %s, got %q", quotedList(Transports()), cfg.Transport)
 	}
 	if cfg.Endpoint == "" {
-		return fmt.Errorf("mcp: transport %q requires 'endpoint'", cfg.Transport)
+		return fmt.Errorf("mcp: transport %q requires '%s'", cfg.Transport, keyEndpoint)
 	}
 	return nil
 }
@@ -230,7 +269,7 @@ func quotedList(names []string) string {
 
 // parseRateLimit reads a non-negative rate_limit accepting int or float.
 func parseRateLimit(m registry.Config) (float64, error) {
-	switch v := m["rate_limit"].(type) {
+	switch v := m[keyRateLimit].(type) {
 	case nil:
 		return 0, nil
 	case float64:
