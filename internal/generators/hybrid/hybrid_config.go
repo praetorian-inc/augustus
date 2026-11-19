@@ -77,6 +77,8 @@ type step struct {
 
 	// ws_stream (and http / http_poll answer): response extraction.
 	ResponseFields []string // tried in order per frame/body; first non-empty wins (response fallback)
+	FilterField    string   // optional JSONPath filter: only frames matching FilterValue are used for response extraction
+	FilterValue    string   // expected value of FilterField (e.g. "TEXT_MESSAGE_CONTENT")
 	CompleteField  string
 	CompleteValue  string
 	Assembly       string
@@ -305,6 +307,11 @@ func parseResponseExtraction(sm registry.Config, st *step) error {
 	st.ResponseFields = stringList(sm, "response_field")
 	if len(st.ResponseFields) == 0 {
 		return fmt.Errorf("requires 'response_field'")
+	}
+	st.FilterField = registry.GetString(sm, "filter_field", "")
+	st.FilterValue = registry.GetString(sm, "filter_value", "")
+	if (st.FilterField != "") != (st.FilterValue != "") {
+		return fmt.Errorf("'filter_field' and 'filter_value' must both be set or both be empty")
 	}
 	st.CompleteField = registry.GetString(sm, "complete_field", "")
 	st.CompleteValue = registry.GetString(sm, "complete_value", "")
