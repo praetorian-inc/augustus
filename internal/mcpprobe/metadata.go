@@ -180,3 +180,16 @@ const (
 	// the presence of any particular string.
 	AuthClassPrivilegeDiscriminator = "privilege-discriminator"
 )
+
+// Attempt-metadata keys for mcptool.AnnotationTruth (LAB-7627), read by the
+// mcptool.AnnotationMismatch detector.
+const (
+	// MetaAnnotationTool (string) is the tool whose annotation was tested.
+	MetaAnnotationTool = "mcpannotation.tool"
+	// MetaAnnotationClaim (string) is the annotation claim tested, such as
+	// "readOnlyHint=true".
+	MetaAnnotationClaim = "mcpannotation.claim"
+	// MetaAnnotationMismatch (bool) records that observed behavior contradicted
+	// the claim.
+	MetaAnnotationMismatch = "mcpannotation.mismatch"
+)

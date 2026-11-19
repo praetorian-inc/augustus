@@ -7,7 +7,7 @@
 //	transport: http    Streamable HTTP (JSON-RPC over HTTP POST + SSE) to a remote server
 //	transport: sse     legacy HTTP+SSE (GET /sse stream + POST /messages), as older FastMCP servers expose
 //	transport: auto    probe an HTTP(S) endpoint and pick whichever of the two HTTP
-//	                   transports initializes (streamable first, SSE fallback)
+//	                   transports connects (streamable first, SSE fallback)
 //
 // The MCP stdio (local-subprocess) transport is intentionally not implemented —
 // it only reaches locally launched servers and is an arbitrary-exec surface;
@@ -29,8 +29,9 @@
 //	$KEY         the configured api_key, verbatim
 //	$VAR         any runtime hook variable, verbatim
 //
-// The protocol layer is the official MCP Go SDK, which owns the initialize
-// handshake, capability negotiation, and both transports.
+// The protocol layer is the official MCP Go SDK, which owns the connection
+// handshake (server/discover on 2026-07-28, initialize on earlier revisions),
+// capability negotiation, and both transports.
 package mcp
 
 import (
@@ -248,10 +249,11 @@ func (m *MCP) connect(ctx context.Context) (*mcpsdk.ClientSession, context.Cance
 	return m.connectTransport(ctx, transport)
 }
 
-// connectTransport runs the SDK Connect (initialize) handshake for one built
-// transport under the handshake-timeout timer, returning the initialized session
-// and the cancel func that owns its transport stream for the whole session
-// lifetime. On any failure it tears the stream down (sessCancel) before
+// connectTransport runs the SDK Connect handshake (server/discover on 2026-07-28
+// servers, initialize on older ones) for one built transport under the
+// handshake-timeout timer, returning the connected session and the cancel func
+// that owns its transport stream for the whole session lifetime. On any
+// failure it tears the stream down (sessCancel) before
 // returning, so no session or stream leaks, and it returns the same wrapped
 // errors the generator has always produced. See connect for why the session
 // context is derived from context.Background().
@@ -295,7 +297,7 @@ func (m *MCP) connectTransport(ctx context.Context, transport mcpsdk.Transport) 
 }
 
 // connectAuto probes the HTTP(S) endpoint and returns the first transport whose
-// initialize handshake succeeds. It prefers modern Streamable HTTP and falls
+// handshake succeeds. It prefers modern Streamable HTTP and falls
 // back to legacy HTTP+SSE, reversing that order when the endpoint path ends in
 // /sse (a strong hint the server is a legacy SSE endpoint). Each failed attempt
 // is fully torn down by connectTransport before the next is tried, so no failed
