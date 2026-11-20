@@ -2,6 +2,7 @@ package openai
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -12,6 +13,7 @@ const (
 	keyModel            = "model"
 	keyAPIKey           = "api_key"
 	keyBaseURL          = "base_url"
+	keyTimeout          = "timeout"
 	keyTemperature      = "temperature"
 	keyMaxTokens        = "max_tokens"
 	keyTopP             = "top_p"
@@ -39,7 +41,7 @@ func KeyEnvFallbacks() map[string]string {
 func OptionalKeys() []string {
 	return []string{
 		keyBaseURL, keyTemperature, keyMaxTokens, keyTopP,
-		keyFrequencyPenalty, keyPresencePenalty, keyStop,
+		keyFrequencyPenalty, keyPresencePenalty, keyStop, keyTimeout,
 	}
 }
 
@@ -57,6 +59,7 @@ type Config struct {
 	PresencePenalty  float32
 	Stop             []string
 	BaseURL          string
+	Timeout          time.Duration
 }
 
 // DefaultConfig returns an OpenAIConfig with sensible defaults.
@@ -92,6 +95,7 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg.FrequencyPenalty = registry.GetFloat32(m, keyFrequencyPenalty, cfg.FrequencyPenalty)
 	cfg.PresencePenalty = registry.GetFloat32(m, keyPresencePenalty, cfg.PresencePenalty)
 	cfg.Stop = registry.GetStringSlice(m, keyStop, nil)
+	cfg.Timeout = time.Duration(registry.GetInt(m, keyTimeout, 0)) * time.Second
 
 	return cfg, nil
 }
@@ -164,6 +168,13 @@ func WithStop(stop []string) Option {
 func WithBaseURL(url string) Option {
 	return func(c *Config) {
 		c.BaseURL = url
+	}
+}
+
+// WithTimeout sets the per-request HTTP timeout. Zero means no timeout.
+func WithTimeout(timeout time.Duration) Option {
+	return func(c *Config) {
+		c.Timeout = timeout
 	}
 }
 

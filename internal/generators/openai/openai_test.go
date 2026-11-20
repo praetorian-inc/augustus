@@ -174,6 +174,33 @@ func TestOpenAIGenerator_Description(t *testing.T) {
 	assert.Contains(t, desc, "OpenAI")
 }
 
+func TestOpenAIGenerator_Generate_RequestTimeout(t *testing.T) {
+	for _, model := range []string{"gpt-4", "gpt-3.5-turbo-instruct"} {
+		t.Run(model, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				select {
+				case <-r.Context().Done():
+				case <-time.After(time.Second):
+				}
+			}))
+			t.Cleanup(server.Close)
+
+			g, err := NewOpenAIWithOptions(
+				WithModel(model), WithAPIKey("test-key"), WithBaseURL(server.URL),
+				WithTimeout(50*time.Millisecond),
+			)
+			require.NoError(t, err)
+
+			conv := attempt.NewConversation()
+			conv.AddPrompt("Hello!")
+
+			_, err = g.Generate(context.Background(), conv, 1)
+
+			require.ErrorContains(t, err, "context deadline exceeded")
+		})
+	}
+}
+
 func TestOpenAIGenerator_Generate_ChatModel(t *testing.T) {
 	var receivedRequest map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -192,6 +219,7 @@ func TestOpenAIGenerator_Generate_ChatModel(t *testing.T) {
 		"model":    "gpt-4",
 		"api_key":  "test-key",
 		"base_url": server.URL,
+		"timeout":  1,
 	})
 	require.NoError(t, err)
 

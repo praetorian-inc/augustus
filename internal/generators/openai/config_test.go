@@ -2,6 +2,7 @@ package openai
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,6 +17,7 @@ func TestOpenAIConfigDefaults(t *testing.T) {
 	assert.Equal(t, 0, cfg.MaxTokens) // 0 means use model default
 	assert.Empty(t, cfg.Model)        // Must be set
 	assert.Empty(t, cfg.APIKey)       // Must be set or from env
+	assert.Zero(t, cfg.Timeout)
 }
 
 func TestOpenAIConfigFromMap(t *testing.T) {
@@ -29,6 +31,7 @@ func TestOpenAIConfigFromMap(t *testing.T) {
 		"presence_penalty":  0.2,
 		"stop":              []string{"END", "STOP"},
 		"base_url":          "https://custom.openai.com",
+		"timeout":           15,
 	}
 
 	cfg, err := ConfigFromMap(m)
@@ -43,6 +46,7 @@ func TestOpenAIConfigFromMap(t *testing.T) {
 	assert.Equal(t, float32(0.2), cfg.PresencePenalty)
 	assert.Equal(t, []string{"END", "STOP"}, cfg.Stop)
 	assert.Equal(t, "https://custom.openai.com", cfg.BaseURL)
+	assert.Equal(t, 15*time.Second, cfg.Timeout)
 }
 
 func TestOpenAIConfigFromMapMissingModel(t *testing.T) {
@@ -71,10 +75,12 @@ func TestOpenAIConfigFunctionalOptions(t *testing.T) {
 		WithAPIKey("sk-test"),
 		WithTemperature(0.3),
 		WithMaxTokens(4096),
+		WithTimeout(time.Second),
 	)
 
 	assert.Equal(t, "gpt-4", cfg.Model)
 	assert.Equal(t, "sk-test", cfg.APIKey)
 	assert.Equal(t, float32(0.3), cfg.Temperature)
 	assert.Equal(t, 4096, cfg.MaxTokens)
+	assert.Equal(t, time.Second, cfg.Timeout)
 }
