@@ -8,6 +8,7 @@ package openai
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	goopenai "github.com/sashabaranov/go-openai"
 
@@ -85,6 +86,7 @@ func NewOpenAITyped(cfg Config) (*OpenAI, error) {
 
 	// Create client config
 	clientCfg := goopenai.DefaultConfig(cfg.APIKey)
+	clientCfg.HTTPClient = &http.Client{Timeout: cfg.Timeout}
 	if cfg.BaseURL != "" {
 		clientCfg.BaseURL = cfg.BaseURL
 	}

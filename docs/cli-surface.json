@@ -585,6 +585,7 @@
         "presence_penalty",
         "stop",
         "temperature",
+        "timeout",
         "top_p"
       ],
       "envFallbacks": {
