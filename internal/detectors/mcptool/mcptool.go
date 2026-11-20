@@ -13,9 +13,11 @@ import (
 
 // InconclusiveScore is the score a mcptool detector returns when the paired
 // probe attempt is marked with attempt.MetadataKeyInconclusive — the probe
-// ran but couldn't make a confident SAFE/VULN determination. A non-zero,
-// sub-1.0 value keeps the finding visible in the report (a reviewer must
-// look) without asserting the target is vulnerable.
+// ran but couldn't make a confident SAFE/VULN determination. The score is
+// non-zero to distinguish it from a clean 0.0, but the verdict remains
+// "safe" (a coverage gap, not a finding). Attempts where the detector has
+// partial evidence of a real issue use MetadataKeyPartialEvidence instead,
+// which routes to the "review" verdict.
 const InconclusiveScore = 0.5
 
 func init() {

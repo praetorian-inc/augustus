@@ -2,6 +2,7 @@ package mcptool
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -49,6 +50,59 @@ func TestPathTraversalDetector(t *testing.T) {
 				t.Errorf("Detect = %v, want [%v]", scores, tt.want)
 			}
 		})
+	}
+}
+
+// TestPathTraversalDetector_GuardBypassSetsPartialEvidence verifies that the
+// detector sets MetadataKeyPartialEvidence when a guard-bypass is confirmed
+// but no file-content signature is present in the output.
+func TestPathTraversalDetector_GuardBypassSetsPartialEvidence(t *testing.T) {
+	a := attempt.New("../../etc/passwd")
+	a.Metadata[attempt.MetadataKeyPathTraversalGuardBypass] = true
+	a.Metadata[attempt.MetadataKeyPathTraversalSignatures] = []string{"root:x:0:0:"}
+	a.AddOutput("file not found") // does NOT contain the signature
+
+	scores, err := newPathTraversalDetector(t).Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	if len(scores) != 1 || scores[0] != InconclusiveScore {
+		t.Errorf("Detect = %v, want [%v]", scores, InconclusiveScore)
+	}
+	pe, _ := a.Metadata[attempt.MetadataKeyPartialEvidence].(bool)
+	if !pe {
+		t.Errorf("MetadataKeyPartialEvidence = %v, want true", a.Metadata[attempt.MetadataKeyPartialEvidence])
+	}
+	reason, _ := a.Metadata[attempt.MetadataKeyPartialEvidenceReason].(string)
+	if !strings.Contains(reason, "guard bypass") {
+		t.Errorf("MetadataKeyPartialEvidenceReason = %q, want substring %q", reason, "guard bypass")
+	}
+}
+
+// TestPathTraversalDetector_WriteSuccessSetsPartialEvidence verifies that the
+// detector sets MetadataKeyPartialEvidence when a write payload echoes the
+// canary with a success verb but no independent verification is possible.
+func TestPathTraversalDetector_WriteSuccessSetsPartialEvidence(t *testing.T) {
+	a := attempt.New("../../tmp/proof-canary")
+	a.Metadata[attempt.MetadataKeyPathTraversalIsWrite] = true
+	// NOT setting MetadataKeyPathTraversalToolIsError
+	a.Metadata[attempt.MetadataKeyPathTraversalSignatures] = []string{"proof-canary"}
+	a.AddOutput("successfully wrote proof-canary to filesystem")
+
+	scores, err := newPathTraversalDetector(t).Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	if len(scores) != 1 || scores[0] != InconclusiveScore {
+		t.Errorf("Detect = %v, want [%v]", scores, InconclusiveScore)
+	}
+	pe, _ := a.Metadata[attempt.MetadataKeyPartialEvidence].(bool)
+	if !pe {
+		t.Errorf("MetadataKeyPartialEvidence = %v, want true", a.Metadata[attempt.MetadataKeyPartialEvidence])
+	}
+	reason, _ := a.Metadata[attempt.MetadataKeyPartialEvidenceReason].(string)
+	if !strings.Contains(reason, "no independent verification") {
+		t.Errorf("MetadataKeyPartialEvidenceReason = %q, want substring %q", reason, "no independent verification")
 	}
 }
 

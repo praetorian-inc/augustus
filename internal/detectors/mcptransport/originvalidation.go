@@ -54,8 +54,10 @@ func (d *OriginValidationDetector) Description() string {
 //
 // Baseline (no-Origin) acceptance is expected spec-compliant behaviour;
 // surfacing it as a finding would drown real weaknesses. Inconclusive
-// covers transient-error paths so a network hiccup can't hide a vuln
-// under a green SAFE verdict.
+// (Category A) routes to "safe" — it is a coverage gap, not a finding.
+// Partial evidence (Category B) routes to "review" via
+// MetadataKeyPartialEvidence when the detector confirms a spec violation
+// whose exploitability is deployment-dependent.
 func (d *OriginValidationDetector) Detect(_ context.Context, a *attempt.Attempt) ([]float64, error) {
 	class, _ := stringMeta(a, attempt.MetadataKeyOriginValidationClass)
 	targetClass, _ := stringMeta(a, attempt.MetadataKeyOriginValidationTargetClass)
@@ -85,6 +87,8 @@ func (d *OriginValidationDetector) Detect(_ context.Context, a *attempt.Attempt)
 			score = 1.0
 		case "public", "unresolvable":
 			score = InconclusiveScore
+			a.WithMetadata(attempt.MetadataKeyPartialEvidence, true)
+			a.WithMetadata(attempt.MetadataKeyPartialEvidenceReason, "origin validation bypass confirmed on "+targetClass+" target, exploitability deployment-dependent")
 		default:
 			score = 1.0
 		}

@@ -2,6 +2,7 @@ package mcptransport
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -161,5 +162,51 @@ func TestOriginValidationDetector(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestOriginValidationDetector_PublicTargetSetsPartialEvidence verifies that
+// an accepted finding on a public target sets MetadataKeyPartialEvidence,
+// routing the attempt to the "review" verdict rather than "vuln".
+func TestOriginValidationDetector_PublicTargetSetsPartialEvidence(t *testing.T) {
+	a := originValidationAttempt("origin-validation-sweep", true, "7 of 9 accepted")
+	a.Metadata[attempt.MetadataKeyOriginValidationTargetClass] = "public"
+
+	d := newOriginValidationDetector(t)
+	got, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	if len(got) != 1 || got[0] != InconclusiveScore {
+		t.Errorf("Detect = %v, want [%v]", got, InconclusiveScore)
+	}
+	pe, _ := a.Metadata[attempt.MetadataKeyPartialEvidence].(bool)
+	if !pe {
+		t.Errorf("MetadataKeyPartialEvidence = %v, want true", a.Metadata[attempt.MetadataKeyPartialEvidence])
+	}
+	reason, _ := a.Metadata[attempt.MetadataKeyPartialEvidenceReason].(string)
+	if !strings.Contains(reason, "public") {
+		t.Errorf("MetadataKeyPartialEvidenceReason = %q, want substring %q", reason, "public")
+	}
+}
+
+// TestOriginValidationDetector_InconclusiveNoBaselineDoesNotSetPartialEvidence
+// verifies that an inconclusive result (baseline not served) does NOT set
+// MetadataKeyPartialEvidence — it is a coverage gap, not a finding.
+func TestOriginValidationDetector_InconclusiveNoBaselineDoesNotSetPartialEvidence(t *testing.T) {
+	a := originValidationAttempt("origin-validation-sweep", false, "0 of 9 accepted")
+	a.Metadata[attempt.MetadataKeyOriginValidationTargetClass] = "loopback"
+	a.Metadata[attempt.MetadataKeyOriginValidationBaselineAccepted] = false
+
+	d := newOriginValidationDetector(t)
+	got, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	if len(got) != 1 || got[0] != InconclusiveScore {
+		t.Errorf("Detect = %v, want [%v]", got, InconclusiveScore)
+	}
+	if pe, ok := a.Metadata[attempt.MetadataKeyPartialEvidence]; ok {
+		t.Errorf("MetadataKeyPartialEvidence should not be set, got %v", pe)
 	}
 }
