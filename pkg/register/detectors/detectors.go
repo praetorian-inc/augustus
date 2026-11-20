@@ -16,6 +16,7 @@ import (
 	_ "github.com/praetorian-inc/augustus/internal/detectors/apikey"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/artprompts"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/base"
+	_ "github.com/praetorian-inc/augustus/internal/detectors/classifier"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/continuation"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/dan"
 	_ "github.com/praetorian-inc/augustus/internal/detectors/divergence"
