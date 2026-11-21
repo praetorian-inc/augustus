@@ -99,6 +99,36 @@ func TestHybridConfig_StreamFinalRequiresCompletion(t *testing.T) {
 	assert.Contains(t, err.Error(), "requires 'complete_field'")
 }
 
+func TestHybridConfig_SubprotocolDefaultAndEmpty(t *testing.T) {
+	steps := func(connect map[string]any) registry.Config {
+		return registry.Config{"steps": []any{
+			connect,
+			map[string]any{
+				"name": "ans", "type": "ws_stream", "answer": true,
+				"response_field": "$.m", "assembly": "concat",
+			},
+		}}
+	}
+
+	cfg, err := HybridConfigFromMap(steps(map[string]any{
+		"name": "c", "type": "ws_connect", "url": "wss://x/ws",
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, defaultSubprotocol, cfg.Steps[0].Subprotocol)
+
+	cfg, err = HybridConfigFromMap(steps(map[string]any{
+		"name": "c", "type": "ws_connect", "url": "wss://x/ws", "subprotocol": "",
+	}))
+	require.NoError(t, err)
+	assert.Empty(t, cfg.Steps[0].Subprotocol)
+
+	cfg, err = HybridConfigFromMap(steps(map[string]any{
+		"name": "c", "type": "ws_connect", "url": "wss://x/ws", "subprotocol": "chat",
+	}))
+	require.NoError(t, err)
+	assert.Equal(t, "chat", cfg.Steps[0].Subprotocol)
+}
+
 func TestHybridConfig_StreamConcatNeedsNoCompletion(t *testing.T) {
 	cfg, err := HybridConfigFromMap(registry.Config{"steps": []any{
 		map[string]any{"name": "c", "type": "ws_connect", "url": "wss://x/ws"},
