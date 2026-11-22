@@ -64,9 +64,9 @@ type Question struct {
 	Evidence     string
 }
 
-// Result is a classifier answer: calibrated P(vulnerable) plus the mapped verdict.
+// Result is a classifier answer. The classifier reports only the calibrated
+// probability; the detector owns the threshold mapping (see VerdictFromP).
 type Result struct {
-	Verdict Verdict
 	// P is calibrated P(vulnerable) in [0, 1].
 	P float64
 }

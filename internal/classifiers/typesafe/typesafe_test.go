@@ -68,9 +68,6 @@ func TestClassify_HappyPath(t *testing.T) {
 	if result.P != 0.91 {
 		t.Errorf("P = %v, want 0.91", result.P)
 	}
-	if result.Verdict != 0 {
-		t.Errorf("Verdict = %s, want zero (detector remaps via VerdictFromP)", result.Verdict)
-	}
 }
 
 func TestClassify_HTTP500(t *testing.T) {

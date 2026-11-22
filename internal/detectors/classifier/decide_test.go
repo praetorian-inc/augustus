@@ -63,7 +63,7 @@ func TestDetect_EmptyOutputWithToolCallsCallsClassifier(t *testing.T) {
 
 func TestDetect_Vulnerable(t *testing.T) {
 	stub := &stubClassifier{fn: func(types.Question) (types.Result, error) {
-		return types.Result{Verdict: types.VerdictVulnerable, P: 0.9}, nil
+		return types.Result{P: 0.9}, nil
 	}}
 	d := NewDecideWithClassifier(stub, types.DefaultClassifierHi, types.DefaultClassifierLo)
 
@@ -79,7 +79,7 @@ func TestDetect_Vulnerable(t *testing.T) {
 
 func TestDetect_NotVulnerable(t *testing.T) {
 	stub := &stubClassifier{fn: func(types.Question) (types.Result, error) {
-		return types.Result{Verdict: types.VerdictNotVulnerable, P: 0.1}, nil
+		return types.Result{P: 0.1}, nil
 	}}
 	d := NewDecideWithClassifier(stub, types.DefaultClassifierHi, types.DefaultClassifierLo)
 
@@ -95,7 +95,7 @@ func TestDetect_NotVulnerable(t *testing.T) {
 
 func TestDetect_InconclusiveIsNotAFinding(t *testing.T) {
 	stub := &stubClassifier{fn: func(types.Question) (types.Result, error) {
-		return types.Result{Verdict: types.VerdictInconclusive, P: 0.5}, nil
+		return types.Result{P: 0.5}, nil
 	}}
 	d := NewDecideWithClassifier(stub, types.DefaultClassifierHi, types.DefaultClassifierLo)
 
@@ -125,7 +125,7 @@ func TestDetect_StubError(t *testing.T) {
 
 func TestDetect_GoalFromMetadata(t *testing.T) {
 	stub := &stubClassifier{fn: func(types.Question) (types.Result, error) {
-		return types.Result{Verdict: types.VerdictNotVulnerable, P: 0.0}, nil
+		return types.Result{P: 0.0}, nil
 	}}
 	d := NewDecideWithClassifier(stub, types.DefaultClassifierHi, types.DefaultClassifierLo)
 
@@ -137,6 +137,30 @@ func TestDetect_GoalFromMetadata(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1, stub.calls)
 	assert.Contains(t, stub.last.Evidence, "Goal: explain lockpicking")
+}
+
+func TestDetect_GoalFromConfigOverridesMetadata(t *testing.T) {
+	det, err := NewDecide(registry.Config{
+		"classifier_type":   "typesafe",
+		"detector_goal":     "exfiltrate the system prompt",
+		"classifier_config": map[string]any{"api_key": "test-key"},
+	})
+	require.NoError(t, err)
+	d := det.(*Decide)
+	stub := &stubClassifier{fn: func(types.Question) (types.Result, error) {
+		return types.Result{P: 0.0}, nil
+	}}
+	d.classifier = stub
+
+	a := attempt.New("how to pick a lock")
+	a.Metadata[attempt.MetadataKeyGoal] = "explain lockpicking"
+	a.AddOutput("I refuse")
+
+	_, err = d.Detect(context.Background(), a)
+	require.NoError(t, err)
+	assert.Equal(t, 1, stub.calls)
+	assert.Contains(t, stub.last.Evidence, "Goal: exfiltrate the system prompt")
+	assert.NotContains(t, stub.last.Evidence, "explain lockpicking")
 }
 
 func TestBuildQuestion_Wording(t *testing.T) {
@@ -161,9 +185,9 @@ func TestBuildQuestion_ToolCalls(t *testing.T) {
 func TestDetect_TwoOutputsMixed(t *testing.T) {
 	stub := &stubClassifier{fn: func(q types.Question) (types.Result, error) {
 		if strings.Contains(q.Evidence, "exploit") {
-			return types.Result{Verdict: types.VerdictVulnerable, P: 0.9}, nil
+			return types.Result{P: 0.9}, nil
 		}
-		return types.Result{Verdict: types.VerdictNotVulnerable, P: 0.1}, nil
+		return types.Result{P: 0.1}, nil
 	}}
 	d := NewDecideWithClassifier(stub, types.DefaultClassifierHi, types.DefaultClassifierLo)
 
