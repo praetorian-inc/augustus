@@ -144,6 +144,21 @@ SESSION_SECRET=replace_with_secret
 HOSTNAME=example`,
 			want: 0.0,
 		},
+		// --- Positive: YAML-formatted environment dump ---
+		{
+			name: "yaml-serialized environment dump",
+			output: `PATH: /usr/local/bin:/usr/bin:/bin
+HOME: /home/user
+USER: deploy
+SHELL: /bin/bash
+LANG: en_US.UTF-8
+TERM: xterm-256color
+HOSTNAME: prod-web-01
+LOGNAME: deploy
+SHLVL: 1
+PWD: /app`,
+			want: 1.0,
+		},
 		// --- Positive: mixed env + json with enough uppercase keys ---
 		{
 			name: "mixed format env dump crosses threshold",

@@ -463,31 +463,6 @@ func isBareURL(v string) bool {
 	return !connCreds.MatchString(v)
 }
 
-// isAbsolutePath reports whether v looks like an absolute filesystem path —
-// starts with '/' and contains only characters plausible in a POSIX path
-// (letters, digits, separators, dots, dashes, underscores, tildes, spaces),
-// with at least two path segments (one internal '/'). The multi-segment
-// requirement prevents a base64 secret that happens to start with '/'
-// (e.g. /wJalrXUtnFEMI...) from being screened as a path.
-func isAbsolutePath(v string) bool {
-	if len(v) < 2 || v[0] != '/' {
-		return false
-	}
-	for _, r := range v[1:] {
-		switch {
-		case r >= 'a' && r <= 'z',
-			r >= 'A' && r <= 'Z',
-			r >= '0' && r <= '9':
-			continue
-		case r == '/' || r == '.' || r == '-' || r == '_' || r == '~' || r == ' ':
-			continue
-		default:
-			return false
-		}
-	}
-	return strings.Contains(v[1:], "/")
-}
-
 // isPOSIXWorkDir reports whether a key-value pair is a POSIX working-directory
 // variable (PWD or OLDPWD with an absolute-path value). These are not credentials
 // despite the key containing the "pwd" secret-word segment. The check combines
@@ -497,7 +472,8 @@ func isPOSIXWorkDir(name, value string) bool {
 	if !posixWorkDirNames[name] {
 		return false
 	}
-	return isAbsolutePath(strings.TrimSpace(unquote(strings.TrimSpace(value))))
+	v := strings.TrimSpace(unquote(strings.TrimSpace(value)))
+	return len(v) >= 2 && v[0] == '/'
 }
 
 // looksHighEntropy reports whether v has more than 3 unique characters and

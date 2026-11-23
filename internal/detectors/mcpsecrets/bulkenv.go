@@ -129,6 +129,18 @@ func isBulkEnvDump(content string) bool {
 		}
 	}
 
+	// Count YAML "KEY: VALUE" pairs (yaml.dump(dict(os.environ)) format).
+	for _, kv := range yamlKV.FindAllStringSubmatch(content, -1) {
+		key := kv[1]
+		val := strings.TrimSpace(kv[2])
+		if envVarNameUpper(key) && !seen[key] && !envRef.MatchString(val) && !isPlaceholder(val) {
+			seen[key] = true
+			if envVarAnchors[key] {
+				hasAnchor = true
+			}
+		}
+	}
+
 	return len(seen) >= bulkEnvThreshold && hasAnchor
 }
 

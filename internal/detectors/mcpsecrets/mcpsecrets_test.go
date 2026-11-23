@@ -588,6 +588,16 @@ SERVICE_NAME=my-billing-service-prod`,
 			output: `PWD=S3cr3tP@ssw0rd!`,
 			want:   1.0,
 		},
+		{
+			name:   "POSIX PWD single-segment path is not a credential",
+			output: `PWD=/workspace`,
+			want:   0.0,
+		},
+		{
+			name:   "POSIX PWD Docker-style /app path is not a credential",
+			output: `{"PWD":"/app"}`,
+			want:   0.0,
+		},
 	}
 
 	d, err := NewCredential(registry.Config{})
