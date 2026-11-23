@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/registry"
+	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
 // Config represents the complete Augustus configuration
@@ -13,6 +14,7 @@ type Config struct {
 	Run        RunConfig                  `yaml:"run" koanf:"run"`
 	Generators map[string]GeneratorConfig `yaml:"generators" koanf:"generators"`
 	Judge      JudgeGlobalConfig          `yaml:"judge,omitempty" koanf:"judge"`
+	Classifier ClassifierGlobalConfig     `yaml:"classifier,omitempty" koanf:"classifier"`
 	Probes     ProbeConfig                `yaml:"probes" koanf:"probes"`
 	Detectors  DetectorConfig             `yaml:"detectors" koanf:"detectors"`
 	Buffs      BuffConfig                 `yaml:"buffs,omitempty" koanf:"buffs"`
@@ -39,11 +41,24 @@ type JudgeGlobalConfig struct {
 	Config        map[string]any `yaml:"config,omitempty" koanf:"config"`
 }
 
+// ClassifierGlobalConfig defines the default goal-conditioned classifier used by
+// classifier.Decide. Per-detector settings override these fields.
+type ClassifierGlobalConfig struct {
+	Type     string  `yaml:"type,omitempty" koanf:"type"`
+	Endpoint string  `yaml:"endpoint,omitempty" koanf:"endpoint"`
+	Model    string  `yaml:"model,omitempty" koanf:"model"`
+	APIKey   string  `yaml:"api_key,omitempty" koanf:"api_key"`
+	Timeout  string  `yaml:"timeout,omitempty" koanf:"timeout"`
+	Hi       float64 `yaml:"hi,omitempty" koanf:"hi"`
+	Lo       float64 `yaml:"lo,omitempty" koanf:"lo"`
+}
+
 // Profile represents a named configuration profile
 type Profile struct {
 	Run        RunConfig                  `yaml:"run"`
 	Generators map[string]GeneratorConfig `yaml:"generators,omitempty"`
 	Judge      JudgeGlobalConfig          `yaml:"judge,omitempty"`
+	Classifier ClassifierGlobalConfig     `yaml:"classifier,omitempty"`
 	Probes     ProbeConfig                `yaml:"probes,omitempty"`
 	Detectors  DetectorConfig             `yaml:"detectors,omitempty"`
 	Buffs      BuffConfig                 `yaml:"buffs,omitempty"`
@@ -168,6 +183,38 @@ func (c *Config) injectJudgeConfig(cfg map[string]any) {
 	}
 }
 
+// injectClassifierConfig injects global classifier config into a registry config map.
+// classifier_type stays top-level (like judge_generator_type). Credentials and
+// tunables are nested under classifier_config so they are never flattened onto
+// unrelated detectors (Perspective reads a top-level api_key).
+func (c *Config) injectClassifierConfig(cfg map[string]any) {
+	if c.Classifier.Type != "" {
+		cfg["classifier_type"] = c.Classifier.Type
+	}
+	clCfg := make(map[string]any)
+	if c.Classifier.Endpoint != "" {
+		clCfg["endpoint"] = c.Classifier.Endpoint
+	}
+	if c.Classifier.Model != "" {
+		clCfg["model"] = c.Classifier.Model
+	}
+	if c.Classifier.APIKey != "" {
+		clCfg["api_key"] = c.Classifier.APIKey
+	}
+	if c.Classifier.Timeout != "" {
+		clCfg["timeout"] = c.Classifier.Timeout
+	}
+	if c.Classifier.Hi != 0 {
+		clCfg["hi"] = c.Classifier.Hi
+	}
+	if c.Classifier.Lo != 0 {
+		clCfg["lo"] = c.Classifier.Lo
+	}
+	if len(clCfg) > 0 {
+		cfg["classifier_config"] = clCfg
+	}
+}
+
 // injectRefusalPatterns broadcasts the global detectors.refusal_patterns list into
 // a detector's resolved config under the "refusal_patterns" key. Every detector
 // receives it (exactly like injectJudgeConfig); only the mitigation/refusal
@@ -224,6 +271,9 @@ func (c *Config) ResolveDetectorConfig(detectorName string) map[string]any {
 
 	// Layer 0: Global judge config (inherited by all detectors; non-judge detectors ignore these keys)
 	c.injectJudgeConfig(cfg)
+
+	// Layer 0: Global classifier config (inherited by all detectors; only classifier.Decide reads these keys)
+	c.injectClassifierConfig(cfg)
 
 	// Layer 0: Global refusal patterns (inherited by all detectors; only the
 	// mitigation/refusal detectors read this key, via base.ResolveMitigationPhrases)
@@ -339,6 +389,56 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid output format: %s (valid: json, jsonl, csv, txt, table)", c.Output.Format)
 	}
 
+	if err := c.validateClassifier(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (c *Config) classifierConfigured() bool {
+	cl := c.Classifier
+	return cl.Type != "" || cl.Endpoint != "" || cl.Model != "" || cl.APIKey != "" || cl.Timeout != "" || cl.Hi != 0 || cl.Lo != 0
+}
+
+func (c *Config) validateClassifier() error {
+	if !c.classifierConfigured() {
+		return nil
+	}
+	if c.Classifier.Timeout != "" {
+		if _, err := time.ParseDuration(c.Classifier.Timeout); err != nil {
+			return fmt.Errorf("invalid classifier.timeout: %w", err)
+		}
+	}
+	if err := validateClassifierBound("hi", c.Classifier.Hi); err != nil {
+		return err
+	}
+	if err := validateClassifierBound("lo", c.Classifier.Lo); err != nil {
+		return err
+	}
+	hi, lo := c.Classifier.Hi, c.Classifier.Lo
+	if hi == 0 && lo == 0 {
+		return nil
+	}
+	if hi == 0 {
+		hi = types.DefaultClassifierHi
+	}
+	if lo == 0 {
+		lo = types.DefaultClassifierLo
+	}
+	if hi < lo {
+		return fmt.Errorf("classifier.hi must be greater than or equal to classifier.lo, got hi=%f lo=%f", hi, lo)
+	}
+	return nil
+}
+
+func validateClassifierBound(name string, v float64) error {
+	if v == 0 {
+		return nil
+	}
+	if v <= 0 || v > 1 {
+		return fmt.Errorf("classifier.%s must be in (0,1], got: %f", name, v)
+	}
 	return nil
 }
 
@@ -390,6 +490,29 @@ func (c *Config) Merge(other *Config) {
 		for k, v := range other.Judge.Config {
 			c.Judge.Config[k] = v
 		}
+	}
+
+	// Merge classifier config
+	if other.Classifier.Type != "" {
+		c.Classifier.Type = other.Classifier.Type
+	}
+	if other.Classifier.Endpoint != "" {
+		c.Classifier.Endpoint = other.Classifier.Endpoint
+	}
+	if other.Classifier.Model != "" {
+		c.Classifier.Model = other.Classifier.Model
+	}
+	if other.Classifier.APIKey != "" {
+		c.Classifier.APIKey = other.Classifier.APIKey
+	}
+	if other.Classifier.Timeout != "" {
+		c.Classifier.Timeout = other.Classifier.Timeout
+	}
+	if other.Classifier.Hi != 0 {
+		c.Classifier.Hi = other.Classifier.Hi
+	}
+	if other.Classifier.Lo != 0 {
+		c.Classifier.Lo = other.Classifier.Lo
 	}
 
 	// Merge probes
@@ -460,6 +583,7 @@ func (c *Config) ApplyProfile(profileName string) error {
 		Run:        profile.Run,
 		Generators: profile.Generators,
 		Judge:      profile.Judge,
+		Classifier: profile.Classifier,
 		Probes:     profile.Probes,
 		Detectors:  profile.Detectors,
 		Buffs:      profile.Buffs,
