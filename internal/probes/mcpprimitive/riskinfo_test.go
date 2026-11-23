@@ -83,7 +83,7 @@ func TestProbeMetadata_Populated(t *testing.T) {
 	wantSecondary := map[string][]string{
 		"mcpprimitive.ResourceInjection":       {"mcpprimitive.ContentInjection"},
 		"mcpprimitive.PromptTemplateInjection": {"mcpprimitive.ContentInjection"},
-		"mcpprimitive.ContentLeak":             nil,
+		"mcpprimitive.ContentLeak":             {"mcpsecrets.BulkEnvExposure"},
 	}
 
 	for _, p := range allProbes(t) {

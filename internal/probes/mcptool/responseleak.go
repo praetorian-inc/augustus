@@ -23,8 +23,9 @@ func init() {
 // Compile-time assertions: ResponseLeak exposes probe metadata and consumes prior
 // reconnaissance (via the embedded reconContext).
 var (
-	_ types.ProbeMetadata     = (*ResponseLeak)(nil)
-	_ recon.ContextAwareProbe = (*ResponseLeak)(nil)
+	_ types.ProbeMetadata           = (*ResponseLeak)(nil)
+	_ types.ProbeSecondaryDetectors = (*ResponseLeak)(nil)
+	_ recon.ContextAwareProbe       = (*ResponseLeak)(nil)
 )
 
 // ResponseLeak tests a directly-invokable tool surface for secret exposure in
@@ -95,6 +96,10 @@ func (p *ResponseLeak) Goal() string {
 }
 
 func (p *ResponseLeak) GetPrimaryDetector() string { return "mcpsecrets.Credential" }
+
+func (p *ResponseLeak) GetSecondaryDetectors() []types.SecondaryDetector {
+	return []types.SecondaryDetector{{Name: "mcpsecrets.BulkEnvExposure"}}
+}
 
 func (p *ResponseLeak) GetPrompts() []string { return nil }
 

@@ -84,6 +84,17 @@ USER=root`,
 			output: ``,
 			want:   0.0,
 		},
+		// --- Negative: uppercase keys without env-var anchors ---
+		{
+			name:   "uppercase currency codes without env anchors do not fire",
+			output: `{"USD":"1.00","EUR":"0.92","GBP":"0.79","JPY":"149.50","CAD":"1.37","AUD":"1.54","CHF":"0.88","CNY":"7.24","INR":"83.12","MXN":"17.15","BRL":"4.97","KRW":"1325.00"}`,
+			want:   0.0,
+		},
+		{
+			name:   "uppercase Python settings without env anchors do not fire",
+			output: "DEBUG = True\nALLOWED_HOSTS = []\nINSTALLED_APPS = []\nMIDDLEWARE = []\nTEMPLATES = []\nDATABASES = {}\nAUTH_BACKENDS = []\nSTATIC_URL = /static/\nDEFAULT_INDEX = 0\nCACHE_TTL = 300",
+			want:   0.0,
+		},
 		// --- Negative: lowercase keys are not counted as env vars ---
 		{
 			name: "lowercase yaml config keys do not trigger",
@@ -142,10 +153,12 @@ func TestBulkEnvExposure_Detect_ZeroOutputs(t *testing.T) {
 func TestBulkEnvExposure_Detect_MultipleOutputs(t *testing.T) {
 	d, _ := NewBulkEnvExposure(registry.Config{})
 
-	// Build a bulk env dump with exactly bulkEnvThreshold vars.
-	envVars := make([]string, bulkEnvThreshold)
-	for i := range envVars {
-		envVars[i] = strings.ToUpper(string(rune('A'+i))) + "_VAR=value"
+	// Build a bulk env dump with exactly bulkEnvThreshold vars, including
+	// one anchor (HOME) so the anchor requirement is satisfied.
+	envVars := make([]string, 0, bulkEnvThreshold)
+	envVars = append(envVars, "HOME=/home/test")
+	for i := range bulkEnvThreshold - 1 {
+		envVars = append(envVars, strings.ToUpper(string(rune('A'+i)))+"_VAR=value")
 	}
 	bulkDump := strings.Join(envVars, "\n")
 

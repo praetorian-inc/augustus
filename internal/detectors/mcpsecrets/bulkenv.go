@@ -33,6 +33,17 @@ func init() {
 // a modern host) is caught reliably.
 const bulkEnvThreshold = 10
 
+// envVarAnchors are well-known environment variable names whose presence
+// alongside other UPPER_CASE keys is strong evidence the output is a real
+// process environment dump, not an arbitrary JSON map with uppercase keys
+// (currency codes, country codes, Python settings).
+var envVarAnchors = map[string]bool{
+	"PATH": true, "HOME": true, "USER": true, "SHELL": true,
+	"LANG": true, "TERM": true, "HOSTNAME": true, "LOGNAME": true,
+	"PWD": true, "OLDPWD": true, "SHLVL": true, "LC_ALL": true,
+	"NODE_ENV": true, "GOPATH": true, "VIRTUAL_ENV": true,
+}
+
 // envVarNameUpper reports whether name looks like a conventional UPPER_CASE
 // environment variable name: all ASCII uppercase letters, digits and
 // underscores, starting with a letter or underscore, length >= 2.
@@ -85,12 +96,16 @@ func isBulkEnvDump(content string) bool {
 		return false
 	}
 	seen := make(map[string]bool)
+	hasAnchor := false
 
 	// Count env-style KEY=VALUE lines (envKV already handles export prefix).
 	for _, kv := range envKV.FindAllStringSubmatch(content, -1) {
 		key := kv[1]
 		if envVarNameUpper(key) && !seen[key] {
 			seen[key] = true
+			if envVarAnchors[key] {
+				hasAnchor = true
+			}
 		}
 	}
 
@@ -99,10 +114,13 @@ func isBulkEnvDump(content string) bool {
 		key := kv[1]
 		if envVarNameUpper(key) && !seen[key] {
 			seen[key] = true
+			if envVarAnchors[key] {
+				hasAnchor = true
+			}
 		}
 	}
 
-	return len(seen) >= bulkEnvThreshold
+	return len(seen) >= bulkEnvThreshold && hasAnchor
 }
 
 // Name returns the fully qualified detector name.

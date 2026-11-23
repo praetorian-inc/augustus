@@ -81,11 +81,12 @@ var secretKeySegments = map[string]bool{
 // secret-word segment (e.g. "pwd") but are POSIX-standard non-secret variables.
 // They are excluded before segment matching so that "PWD=/home/user" (the
 // working-directory variable) does not false-positive on the "pwd" segment meant
-// to catch "password". The check is case-insensitive (the value side is screened
-// separately by isAbsolutePath in isConcreteSecret).
+// to catch "password". The check is CASE-SENSITIVE (exact uppercase only): a
+// lowercase "pwd" key is a legitimate password abbreviation in JSON/YAML config
+// and must still be detected.
 var excludedEnvNames = map[string]bool{
-	"pwd":    true,
-	"oldpwd": true,
+	"PWD":    true,
+	"OLDPWD": true,
 }
 
 // secretKeyCompound matches whole key names that read as credentials but do not
@@ -144,7 +145,7 @@ func splitCamelCase(s string) []string {
 func isSecretKey(name string) bool {
 	// POSIX environment variable names that happen to contain a secret-word
 	// segment (e.g. PWD → "pwd") are excluded before segment matching.
-	if excludedEnvNames[strings.ToLower(name)] {
+	if excludedEnvNames[name] {
 		return false
 	}
 	segs := splitKeySegments(name)
@@ -462,8 +463,10 @@ func isBareURL(v string) bool {
 
 // isAbsolutePath reports whether v looks like an absolute filesystem path —
 // starts with '/' and contains only characters plausible in a POSIX path
-// (letters, digits, separators, dots, dashes, underscores, tildes, spaces). A
-// value like "/home/user/project" is a directory, not a credential.
+// (letters, digits, separators, dots, dashes, underscores, tildes, spaces),
+// with at least two path segments (one internal '/'). The multi-segment
+// requirement prevents a base64 secret that happens to start with '/'
+// (e.g. /wJalrXUtnFEMI...) from being screened as a path.
 func isAbsolutePath(v string) bool {
 	if len(v) < 2 || v[0] != '/' {
 		return false
@@ -480,7 +483,7 @@ func isAbsolutePath(v string) bool {
 			return false
 		}
 	}
-	return true
+	return strings.Contains(v[1:], "/")
 }
 
 // looksHighEntropy reports whether v has more than 3 unique characters and

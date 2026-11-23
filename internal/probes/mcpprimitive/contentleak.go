@@ -23,9 +23,10 @@ func init() {
 }
 
 var (
-	_ types.ProbeMetadata     = (*ContentLeak)(nil)
-	_ types.RiskDescriber     = (*ContentLeak)(nil)
-	_ recon.ContextAwareProbe = (*ContentLeak)(nil)
+	_ types.ProbeMetadata           = (*ContentLeak)(nil)
+	_ types.ProbeSecondaryDetectors = (*ContentLeak)(nil)
+	_ types.RiskDescriber           = (*ContentLeak)(nil)
+	_ recon.ContextAwareProbe       = (*ContentLeak)(nil)
 )
 
 // ContentLeak tests every content-bearing NON-TOOL MCP surface for credential
@@ -96,6 +97,10 @@ func (p *ContentLeak) Goal() string {
 }
 
 func (p *ContentLeak) GetPrimaryDetector() string { return "mcpsecrets.Credential" }
+
+func (p *ContentLeak) GetSecondaryDetectors() []types.SecondaryDetector {
+	return []types.SecondaryDetector{{Name: "mcpsecrets.BulkEnvExposure"}}
+}
 
 // GetPrompts returns nil: this probe sends no fixed payloads. Every request is
 // derived from the target's own catalog.

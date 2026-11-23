@@ -523,9 +523,24 @@ SERVICE_NAME=my-billing-service-prod`,
 			want:   0.0,
 		},
 		{
-			name:   "PWD exclusion is case-insensitive",
+			name:   "lowercase pwd with path value stays clean via isAbsolutePath",
 			output: `pwd=/home/user/dir`,
 			want:   0.0,
+		},
+		{
+			name:   "lowercase pwd with concrete password fires",
+			output: `pwd=S3cr3tP@ssw0rd!`,
+			want:   1.0,
+		},
+		{
+			name:   "bare pwd JSON key with real password fires",
+			output: `{"pwd": "hunter2Secret!x"}`,
+			want:   1.0,
+		},
+		{
+			name:   "slash-prefixed base64 secret not screened as path",
+			output: `AWS_SECRET_ACCESS_KEY=/wJalrXUtnFEMIK7MDENGbPx`,
+			want:   1.0,
 		},
 		// --- LAB-5580: absolute filesystem paths are not credentials ---
 		{
