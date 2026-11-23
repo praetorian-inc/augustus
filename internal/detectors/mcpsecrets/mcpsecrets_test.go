@@ -501,6 +501,55 @@ SERVICE_NAME=my-billing-service-prod`,
 			output: ``,
 			want:   0.0,
 		},
+		// --- LAB-5580: PWD / OLDPWD env vars must NOT match as secrets ---
+		{
+			name:   "POSIX PWD env var is not a credential",
+			output: `PWD=/home/user/project/workspace`,
+			want:   0.0,
+		},
+		{
+			name:   "POSIX OLDPWD env var is not a credential",
+			output: `OLDPWD=/tmp/previous-dir`,
+			want:   0.0,
+		},
+		{
+			name:   "PWD in JSON env block is not a credential",
+			output: `{"env":{"PWD":"/usr/local/app/data"}}`,
+			want:   0.0,
+		},
+		{
+			name:   "OLDPWD in JSON env block is not a credential",
+			output: `{"env":{"OLDPWD":"/home/user"}}`,
+			want:   0.0,
+		},
+		{
+			name:   "PWD exclusion is case-insensitive",
+			output: `pwd=/home/user/dir`,
+			want:   0.0,
+		},
+		// --- LAB-5580: absolute filesystem paths are not credentials ---
+		{
+			name:   "absolute path value on secret-named key is not a credential",
+			output: `{"env":{"DB_PASSWORD":"/var/run/secrets/db.key"}}`,
+			want:   0.0,
+		},
+		{
+			name:   "absolute path in env-style is not a credential",
+			output: `SECRET_TOKEN=/etc/ssl/certs/ca-certificates.crt`,
+			want:   0.0,
+		},
+		// A real password key with a non-path value still fires.
+		{
+			name:   "real db password with high-entropy value still fires",
+			output: `{"env":{"DB_PASSWORD":"S3cr3tP@ssw0rd!"}}`,
+			want:   1.0,
+		},
+		// A key named MY_PWD (not exactly PWD) still fires if value is concrete.
+		{
+			name:   "MY_PWD is not in exclusion list and fires with concrete value",
+			output: `MY_PWD=S3cr3tP@ssw0rd!`,
+			want:   1.0,
+		},
 	}
 
 	d, err := NewCredential(registry.Config{})

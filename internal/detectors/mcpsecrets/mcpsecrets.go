@@ -77,6 +77,17 @@ var secretKeySegments = map[string]bool{
 	"credential": true, "credentials": true, "apikey": true,
 }
 
+// excludedEnvNames are WHOLE environment variable names that contain a
+// secret-word segment (e.g. "pwd") but are POSIX-standard non-secret variables.
+// They are excluded before segment matching so that "PWD=/home/user" (the
+// working-directory variable) does not false-positive on the "pwd" segment meant
+// to catch "password". The check is case-insensitive (the value side is screened
+// separately by isAbsolutePath in isConcreteSecret).
+var excludedEnvNames = map[string]bool{
+	"pwd":    true,
+	"oldpwd": true,
+}
+
 // secretKeyCompound matches whole key names that read as credentials but do not
 // decompose into a single secret-word segment (e.g. "api_key", "access_token").
 var secretKeyCompound = regexp.MustCompile(`(?i)(api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|access[_-]?token)`)
@@ -131,6 +142,11 @@ func splitCamelCase(s string) []string {
 // credential. It matches WHOLE segments (so "tokenizer" does not match "token")
 // or the whole name against secretKeyCompound.
 func isSecretKey(name string) bool {
+	// POSIX environment variable names that happen to contain a secret-word
+	// segment (e.g. PWD → "pwd") are excluded before segment matching.
+	if excludedEnvNames[strings.ToLower(name)] {
+		return false
+	}
 	segs := splitKeySegments(name)
 	// A key whose LAST segment is a pointer word (API_KEY_FILE, client_secret_path,
 	// TOKEN_ENDPOINT, apiKeyFile) references where the secret lives, not the secret
@@ -412,6 +428,15 @@ func isConcreteSecret(value string) bool {
 	if isBareURL(v) {
 		return false
 	}
+	// An absolute filesystem path (starts with '/') is a directory or file
+	// location, not a secret. This screens out POSIX environment variables whose
+	// value is a path (e.g. PWD=/home/user/project, OLDPWD=/tmp) and any other
+	// config key whose value happens to be a filesystem reference. Relative
+	// paths are not screened: a bare "secret.key" file reference under a
+	// secret-named key could plausibly be a credential.
+	if isAbsolutePath(v) {
+		return false
+	}
 	// isSecretKey is high-confidence (whole-segment matching), so the value gate
 	// can be relaxed: accept a value with entropy markers, OR a long value
 	// (>= 16 chars) that survived the placeholder / deny-list / URL screens above
@@ -433,6 +458,29 @@ func isBareURL(v string) bool {
 		return false
 	}
 	return !connCreds.MatchString(v)
+}
+
+// isAbsolutePath reports whether v looks like an absolute filesystem path —
+// starts with '/' and contains only characters plausible in a POSIX path
+// (letters, digits, separators, dots, dashes, underscores, tildes, spaces). A
+// value like "/home/user/project" is a directory, not a credential.
+func isAbsolutePath(v string) bool {
+	if len(v) < 2 || v[0] != '/' {
+		return false
+	}
+	for _, r := range v[1:] {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9':
+			continue
+		case r == '/' || r == '.' || r == '-' || r == '_' || r == '~' || r == ' ':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // looksHighEntropy reports whether v has more than 3 unique characters and
