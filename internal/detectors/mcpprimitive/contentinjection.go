@@ -22,18 +22,27 @@ var smugglingTagRE = regexp.MustCompile(`(?i)<\s*/?\s*(important|hidden|secret|s
 
 // sensitivePath names concrete filesystem locations an attacker asks the host model
 // to read. It is a single self-contained NON-CAPTURING GROUP (like secretTerm) so
-// it can be embedded in a larger pattern. It is shared by both modelDirectiveRE and
+// it can be embedded in a larger pattern. It is shared by modelDirectiveRE and
 // hijackObjectRE to keep the sensitive-path vocabulary in one place.
 //
 // Every alternative starts with a non-word character (dot or slash), so it must NOT
 // be preceded by \b — a word boundary between a space (non-word) and a dot/slash
 // (non-word) can never fire in RE2. The gap pattern [^.\n]{0,30} in modelDirectiveRE
 // consumes ~/ from paths like ~/.ssh/id_rsa, so alternatives here use \.ssh not ~/\.ssh.
+//
+// Dot-dir terms (.ssh, .aws, .gnupg) require a trailing '/' — they are directories,
+// and an attack path always descends into them (.ssh/id_rsa, .aws/credentials). This
+// prevents false positives on hostnames like docs.aws.amazon.com (LAB-5608 review).
+//
+// The .env term uses [^\w.] after the name to exclude template files (.env.example,
+// .env.sample) while still matching .env followed by whitespace, punctuation or
+// end-of-string. RE2 has no lookahead, so the trailing character is consumed; this
+// is harmless since these regexes are used with MatchString (boolean).
 const sensitivePath = `(?:` +
-	`\.(?:ssh|aws|gnupg)\b` +
+	`\.(?:ssh|aws|gnupg)/` +
 	`|\bid_(?:rsa|ed25519|ecdsa|dsa)\b` +
 	`|/etc/(?:shadow|passwd)\b` +
-	`|\.env\b` +
+	`|\.env(?:[^\w.]|$)` +
 	`|\bprivate[_\- ]?keys?\b` +
 	`)`
 
@@ -57,7 +66,7 @@ var modelDirectiveRE = regexp.MustCompile(`(?i)(` +
 	`|do\s+not\s+(tell|inform|mention|reveal|disclose|show|display)\b[^.\n]{0,30}\b(user|human|operator|anyone)` +
 	`|without\s+(telling|informing|notifying|alerting)\b[^.\n]{0,20}\b(the\s+)?(user|human|operator)` +
 	`|(never|do\s+not)\s+(mention|reveal|disclose|log|record)\s+(this|that|it|these)\b` +
-	`|(read|include|append|attach)\b[^.\n]{0,30}(?:\b(?:contents?\s+of|credential|api[_\- ]?key|token)|` + sensitivePath + `)` +
+	`|\b(read|include|append|attach)\b[^.\n]{0,30}(?:\b(?:contents?\s+of|credential|api[_\- ]?key|token)|` + sensitivePath + `)` +
 	`)`)
 
 // exfilActionRE matches an instruction to ship something to an external
@@ -145,7 +154,12 @@ var orderingRE = regexp.MustCompile(
 // names no artifact, so "Before calling any mutating tool, inspect the contents of
 // the target resource" would match. It is also redundant — a payload that says
 // "the contents of .env" already matches on .env.
-var hijackObjectRE = regexp.MustCompile(`(?i)~/\.` + `|` + sensitivePath)
+// hijackObjectRE restores the broad /etc/ and unbounded private_key terms that the
+// ordering-hijack tier needs alongside sensitivePath's narrower read-alternative
+// vocabulary. The ordering clause is a weaker signal than the read verbs, so its
+// object set must be WIDER to catch payloads like "cat /etc/sudoers" and
+// "SSH_PRIVATE_KEY" that the read alternative does not need.
+var hijackObjectRE = regexp.MustCompile(`(?i)~/\.` + `|` + sensitivePath + `|/etc/|\bprivate[_\- ]?keys?\b`)
 
 // The second way an ordering clause can qualify: the generic secret vocabulary
 // becomes evidence again when the line ROUTES that secret INTO A NAMED TOOL.
