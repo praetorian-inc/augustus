@@ -523,9 +523,9 @@ SERVICE_NAME=my-billing-service-prod`,
 			want:   0.0,
 		},
 		{
-			name:   "lowercase pwd with path value stays clean via isAbsolutePath",
+			name:   "lowercase pwd with path value fires because pwd is a secret key segment",
 			output: `pwd=/home/user/dir`,
-			want:   0.0,
+			want:   1.0,
 		},
 		{
 			name:   "lowercase pwd with concrete password fires",
@@ -542,16 +542,26 @@ SERVICE_NAME=my-billing-service-prod`,
 			output: `AWS_SECRET_ACCESS_KEY=/wJalrXUtnFEMIK7MDENGbPx`,
 			want:   1.0,
 		},
-		// --- LAB-5580: absolute filesystem paths are not credentials ---
 		{
-			name:   "absolute path value on secret-named key is not a credential",
+			name:   "base64 secret with internal slashes not screened as path",
+			output: `AWS_SECRET_ACCESS_KEY=/wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLE`,
+			want:   1.0,
+		},
+		// --- LAB-5580: path-shaped values under secret-named keys still fire ---
+		// A secret-named key (DB_PASSWORD, SECRET_TOKEN) with a path value is
+		// flagged: the key declares it a credential, and global path screening
+		// was removed to prevent base64 secrets with internal '/' from being
+		// suppressed. POSIX working-directory vars (PWD, OLDPWD) are handled
+		// exclusively by isPOSIXWorkDir.
+		{
+			name:   "secret-named key with path value fires",
 			output: `{"env":{"DB_PASSWORD":"/var/run/secrets/db.key"}}`,
-			want:   0.0,
+			want:   1.0,
 		},
 		{
-			name:   "absolute path in env-style is not a credential",
+			name:   "secret-named key with cert path fires",
 			output: `SECRET_TOKEN=/etc/ssl/certs/ca-certificates.crt`,
-			want:   0.0,
+			want:   1.0,
 		},
 		// A real password key with a non-path value still fires.
 		{

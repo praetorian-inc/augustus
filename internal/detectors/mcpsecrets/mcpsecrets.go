@@ -440,15 +440,6 @@ func isConcreteSecret(value string) bool {
 	if isBareURL(v) {
 		return false
 	}
-	// An absolute filesystem path (starts with '/') is a directory or file
-	// location, not a secret. This screens out POSIX environment variables whose
-	// value is a path (e.g. PWD=/home/user/project, OLDPWD=/tmp) and any other
-	// config key whose value happens to be a filesystem reference. Relative
-	// paths are not screened: a bare "secret.key" file reference under a
-	// secret-named key could plausibly be a credential.
-	if isAbsolutePath(v) {
-		return false
-	}
 	// isSecretKey is high-confidence (whole-segment matching), so the value gate
 	// can be relaxed: accept a value with entropy markers, OR a long value
 	// (>= 16 chars) that survived the placeholder / deny-list / URL screens above

@@ -127,19 +127,36 @@ PATH=${PATH}
 HOME=${HOME}`,
 			want: 0.0,
 		},
+		// --- Negative: .env.example with text placeholders ---
+		{
+			name: "env example with placeholder values does not fire",
+			output: `NODE_ENV=development
+HOME=/home/app
+PATH=/usr/bin
+API_KEY=your_api_key_here
+DATABASE_URL=your_database_url
+SECRET_KEY=change_me
+AWS_ACCESS_KEY_ID=your_aws_key
+AWS_SECRET_ACCESS_KEY=your_aws_secret
+REDIS_URL=<your_redis_url>
+LOG_LEVEL=changeme
+SESSION_SECRET=replace_with_secret
+HOSTNAME=example`,
+			want: 0.0,
+		},
 		// --- Positive: mixed env + json with enough uppercase keys ---
 		{
 			name: "mixed format env dump crosses threshold",
 			output: `AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=EXAMPLE
-AWS_SECRET_ACCESS_KEY=EXAMPLE
+AWS_ACCESS_KEY_ID=AKIAIOSFODNN7FAKE
+AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYFAKE
 NODE_ENV=production
 PORT=3000
 DATABASE_URL=postgres://localhost/db
 REDIS_URL=redis://localhost
 LOG_LEVEL=info
-API_BASE_URL=https://api.example.com
-FEATURE_FLAGS=none`,
+API_BASE_URL=https://api.internal.corp
+FEATURE_FLAGS=dark-mode,beta-nav`,
 			want: 1.0,
 		},
 	}

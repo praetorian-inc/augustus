@@ -109,7 +109,7 @@ func isBulkEnvDump(content string) bool {
 	for _, kv := range envKV.FindAllStringSubmatch(content, -1) {
 		key := kv[1]
 		val := strings.TrimSpace(kv[2])
-		if envVarNameUpper(key) && !seen[key] && !envRef.MatchString(val) {
+		if envVarNameUpper(key) && !seen[key] && !envRef.MatchString(val) && !isPlaceholder(val) {
 			seen[key] = true
 			if envVarAnchors[key] {
 				hasAnchor = true
@@ -121,7 +121,7 @@ func isBulkEnvDump(content string) bool {
 	for _, kv := range jsonKV.FindAllStringSubmatch(content, -1) {
 		key := kv[1]
 		val := strings.TrimSpace(kv[2])
-		if envVarNameUpper(key) && !seen[key] && !envRef.MatchString(val) {
+		if envVarNameUpper(key) && !seen[key] && !envRef.MatchString(val) && !isPlaceholder(val) {
 			seen[key] = true
 			if envVarAnchors[key] {
 				hasAnchor = true
