@@ -20,6 +20,23 @@ func init() {
 // reason to address the assistant in a private channel.
 var smugglingTagRE = regexp.MustCompile(`(?i)<\s*/?\s*(important|hidden|secret|system|system-prompt|instructions?|do-not-show|internal)\s*>`)
 
+// sensitivePath names concrete filesystem locations an attacker asks the host model
+// to read. It is a single self-contained NON-CAPTURING GROUP (like secretTerm) so
+// it can be embedded in a larger pattern. It is shared by both modelDirectiveRE and
+// hijackObjectRE to keep the sensitive-path vocabulary in one place.
+//
+// Every alternative starts with a non-word character (dot or slash), so it must NOT
+// be preceded by \b — a word boundary between a space (non-word) and a dot/slash
+// (non-word) can never fire in RE2. The gap pattern [^.\n]{0,30} in modelDirectiveRE
+// consumes ~/ from paths like ~/.ssh/id_rsa, so alternatives here use \.ssh not ~/\.ssh.
+const sensitivePath = `(?:` +
+	`\.(?:ssh|aws|gnupg)\b` +
+	`|\bid_(?:rsa|ed25519|ecdsa|dsa)\b` +
+	`|/etc/(?:shadow|passwd)\b` +
+	`|\.env\b` +
+	`|\bprivate[_\- ]?keys?\b` +
+	`)`
+
 // modelDirectiveRE matches instructions aimed at the host model rather than the
 // human reader. Every alternative pairs an imperative with a concealment or
 // override object, which is what keeps this high-precision: prose that merely
@@ -29,12 +46,18 @@ var smugglingTagRE = regexp.MustCompile(`(?i)<\s*/?\s*(important|hidden|secret|s
 // Exfiltration and tool-order hijacking are deliberately NOT handled here — see
 // exfiltrates and hijacksToolOrder below. Both need a same-line object, which a
 // single alternation cannot express.
+//
+// The credential-read alternative splits its objects into two classes because the
+// gap [^.\n]{0,30} lands on a non-word character when the path starts with . or /:
+//   - Word-starting terms (contents, credential, api_key, token): preceded by \b.
+//   - sensitivePath terms (.ssh, /etc/, .env, ...): NO \b — the boundary between a
+//     space and . or / is non-word to non-word, which \b can never match (LAB-5608).
 var modelDirectiveRE = regexp.MustCompile(`(?i)(` +
 	`(ignore|disregard|forget|override)\b[^.\n]{0,40}\b(previous|prior|earlier|above|all)\b[^.\n]{0,20}\b(instruction|prompt|rule|direction)` +
 	`|do\s+not\s+(tell|inform|mention|reveal|disclose|show|display)\b[^.\n]{0,30}\b(user|human|operator|anyone)` +
 	`|without\s+(telling|informing|notifying|alerting)\b[^.\n]{0,20}\b(the\s+)?(user|human|operator)` +
 	`|(never|do\s+not)\s+(mention|reveal|disclose|log|record)\s+(this|that|it|these)\b` +
-	`|(read|include|append|attach)\b[^.\n]{0,30}\b(contents?\s+of|~/\.|/etc/|\.ssh|\.env|credential|api[_\- ]?key|token)` +
+	`|(read|include|append|attach)\b[^.\n]{0,30}(?:\b(?:contents?\s+of|credential|api[_\- ]?key|token)|` + sensitivePath + `)` +
 	`)`)
 
 // exfilActionRE matches an instruction to ship something to an external
@@ -122,8 +145,7 @@ var orderingRE = regexp.MustCompile(
 // names no artifact, so "Before calling any mutating tool, inspect the contents of
 // the target resource" would match. It is also redundant — a payload that says
 // "the contents of .env" already matches on .env.
-var hijackObjectRE = regexp.MustCompile(
-	`(?i)~/\.|/etc/|\.ssh\b|\.env\b|\bid_rsa\b|private[_\- ]?keys?`)
+var hijackObjectRE = regexp.MustCompile(`(?i)~/\.` + `|` + sensitivePath)
 
 // The second way an ordering clause can qualify: the generic secret vocabulary
 // becomes evidence again when the line ROUTES that secret INTO A NAMED TOOL.
