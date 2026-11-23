@@ -46,8 +46,8 @@ func NewDecide(cfg registry.Config) (detectors.Detector, error) {
 
 	hi := registry.GetFloat64(clCfg, "hi", types.DefaultClassifierHi)
 	lo := registry.GetFloat64(clCfg, "lo", types.DefaultClassifierLo)
-	if lo <= 0 || hi <= lo || hi > 1 {
-		return nil, fmt.Errorf("classifier thresholds must satisfy 0 < lo < hi <= 1, got hi=%v lo=%v", hi, lo)
+	if lo <= 0 || hi < lo || hi > 1 {
+		return nil, fmt.Errorf("classifier thresholds must satisfy 0 < lo <= hi <= 1, got hi=%v lo=%v", hi, lo)
 	}
 
 	timeoutStr := registry.GetString(clCfg, "timeout", defaultTimeout)

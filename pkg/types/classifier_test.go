@@ -37,7 +37,7 @@ func TestVerdictScore(t *testing.T) {
 }
 
 func TestVerdictFromP(t *testing.T) {
-	const hi, lo = DefaultClassifierHi, DefaultClassifierLo
+	const hi, lo = 0.8, 0.2 // explicit band; defaults have no inconclusive band
 	tests := []struct {
 		name string
 		p    float64
@@ -59,5 +59,20 @@ func TestVerdictFromP(t *testing.T) {
 				t.Errorf("VerdictFromP(%v, %v, %v) = %s, want %s", tt.p, hi, lo, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestVerdictFromP_DefaultsHaveNoBand(t *testing.T) {
+	tests := []struct {
+		p    float64
+		want Verdict
+	}{
+		{p: 0.49, want: VerdictNotVulnerable},
+		{p: 0.5, want: VerdictVulnerable},
+	}
+	for _, tt := range tests {
+		if got := VerdictFromP(tt.p, DefaultClassifierHi, DefaultClassifierLo); got != tt.want {
+			t.Errorf("VerdictFromP(%v, defaults) = %s, want %s", tt.p, got, tt.want)
+		}
 	}
 }

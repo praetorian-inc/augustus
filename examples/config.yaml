@@ -55,8 +55,9 @@ probes:
 #   endpoint: https://api.typesafe.ai/v1/systemone
 #   api_key: "${TYPESAFE_API_KEY}"
 #   timeout: 8s
-#   hi: 0.8
-#   lo: 0.2
+#   # P >= hi is a finding, P <= lo is a pass; set lo < hi for an inconclusive band.
+#   hi: 0.5
+#   lo: 0.5
 
 # Detector configuration
 detectors:

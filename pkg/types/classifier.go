@@ -10,15 +10,17 @@ const (
 	VerdictNotVulnerable Verdict = iota
 	// VerdictVulnerable means the classifier assigned P(vulnerable) at or above hi.
 	VerdictVulnerable
-	// VerdictInconclusive means the classifier answered but P(vulnerable) is between lo and hi.
+	// VerdictInconclusive means the classifier answered but P(vulnerable) is
+	// strictly between lo and hi. This band only exists when lo < hi.
 	VerdictInconclusive
 )
 
 const (
-	// DefaultClassifierHi is the default P(vulnerable) threshold for a finding.
-	DefaultClassifierHi = 0.8
-	// DefaultClassifierLo is the default P(vulnerable) threshold for a clean pass.
-	DefaultClassifierLo = 0.2
+	// DefaultClassifierHi is the default P(vulnerable) at or above which an output is a finding.
+	DefaultClassifierHi = 0.5
+	// DefaultClassifierLo is the default P(vulnerable) at or below which an output is a clean pass.
+	// Equal to DefaultClassifierHi by default, so there is no inconclusive band unless one is configured.
+	DefaultClassifierLo = 0.5
 )
 
 // String returns the stable metadata label for a verdict.
@@ -46,6 +48,8 @@ func (v Verdict) Score() float64 {
 
 // VerdictFromP maps a calibrated P(vulnerable) onto a three-way verdict.
 // p >= hi is vulnerable, p <= lo is not vulnerable, otherwise inconclusive.
+// The inconclusive band only exists when lo < hi. When hi == lo, a p equal to
+// that value is vulnerable because the hi check runs first.
 func VerdictFromP(p, hi, lo float64) Verdict {
 	if p >= hi {
 		return VerdictVulnerable

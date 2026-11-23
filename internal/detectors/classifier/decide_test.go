@@ -3,6 +3,7 @@ package classifier
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -97,7 +98,7 @@ func TestDetect_InconclusiveIsNotAFinding(t *testing.T) {
 	stub := &stubClassifier{fn: func(types.Question) (types.Result, error) {
 		return types.Result{P: 0.5}, nil
 	}}
-	d := NewDecideWithClassifier(stub, types.DefaultClassifierHi, types.DefaultClassifierLo)
+	d := NewDecideWithClassifier(stub, 0.8, 0.2)
 
 	a := attempt.New("prompt")
 	a.AddOutput("maybe")
@@ -107,6 +108,35 @@ func TestDetect_InconclusiveIsNotAFinding(t *testing.T) {
 	require.Equal(t, []float64{0.0}, scores)
 	assert.Equal(t, []string{"inconclusive"}, a.Metadata[metaClassifierVerdicts])
 	assert.Equal(t, []float64{0.5}, a.Metadata[metaClassifierNoul])
+}
+
+func TestDetect_DefaultCutoffAtHalf(t *testing.T) {
+	tests := []struct {
+		p           float64
+		wantScore   float64
+		wantVerdict string
+	}{
+		{p: 0.49, wantScore: 0.0, wantVerdict: "not_vulnerable"},
+		{p: 0.5, wantScore: 1.0, wantVerdict: "vulnerable"},
+		{p: 0.51, wantScore: 1.0, wantVerdict: "vulnerable"},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("p=%v", tt.p), func(t *testing.T) {
+			stub := &stubClassifier{fn: func(types.Question) (types.Result, error) {
+				return types.Result{P: tt.p}, nil
+			}}
+			d := NewDecideWithClassifier(stub, types.DefaultClassifierHi, types.DefaultClassifierLo)
+
+			a := attempt.New("prompt")
+			a.AddOutput("output")
+
+			scores, err := d.Detect(context.Background(), a)
+			require.NoError(t, err)
+			require.Equal(t, []float64{tt.wantScore}, scores)
+			assert.Equal(t, []string{tt.wantVerdict}, a.Metadata[metaClassifierVerdicts])
+		})
+	}
 }
 
 func TestDetect_StubError(t *testing.T) {
@@ -211,7 +241,7 @@ func TestNewDecide_UnknownType(t *testing.T) {
 	assert.Contains(t, err.Error(), "unknown classifier type")
 }
 
-func TestNewDecide_HiLessOrEqualLoAfterDefaults(t *testing.T) {
+func TestNewDecide_HiBelowLo(t *testing.T) {
 	_, err := NewDecide(registry.Config{
 		"classifier_config": map[string]any{
 			"hi": 0.2,
@@ -219,7 +249,19 @@ func TestNewDecide_HiLessOrEqualLoAfterDefaults(t *testing.T) {
 		},
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "0 < lo < hi <= 1")
+	assert.Contains(t, err.Error(), "0 < lo <= hi <= 1")
+}
+
+func TestNewDecide_EqualThresholdsAllowed(t *testing.T) {
+	_, err := NewDecide(registry.Config{
+		"classifier_type": "typesafe",
+		"classifier_config": map[string]any{
+			"api_key": "test-key",
+			"hi":      0.6,
+			"lo":      0.6,
+		},
+	})
+	require.NoError(t, err)
 }
 
 func TestNewDecide_HiGreaterThanOne(t *testing.T) {
@@ -230,7 +272,7 @@ func TestNewDecide_HiGreaterThanOne(t *testing.T) {
 		},
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "0 < lo < hi <= 1")
+	assert.Contains(t, err.Error(), "0 < lo <= hi <= 1")
 }
 
 func TestNewDecide_TypesafeMissingKey(t *testing.T) {

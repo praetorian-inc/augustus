@@ -1058,12 +1058,16 @@ func TestValidateClassifier(t *testing.T) {
 		{
 			name:    "hi less than lo",
 			cfg:     ClassifierGlobalConfig{Hi: 0.2, Lo: 0.8},
-			wantErr: "classifier.hi must be greater than classifier.lo",
+			wantErr: "classifier.hi must be greater than or equal to classifier.lo",
 		},
 		{
-			name:    "hi equals lo",
-			cfg:     ClassifierGlobalConfig{Hi: 0.5, Lo: 0.5},
-			wantErr: "classifier.hi must be greater than classifier.lo",
+			name: "equal thresholds are allowed",
+			cfg:  ClassifierGlobalConfig{Hi: 0.5, Lo: 0.5},
+		},
+		{
+			name:    "lo alone above default hi",
+			cfg:     ClassifierGlobalConfig{Lo: 0.6},
+			wantErr: "classifier.hi must be greater than or equal to classifier.lo",
 		},
 		{
 			name:    "bad timeout",

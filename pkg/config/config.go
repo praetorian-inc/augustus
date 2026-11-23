@@ -426,8 +426,8 @@ func (c *Config) validateClassifier() error {
 	if lo == 0 {
 		lo = types.DefaultClassifierLo
 	}
-	if hi <= lo {
-		return fmt.Errorf("classifier.hi must be greater than classifier.lo, got hi=%f lo=%f", hi, lo)
+	if hi < lo {
+		return fmt.Errorf("classifier.hi must be greater than or equal to classifier.lo, got hi=%f lo=%f", hi, lo)
 	}
 	return nil
 }
