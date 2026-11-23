@@ -581,6 +581,7 @@
       "optional": [
         "base_url",
         "frequency_penalty",
+        "headers",
         "max_tokens",
         "presence_penalty",
         "stop",
