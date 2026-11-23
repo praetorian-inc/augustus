@@ -148,7 +148,10 @@ func (d *UnauthenticatedAccessDetector) score(a *attempt.Attempt, class string) 
 		return EnumerationScore
 	default:
 		// loopback (expected for a development server), unresolvable, or
-		// unstamped: keep it visible without asserting vulnerability.
+		// unstamped: anonymous access confirmed but exploitability depends on
+		// network position. Partial evidence routes to "review".
+		a.WithMetadata(attempt.MetadataKeyPartialEvidence, true)
+		a.WithMetadata(attempt.MetadataKeyPartialEvidenceReason, "anonymous access bypass confirmed on "+targetClass+" target, exploitability deployment-dependent")
 		return InconclusiveScore
 	}
 }

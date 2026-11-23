@@ -288,15 +288,33 @@ const (
 	// broke a connection-lifetime assumption, a transient network error
 	// during sampling, insufficient samples for statistical classification,
 	// etc. The corresponding detector emits a non-zero score (see the
-	// InconclusiveScore constant in the mcptool detectors) so reports don't
-	// hide these under a green SAFE verdict; a reviewer must confirm the
-	// finding out-of-band.
+	// InconclusiveScore constant in the mcptool/mcptransport detectors);
+	// however, the verdict remains "safe" because an inability to test is
+	// a coverage gap, not a finding. The flag is preserved in attempt
+	// metadata so downstream consumers (reports, dashboards) can surface
+	// coverage gaps separately from confirmed results.
 	MetadataKeyInconclusive = "mcptool.inconclusive"
 	// MetadataKeyInconclusiveReason (string) — human-readable explanation
 	// paired with MetadataKeyInconclusive, e.g. "proxy in path: keepalive
 	// upstream defeats session-lifetime test" or "<2 SSE samples: cannot
 	// assess ID entropy".
 	MetadataKeyInconclusiveReason = "mcptool.inconclusive_reason"
+
+	// MetadataKeyPartialEvidence (bool) marks an attempt where the detector
+	// confirmed a spec violation or security-relevant behaviour but cannot
+	// prove full exploitation from this vantage point. Unlike
+	// MetadataKeyInconclusive (which signals "the probe couldn't test"),
+	// this signals "the detector found something — a human should verify
+	// whether it is exploitable in the deployment context."
+	//
+	// Set by DETECTORS, not probes. The detector is the component that
+	// decides whether its evidence meets the partial-evidence bar.
+	MetadataKeyPartialEvidence = "augustus.partial_evidence"
+	// MetadataKeyPartialEvidenceReason (string) — human-readable explanation
+	// paired with MetadataKeyPartialEvidence, e.g. "guard bypass confirmed,
+	// file write unverified" or "origin validation bypass confirmed,
+	// exploitability deployment-dependent".
+	MetadataKeyPartialEvidenceReason = "augustus.partial_evidence_reason"
 
 	// MetadataKeyPrimitiveCanaries holds the []string of computed-arithmetic
 	// canary markers a mcpprimitive probe expects to see in returned content if

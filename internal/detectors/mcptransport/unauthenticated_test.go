@@ -172,3 +172,73 @@ func TestUnauthDetector_MissingTargetClassIsInconclusive(t *testing.T) {
 		t.Errorf("missing target class scored %v, want %v", got, InconclusiveScore)
 	}
 }
+
+// TestUnauthDetector_LoopbackSetsPartialEvidence verifies that the loopback
+// default case sets MetadataKeyPartialEvidence — anonymous access was confirmed
+// but exploitability depends on network position.
+func TestUnauthDetector_LoopbackSetsPartialEvidence(t *testing.T) {
+	a := unauthAttempt(mcpprobe.AuthClassAnonInvocation, "loopback", true, true, true)
+	d, err := NewUnauthenticatedAccessDetector(registry.Config{})
+	if err != nil {
+		t.Fatalf("NewUnauthenticatedAccessDetector: %v", err)
+	}
+	got, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	if len(got) != 1 || got[0] != InconclusiveScore {
+		t.Errorf("Detect = %v, want [%v]", got, InconclusiveScore)
+	}
+	pe, _ := a.Metadata[attempt.MetadataKeyPartialEvidence].(bool)
+	if !pe {
+		t.Errorf("MetadataKeyPartialEvidence = %v, want true", a.Metadata[attempt.MetadataKeyPartialEvidence])
+	}
+	reason, _ := a.Metadata[attempt.MetadataKeyPartialEvidenceReason].(string)
+	if reason == "" {
+		t.Error("MetadataKeyPartialEvidenceReason not set")
+	}
+}
+
+// TestUnauthDetector_UnresolvableSetsPartialEvidence verifies the unresolvable
+// case also sets MetadataKeyPartialEvidence.
+func TestUnauthDetector_UnresolvableSetsPartialEvidence(t *testing.T) {
+	a := unauthAttempt(mcpprobe.AuthClassAnonInvocation, "unresolvable", true, true, true)
+	d, err := NewUnauthenticatedAccessDetector(registry.Config{})
+	if err != nil {
+		t.Fatalf("NewUnauthenticatedAccessDetector: %v", err)
+	}
+	got, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	if len(got) != 1 || got[0] != InconclusiveScore {
+		t.Errorf("Detect = %v, want [%v]", got, InconclusiveScore)
+	}
+	pe, _ := a.Metadata[attempt.MetadataKeyPartialEvidence].(bool)
+	if !pe {
+		t.Errorf("MetadataKeyPartialEvidence = %v, want true", a.Metadata[attempt.MetadataKeyPartialEvidence])
+	}
+	reason, _ := a.Metadata[attempt.MetadataKeyPartialEvidenceReason].(string)
+	if reason == "" {
+		t.Error("MetadataKeyPartialEvidenceReason not set")
+	}
+}
+
+// TestUnauthDetector_ExplicitInconclusiveDoesNotSetPartialEvidence verifies
+// that the explicit-inconclusive early return (probe couldn't test) does NOT
+// set partial evidence — it is a coverage gap, not a finding.
+func TestUnauthDetector_ExplicitInconclusiveDoesNotSetPartialEvidence(t *testing.T) {
+	a := unauthAttempt(mcpprobe.AuthClassAnonEnumeration, "public", true, false, true)
+	a.Metadata[attempt.MetadataKeyInconclusive] = true
+	d, err := NewUnauthenticatedAccessDetector(registry.Config{})
+	if err != nil {
+		t.Fatalf("NewUnauthenticatedAccessDetector: %v", err)
+	}
+	_, err = d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	if pe, ok := a.Metadata[attempt.MetadataKeyPartialEvidence]; ok {
+		t.Errorf("MetadataKeyPartialEvidence should not be set on explicit inconclusive, got %v", pe)
+	}
+}
