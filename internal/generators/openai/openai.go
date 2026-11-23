@@ -8,7 +8,9 @@ package openai
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
+	"net/url"
 
 	goopenai "github.com/sashabaranov/go-openai"
 
@@ -86,13 +88,47 @@ func NewOpenAITyped(cfg Config) (*OpenAI, error) {
 
 	// Create client config
 	clientCfg := goopenai.DefaultConfig(cfg.APIKey)
-	clientCfg.HTTPClient = &http.Client{Timeout: cfg.Timeout}
 	if cfg.BaseURL != "" {
 		clientCfg.BaseURL = cfg.BaseURL
 	}
+
+	httpClient := &http.Client{Timeout: cfg.Timeout}
+	if len(cfg.Headers) > 0 {
+		endpoint, err := url.Parse(clientCfg.BaseURL)
+		if err != nil || endpoint.Host == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") {
+			return nil, fmt.Errorf("openai headers require a valid HTTP(S) base_url")
+		}
+
+		httpClient.Transport = &headerTransport{
+			base: http.DefaultTransport, endpoint: endpoint, headers: maps.Clone(cfg.Headers),
+		}
+	}
+	clientCfg.HTTPClient = httpClient
+
 	g.client = goopenai.NewClientWithConfig(clientCfg)
 
 	return g, nil
+}
+
+// headerTransport applies credentials only to the configured origin. Injecting
+// into a clone keeps headers off redirect templates and shared requests.
+type headerTransport struct {
+	base     http.RoundTripper
+	endpoint *url.URL
+	headers  map[string]string
+}
+
+func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.URL.Scheme != t.endpoint.Scheme || req.URL.Host != t.endpoint.Host {
+		return nil, fmt.Errorf("openai: refusing to send configured headers to a different origin")
+	}
+
+	cloned := req.Clone(req.Context())
+	for name, value := range t.headers {
+		cloned.Header.Set(name, value)
+	}
+
+	return t.base.RoundTrip(cloned)
 }
 
 // NewOpenAIWithOptions creates a new OpenAI generator using functional options.

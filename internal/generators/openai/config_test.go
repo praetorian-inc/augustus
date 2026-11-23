@@ -10,6 +10,41 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
 
+func TestOpenAIConfigHeaders(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		value   any
+		wantErr bool
+	}{
+		{"typed map", map[string]string{"Cookie": "session=test"}, false},
+		{"registry map", map[string]any{"Cookie": "session=test"}, false},
+		{"non-string value", map[string]any{"Cookie": 123}, true},
+		{"non-map", "session=test", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := ConfigFromMap(registry.Config{
+				"model": "gpt-4", "api_key": "test-key", "headers": tc.value,
+			})
+			if tc.wantErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, map[string]string{"Cookie": "session=test"}, cfg.Headers)
+			assert.NotContains(t, cfg.String(), "session=test")
+		})
+	}
+}
+
+func TestOpenAIConfigWithHeadersCopiesInput(t *testing.T) {
+	headers := map[string]string{"Cookie": "session=test"}
+	cfg := ApplyOptions(DefaultConfig(), WithHeaders(headers))
+	headers["Cookie"] = "mutated"
+
+	assert.Equal(t, "session=test", cfg.Headers["Cookie"])
+}
+
 func TestOpenAIConfigDefaults(t *testing.T) {
 	cfg := DefaultConfig()
 
