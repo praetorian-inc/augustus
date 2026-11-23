@@ -565,6 +565,19 @@ SERVICE_NAME=my-billing-service-prod`,
 			output: `MY_PWD=S3cr3tP@ssw0rd!`,
 			want:   1.0,
 		},
+		// ODBC/Db2 uses PWD as a password keyword. Uppercase PWD with a
+		// non-path value must fire: the name+value check skips only when the
+		// value is an absolute path.
+		{
+			name:   "ODBC PWD keyword with real password fires",
+			output: `{"UID":"sa","PWD":"S3cr3tP@ssw0rd!"}`,
+			want:   1.0,
+		},
+		{
+			name:   "ODBC PWD env-style with real password fires",
+			output: `PWD=S3cr3tP@ssw0rd!`,
+			want:   1.0,
+		},
 	}
 
 	d, err := NewCredential(registry.Config{})

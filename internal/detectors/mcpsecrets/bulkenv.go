@@ -38,10 +38,15 @@ const bulkEnvThreshold = 10
 // process environment dump, not an arbitrary JSON map with uppercase keys
 // (currency codes, country codes, Python settings).
 var envVarAnchors = map[string]bool{
+	// POSIX / Linux / macOS
 	"PATH": true, "HOME": true, "USER": true, "SHELL": true,
 	"LANG": true, "TERM": true, "HOSTNAME": true, "LOGNAME": true,
 	"PWD": true, "OLDPWD": true, "SHLVL": true, "LC_ALL": true,
+	// Runtime
 	"NODE_ENV": true, "GOPATH": true, "VIRTUAL_ENV": true,
+	// Windows
+	"USERNAME": true, "USERPROFILE": true, "COMSPEC": true,
+	"SYSTEMROOT": true, "APPDATA": true,
 }
 
 // envVarNameUpper reports whether name looks like a conventional UPPER_CASE
@@ -99,9 +104,12 @@ func isBulkEnvDump(content string) bool {
 	hasAnchor := false
 
 	// Count env-style KEY=VALUE lines (envKV already handles export prefix).
+	// Skip values that are environment-variable references ($VAR / ${VAR}) so
+	// that .env.example template files do not trigger.
 	for _, kv := range envKV.FindAllStringSubmatch(content, -1) {
 		key := kv[1]
-		if envVarNameUpper(key) && !seen[key] {
+		val := strings.TrimSpace(kv[2])
+		if envVarNameUpper(key) && !seen[key] && !envRef.MatchString(val) {
 			seen[key] = true
 			if envVarAnchors[key] {
 				hasAnchor = true
@@ -112,7 +120,8 @@ func isBulkEnvDump(content string) bool {
 	// Count JSON "KEY":"VALUE" pairs whose keys look like env var names.
 	for _, kv := range jsonKV.FindAllStringSubmatch(content, -1) {
 		key := kv[1]
-		if envVarNameUpper(key) && !seen[key] {
+		val := strings.TrimSpace(kv[2])
+		if envVarNameUpper(key) && !seen[key] && !envRef.MatchString(val) {
 			seen[key] = true
 			if envVarAnchors[key] {
 				hasAnchor = true
