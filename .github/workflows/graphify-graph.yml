@@ -33,6 +33,6 @@ permissions:
 jobs:
   graph:
     # Re-pin to the public-workflows release tag once PR #104 merges + tags.
-    uses: praetorian-inc/public-workflows/.github/workflows/graphify-graph.yml@2ff4fbf7ed1f20e571eb7f5882ae5d06d092ccaa  # v2.16.8
+    uses: praetorian-inc/public-workflows/.github/workflows/graphify-graph.yml@fe82661912c4569ea4662e32cada87603795cab9  # v2.21.22
     permissions:
       contents: read
