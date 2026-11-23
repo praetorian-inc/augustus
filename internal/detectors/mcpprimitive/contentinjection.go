@@ -34,15 +34,17 @@ var smugglingTagRE = regexp.MustCompile(`(?i)<\s*/?\s*(important|hidden|secret|s
 // and an attack path always descends into them (.ssh/id_rsa, .aws/credentials). This
 // prevents false positives on hostnames like docs.aws.amazon.com (LAB-5608 review).
 //
-// The .env term uses [^\w.] after the name to exclude template files (.env.example,
-// .env.sample) while still matching .env followed by whitespace, punctuation or
-// end-of-string. RE2 has no lookahead, so the trailing character is consumed; this
-// is harmless since these regexes are used with MatchString (boolean).
+// The .env term uses a trailing guard to exclude template files (.env.example,
+// .env.sample) while still matching .env followed by whitespace, punctuation,
+// a sentence-ending period, or end-of-string. The guard (?:[^\w.]|\.(?:\W|$)|$)
+// admits ".env." (period then non-word or end) but rejects ".env.example" (period
+// then word char). RE2 has no lookahead, so the trailing character is consumed;
+// this is harmless since these regexes are used with MatchString (boolean).
 const sensitivePath = `(?:` +
 	`\.(?:ssh|aws|gnupg)/` +
 	`|\bid_(?:rsa|ed25519|ecdsa|dsa)\b` +
 	`|/etc/(?:shadow|passwd)\b` +
-	`|\.env(?:[^\w.]|$)` +
+	`|\.env(?:[^\w.]|\.(?:\W|$)|$)` +
 	`|\bprivate[_\- ]?keys?\b` +
 	`)`
 
@@ -159,7 +161,7 @@ var orderingRE = regexp.MustCompile(
 // vocabulary. The ordering clause is a weaker signal than the read verbs, so its
 // object set must be WIDER to catch payloads like "cat /etc/sudoers" and
 // "SSH_PRIVATE_KEY" that the read alternative does not need.
-var hijackObjectRE = regexp.MustCompile(`(?i)~/\.` + `|` + sensitivePath + `|/etc/|\bprivate[_\- ]?keys?\b`)
+var hijackObjectRE = regexp.MustCompile(`(?i)~/\.` + `|` + sensitivePath + `|/etc/|private[_\- ]?keys?`)
 
 // The second way an ordering clause can qualify: the generic secret vocabulary
 // becomes evidence again when the line ROUTES that secret INTO A NAMED TOOL.
