@@ -104,12 +104,13 @@ func isBulkEnvDump(content string) bool {
 	hasAnchor := false
 
 	// Count env-style KEY=VALUE lines (envKV already handles export prefix).
-	// Skip values that are environment-variable references ($VAR / ${VAR}) so
-	// that .env.example template files do not trigger.
+	// Values are cleaned the same way leaks() does: unquote, strip inline
+	// comments, then filter references and placeholders. Without cleanKVValue
+	// a quoted reference like PATH="${PATH}" bypasses envRef.
 	for _, kv := range envKV.FindAllStringSubmatch(content, -1) {
 		key := kv[1]
-		val := strings.TrimSpace(kv[2])
-		if envVarNameUpper(key) && !seen[key] && !envRef.MatchString(val) && !isPlaceholder(val) {
+		val := cleanKVValue(kv[2])
+		if envVarNameUpper(key) && !seen[key] && !isPlaceholder(val) {
 			seen[key] = true
 			if envVarAnchors[key] {
 				hasAnchor = true
@@ -121,7 +122,7 @@ func isBulkEnvDump(content string) bool {
 	for _, kv := range jsonKV.FindAllStringSubmatch(content, -1) {
 		key := kv[1]
 		val := strings.TrimSpace(kv[2])
-		if envVarNameUpper(key) && !seen[key] && !envRef.MatchString(val) && !isPlaceholder(val) {
+		if envVarNameUpper(key) && !seen[key] && !isPlaceholder(val) {
 			seen[key] = true
 			if envVarAnchors[key] {
 				hasAnchor = true
@@ -132,8 +133,8 @@ func isBulkEnvDump(content string) bool {
 	// Count YAML "KEY: VALUE" pairs (yaml.dump(dict(os.environ)) format).
 	for _, kv := range yamlKV.FindAllStringSubmatch(content, -1) {
 		key := kv[1]
-		val := strings.TrimSpace(kv[2])
-		if envVarNameUpper(key) && !seen[key] && !envRef.MatchString(val) && !isPlaceholder(val) {
+		val := cleanKVValue(kv[2])
+		if envVarNameUpper(key) && !seen[key] && !isPlaceholder(val) {
 			seen[key] = true
 			if envVarAnchors[key] {
 				hasAnchor = true

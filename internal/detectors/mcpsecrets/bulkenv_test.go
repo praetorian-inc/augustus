@@ -127,6 +127,23 @@ PATH=${PATH}
 HOME=${HOME}`,
 			want: 0.0,
 		},
+		// --- Negative: quoted env-var references ---
+		{
+			name: "quoted env references do not fire",
+			output: `NODE_ENV="${NODE_ENV}"
+PORT="${PORT}"
+DATABASE_URL="${DATABASE_URL}"
+REDIS_URL="${REDIS_URL}"
+API_KEY="${API_KEY}"
+AWS_REGION="${AWS_REGION}"
+AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}"
+AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}"
+LOG_LEVEL="${LOG_LEVEL}"
+HOSTNAME="${HOSTNAME}"
+PATH="${PATH}"
+HOME="${HOME}"`,
+			want: 0.0,
+		},
 		// --- Negative: .env.example with text placeholders ---
 		{
 			name: "env example with placeholder values does not fire",
