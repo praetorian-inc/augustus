@@ -76,6 +76,7 @@ type MCP struct {
 
 	cfg     Config
 	limiter *ratelimit.Limiter
+	concSem chan struct{} // per-target concurrency limit; capacity bounds in-flight calls
 
 	// mu guards the persistent session pointer. Establishing the session is done
 	// under the lock so concurrent first callers cannot open duplicate sessions;
@@ -116,6 +117,8 @@ func NewMCP(cfg registry.Config) (generators.Generator, error) {
 		}
 		m.limiter = ratelimit.NewLimiter(capacity, parsed.RateLimit)
 	}
+
+	m.concSem = make(chan struct{}, parsed.Concurrency)
 
 	return m, nil
 }
@@ -158,6 +161,24 @@ func (m *MCP) generateOnce(ctx context.Context, conv *attempt.Conversation) (att
 // by the server. It is the single place session lifecycle + retry live, shared
 // by Generate, ListTools, and CallTool.
 func (m *MCP) withSession(ctx context.Context, fn func(context.Context, *mcpsdk.ClientSession) error) error {
+	// Per-target concurrency: acquire a slot BEFORE consuming rate-limit
+	// tokens so goroutines waiting for the semaphore don't burn tokens they
+	// can't use yet, then burst through when released.
+	if m.concSem != nil {
+		select {
+		case m.concSem <- struct{}{}:
+			defer func() { <-m.concSem }()
+		case <-ctx.Done():
+			return fmt.Errorf("mcp: concurrency wait cancelled: %w", ctx.Err())
+		}
+		// Guard against the select non-determinism: when ctx is already
+		// done and a slot is free, Go picks randomly between the two
+		// cases. Bail out before doing any real work.
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("mcp: context expired after semaphore acquire: %w", err)
+		}
+	}
+
 	if m.limiter != nil {
 		if err := m.limiter.Wait(ctx); err != nil {
 			return fmt.Errorf("mcp: rate limit wait cancelled: %w", err)

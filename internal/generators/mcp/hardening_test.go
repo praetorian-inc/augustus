@@ -52,7 +52,7 @@ func TestWithSession_NoDoubleInvokeOnRequestTimeout(t *testing.T) {
 	}
 	cfg.RequestTimeout = 250 * time.Millisecond
 	cfg.Persistent = true
-	g := &MCP{cfg: cfg}
+	g := &MCP{cfg: cfg, concSem: make(chan struct{}, 1)}
 	t.Cleanup(g.ClearHistory)
 
 	var inv types.ToolInvoker = g

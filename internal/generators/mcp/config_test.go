@@ -237,6 +237,45 @@ func TestConfigFromMap_InvalidProxy(t *testing.T) {
 	}
 }
 
+func TestConfigFromMap_ConcurrencyDefault(t *testing.T) {
+	cfg, err := ConfigFromMap(registry.Config{"endpoint": "http://x/mcp", "tool_name": "t", "arg_name": "q"})
+	if err != nil {
+		t.Fatalf("ConfigFromMap() error = %v", err)
+	}
+	if cfg.Concurrency != 1 {
+		t.Errorf("Concurrency = %d, want 1", cfg.Concurrency)
+	}
+}
+
+func TestConfigFromMap_ConcurrencyExplicit(t *testing.T) {
+	tests := []struct {
+		name string
+		val  any
+		want int
+	}{
+		{"int 4", 4, 4},
+		{"float64 3", float64(3), 3},
+		{"zero clamps to 1", 0, 1},
+		{"negative clamps to 1", -5, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := ConfigFromMap(registry.Config{
+				"endpoint":        "http://x/mcp",
+				"tool_name":       "t",
+				"arg_name":        "q",
+				"mcp_concurrency": tt.val,
+			})
+			if err != nil {
+				t.Fatalf("ConfigFromMap() error = %v", err)
+			}
+			if cfg.Concurrency != tt.want {
+				t.Errorf("Concurrency = %d, want %d", cfg.Concurrency, tt.want)
+			}
+		})
+	}
+}
+
 func TestConfigFromMap_ArgumentsTemplateFromObject(t *testing.T) {
 	cfg, err := ConfigFromMap(registry.Config{
 		"endpoint":           "http://x/mcp",

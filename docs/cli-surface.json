@@ -531,6 +531,7 @@
         "disable_standalone_sse",
         "headers",
         "insecure_skip_verify",
+        "mcp_concurrency",
         "mode",
         "persistent",
         "proxy",

@@ -78,6 +78,7 @@ const (
 	keyArgName              = "arg_name"
 	keyArguments            = "arguments"
 	keyArgumentsTemplate    = "arguments_template"
+	keyConcurrency          = "mcp_concurrency"
 )
 
 // RequiredKeys returns config keys every MCP transport requires. A required
@@ -98,6 +99,7 @@ func OptionalKeys() []string {
 		keyRequestTimeout, keyPersistent, keyRateLimit, keyHeaders,
 		keyInsecureSkipVerify, keyDisableStandaloneSSE, keyProxy, keyTransport,
 		keyMode, keyToolName, keyArgName, keyArguments, keyArgumentsTemplate,
+		keyConcurrency,
 	}
 }
 
@@ -140,6 +142,7 @@ type Config struct {
 	APIKey         string        // Substituted for $KEY in headers and argument templates.
 	RequestTimeout time.Duration // Deadline for connect+handshake and for each tool call.
 	RateLimit      float64       // Requests per second (0 = unlimited).
+	Concurrency    int           // Max concurrent in-flight calls to this server (0 or 1 = serialize all).
 	Persistent     bool          // Reuse one initialized session across Generate calls (closed by ClearHistory).
 }
 
@@ -154,6 +157,7 @@ func DefaultConfig() Config {
 		Headers:        make(map[string]string),
 		Arguments:      make(map[string]any),
 		RequestTimeout: 60 * time.Second,
+		Concurrency:    1,
 		Persistent:     true,
 	}
 }
@@ -189,6 +193,13 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 		return cfg, err
 	} else {
 		cfg.RateLimit = rl
+	}
+
+	cfg.Concurrency = registry.GetInt(m, keyConcurrency, cfg.Concurrency)
+	if cfg.Concurrency < 1 {
+		slog.Warn("mcp: mcp_concurrency must be positive; using 1",
+			"requested", cfg.Concurrency)
+		cfg.Concurrency = 1
 	}
 
 	// Transport connection details.

@@ -2,12 +2,15 @@ package mcp
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -100,6 +103,21 @@ func generate(t *testing.T, g generators.Generator, prompt string) string {
 		t.Fatalf("Generate() returned %d messages, want 1", len(resp))
 	}
 	return resp[0].Content
+}
+
+// tryGenerateCtx is like generate but accepts a context and returns an error
+// instead of calling t.Fatal, making it safe to call from non-test goroutines.
+func tryGenerateCtx(ctx context.Context, g generators.Generator, prompt string) (string, error) {
+	conv := attempt.NewConversation()
+	conv.AddPrompt(prompt)
+	resp, err := g.Generate(ctx, conv, 1)
+	if err != nil {
+		return "", err
+	}
+	if len(resp) != 1 {
+		return "", fmt.Errorf("Generate() returned %d messages, want 1", len(resp))
+	}
+	return resp[0].Content, nil
 }
 
 func TestGenerate_HTTP_ToolCall(t *testing.T) {
@@ -565,6 +583,157 @@ func TestToolCallValidationDeferred(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "tool_name") {
 		t.Fatalf("Generate without tool_name: got %v, want an error mentioning tool_name", err)
 	}
+}
+
+// newSlowHTTPTarget hosts an MCP server whose echo tool sleeps, tracking peak
+// concurrent in-flight calls so the per-target semaphore can be asserted.
+func newSlowHTTPTarget(t *testing.T, sleep time.Duration) (url string, peakConcurrent func() int32) {
+	t.Helper()
+
+	var current, peak int32
+	srv := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "slow-test", Version: "v0"}, nil)
+	mcpsdk.AddTool(srv, &mcpsdk.Tool{Name: "echo", Description: "slow echo"},
+		func(_ context.Context, _ *mcpsdk.CallToolRequest, in toolInput) (*mcpsdk.CallToolResult, any, error) {
+			n := atomic.AddInt32(&current, 1)
+			for {
+				old := atomic.LoadInt32(&peak)
+				if n <= old || atomic.CompareAndSwapInt32(&peak, old, n) {
+					break
+				}
+			}
+			time.Sleep(sleep)
+			atomic.AddInt32(&current, -1)
+			return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "echo: " + in.Query}}}, nil, nil
+		})
+
+	handler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return srv }, nil)
+	ts := httptest.NewServer(handler)
+	t.Cleanup(ts.Close)
+	return ts.URL, func() int32 { return atomic.LoadInt32(&peak) }
+}
+
+func TestConcurrencySemaphore_Serializes(t *testing.T) {
+	url, peakConc := newSlowHTTPTarget(t, 50*time.Millisecond)
+	g := newGen(t, registry.Config{
+		"transport":       "http",
+		"endpoint":        url,
+		"tool_name":       "echo",
+		"arg_name":        "query",
+		"mcp_concurrency": 1,
+	})
+
+	const n = 5
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			defer wg.Done()
+			_, errs[i] = tryGenerateCtx(context.Background(), g, fmt.Sprintf("req-%d", i))
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("goroutine %d: %v", i, err)
+		}
+	}
+
+	if p := peakConc(); p > 1 {
+		t.Errorf("peak concurrent in-flight calls = %d, want <= 1 (semaphore should serialize)", p)
+	}
+}
+
+func TestConcurrencySemaphore_AllowsConfiguredParallelism(t *testing.T) {
+	url, peakConc := newSlowHTTPTarget(t, 100*time.Millisecond)
+	g := newGen(t, registry.Config{
+		"transport":       "http",
+		"endpoint":        url,
+		"tool_name":       "echo",
+		"arg_name":        "query",
+		"mcp_concurrency": 3,
+	})
+
+	const n = 6
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+
+	// Barrier: all goroutines wait until every goroutine is ready, then
+	// start simultaneously so concurrency > 1 is reliably achievable.
+	var barrier sync.WaitGroup
+	barrier.Add(n)
+
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		go func(i int) {
+			defer wg.Done()
+			barrier.Done()
+			barrier.Wait()
+			_, errs[i] = tryGenerateCtx(context.Background(), g, fmt.Sprintf("req-%d", i))
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("goroutine %d: %v", i, err)
+		}
+	}
+
+	p := peakConc()
+	if p > 3 {
+		t.Errorf("peak concurrent in-flight calls = %d, want <= 3", p)
+	}
+	if p <= 1 {
+		t.Errorf("peak concurrent in-flight calls = %d, want > 1 (parallelism should occur)", p)
+	}
+}
+
+func TestConcurrencySemaphore_CancelledWhileWaiting(t *testing.T) {
+	// Server that signals when the handler is entered, then blocks until released.
+	handlerEntered := make(chan struct{})
+	handlerRelease := make(chan struct{})
+	srv := mcpsdk.NewServer(&mcpsdk.Implementation{Name: "block-test", Version: "v0"}, nil)
+	mcpsdk.AddTool(srv, &mcpsdk.Tool{Name: "echo", Description: "blocking echo"},
+		func(_ context.Context, _ *mcpsdk.CallToolRequest, in toolInput) (*mcpsdk.CallToolResult, any, error) {
+			close(handlerEntered)
+			<-handlerRelease
+			return &mcpsdk.CallToolResult{Content: []mcpsdk.Content{&mcpsdk.TextContent{Text: "echo: " + in.Query}}}, nil, nil
+		})
+	handler := mcpsdk.NewStreamableHTTPHandler(func(*http.Request) *mcpsdk.Server { return srv }, nil)
+	ts := httptest.NewServer(handler)
+	t.Cleanup(ts.Close)
+
+	g := newGen(t, registry.Config{
+		"transport":       "http",
+		"endpoint":        ts.URL,
+		"tool_name":       "echo",
+		"arg_name":        "query",
+		"mcp_concurrency": 1,
+	})
+
+	// Fill the single semaphore slot — wait until the handler is actually entered.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = tryGenerateCtx(context.Background(), g, "holder")
+	}()
+	<-handlerEntered
+
+	// A second call with an already-cancelled context must return immediately.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := tryGenerateCtx(ctx, g, "blocked")
+	if err == nil {
+		t.Fatal("expected error from cancelled context, got nil")
+	}
+	if !errors.Is(err, context.Canceled) {
+		t.Errorf("expected context.Canceled error, got: %v", err)
+	}
+
+	close(handlerRelease)
+	<-done
 }
 
 func TestRegistered(t *testing.T) {
