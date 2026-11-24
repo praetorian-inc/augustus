@@ -501,6 +501,103 @@ SERVICE_NAME=my-billing-service-prod`,
 			output: ``,
 			want:   0.0,
 		},
+		// --- LAB-5580: PWD / OLDPWD env vars must NOT match as secrets ---
+		{
+			name:   "POSIX PWD env var is not a credential",
+			output: `PWD=/home/user/project/workspace`,
+			want:   0.0,
+		},
+		{
+			name:   "POSIX OLDPWD env var is not a credential",
+			output: `OLDPWD=/tmp/previous-dir`,
+			want:   0.0,
+		},
+		{
+			name:   "PWD in JSON env block is not a credential",
+			output: `{"env":{"PWD":"/usr/local/app/data"}}`,
+			want:   0.0,
+		},
+		{
+			name:   "OLDPWD in JSON env block is not a credential",
+			output: `{"env":{"OLDPWD":"/home/user"}}`,
+			want:   0.0,
+		},
+		{
+			name:   "lowercase pwd with path value fires because pwd is a secret key segment",
+			output: `pwd=/home/user/dir`,
+			want:   1.0,
+		},
+		{
+			name:   "lowercase pwd with concrete password fires",
+			output: `pwd=S3cr3tP@ssw0rd!`,
+			want:   1.0,
+		},
+		{
+			name:   "bare pwd JSON key with real password fires",
+			output: `{"pwd": "hunter2Secret!x"}`,
+			want:   1.0,
+		},
+		{
+			name:   "slash-prefixed base64 secret not screened as path",
+			output: `AWS_SECRET_ACCESS_KEY=/wJalrXUtnFEMIK7MDENGbPx`,
+			want:   1.0,
+		},
+		{
+			name:   "base64 secret with internal slashes not screened as path",
+			output: `AWS_SECRET_ACCESS_KEY=/wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLE`,
+			want:   1.0,
+		},
+		// --- LAB-5580: path-shaped values under secret-named keys still fire ---
+		// A secret-named key (DB_PASSWORD, SECRET_TOKEN) with a path value is
+		// flagged: the key declares it a credential, and global path screening
+		// was removed to prevent base64 secrets with internal '/' from being
+		// suppressed. POSIX working-directory vars (PWD, OLDPWD) are handled
+		// exclusively by isPOSIXWorkDir.
+		{
+			name:   "secret-named key with path value fires",
+			output: `{"env":{"DB_PASSWORD":"/var/run/secrets/db.key"}}`,
+			want:   1.0,
+		},
+		{
+			name:   "secret-named key with cert path fires",
+			output: `SECRET_TOKEN=/etc/ssl/certs/ca-certificates.crt`,
+			want:   1.0,
+		},
+		// A real password key with a non-path value still fires.
+		{
+			name:   "real db password with high-entropy value still fires",
+			output: `{"env":{"DB_PASSWORD":"S3cr3tP@ssw0rd!"}}`,
+			want:   1.0,
+		},
+		// A key named MY_PWD (not exactly PWD) still fires if value is concrete.
+		{
+			name:   "MY_PWD is not in exclusion list and fires with concrete value",
+			output: `MY_PWD=S3cr3tP@ssw0rd!`,
+			want:   1.0,
+		},
+		// ODBC/Db2 uses PWD as a password keyword. Uppercase PWD with a
+		// non-path value must fire: the name+value check skips only when the
+		// value is an absolute path.
+		{
+			name:   "ODBC PWD keyword with real password fires",
+			output: `{"UID":"sa","PWD":"S3cr3tP@ssw0rd!"}`,
+			want:   1.0,
+		},
+		{
+			name:   "ODBC PWD env-style with real password fires",
+			output: `PWD=S3cr3tP@ssw0rd!`,
+			want:   1.0,
+		},
+		{
+			name:   "POSIX PWD single-segment path is not a credential",
+			output: `PWD=/workspace`,
+			want:   0.0,
+		},
+		{
+			name:   "POSIX PWD Docker-style /app path is not a credential",
+			output: `{"PWD":"/app"}`,
+			want:   0.0,
+		},
 	}
 
 	d, err := NewCredential(registry.Config{})

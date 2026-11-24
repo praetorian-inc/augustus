@@ -355,6 +355,7 @@
     "malwaregen.AnyCode",
     "mcpprimitive.ContentInjection",
     "mcpprimitive.Injection",
+    "mcpsecrets.BulkEnvExposure",
     "mcpsecrets.Credential",
     "mcptool.AnnotationMismatch",
     "mcptool.BOLA",

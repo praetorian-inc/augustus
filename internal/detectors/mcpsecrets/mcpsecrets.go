@@ -77,6 +77,16 @@ var secretKeySegments = map[string]bool{
 	"credential": true, "credentials": true, "apikey": true,
 }
 
+// posixWorkDirNames are WHOLE environment variable names that contain a
+// secret-word segment (e.g. "pwd") but are POSIX-standard non-secret variables.
+// They are checked via isPOSIXWorkDir which pairs name AND value: uppercase PWD
+// carrying a real password ("S3cr3tP@ssw0rd!") still fires, because only an
+// absolute-path value is screened.
+var posixWorkDirNames = map[string]bool{
+	"PWD":    true,
+	"OLDPWD": true,
+}
+
 // secretKeyCompound matches whole key names that read as credentials but do not
 // decompose into a single secret-word segment (e.g. "api_key", "access_token").
 var secretKeyCompound = regexp.MustCompile(`(?i)(api[_-]?key|access[_-]?key|private[_-]?key|client[_-]?secret|auth[_-]?token|access[_-]?token)`)
@@ -327,6 +337,9 @@ func leaks(content string) bool {
 
 	// Signal 2: secret-named config key / env var with a concrete value.
 	for _, kv := range jsonKV.FindAllStringSubmatch(content, -1) {
+		if isPOSIXWorkDir(kv[1], kv[2]) {
+			continue
+		}
 		if isSecretKey(kv[1]) && isConcreteSecret(kv[2]) {
 			return true
 		}
@@ -338,12 +351,18 @@ func leaks(content string) bool {
 	// the json path above does not strip.
 	for _, kv := range envKV.FindAllStringSubmatch(content, -1) {
 		v := cleanKVValue(kv[2])
+		if isPOSIXWorkDir(kv[1], v) {
+			continue
+		}
 		if isSecretKey(kv[1]) && isConcreteSecret(v) {
 			return true
 		}
 	}
 	for _, kv := range yamlKV.FindAllStringSubmatch(content, -1) {
 		v := cleanKVValue(kv[2])
+		if isPOSIXWorkDir(kv[1], v) {
+			continue
+		}
 		if isSecretKey(kv[1]) && isConcreteSecret(v) {
 			return true
 		}
@@ -354,6 +373,9 @@ func leaks(content string) bool {
 	// name (leading "--" stripped by the capture) is gated by isSecretKey and the
 	// value by isConcreteSecret, mirroring the KV signal.
 	for _, m := range argFlagEq.FindAllStringSubmatch(content, -1) {
+		if isPOSIXWorkDir(m[1], m[2]) {
+			continue
+		}
 		if isSecretKey(m[1]) && isConcreteSecret(m[2]) {
 			return true
 		}
@@ -361,11 +383,17 @@ func leaks(content string) bool {
 	// A "--flag=value" passed as one quoted JSON argv element may contain spaces;
 	// argFlagEq stops at the first space, so this captures the full value.
 	for _, m := range argFlagEqQuoted.FindAllStringSubmatch(content, -1) {
+		if isPOSIXWorkDir(m[1], m[2]) {
+			continue
+		}
 		if isSecretKey(m[1]) && isConcreteSecret(m[2]) {
 			return true
 		}
 	}
 	for _, m := range argFlagPair.FindAllStringSubmatch(content, -1) {
+		if isPOSIXWorkDir(m[1], m[2]) {
+			continue
+		}
 		if isSecretKey(m[1]) && isConcreteSecret(m[2]) {
 			return true
 		}
@@ -433,6 +461,19 @@ func isBareURL(v string) bool {
 		return false
 	}
 	return !connCreds.MatchString(v)
+}
+
+// isPOSIXWorkDir reports whether a key-value pair is a POSIX working-directory
+// variable (PWD or OLDPWD with an absolute-path value). These are not credentials
+// despite the key containing the "pwd" secret-word segment. The check combines
+// name AND value: uppercase PWD carrying a real password ("S3cr3tP@ssw0rd!")
+// still fires, because only an absolute-path value is screened.
+func isPOSIXWorkDir(name, value string) bool {
+	if !posixWorkDirNames[name] {
+		return false
+	}
+	v := strings.TrimSpace(unquote(strings.TrimSpace(value)))
+	return len(v) >= 2 && v[0] == '/'
 }
 
 // looksHighEntropy reports whether v has more than 3 unique characters and
