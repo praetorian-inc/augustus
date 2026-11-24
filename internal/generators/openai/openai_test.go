@@ -69,6 +69,97 @@ func mockCompletionResponse(content string, n int) map[string]any {
 	}
 }
 
+func TestOpenAIGenerator_CustomHeaders(t *testing.T) {
+	for _, model := range []string{"gpt-4", "gpt-3.5-turbo-instruct"} {
+		t.Run(model, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				assert.Equal(t, "Basic dXNlcjpwYXNz", r.Header.Get("Authorization"))
+				assert.Equal(t, "session=test", r.Header.Get("Cookie"))
+				assert.Equal(t, "tenant-test", r.Header.Get("X-Tenant"))
+				assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+
+				if model == "gpt-4" {
+					_ = json.NewEncoder(w).Encode(mockOpenAIResponse("ok", 1))
+				} else {
+					_ = json.NewEncoder(w).Encode(mockCompletionResponse("ok", 1))
+				}
+			}))
+			defer server.Close()
+
+			headers := map[string]any{
+				"authorization": "Basic dXNlcjpwYXNz",
+				"Cookie":        "session=test",
+				"X-Tenant":      "tenant-test",
+			}
+			g, err := NewOpenAI(registry.Config{
+				"model": model, "api_key": "placeholder", "base_url": server.URL,
+				"headers": headers,
+			})
+			require.NoError(t, err)
+			headers["Cookie"] = "mutated"
+
+			conv := attempt.NewConversation()
+			conv.AddPrompt("test")
+			messages, err := g.Generate(context.Background(), conv, 1)
+
+			require.NoError(t, err)
+			require.Len(t, messages, 1)
+			assert.Equal(t, "ok", messages[0].Content)
+		})
+	}
+}
+
+func TestOpenAIGenerator_CustomHeadersSameOriginRedirect(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "session=test", r.Header.Get("Cookie"))
+		if r.URL.Path != "/final" {
+			http.Redirect(w, r, "/final", http.StatusTemporaryRedirect)
+			return
+		}
+
+		_ = json.NewEncoder(w).Encode(mockOpenAIResponse("ok", 1))
+	}))
+	defer server.Close()
+
+	g, err := NewOpenAIWithOptions(
+		WithModel("gpt-4"), WithAPIKey("placeholder"), WithBaseURL(server.URL),
+		WithHeaders(map[string]string{"Cookie": "session=test"}),
+	)
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+	_, err = g.Generate(context.Background(), conv, 1)
+
+	require.NoError(t, err)
+}
+
+func TestOpenAIGenerator_CustomHeadersRejectForeignRedirect(t *testing.T) {
+	foreign := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("redirect must not reach a foreign origin")
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer foreign.Close()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, foreign.URL, http.StatusTemporaryRedirect)
+	}))
+	defer server.Close()
+
+	g, err := NewOpenAIWithOptions(
+		WithModel("gpt-4"), WithAPIKey("placeholder"), WithBaseURL(server.URL),
+		WithHeaders(map[string]string{"Cookie": "session=test", "X-API-Key": "custom-secret"}),
+	)
+	require.NoError(t, err)
+
+	conv := attempt.NewConversation()
+	conv.AddPrompt("test")
+	_, err = g.Generate(context.Background(), conv, 1)
+
+	require.ErrorContains(t, err, "different origin")
+	assert.NotContains(t, err.Error(), "custom-secret")
+}
+
 func TestOpenAIGenerator_RequiresModel(t *testing.T) {
 	// Create mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -2,6 +2,7 @@ package openai
 
 import (
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/registry"
@@ -14,6 +15,7 @@ const (
 	keyAPIKey           = "api_key"
 	keyBaseURL          = "base_url"
 	keyTimeout          = "timeout"
+	keyHeaders          = "headers"
 	keyTemperature      = "temperature"
 	keyMaxTokens        = "max_tokens"
 	keyTopP             = "top_p"
@@ -41,7 +43,7 @@ func KeyEnvFallbacks() map[string]string {
 func OptionalKeys() []string {
 	return []string{
 		keyBaseURL, keyTemperature, keyMaxTokens, keyTopP,
-		keyFrequencyPenalty, keyPresencePenalty, keyStop, keyTimeout,
+		keyFrequencyPenalty, keyPresencePenalty, keyStop, keyTimeout, keyHeaders,
 	}
 }
 
@@ -60,6 +62,7 @@ type Config struct {
 	Stop             []string
 	BaseURL          string
 	Timeout          time.Duration
+	Headers          map[string]string
 }
 
 // DefaultConfig returns an OpenAIConfig with sensible defaults.
@@ -97,7 +100,34 @@ func ConfigFromMap(m registry.Config) (Config, error) {
 	cfg.Stop = registry.GetStringSlice(m, keyStop, nil)
 	cfg.Timeout = time.Duration(registry.GetInt(m, keyTimeout, 0)) * time.Second
 
+	cfg.Headers, err = parseHeaders(m[keyHeaders])
+	if err != nil {
+		return cfg, err
+	}
+
 	return cfg, nil
+}
+
+func parseHeaders(value any) (map[string]string, error) {
+	switch headers := value.(type) {
+	case nil:
+		return nil, nil
+	case map[string]string:
+		return maps.Clone(headers), nil
+	case map[string]any:
+		parsed := make(map[string]string, len(headers))
+		for name, value := range headers {
+			header, ok := value.(string)
+			if !ok {
+				return nil, fmt.Errorf("openai headers must contain string values")
+			}
+			parsed[name] = header
+		}
+
+		return parsed, nil
+	default:
+		return nil, fmt.Errorf("openai headers must be a string-to-string map")
+	}
 }
 
 // Option is a functional option for OpenAIConfig.
@@ -175,6 +205,13 @@ func WithBaseURL(url string) Option {
 func WithTimeout(timeout time.Duration) Option {
 	return func(c *Config) {
 		c.Timeout = timeout
+	}
+}
+
+// WithHeaders sets custom HTTP headers, overriding SDK-generated values.
+func WithHeaders(headers map[string]string) Option {
+	return func(c *Config) {
+		c.Headers = maps.Clone(headers)
 	}
 }
 
