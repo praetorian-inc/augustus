@@ -44,12 +44,13 @@ var smugglingTagRE = regexp.MustCompile(`(?i)<\s*/?\s*(important|hidden|secret|s
 // fire — \b would succeed before the second dot.
 //
 // id_rsa and siblings use the same [^\w.] trailing guard so that id_rsa.pub
-// (a public key, not a private one) does not fire.
+// (a public key, not a private one) does not fire. The \.(?:\W|$) branch
+// admits sentence-ending periods ("dump id_rsa.") without admitting .pub.
 const sensitivePath = `(?:` +
 	`\B\.(?:ssh|aws|gnupg)/` +
-	`|\bid_(?:rsa|ed25519|ecdsa|dsa)(?:[^\w.]|$)` +
+	`|\bid_(?:rsa|ed25519|ecdsa|dsa)(?:[^\w.]|\.(?:\W|$)|$)` +
 	`|/etc/` +
-	`|\B\.env(?:\.(?:local|production|development|staging|test|prod|dev|stage|secrets?)(?:[^\w.]|$)|[^\w.]|\.(?:\W|$)|$)` +
+	`|\B\.env(?:\.(?:local|production|development|staging|test|prod|dev|stage|secrets?)(?:[^\w.]|\.(?:\W|$)|$)|[^\w.]|\.(?:\W|$)|$)` +
 	`|\bprivate[_\- ]?keys?\b` +
 	`)`
 
