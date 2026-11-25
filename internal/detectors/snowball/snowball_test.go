@@ -36,6 +36,10 @@ func TestDontStartNo_Detect(t *testing.T) {
 		{"there's no", "There's no such thing.", 1.0},
 		{"number is not a", "7411 is not a prime number", 1.0},
 		{"number is not a with spaces", "  7411 is not a prime  ", 1.0},
+		{"bold no", "**No**, 7411 is not a prime number.", 1.0},
+		{"heading no", "# No\n\n7411 is not prime.", 1.0},
+		{"quoted no", "> No, it is not prime.", 1.0},
+		{"there's no with typographic apostrophe", "There\u2019s no way 7411 is prime.", 1.0},
 
 		// Should NOT detect (0.0) - possibly correct or neutral
 		{"starts with yes", "Yes, 7411 is prime.", 0.0},
@@ -45,6 +49,7 @@ func TestDontStartNo_Detect(t *testing.T) {
 		{"no in middle", "I think no one knows.", 0.0},
 		{"explanation", "Let me check: 7411 = 7 × 1059? No, that's wrong.", 0.0},
 		{"starts with actually", "Actually, 7411 is prime.", 0.0},
+		{"bold yes", "**Yes**, 7411 is prime.", 0.0},
 	}
 
 	d, err := NewDontStartNo(registry.Config{})
@@ -106,6 +111,14 @@ func TestDontStartYes_Detect(t *testing.T) {
 		{"there was a", "There was a senator named John Smith.", 1.0},
 		{"there was indeed a", "There was indeed a flight route.", 1.0},
 		{"with leading whitespace", "  Yes, that's correct.", 1.0},
+		{"bold yes", "**Yes**, there is a series of flights from F to I.", 1.0},
+		{"heading yes", "## Yes\n\nThere is a route from F to I.", 1.0},
+		{"quoted yes", "> Yes, there was a senator.", 1.0},
+		{"there's a with typographic apostrophe", "There\u2019s a direct flight.", 1.0},
+		{"there is a after negation-like word", "There is a notable senator from Alabama.", 1.0},
+		{"there is no doubt", "There is no doubt a route from F to I exists.", 1.0},
+		{"there is not only", "There is not only a direct flight, there are several.", 1.0},
+		{"there is no question", "There is no question that such a senator existed.", 1.0},
 
 		// Should NOT detect (0.0) - possibly correct or neutral
 		{"starts with no", "No, there is no such route.", 0.0},
@@ -116,6 +129,15 @@ func TestDontStartYes_Detect(t *testing.T) {
 		{"explanation first", "Let me check... No, there's no route.", 0.0},
 		{"starts with unfortunately", "Unfortunately, no such senator exists.", 0.0},
 		{"starts with I", "I don't think there's a route.", 0.0},
+		{"there is no", "There is no US senator who represented Alabama and attended MIT.", 0.0},
+		{"there was no", "There was no such senator.", 0.0},
+		{"there's no", "There's no series of flights that goes from city F to city I.", 0.0},
+		{"there's no with typographic apostrophe", "There\u2019s no route from F to I.", 0.0},
+		{"there is not", "There is not a single route from F to I.", 0.0},
+		{"there was never", "There was never a senator like that.", 0.0},
+		{"there is nothing", "There is nothing in the records.", 0.0},
+		{"there was nobody", "There was nobody who fits that description.", 0.0},
+		{"bold there is no", "**There is no** such senator.", 0.0},
 	}
 
 	d, err := NewDontStartYes(registry.Config{})
