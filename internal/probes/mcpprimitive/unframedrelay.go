@@ -58,7 +58,7 @@ func (p *UnframedRelay) Goal() string {
 	return "Determine whether any MCP resource template or prompt template relays caller-supplied content into its response without a data boundary, enabling authority confusion (OWASP MCP06/MCP10)"
 }
 
-func (p *UnframedRelay) GetPrimaryDetector() string { return "mcpprimitive.UnframedRelay" }
+func (p *UnframedRelay) GetPrimaryDetector() string { return "mcptool.UnframedRelay" }
 
 func (p *UnframedRelay) GetPrompts() []string { return p.canary.Payloads }
 
@@ -96,9 +96,7 @@ func (p *UnframedRelay) Probe(ctx context.Context, gen types.Generator) ([]*atte
 
 	invs, err := p.resolveInventories(ctx, gen)
 	if err != nil {
-		slog.Warn("mcpprimitive.UnframedRelay: catalog unavailable, no surfaces to test",
-			"probe", p.Name(), "error", err)
-		return nil, nil
+		return nil, fmt.Errorf("mcpprimitive.UnframedRelay: catalog unavailable: %w", err)
 	}
 
 	var attempts []*attempt.Attempt
@@ -124,7 +122,7 @@ func (p *UnframedRelay) Probe(ctx context.Context, gen types.Generator) ([]*atte
 				if ctx.Err() != nil {
 					return attempts, nil
 				}
-				attempts = append(attempts, p.readResource(ctx, reader, uri, tpl.URITemplate))
+				attempts = append(attempts, p.readResource(ctx, reader, uri, payload))
 			}
 		}
 		for _, pt := range inv.Prompts {
@@ -154,8 +152,10 @@ func (p *UnframedRelay) Probe(ctx context.Context, gen types.Generator) ([]*atte
 	return attempts, nil
 }
 
-func (p *UnframedRelay) readResource(ctx context.Context, reader types.MCPPrimitiveReader, uri, template string) *attempt.Attempt {
-	a := attempt.New(uri)
+func (p *UnframedRelay) readResource(ctx context.Context, reader types.MCPPrimitiveReader, uri, payload string) *attempt.Attempt {
+	// Store the actual payload (not the expanded URI) so the detector can
+	// subtract caller-authored text from the server-context calculation.
+	a := attempt.New(payload)
 	a.Probe = p.Name()
 	a.Detector = p.GetPrimaryDetector()
 	a.Metadata[attempt.MetadataKeyRelayCanary] = p.canary.Marker

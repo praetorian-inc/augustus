@@ -89,6 +89,23 @@ func TestUnframedRelayDetector_Scores(t *testing.T) {
 	}
 }
 
+func TestUnframedRelayDetector_RefusalSuppression(t *testing.T) {
+	canary := "[[ AUG_RELAY_test1234567890ab :: BOUNDARY_MARKER ]]"
+
+	a := relayAttempt(canary,
+		"Invalid value "+canary+" for parameter action — please provide a valid option for the tool.")
+	a.Metadata[attempt.MetadataKeyTargetRefused] = true
+
+	d := newRelayDetector(t)
+	scores, err := d.Detect(context.Background(), a)
+	if err != nil {
+		t.Fatalf("Detect: %v", err)
+	}
+	if len(scores) != 1 || scores[0] != 0.0 {
+		t.Errorf("refused attempt should score 0.0, got %v", scores)
+	}
+}
+
 func TestUnframedRelayDetector_MultipleOutputs(t *testing.T) {
 	canary := "[[ AUG_RELAY_abcdef1234567890 :: BOUNDARY_MARKER ]]"
 

@@ -357,7 +357,6 @@
     "malwaregen.AnyCode",
     "mcpprimitive.ContentInjection",
     "mcpprimitive.Injection",
-    "mcpprimitive.UnframedRelay",
     "mcpsecrets.Credential",
     "mcptool.AnnotationMismatch",
     "mcptool.BOLA",

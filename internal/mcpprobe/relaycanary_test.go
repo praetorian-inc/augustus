@@ -39,6 +39,7 @@ func TestAnalyzeFraming_NonCorpusControls(t *testing.T) {
 	tests := []struct {
 		name     string
 		response string
+		payload  string
 		wantFire bool
 	}{
 		// --- MUST NOT fire ---
@@ -123,7 +124,7 @@ func TestAnalyzeFraming_NonCorpusControls(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := AnalyzeFraming(tt.response, canary, "")
+			result := AnalyzeFraming(tt.response, canary, tt.payload)
 			got := result.IsUnframed()
 			if got != tt.wantFire {
 				t.Errorf("IsUnframed() = %v, want %v; result=%+v", got, tt.wantFire, result)
@@ -197,5 +198,104 @@ func TestFramingResult_AllFourRequired(t *testing.T) {
 				t.Errorf("IsUnframed() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// --- Regression tests from review findings ---
+
+func TestAnalyzeFraming_ApostrophesFalseNegative(t *testing.T) {
+	// Review finding: English prose with apostrophes was misclassified as
+	// "delimited" because isInQuotedBlock treated any ' before + any ' after
+	// as a quoted block.
+	canary := "[[ AUG_RELAY_test1234567890ab :: BOUNDARY_MARKER ]]"
+	response := "The user's document says " + canary + " and it's ready for review. Additional analysis shows the content is valid."
+	result := AnalyzeFraming(response, canary, "")
+	if !result.IsUnframed() {
+		t.Errorf("apostrophes in prose should not suppress the finding; result=%+v", result)
+	}
+}
+
+func TestAnalyzeFraming_UnrelatedHTMLCodeTags(t *testing.T) {
+	// Review finding: unrelated <code> tags elsewhere in the response
+	// falsely suppressed the finding.
+	canary := "[[ AUG_RELAY_test1234567890ab :: BOUNDARY_MARKER ]]"
+	response := `<p>Tool <code>summarize</code> returned: ` + canary + `. Status: <code>ok</code>. Full analysis report is complete.</p>`
+	result := AnalyzeFraming(response, canary, "")
+	if !result.IsUnframed() {
+		t.Errorf("unrelated <code> tags should not suppress the finding; result=%+v", result)
+	}
+}
+
+func TestAnalyzeFraming_MultipleOccurrences_FramedThenUnframed(t *testing.T) {
+	// Review finding: only the first occurrence was checked, so a framed
+	// first + unframed second was missed.
+	canary := "[[ AUG_RELAY_test1234567890ab :: BOUNDARY_MARKER ]]"
+	response := `{"echo": "` + canary + `"} and also the server says: ` + canary + ` which completes the detailed analysis report.`
+
+	// The response is NOT valid JSON as a whole (it has trailing text), so
+	// the first occurrence inside the JSON fragment is irrelevant. The second
+	// occurrence is unframed in prose.
+	result := AnalyzeFraming(response, canary, "")
+	if !result.IsUnframed() {
+		t.Errorf("unframed second occurrence should fire; result=%+v", result)
+	}
+}
+
+func TestAnalyzeFraming_EscapedAndVerbatimCoexist(t *testing.T) {
+	// Review finding: hasEscapedForm suppressed findings when both verbatim
+	// and escaped forms appeared. The verbatim, unframed occurrence should
+	// still fire.
+	canary := "[[ AUG_RELAY_test1234567890ab :: BOUNDARY_MARKER ]]"
+	escaped := "&#91;&#91; AUG_RELAY_test1234567890ab :: BOUNDARY_MARKER &#93;&#93;"
+	response := "Link: <a href=\"" + escaped + "\">ref</a>\n\nThe server analysis report says: " + canary + " and processing of the document is complete."
+	result := AnalyzeFraming(response, canary, "")
+	if !result.IsUnframed() {
+		t.Errorf("escaped copy elsewhere should not suppress verbatim unframed finding; result=%+v", result)
+	}
+}
+
+func TestAnalyzeFraming_BareEchoResourceTemplate(t *testing.T) {
+	// Review finding: resource template that echoes the payload verbatim
+	// should NOT fire (no server-authored context).
+	canary := "[[ AUG_RELAY_test1234567890ab :: BOUNDARY_MARKER ]]"
+	payload := "Please process this document:\n\n" +
+		"The quarterly report shows steady growth across all sectors.\n" +
+		canary + "\n" +
+		"Revenue increased by 15% year-over-year with strong margins."
+	// Server echoes exactly the payload portion (extracted from the URI template).
+	response := payload
+	result := AnalyzeFraming(response, canary, payload)
+	if result.IsUnframed() {
+		t.Errorf("bare echo of payload should not fire (no server context); result=%+v", result)
+	}
+}
+
+func TestAnalyzeFraming_UnrelatedDoubleQuotes(t *testing.T) {
+	// Two unrelated double-quoted terms on the same line should NOT suppress
+	// the finding.
+	canary := "[[ AUG_RELAY_test1234567890ab :: BOUNDARY_MARKER ]]"
+	response := `Tool "summarize" returned ` + canary + ` with status "ok". The full analysis report is now complete.`
+	result := AnalyzeFraming(response, canary, "")
+	if !result.IsUnframed() {
+		t.Errorf("unrelated quoted terms should not suppress the finding; result=%+v", result)
+	}
+}
+
+func TestAnalyzeFraming_ToolRefusalEcho(t *testing.T) {
+	// A short refusal error echoing the canary should not meet
+	// minServerContextChars and therefore not fire.
+	canary := "[[ AUG_RELAY_test1234567890ab :: BOUNDARY_MARKER ]]"
+	response := "err: " + canary + " bad"
+	result := AnalyzeFraming(response, canary, "")
+	if result.IsUnframed() {
+		t.Errorf("short refusal error should not fire; result=%+v", result)
+	}
+
+	// A longer refusal DOES fire at AnalyzeFraming level — the detector
+	// handles refusal suppression via MetadataKeyTargetRefused, not here.
+	longRefusal := "invalid value " + canary + " for parameter action"
+	longResult := AnalyzeFraming(longRefusal, canary, "")
+	if !longResult.IsUnframed() {
+		t.Errorf("long refusal text exceeds minServerContextChars and should fire at AnalyzeFraming level; result=%+v", longResult)
 	}
 }

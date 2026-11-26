@@ -58,57 +58,56 @@ func (f FramingResult) IsUnframed() bool {
 // payload is the original text the probe sent — if the response is a verbatim
 // echo of the payload, its text is NOT counted as server context (it came from
 // the caller, not the server).
+//
+// The analysis checks EVERY occurrence of the canary in the response and returns
+// a positive result if ANY occurrence satisfies all four conditions.
 func AnalyzeFraming(response, canary, payload string) FramingResult {
 	if canary == "" || response == "" {
 		return FramingResult{}
 	}
 
-	verbatim := strings.Contains(response, canary)
-	if !verbatim {
+	if !strings.Contains(response, canary) {
 		return FramingResult{}
 	}
 
-	return FramingResult{
-		Verbatim:      true,
-		Unescaped:     !hasEscapedForm(response, canary),
-		Undelimited:   !isDelimited(response, canary),
-		ServerContext: hasServerContext(response, canary, payload),
+	// If the entire response is valid JSON with the canary inside string
+	// values, it is structurally framed regardless of individual occurrences.
+	if isInJSONValue(response, canary) {
+		return FramingResult{Verbatim: true}
 	}
+
+	hasContext := hasServerContext(response, canary, payload)
+
+	// Check each occurrence independently. A framed first occurrence must not
+	// mask an unframed second one.
+	for idx := 0; idx >= 0 && idx <= len(response)-len(canary); {
+		pos := strings.Index(response[idx:], canary)
+		if pos < 0 {
+			break
+		}
+		absPos := idx + pos
+
+		if !isOccurrenceDelimited(response, absPos, len(canary)) && hasContext {
+			return FramingResult{
+				Verbatim:      true,
+				Unescaped:     true,
+				Undelimited:   true,
+				ServerContext: true,
+			}
+		}
+		idx = absPos + len(canary)
+	}
+
+	// No unframed occurrence found. The verbatim canary exists but is framed.
+	return FramingResult{Verbatim: true, Unescaped: true, ServerContext: hasContext}
 }
 
-// hasEscapedForm checks whether the response also contains an escaped version of
-// the canary alongside the verbatim one. The canary contains [, ], :, and spaces
-// — characters that escape mechanisms would transform. If ONLY the verbatim form
-// appears, the server applied no escaping. If an escaped form also appears, the
-// server tried to escape but the verbatim slipped through a different path.
-func hasEscapedForm(response, canary string) bool {
-	escaped := strings.NewReplacer(
-		"[", "&#91;", "]", "&#93;", // HTML entity
-	).Replace(canary)
-	if escaped != canary && strings.Contains(response, escaped) {
-		return true
-	}
-
-	escaped = strings.NewReplacer(
-		"[", "%5B", "]", "%5D", " ", "%20", // URL encoding
-	).Replace(canary)
-	if escaped != canary && strings.Contains(response, escaped) {
-		return true
-	}
-
-	escaped = strings.NewReplacer(
-		"[", "\\[", "]", "\\]", // backslash escaping
-	).Replace(canary)
-	return escaped != canary && strings.Contains(response, escaped)
-}
-
-// isDelimited reports whether the canary sits inside a recognized data frame:
-// a JSON string value, a code fence, a quoted block, or an HTML code/pre tag.
-func isDelimited(response, canary string) bool {
-	return isInJSONValue(response, canary) ||
-		isInCodeFence(response, canary) ||
-		isInQuotedBlock(response, canary) ||
-		isInHTMLCodeTag(response, canary)
+// isOccurrenceDelimited checks whether a specific canary occurrence (at absPos,
+// with length canaryLen) sits inside a recognized data frame.
+func isOccurrenceDelimited(response string, absPos, canaryLen int) bool {
+	return isInCodeFenceAt(response, absPos) ||
+		isInQuotedBlockAt(response, absPos, canaryLen) ||
+		isInHTMLCodeTagAt(response, absPos, canaryLen)
 }
 
 // isInJSONValue returns true when the entire response is valid JSON and the
@@ -118,14 +117,8 @@ func isInJSONValue(response, canary string) bool {
 	if !json.Valid([]byte(trimmed)) {
 		return false
 	}
-	return containsCanaryInJSON(trimmed, canary)
-}
-
-// containsCanaryInJSON walks a JSON value and reports whether the canary
-// appears only inside string values, never at the structural level.
-func containsCanaryInJSON(raw string, canary string) bool {
 	var v any
-	if err := json.Unmarshal([]byte(raw), &v); err != nil {
+	if err := json.Unmarshal([]byte(trimmed), &v); err != nil {
 		return false
 	}
 	return canaryInJSONValue(v, canary)
@@ -151,86 +144,114 @@ func canaryInJSONValue(v any, canary string) bool {
 	return false
 }
 
-// isInCodeFence checks whether the canary appears between paired ``` markers.
-func isInCodeFence(response, canary string) bool {
-	idx := strings.Index(response, canary)
-	if idx < 0 {
-		return false
-	}
-
+// isInCodeFenceAt checks whether the canary at absPos is between paired ```
+// markers. Counts fence markers before the position; an odd count means inside.
+// Also verifies a closing fence exists after.
+func isInCodeFenceAt(response string, absPos int) bool {
+	const fence = "```"
 	fenceCount := 0
 	pos := 0
-	for pos < idx {
-		next := strings.Index(response[pos:], "```")
-		if next < 0 || pos+next >= idx {
+	for pos < absPos {
+		next := strings.Index(response[pos:], fence)
+		if next < 0 || pos+next >= absPos {
 			break
 		}
 		fenceCount++
-		pos += next + 3
+		pos += next + len(fence)
 	}
-	return fenceCount%2 == 1
-}
-
-// isInQuotedBlock checks whether the canary is immediately surrounded by
-// matching quote characters with no intervening newline — a quoted data value.
-func isInQuotedBlock(response, canary string) bool {
-	idx := strings.Index(response, canary)
-	if idx < 0 {
+	if fenceCount%2 == 0 {
 		return false
 	}
-	end := idx + len(canary)
-
-	for _, q := range []byte{'"', '\''} {
-		before := strings.LastIndexByte(response[:idx], q)
-		if before < 0 {
-			continue
-		}
-		if strings.ContainsAny(response[before+1:idx], "\n") {
-			continue
-		}
-		if end < len(response) {
-			after := strings.IndexByte(response[end:], q)
-			if after >= 0 && !strings.ContainsAny(response[end:end+after], "\n") {
-				return true
-			}
-		}
-	}
-	return false
+	// Verify a closing fence exists after the canary.
+	return strings.Contains(response[absPos:], fence)
 }
 
-// htmlCodeTagRE matches opening <pre> or <code> tags, case-insensitive.
-var htmlCodeTagRE = regexp.MustCompile(`(?i)<\s*(pre|code)\b[^>]*>`)
+// isInQuotedBlockAt checks whether the canary at absPos is directly wrapped in
+// double quotes. Single quotes (apostrophes) are NOT treated as delimiters —
+// they are ubiquitous in English prose and cause false negatives.
+//
+// "Directly wrapped" means: a double-quote appears within a short gap before
+// the canary start, and another appears within a short gap after the canary end,
+// with no other double-quote between the opening quote and the canary.
+func isInQuotedBlockAt(response string, absPos, canaryLen int) bool {
+	const maxGap = 5
+	end := absPos + canaryLen
 
-// htmlCodeCloseRE matches closing </pre> or </code> tags, case-insensitive.
-var htmlCodeCloseRE = regexp.MustCompile(`(?i)</\s*(pre|code)\s*>`)
-
-// isInHTMLCodeTag checks whether the canary sits between <pre>/<code> tags.
-func isInHTMLCodeTag(response, canary string) bool {
-	idx := strings.Index(response, canary)
-	if idx < 0 {
+	// Find the nearest " before the canary within maxGap characters.
+	searchStart := absPos - maxGap
+	if searchStart < 0 {
+		searchStart = 0
+	}
+	before := strings.LastIndexByte(response[searchStart:absPos], '"')
+	if before < 0 {
 		return false
 	}
-	end := idx + len(canary)
-
-	opens := htmlCodeTagRE.FindAllStringIndex(response, -1)
-	closes := htmlCodeCloseRE.FindAllStringIndex(response, -1)
-
-	for _, open := range opens {
-		if open[1] > idx {
-			continue
-		}
-		for _, close := range closes {
-			if close[0] >= end && open[1] <= idx {
-				return true
-			}
-		}
+	openPos := searchStart + before
+	// No intervening " between the opening quote and the canary.
+	if strings.ContainsRune(response[openPos+1:absPos], '"') {
+		return false
 	}
-	return false
+
+	// Find the nearest " after the canary within maxGap characters.
+	searchEnd := end + maxGap
+	if searchEnd > len(response) {
+		searchEnd = len(response)
+	}
+	if end >= searchEnd {
+		return false
+	}
+	after := strings.IndexByte(response[end:searchEnd], '"')
+	return after >= 0
+}
+
+// isInHTMLCodeTagAt checks whether the canary at absPos sits inside a
+// <pre>/<code> tag. Single-pass: finds the last opening tag before the canary,
+// then checks whether that tag was already closed before the canary position.
+func isInHTMLCodeTagAt(response string, absPos, canaryLen int) bool {
+	before := response[:absPos]
+	after := response[absPos+canaryLen:]
+
+	// Find the last opening <pre>/<code> before the canary.
+	opens := htmlCodeOpenRE.FindAllStringIndex(before, -1)
+	if len(opens) == 0 {
+		return false
+	}
+	lastOpen := opens[len(opens)-1]
+
+	// Check the region between that opening tag and the canary for a closing
+	// tag of the same element. If found, the tag closed before the canary.
+	between := response[lastOpen[1]:absPos]
+
+	// Extract which element the opening tag matched (pre or code).
+	openMatch := htmlCodeOpenRE.FindStringSubmatch(response[lastOpen[0]:lastOpen[1]])
+	if len(openMatch) < 2 {
+		return false
+	}
+	elem := strings.ToLower(openMatch[1])
+	closePattern := "</" + elem
+	if strings.Contains(strings.ToLower(between), closePattern) {
+		return false
+	}
+
+	// The opening tag is still open at the canary. Verify a matching close
+	// exists after.
+	return strings.Contains(strings.ToLower(after), closePattern)
+}
+
+// htmlCodeOpenRE matches opening <pre> or <code> tags, case-insensitive.
+var htmlCodeOpenRE = htmlCodeTagRE
+
+// Reuse the same compiled pattern under two names for readability.
+var htmlCodeTagRE = compileCodeOpenRE()
+
+func compileCodeOpenRE() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)<\s*(pre|code)\b[^>]*>`)
 }
 
 // minServerContextChars is the minimum number of letter/digit characters in the
-// response (excluding the canary) for the server-context condition to hold. A
-// bare echo or near-bare wrapper must not fire.
+// response (excluding the canary and the caller's payload) for the
+// server-context condition to hold. A bare echo or near-bare wrapper must not
+// fire.
 const minServerContextChars = 20
 
 // hasServerContext reports whether the response contains substantial
