@@ -364,4 +364,10 @@ const (
 	// MetadataKeyPrimitiveMIMEType (string) is the MIME type the server declared for
 	// the first returned content block.
 	MetadataKeyPrimitiveMIMEType = "mcpprimitive.mime_type"
+
+	// MetadataKeyRelayCanary (string) is the relay canary marker the
+	// mcptool.UnframedRelay and mcpprimitive.UnframedRelay probes write into
+	// attempt metadata. The corresponding detectors read it back to run the
+	// four-condition framing analysis.
+	MetadataKeyRelayCanary = "mcptool.relay_canary"
 )
