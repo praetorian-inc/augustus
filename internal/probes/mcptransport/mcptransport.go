@@ -18,12 +18,14 @@
 package mcptransport
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 )
@@ -71,36 +73,47 @@ func buildToolsListPayload(meta map[string]any) ([]byte, error) {
 	return json.Marshal(payload)
 }
 
-// extractToolNames parses a JSON-RPC 2.0 response and extracts tool names
-// from the result.tools array, returning them sorted. An error envelope or
-// missing result is an error.
-func extractToolNames(body []byte) ([]string, error) {
-	trimmed := bytes.TrimSpace(body)
-	if len(trimmed) == 0 {
-		return nil, fmt.Errorf("empty response body")
+// extractToolNames parses a JSON-RPC 2.0 response body (plain JSON or
+// SSE-framed) and extracts tool names from the result.tools array,
+// returned sorted.
+//
+// Returns a *serverRefusedError when the envelope carries a JSON-RPC
+// error field, and a regular error for parse failures or paginated
+// responses (nextCursor present).
+func extractToolNames(body []byte, contentType string) ([]string, error) {
+	jsonBody, err := jsonFromResponse(body, contentType)
+	if err != nil {
+		return nil, err
 	}
+
 	var envelope struct {
 		JSONRPC string          `json:"jsonrpc"`
 		Result  json.RawMessage `json:"result"`
 		Error   json.RawMessage `json:"error"`
 	}
-	if err := json.Unmarshal(trimmed, &envelope); err != nil {
+	if err := json.Unmarshal(jsonBody, &envelope); err != nil {
 		return nil, fmt.Errorf("parse JSON-RPC: %w", err)
 	}
 	if len(envelope.Error) > 0 && string(envelope.Error) != "null" {
-		return nil, fmt.Errorf("server returned error: %s", string(envelope.Error))
+		return nil, &serverRefusedError{msg: string(envelope.Error)}
 	}
 	if len(envelope.Result) == 0 {
 		return nil, fmt.Errorf("no result in response")
 	}
+
 	var result struct {
 		Tools []struct {
 			Name string `json:"name"`
 		} `json:"tools"`
+		NextCursor string `json:"nextCursor"`
 	}
 	if err := json.Unmarshal(envelope.Result, &result); err != nil {
 		return nil, fmt.Errorf("parse tools result: %w", err)
 	}
+	if result.NextCursor != "" {
+		return nil, fmt.Errorf("tools/list response is paginated (nextCursor present); single-request comparison is unreliable")
+	}
+
 	names := make([]string, 0, len(result.Tools))
 	for _, t := range result.Tools {
 		names = append(names, t.Name)
@@ -109,15 +122,50 @@ func extractToolNames(body []byte) ([]string, error) {
 	return names, nil
 }
 
-// toolCatalogsEqual reports whether two sorted tool name slices are identical.
-func toolCatalogsEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
+// serverRefusedError indicates the server returned a JSON-RPC error
+// envelope — it engaged with the request but explicitly refused it.
+type serverRefusedError struct {
+	msg string
+}
+
+func (e *serverRefusedError) Error() string {
+	return fmt.Sprintf("server returned JSON-RPC error: %s", e.msg)
+}
+
+// jsonFromResponse extracts JSON from a response body, handling both
+// plain JSON (application/json) and SSE-framed (text/event-stream)
+// responses.
+func jsonFromResponse(body []byte, contentType string) ([]byte, error) {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return nil, fmt.Errorf("empty response body")
 	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
+	if strings.Contains(strings.ToLower(contentType), "text/event-stream") {
+		return extractSSEJSON(body)
+	}
+	return trimmed, nil
+}
+
+// extractSSEJSON finds the first JSON object in an SSE-framed response
+// by scanning for data: lines. MCP streamable-HTTP sends the JSON-RPC
+// response as a single SSE event.
+func extractSSEJSON(body []byte) ([]byte, error) {
+	scanner := bufio.NewScanner(bytes.NewReader(body))
+	for scanner.Scan() {
+		line := scanner.Text()
+		var data string
+		switch {
+		case strings.HasPrefix(line, "data: "):
+			data = strings.TrimPrefix(line, "data: ")
+		case strings.HasPrefix(line, "data:"):
+			data = strings.TrimPrefix(line, "data:")
+		default:
+			continue
+		}
+		data = strings.TrimSpace(data)
+		if len(data) > 0 && data[0] == '{' {
+			return []byte(data), nil
 		}
 	}
-	return true
+	return nil, fmt.Errorf("no JSON data found in SSE response")
 }

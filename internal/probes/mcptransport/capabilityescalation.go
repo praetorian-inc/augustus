@@ -1,13 +1,7 @@
 package mcptransport
 
 import (
-	"bytes"
 	"context"
-	"fmt"
-	"io"
-	"log/slog"
-	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -36,7 +30,6 @@ var _ types.ProbeMetadata = (*CapabilityEscalation)(nil)
 type CapabilityEscalation struct {
 	endpointOverride string
 	timeout          time.Duration
-	nonce            string
 }
 
 // NewCapabilityEscalation constructs the probe.
@@ -44,7 +37,6 @@ func NewCapabilityEscalation(cfg registry.Config) (probes.Prober, error) {
 	return &CapabilityEscalation{
 		endpointOverride: registry.GetString(cfg, "endpoint", ""),
 		timeout:          time.Duration(registry.GetInt(cfg, "request_timeout", 10)) * time.Second,
-		nonce:            randToken(),
 	}, nil
 }
 
@@ -99,75 +91,6 @@ func (p *CapabilityEscalation) GetPrompts() []string {
 	return []string{"MCP tools/list with varied clientCapabilities (elicitation, tasks, roots, bogus)"}
 }
 
-// capabilityVariant describes one clientCapabilities configuration to test.
-type capabilityVariant struct {
-	class        string
-	label        string
-	capabilities map[string]any
-}
-
-// capabilityVariants returns the set of clientCapabilities configurations to test.
-func (p *CapabilityEscalation) capabilityVariants() []capabilityVariant {
-	return []capabilityVariant{
-		{
-			class: "capability-escalation",
-			label: "elicitation (form + url)",
-			capabilities: map[string]any{
-				"elicitation": map[string]any{
-					"form": map[string]any{},
-					"url":  map[string]any{},
-				},
-			},
-		},
-		{
-			class: "capability-escalation",
-			label: "extensions/tasks",
-			capabilities: map[string]any{
-				"extensions": map[string]any{
-					"io.modelcontextprotocol/tasks": map[string]any{},
-				},
-			},
-		},
-		{
-			class: "capability-escalation",
-			label: "roots (listChanged)",
-			capabilities: map[string]any{
-				"roots": map[string]any{
-					"listChanged": true,
-				},
-			},
-		},
-		{
-			class: "capability-all",
-			label: "all capabilities declared",
-			capabilities: map[string]any{
-				"elicitation": map[string]any{
-					"form": map[string]any{},
-					"url":  map[string]any{},
-				},
-				"roots": map[string]any{
-					"listChanged": true,
-				},
-				"sampling": map[string]any{},
-				"extensions": map[string]any{
-					"io.modelcontextprotocol/tasks": map[string]any{},
-				},
-			},
-		},
-		{
-			class: "capability-bogus",
-			label: "bogus admin/debug extensions",
-			capabilities: map[string]any{
-				"extensions": map[string]any{
-					"io.modelcontextprotocol/admin": map[string]any{},
-					"io.modelcontextprotocol/debug": map[string]any{},
-				},
-			},
-		},
-	}
-}
-
-// buildMeta constructs the _meta fields with the given clientCapabilities.
 func (p *CapabilityEscalation) buildMeta(capabilities map[string]any) map[string]any {
 	return map[string]any{
 		"io.modelcontextprotocol/protocolVersion": "2026-07-28",
@@ -179,143 +102,81 @@ func (p *CapabilityEscalation) buildMeta(capabilities map[string]any) map[string
 	}
 }
 
+func (p *CapabilityEscalation) capabilityVariants() []differentialVariant {
+	return []differentialVariant{
+		{
+			class: "capability-escalation",
+			label: "elicitation (form + url)",
+			meta: p.buildMeta(map[string]any{
+				"elicitation": map[string]any{
+					"form": map[string]any{},
+					"url":  map[string]any{},
+				},
+			}),
+		},
+		{
+			class: "capability-escalation",
+			label: "extensions/tasks",
+			meta: p.buildMeta(map[string]any{
+				"extensions": map[string]any{
+					"io.modelcontextprotocol/tasks": map[string]any{},
+				},
+			}),
+		},
+		{
+			class: "capability-escalation",
+			label: "roots (listChanged)",
+			meta: p.buildMeta(map[string]any{
+				"roots": map[string]any{
+					"listChanged": true,
+				},
+			}),
+		},
+		{
+			class: "capability-all",
+			label: "all capabilities declared",
+			meta: p.buildMeta(map[string]any{
+				"elicitation": map[string]any{
+					"form": map[string]any{},
+					"url":  map[string]any{},
+				},
+				"roots": map[string]any{
+					"listChanged": true,
+				},
+				"sampling": map[string]any{},
+				"extensions": map[string]any{
+					"io.modelcontextprotocol/tasks": map[string]any{},
+				},
+			}),
+		},
+		{
+			class: "capability-bogus",
+			label: "bogus admin/debug extensions",
+			meta: p.buildMeta(map[string]any{
+				"extensions": map[string]any{
+					"io.modelcontextprotocol/admin": map[string]any{},
+					"io.modelcontextprotocol/debug": map[string]any{},
+				},
+			}),
+		},
+	}
+}
+
 // Probe resolves the endpoint and runs the capability escalation sweep.
 func (p *CapabilityEscalation) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
-	endpoint := p.resolveEndpoint(gen)
-	if endpoint == "" {
-		return nil, nil
-	}
-	u, err := url.Parse(endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("mcptransport.CapabilityEscalation: parse endpoint %q: %w", endpoint, err)
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		slog.Warn("mcptransport.CapabilityEscalation: skipping non-HTTP transport", "endpoint", endpoint)
-		return nil, nil
-	}
-
-	client, err := p.borrowHTTPClient(gen)
+	endpoint, client, err := initSweep(p.Name(), p.endpointOverride, p.timeout, gen)
 	if err != nil {
 		return nil, err
 	}
-	var attempts []*attempt.Attempt
-
-	// 1. Baseline: empty clientCapabilities.
-	baselineMeta := p.buildMeta(map[string]any{})
-	baselineTools, baselineResp, baselineErr := p.sendToolsList(ctx, client, endpoint, baselineMeta)
-	baseAttempt := p.recordAttempt("baseline", "empty clientCapabilities baseline", baselineTools, baselineTools, baselineResp, baselineErr, false)
-	attempts = append(attempts, baseAttempt)
-
-	if baselineErr != nil {
-		slog.Info("mcptransport.CapabilityEscalation: baseline failed; cannot compare variants",
-			"endpoint", endpoint, "err", baselineErr)
-		return attempts, nil
+	if endpoint == "" {
+		return nil, nil
 	}
-
-	// 2. Variants.
-	for _, v := range p.capabilityVariants() {
-		variantMeta := p.buildMeta(v.capabilities)
-		variantTools, variantResp, variantErr := p.sendToolsList(ctx, client, endpoint, variantMeta)
-		a := p.recordAttempt(v.class, v.label, baselineTools, variantTools, variantResp, variantErr, true)
-		attempts = append(attempts, a)
-	}
-
-	return attempts, nil
-}
-
-// sendToolsList sends a tools/list JSON-RPC request with the given _meta.
-func (p *CapabilityEscalation) sendToolsList(ctx context.Context, client *http.Client, endpoint string, meta map[string]any) ([]string, string, error) {
-	payload, err := buildToolsListPayload(meta)
-	if err != nil {
-		return nil, "", fmt.Errorf("build payload: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(payload))
-	if err != nil {
-		return nil, "", fmt.Errorf("build request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json, text/event-stream")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, "", fmt.Errorf("POST %s: %w", endpoint, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
-	transcript := fmt.Sprintf("POST %s -> HTTP %d\nContent-Type: %s\n%s", endpoint, resp.StatusCode, resp.Header.Get("Content-Type"), string(body))
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, transcript, fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
-	}
-
-	tools, err := extractToolNames(body)
-	if err != nil {
-		return nil, transcript, fmt.Errorf("extract tools: %w", err)
-	}
-	return tools, transcript, nil
-}
-
-// recordAttempt creates an attempt from a variant result.
-func (p *CapabilityEscalation) recordAttempt(class, label string, baseline, variant []string, transcript string, err error, isVariant bool) *attempt.Attempt {
-	a := attempt.New(fmt.Sprintf("[%s] %s", class, label))
-	a.Probe = p.Name()
-	a.Detector = p.GetPrimaryDetector()
-	a.Metadata[attempt.MetadataKeyMetadataInjectionClass] = class
-	a.Metadata[attempt.MetadataKeyMetadataInjectionBaselineTools] = len(baseline)
-
-	if err != nil {
-		a.SetError(err)
-		return a
-	}
-
-	a.Metadata[attempt.MetadataKeyMetadataInjectionVariantTools] = len(variant)
-
-	if isVariant {
-		differential := !toolCatalogsEqual(baseline, variant)
-		a.Metadata[attempt.MetadataKeyMetadataInjectionDifferential] = differential
-		if differential {
-			a.AddOutput(fmt.Sprintf("Server returned different tools for %s.\n"+
-				"Baseline: %d tools %v\nVariant:  %d tools %v\n\n%s",
-				label, len(baseline), baseline, len(variant), variant, transcript))
-		} else {
-			a.AddOutput(fmt.Sprintf("Server returned identical tools for %s: %d tools.\n\n%s",
-				label, len(variant), transcript))
-		}
-	} else {
-		a.AddOutput(fmt.Sprintf("Baseline tools/list returned %d tools: %v\n\n%s",
-			len(variant), variant, transcript))
-	}
-	a.Complete()
-	return a
-}
-
-// resolveEndpoint returns the endpoint URL from probe config or generator.
-func (p *CapabilityEscalation) resolveEndpoint(gen types.Generator) string {
-	if p.endpointOverride != "" {
-		return p.endpointOverride
-	}
-	if mcpEnd, ok := gen.(types.MCPEndpoint); ok {
-		return mcpEnd.EndpointURL()
-	}
-	return ""
-}
-
-// borrowHTTPClient returns the generator's http.Client with this probe's timeout.
-func (p *CapabilityEscalation) borrowHTTPClient(gen types.Generator) (*http.Client, error) {
-	timeout := p.timeout
-	if timeout <= 0 {
-		timeout = 10 * time.Second
-	}
-	noRedirect := func(_ *http.Request, _ []*http.Request) error {
-		return http.ErrUseLastResponse
-	}
-	if end, ok := gen.(types.MCPEndpoint); ok {
-		client := end.HTTPClient()
-		client.Timeout = timeout
-		client.CheckRedirect = noRedirect
-		return client, nil
-	}
-	return &http.Client{Timeout: timeout, CheckRedirect: noRedirect}, nil
+	return runDifferentialSweep(ctx, sweepParams{
+		probeName:    p.Name(),
+		detectorName: p.GetPrimaryDetector(),
+		endpoint:     endpoint,
+		client:       client,
+		baselineMeta: p.buildMeta(map[string]any{}),
+		variants:     p.capabilityVariants(),
+	}), nil
 }

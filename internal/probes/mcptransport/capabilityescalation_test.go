@@ -90,6 +90,36 @@ func bogusCapabilityGatingServer(t *testing.T) *httptest.Server {
 	}))
 }
 
+// jsonRPCErrorServer returns a JSON-RPC error envelope for non-baseline requests.
+func jsonRPCErrorServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	baseTools := toolsListResponse("read_file")
+	errorResp := []byte(`{"jsonrpc":"2.0","id":1,"error":{"code":-32600,"message":"unsupported capabilities"}}`)
+
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct {
+			Params struct {
+				Meta map[string]json.RawMessage `json:"_meta"`
+			} `json:"params"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(baseTools)
+			return
+		}
+		if raw, ok := req.Params.Meta["io.modelcontextprotocol/clientCapabilities"]; ok {
+			var caps map[string]any
+			if json.Unmarshal(raw, &caps) == nil && len(caps) > 0 {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write(errorResp)
+				return
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(baseTools)
+	}))
+}
+
 // --- registration test ---
 
 func TestCapabilityEscalation_Registration(t *testing.T) {
@@ -137,7 +167,7 @@ func TestCapabilityEscalation_UniformServer_NoDifferential(t *testing.T) {
 		if classStr == "baseline" {
 			continue
 		}
-		if metaBool(a, attempt.MetadataKeyMetadataInjectionDifferential) {
+		if metaBoolStub(a, attempt.MetadataKeyMetadataInjectionDifferential) {
 			t.Errorf("variant %q unexpectedly shows a differential on a uniform server", a.Prompt)
 		}
 	}
@@ -159,11 +189,10 @@ func TestCapabilityEscalation_ElicitationGating_Differential(t *testing.T) {
 		t.Fatalf("Probe: %v", err)
 	}
 
-	// The elicitation variant should show a differential.
 	found := false
 	for _, a := range attempts {
 		if strings.Contains(a.Prompt, "elicitation") {
-			if !metaBool(a, attempt.MetadataKeyMetadataInjectionDifferential) {
+			if !metaBoolStub(a, attempt.MetadataKeyMetadataInjectionDifferential) {
 				t.Errorf("elicitation variant should show a differential")
 			}
 			found = true
@@ -173,10 +202,9 @@ func TestCapabilityEscalation_ElicitationGating_Differential(t *testing.T) {
 		t.Fatal("expected an elicitation variant attempt")
 	}
 
-	// The "all capabilities" variant also includes elicitation, so it should fire too.
 	for _, a := range attempts {
 		if strings.Contains(a.Prompt, "all capabilities") {
-			if !metaBool(a, attempt.MetadataKeyMetadataInjectionDifferential) {
+			if !metaBoolStub(a, attempt.MetadataKeyMetadataInjectionDifferential) {
 				t.Errorf("all-capabilities variant should show a differential (includes elicitation)")
 			}
 		}
@@ -197,11 +225,10 @@ func TestCapabilityEscalation_BogusCapability_Differential(t *testing.T) {
 		t.Fatalf("Probe: %v", err)
 	}
 
-	// The bogus admin/debug variant should show a differential.
 	found := false
 	for _, a := range attempts {
 		if strings.Contains(a.Prompt, "bogus") {
-			if !metaBool(a, attempt.MetadataKeyMetadataInjectionDifferential) {
+			if !metaBoolStub(a, attempt.MetadataKeyMetadataInjectionDifferential) {
 				t.Errorf("bogus capability variant should show a differential")
 			}
 			found = true
@@ -209,6 +236,32 @@ func TestCapabilityEscalation_BogusCapability_Differential(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("expected a bogus capability variant attempt")
+	}
+}
+
+// --- refusal test ---
+
+func TestCapabilityEscalation_JSONRPCRefusal_NonDifferential(t *testing.T) {
+	srv := jsonRPCErrorServer(t)
+	defer srv.Close()
+
+	p := newCapabilityEscalationProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+
+	if len(attempts) < 2 {
+		t.Fatalf("expected at least 2 attempts, got %d", len(attempts))
+	}
+
+	for _, a := range attempts {
+		if a.Status == attempt.StatusError {
+			t.Errorf("JSON-RPC refusal %q should not be StatusError", a.Prompt)
+		}
+		if metaBoolStub(a, attempt.MetadataKeyMetadataInjectionDifferential) {
+			t.Errorf("JSON-RPC refusal %q should not show differential", a.Prompt)
+		}
 	}
 }
 
