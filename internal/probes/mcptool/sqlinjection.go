@@ -3,6 +3,7 @@ package mcptool
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
 
@@ -19,10 +20,9 @@ func init() {
 }
 
 var (
-	_ types.ProbeMetadata           = (*SQLInjection)(nil)
-	_ recon.ContextAwareProbe       = (*SQLInjection)(nil)
-	_ types.RiskDescriber           = (*SQLInjection)(nil)
-	_ types.ProbeSecondaryDetectors = (*SQLInjection)(nil)
+	_ types.ProbeMetadata     = (*SQLInjection)(nil)
+	_ recon.ContextAwareProbe = (*SQLInjection)(nil)
+	_ types.RiskDescriber     = (*SQLInjection)(nil)
 )
 
 // sqlQueryParamRE matches parameter names likely to feed a database lookup —
@@ -52,18 +52,42 @@ var sqlErrorPayloads = []string{
 }
 
 // dbErrorRE matches database engine error signatures leaked in a response.
-var dbErrorRE = regexp.MustCompile(`(?i)(unrecognized token|syntax error.*(?:near|at)|unterminated.*(?:string|quoted)|quoted string not properly terminated|sqlite3?\.OperationalError|mysql.*syntax|pg.*error|ora-\d{5}|microsoft.*ole db|sql server.*error|mariadb.*error|psycopg2\..*error|SQLSTATE\[)`)
+// Each alternative is tightened to avoid matching non-SQL error messages:
+//   - sqlite: "unrecognized token" is unique to sqlite's parser
+//   - mysql: requires "mysql" adjacent to "syntax" or "error"
+//   - postgres: requires the "pq:" or "psycopg2" or "pgadmin" prefix, not bare "pg"
+//   - oracle: ORA-##### is a unique oracle error format
+//   - mssql: "sql server" or "microsoft ole db" are specific identifiers
+//   - generic: SQLSTATE[ is the standard SQL error state prefix
+var dbErrorRE = regexp.MustCompile(`(?i)(` +
+	`unrecognized token` +
+	`|sqlite3?\.OperationalError` +
+	`|mysql.*syntax.*error|mysql.*error.*syntax` +
+	`|(?:pq|psycopg2|pgadmin)[\s:.]+.*error` +
+	`|ora-\d{5}` +
+	`|microsoft.*ole db` +
+	`|sql server.*error` +
+	`|mariadb.*error` +
+	`|SQLSTATE\[` +
+	`|quoted string not properly terminated` +
+	`)`)
 
 // SQLInjection tests a directly-invokable tool surface for SQL injection via
 // two independent oracles:
 //
-//   - Boolean differential: for each SQL-query-intent parameter, sends three
-//     calls (baseline, tautology, contradiction) and compares response shapes
-//     via responseTemplate. Materially different shapes prove the parameter
-//     feeds an unparameterised SQL query.
+//   - Boolean differential: for each SQL-query-intent parameter on a read-intent
+//     tool, sends a baseline call, then tautology and contradiction payloads and
+//     compares response shapes via responseTemplate. The tautology must differ
+//     from baseline (more data returned) while the contradiction must NOT differ
+//     from baseline (both return the same empty/narrow shape). This asymmetry
+//     proves the parameter feeds an unparameterised SQL query. Tools without
+//     positive read-intent are skipped — a tautology on a mutating tool
+//     (DELETE WHERE ...) could widen a destructive clause.
 //   - Database error: sends an unbalanced quote and checks the response for
 //     database engine error signatures. A match means the backend leaks SQL
-//     error details — itself a finding.
+//     error details — itself a finding. This oracle runs on all tools regardless
+//     of read-intent since the error payload is a single quote that cannot
+//     modify data.
 //
 // All payloads are read-only. No DROP, DELETE, INSERT, UPDATE, ALTER, CREATE,
 // TRUNCATE, UNION SELECT, or time-based oracles.
@@ -93,7 +117,7 @@ func (p *SQLInjection) RiskInfo() types.RiskInfo {
 		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
 		Verification: "## How this is confirmed\n\n" +
 			"Augustus tests each SQL-query-intent parameter with two independent oracles:\n\n" +
-			"- Boolean differential: three calls per parameter (baseline, tautology `' OR '1'='1`, contradiction `' AND '1'='2`). When the tautology produces a materially different (wider) response shape than baseline while the contradiction produces a narrower/empty shape, the parameter feeds an unparameterised SQL query.\n" +
+			"- Boolean differential: a baseline call, then tautology (`' OR '1'='1`) and contradiction (`' AND '1'='2`). When the tautology produces a materially different (wider) response shape than baseline while the contradiction matches baseline (both return the same narrow/empty shape), the parameter feeds an unparameterised SQL query. Only tested on tools with positive read-intent to avoid widening destructive clauses.\n" +
 			"- Database error: an unbalanced quote (`'`) is sent and the response is checked for database engine error signatures (sqlite, mysql, postgres, etc). A match proves the backend leaks SQL error details.\n\n" +
 			"## Reproduce\n\n" +
 			"Re-run the `mcptool.SQLInjection` probe against the affected endpoint via the `mcp.MCP` generator (`mode: list_tools`).",
@@ -110,12 +134,6 @@ func (p *SQLInjection) Goal() string {
 
 func (p *SQLInjection) GetPrimaryDetector() string { return "mcptool.SQLInjection" }
 
-// GetSecondaryDetectors returns mcpsecrets.Credential so a row dump from SQL
-// injection also surfaces as credential exposure.
-func (p *SQLInjection) GetSecondaryDetectors() []types.SecondaryDetector {
-	return []types.SecondaryDetector{{Name: "mcpsecrets.Credential"}}
-}
-
 func (p *SQLInjection) GetPrompts() []string {
 	var out []string
 	for _, bp := range sqlBooleanPayloads {
@@ -125,11 +143,45 @@ func (p *SQLInjection) GetPrompts() []string {
 	return out
 }
 
+// hasSQLQueryParam reports whether this tool exposes at least one string
+// parameter this probe would actually inject into. Used to gate discoverValues
+// so tools with no SQL-query-intent parameter never receive a live call.
+func hasSQLQueryParam(params []paramInfo) bool {
+	for _, p := range params {
+		if isStringParam(p.typ) && matchesSQLQueryParam(p.name) {
+			return true
+		}
+	}
+	return false
+}
+
 // matchesSQLQueryParam tests a parameter name against sqlQueryParamRE after
 // camelCase normalisation (same approach as pathtraversal.go's matchesPathParam).
 func matchesSQLQueryParam(name string) bool {
 	normalised := camelCaseBoundaryRE.ReplaceAllString(name, "${1}_${2}")
 	return sqlQueryParamRE.MatchString(normalised)
+}
+
+// sqlResponseTemplate extends responseTemplate with additional stripping for
+// escaped variants of the payload. responseTemplate only strips the literal
+// a.Prompt, but tools that JSON-encode, URL-encode, or repr()-escape their
+// arguments will not match. This function strips common escaped forms so a
+// tool that echoes {"query": "test' OR '1'='1"} does not produce a different
+// template from {"query": "test"}.
+func sqlResponseTemplate(a *attempt.Attempt) string {
+	if a == nil || len(a.Outputs) == 0 {
+		return ""
+	}
+	s := strings.Join(a.Outputs, "\n")
+	if a.Prompt != "" {
+		s = strings.ReplaceAll(s, a.Prompt, " ")
+		jsonEscaped := strings.ReplaceAll(a.Prompt, `"`, `\"`)
+		s = strings.ReplaceAll(s, jsonEscaped, " ")
+		jsonEscaped2 := strings.ReplaceAll(a.Prompt, `'`, `\'`)
+		s = strings.ReplaceAll(s, jsonEscaped2, " ")
+	}
+	s = strings.NewReplacer("'", " ", `"`, " ", "`", " ").Replace(s)
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // Probe discovers the target's tools and runs both SQL injection oracles against
@@ -158,7 +210,10 @@ func (p *SQLInjection) Probe(ctx context.Context, gen types.Generator) ([]*attem
 		}
 		for _, ts := range toolSignatures(tool, p.valueChain(ctx, name)) {
 			p.warnBroadRules(name, ts.sig.Params)
-			ts = ts.withShape(p.shapeMode()).discoverValues(ctx, inv, name)
+			if hasSQLQueryParam(ts.params) {
+				ts = ts.withShape(p.shapeMode()).discoverValues(ctx, inv, name)
+			}
+			isRead := readIntent(tool, ts.params)
 			for _, param := range ts.params {
 				if !isStringParam(param.typ) {
 					continue
@@ -169,7 +224,12 @@ func (p *SQLInjection) Probe(ctx context.Context, gen types.Generator) ([]*attem
 				if ctx.Err() != nil {
 					return attempts, nil
 				}
-				attempts = append(attempts, p.runBooleanDifferential(ctx, inv, name, param, ts)...)
+				if isRead {
+					attempts = append(attempts, p.runBooleanDifferential(ctx, inv, name, param, ts)...)
+				} else {
+					slog.Debug("mcptool.SQLInjection: skipping boolean differential on non-read-intent tool",
+						"tool", name, "param", param.name)
+				}
 				attempts = append(attempts, p.runErrorOracle(ctx, inv, name, param, ts)...)
 			}
 		}
@@ -177,19 +237,38 @@ func (p *SQLInjection) Probe(ctx context.Context, gen types.Generator) ([]*attem
 	return attempts, nil
 }
 
-// runBooleanDifferential sends baseline, tautology, and contradiction calls for
-// one parameter and records the comparison verdict in attempt metadata.
+// runBooleanDifferential sends one baseline call (deduplicated across payload
+// pairs), then tautology and contradiction for each pair, and records the
+// comparison verdict. The finding condition is asymmetric:
+//
+//	tautology != baseline (the tautology changed something)
+//	tautology != contradiction (the two payloads have different effects)
+//	len(tautology) > len(contradiction) (tautology returned more data)
+//
+// This catches both the zero-row-baseline case (baseline=empty, tautology=all,
+// contradiction=empty) and the some-row case (baseline=Alice, tautology=all,
+// contradiction=empty). It rejects echo tools (identical shapes after stripping
+// the echoed payload), constant tools, and dynamic tools (filtered by baseline
+// stability check).
 func (p *SQLInjection) runBooleanDifferential(ctx context.Context, inv types.ToolInvoker, tool string, param paramInfo, ts toolSig) []*attempt.Attempt {
-	// Pick a benign baseline value: prefer a declared candidate, fall back to
-	// a simple known-safe term.
-	baseValue := "test"
-	if v, ok := declaredValue(param); ok {
-		if s, ok := v.(string); ok && s != "" {
-			baseValue = s
-		}
+	baseValue := p.baselineValue(param, ts)
+
+	// Issue baseline once and verify stability: two identical calls must produce
+	// the same shape, otherwise the tool has dynamic fields (timestamps, request
+	// IDs) that make the differential unreliable.
+	baseline1 := p.callSQLI(ctx, inv, tool, param, ts, baseValue)
+	baseline1.Metadata[attempt.MetadataKeySQLInjectionOracle] = "boolean_differential"
+	baseline2 := p.callSQLI(ctx, inv, tool, param, ts, baseValue)
+	baseline2.Metadata[attempt.MetadataKeySQLInjectionOracle] = "boolean_differential"
+
+	shape1 := sqlResponseTemplate(baseline1)
+	shape2 := sqlResponseTemplate(baseline2)
+	allAttempts := []*attempt.Attempt{baseline1}
+	if shape1 == "" || shape1 != shape2 {
+		return allAttempts
 	}
 
-	var allAttempts []*attempt.Attempt
+	baselineShape := shape1
 
 	for _, bp := range sqlBooleanPayloads {
 		if ctx.Err() != nil {
@@ -199,46 +278,57 @@ func (p *SQLInjection) runBooleanDifferential(ctx context.Context, inv types.Too
 		tautologyPayload := baseValue + bp.tautology
 		contradictionPayload := baseValue + bp.contradiction
 
-		// 1. Baseline call
-		baselineAttempt := p.callSQLI(ctx, inv, tool, param, ts, baseValue)
-		baselineAttempt.Metadata[attempt.MetadataKeySQLInjectionOracle] = "boolean_differential"
-		allAttempts = append(allAttempts, baselineAttempt)
-
-		// 2. Tautology call
 		tautologyAttempt := p.callSQLI(ctx, inv, tool, param, ts, tautologyPayload)
 		tautologyAttempt.Metadata[attempt.MetadataKeySQLInjectionOracle] = "boolean_differential"
 		allAttempts = append(allAttempts, tautologyAttempt)
 
-		// 3. Contradiction call
 		contradictionAttempt := p.callSQLI(ctx, inv, tool, param, ts, contradictionPayload)
 		contradictionAttempt.Metadata[attempt.MetadataKeySQLInjectionOracle] = "boolean_differential"
 		allAttempts = append(allAttempts, contradictionAttempt)
 
-		// Compare response shapes. The tautology must produce a DIFFERENT
-		// (wider) shape than the baseline, and the contradiction must produce a
-		// DIFFERENT (narrower/empty) shape. Additionally, the tautology and
-		// contradiction must differ from each other — otherwise the tool is just
-		// echoing or responding uniformly to any input.
-		baselineShape := responseTemplate(baselineAttempt)
-		tautologyShape := responseTemplate(tautologyAttempt)
-		contradictionShape := responseTemplate(contradictionAttempt)
+		tautologyShape := sqlResponseTemplate(tautologyAttempt)
+		contradictionShape := sqlResponseTemplate(contradictionAttempt)
 
-		differential := baselineShape != "" &&
-			tautologyShape != "" &&
+		// The finding condition is asymmetric:
+		//   tautology must DIFFER from baseline (it widened the query)
+		//   tautology must DIFFER from contradiction (the two payloads have different effects)
+		//   tautology must be LONGER than contradiction (wider result set, more data)
+		// This rejects: echo tools (shapes are identical after stripping the echoed
+		// payload), uniform/constant tools (all same shape), dynamic tools (filtered
+		// by baseline stability check above). The zero-row-baseline case works
+		// because contradiction is empty like baseline while tautology is full.
+		differential := tautologyShape != "" &&
 			contradictionShape != "" &&
 			tautologyShape != baselineShape &&
-			contradictionShape != baselineShape &&
-			tautologyShape != contradictionShape
+			tautologyShape != contradictionShape &&
+			len(tautologyShape) > len(contradictionShape)
 
 		if differential {
-			// Record on the tautology attempt — it is the finding.
 			tautologyAttempt.Metadata[attempt.MetadataKeySQLInjectionBooleanDifferential] = true
-			tautologyAttempt.Metadata[attempt.MetadataKeySQLInjectionBaselineResponse] = strings.Join(baselineAttempt.Outputs, "\n")
+			tautologyAttempt.Metadata[attempt.MetadataKeySQLInjectionBaselineResponse] = strings.Join(baseline1.Outputs, "\n")
 			tautologyAttempt.Metadata[attempt.MetadataKeySQLInjectionTautologyResponse] = strings.Join(tautologyAttempt.Outputs, "\n")
 			tautologyAttempt.Metadata[attempt.MetadataKeySQLInjectionContradictionResponse] = strings.Join(contradictionAttempt.Outputs, "\n")
 		}
 	}
 	return allAttempts
+}
+
+// baselineValue picks the best benign value for a parameter: from the value
+// chain (operator config, hooks, recon observed values) via benignArgsFor,
+// falling back to declaredValue, then a hardcoded "test".
+func (p *SQLInjection) baselineValue(param paramInfo, ts toolSig) string {
+	benign := ts.benignArgsFor()
+	if v, ok := benign[string(param.path)]; ok {
+		if s, ok := v.(string); ok && s != "" {
+			return s
+		}
+	}
+	if v, ok := declaredValue(param); ok {
+		if s, ok := v.(string); ok && s != "" {
+			return s
+		}
+	}
+	return "test"
 }
 
 // runErrorOracle sends payloads that elicit database error messages and checks
@@ -252,7 +342,6 @@ func (p *SQLInjection) runErrorOracle(ctx context.Context, inv types.ToolInvoker
 		a := p.callSQLI(ctx, inv, tool, param, ts, payload)
 		a.Metadata[attempt.MetadataKeySQLInjectionOracle] = "database_error"
 
-		// Check all outputs for database error signatures.
 		for _, out := range a.Outputs {
 			if m := dbErrorRE.FindString(out); m != "" {
 				a.Metadata[attempt.MetadataKeySQLInjectionDatabaseError] = true

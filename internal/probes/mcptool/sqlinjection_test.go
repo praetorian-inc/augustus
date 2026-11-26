@@ -52,20 +52,14 @@ func TestSQLInjection_BooleanDifferential(t *testing.T) {
 		tools: []map[string]any{stringTool("search", "query")},
 		call: func(_ string, args map[string]any) types.ToolResult {
 			q, _ := args["query"].(string)
-			// Simulate an unparameterised SQL query:
-			// tautology gets more results, contradiction gets nothing.
 			switch {
-			case strings.Contains(q, "OR '1'='1"):
+			case strings.Contains(q, "OR '1'='1"),
+				strings.Contains(q, "OR \"1\"=\"1"),
+				strings.Contains(q, "OR 1=1--"):
 				return types.ToolResult{Text: "Result: Alice, Bob, Charlie, Dave, Eve"}
-			case strings.Contains(q, "AND '1'='2"):
-				return types.ToolResult{Text: "No results found"}
-			case strings.Contains(q, "OR \"1\"=\"1"):
-				return types.ToolResult{Text: "Result: Alice, Bob, Charlie, Dave, Eve"}
-			case strings.Contains(q, "AND \"1\"=\"2"):
-				return types.ToolResult{Text: "No results found"}
-			case strings.Contains(q, "OR 1=1--"):
-				return types.ToolResult{Text: "Result: Alice, Bob, Charlie, Dave, Eve"}
-			case strings.Contains(q, "AND 1=2--"):
+			case strings.Contains(q, "AND '1'='2"),
+				strings.Contains(q, "AND \"1\"=\"2"),
+				strings.Contains(q, "AND 1=2--"):
 				return types.ToolResult{Text: "No results found"}
 			default:
 				return types.ToolResult{Text: "Result: Alice"}
@@ -77,12 +71,10 @@ func TestSQLInjection_BooleanDifferential(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, attempts)
 
-	// At least one attempt should have the boolean differential confirmed.
 	var found bool
 	for _, a := range attempts {
 		if metaBool(a, attempt.MetadataKeySQLInjectionBooleanDifferential) {
 			found = true
-			// Verify evidence metadata is present.
 			assert.NotEmpty(t, a.Metadata[attempt.MetadataKeySQLInjectionBaselineResponse])
 			assert.NotEmpty(t, a.Metadata[attempt.MetadataKeySQLInjectionTautologyResponse])
 			assert.NotEmpty(t, a.Metadata[attempt.MetadataKeySQLInjectionContradictionResponse])
@@ -102,9 +94,41 @@ func metaBool(a *attempt.Attempt, key string) bool {
 	return b
 }
 
-// TestSQLInjection_NoFalsePositiveOnEcho: a tool that echoes its input and
-// reports success must NOT fire. The echo response has the same shape regardless
-// of injection, so the boolean differential does not trigger.
+// TestSQLInjection_ZeroRowBaseline: when "test" matches zero rows, the
+// baseline and contradiction are both empty while the tautology returns all
+// rows. The asymmetric check must still fire.
+func TestSQLInjection_ZeroRowBaseline(t *testing.T) {
+	p := newSQLInjectionProbe(t)
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("search", "query")},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			q, _ := args["query"].(string)
+			switch {
+			case strings.Contains(q, "OR '1'='1"),
+				strings.Contains(q, "OR \"1\"=\"1"),
+				strings.Contains(q, "OR 1=1--"):
+				return types.ToolResult{Text: "Result: Alice, Bob, Charlie, Dave, Eve"}
+			default:
+				return types.ToolResult{Text: "No results found"}
+			}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	require.NoError(t, err)
+
+	var found bool
+	for _, a := range attempts {
+		if metaBool(a, attempt.MetadataKeySQLInjectionBooleanDifferential) {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "expected boolean-differential finding even with zero-row baseline")
+}
+
+// TestSQLInjection_NoFalsePositiveOnEcho: a tool that echoes its input must
+// NOT fire. After sqlResponseTemplate strips the payload, all shapes are equal.
 func TestSQLInjection_NoFalsePositiveOnEcho(t *testing.T) {
 	p := newSQLInjectionProbe(t)
 	target := &mockTarget{
@@ -124,6 +148,59 @@ func TestSQLInjection_NoFalsePositiveOnEcho(t *testing.T) {
 		assert.False(t, metaBool(a, attempt.MetadataKeySQLInjectionDatabaseError),
 			"echo tool should not trigger database error")
 	}
+}
+
+// TestSQLInjection_NoFalsePositiveOnJSONEcho: a tool that JSON-encodes its
+// input must NOT fire. sqlResponseTemplate strips escaped payload variants.
+func TestSQLInjection_NoFalsePositiveOnJSONEcho(t *testing.T) {
+	p := newSQLInjectionProbe(t)
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("search", "query")},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			q, _ := args["query"].(string)
+			escaped := strings.ReplaceAll(q, `"`, `\"`)
+			return types.ToolResult{Text: fmt.Sprintf(`{"query": "%s", "results": []}`, escaped)}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	require.NoError(t, err)
+
+	for _, a := range attempts {
+		assert.False(t, metaBool(a, attempt.MetadataKeySQLInjectionBooleanDifferential),
+			"JSON-echo tool should not trigger boolean differential")
+	}
+}
+
+// TestSQLInjection_SkipsBooleanOnNonReadTool: boolean differential must be
+// skipped on tools that are not classified as read-intent, to avoid widening
+// a mutating clause (DELETE WHERE ... OR '1'='1').
+func TestSQLInjection_SkipsBooleanOnNonReadTool(t *testing.T) {
+	p := newSQLInjectionProbe(t)
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("delete_user", "username")},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			q, _ := args["username"].(string)
+			switch {
+			case strings.Contains(q, "OR '1'='1"):
+				return types.ToolResult{Text: "Deleted: all users"}
+			case strings.Contains(q, "AND '1'='2"):
+				return types.ToolResult{Text: "No users deleted"}
+			default:
+				return types.ToolResult{Text: "Deleted: 1 user"}
+			}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	require.NoError(t, err)
+
+	for _, a := range attempts {
+		assert.False(t, metaBool(a, attempt.MetadataKeySQLInjectionBooleanDifferential),
+			"non-read-intent tool must not receive boolean differential payloads")
+	}
+	// Error oracle still runs — single-quote payloads can't widen destructive clauses.
+	require.NotEmpty(t, attempts, "error oracle should still run on non-read tools")
 }
 
 // TestSQLInjection_DatabaseErrorOracle: a tool that returns database errors on
@@ -160,6 +237,41 @@ func TestSQLInjection_DatabaseErrorOracle(t *testing.T) {
 	assert.True(t, found, "expected at least one database-error finding")
 }
 
+// TestSQLInjection_ErrorRegexRejectsNonSQL: strings like "upgrade error" or
+// "JPG processing error" must NOT match the tightened dbErrorRE.
+func TestSQLInjection_ErrorRegexRejectsNonSQL(t *testing.T) {
+	nonSQL := []string{
+		"upgrade error: failed to migrate",
+		"JPG processing error in module",
+		"page load error",
+		"unterminated string literal in JSON",
+		"syntax error near unexpected token '('",
+		"pg_dump: error processing table",
+	}
+	for _, s := range nonSQL {
+		assert.False(t, dbErrorRE.MatchString(s), "dbErrorRE should not match %q", s)
+	}
+}
+
+// TestSQLInjection_ErrorRegexMatchesRealDB: real database error strings must
+// match dbErrorRE.
+func TestSQLInjection_ErrorRegexMatchesRealDB(t *testing.T) {
+	realErrors := []string{
+		"sqlite3.OperationalError: unrecognized token",
+		"mysql syntax error near 'SELECT'",
+		"pq: error in query",
+		"psycopg2.OperationalError: error",
+		"ORA-01756: quoted string not properly terminated",
+		"microsoft ole db provider for sql server",
+		"sql server native client error",
+		"SQLSTATE[42000]",
+		"mariadb error 1064",
+	}
+	for _, s := range realErrors {
+		assert.True(t, dbErrorRE.MatchString(s), "dbErrorRE should match %q", s)
+	}
+}
+
 // TestSQLInjection_NormalToolNoFinding: a tool that behaves normally (no SQL
 // vulnerability) produces no findings.
 func TestSQLInjection_NormalToolNoFinding(t *testing.T) {
@@ -167,7 +279,6 @@ func TestSQLInjection_NormalToolNoFinding(t *testing.T) {
 	target := &mockTarget{
 		tools: []map[string]any{stringTool("search", "query")},
 		call: func(_ string, args map[string]any) types.ToolResult {
-			// Always returns the same shape regardless of input.
 			return types.ToolResult{Text: "Results: 3 items found"}
 		},
 	}
@@ -205,8 +316,4 @@ func TestSQLInjection_Metadata(t *testing.T) {
 	assert.Contains(t, ri.Taxonomies, "89")
 	assert.NotEmpty(t, ri.CVSSVector)
 	assert.NotEmpty(t, ri.Recommendation)
-
-	sds := p.GetSecondaryDetectors()
-	require.Len(t, sds, 1)
-	assert.Equal(t, "mcpsecrets.Credential", sds[0].Name)
 }
