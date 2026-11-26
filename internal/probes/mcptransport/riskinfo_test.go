@@ -14,6 +14,7 @@ import (
 func TestRiskInfo_Populated(t *testing.T) {
 	for _, p := range []probes.Prober{
 		&OriginValidation{}, &SSESessionHijack{}, &UnauthenticatedAccess{},
+		&MetadataInjection{}, &CapabilityEscalation{},
 	} {
 		rd, ok := p.(types.RiskDescriber)
 		if !ok {
