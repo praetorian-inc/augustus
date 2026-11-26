@@ -48,8 +48,15 @@ type sweepParams struct {
 const maxResponseBody = 2 * 1024 * 1024
 
 // initSweep validates the endpoint and returns the HTTP client. Returns
-// an empty endpoint to signal "skip this target".
+// an empty endpoint to signal "skip this target". Legacy SSE targets
+// (transport == "sse") are skipped because they serve GET /sse, not
+// POST JSON-RPC.
 func initSweep(probeName string, endpointOverride string, timeout time.Duration, gen types.Generator) (string, *http.Client, error) {
+	if mcpEnd, ok := gen.(types.MCPEndpoint); ok && mcpEnd.Transport() == "sse" {
+		slog.Warn(probeName+": skipping legacy SSE transport (requires GET, not POST JSON-RPC)",
+			"endpoint", mcpEnd.EndpointURL())
+		return "", nil, nil
+	}
 	endpoint := resolveEndpointURL(endpointOverride, gen)
 	if endpoint == "" {
 		return "", nil, nil
@@ -104,14 +111,25 @@ func runDifferentialSweep(ctx context.Context, params sweepParams) []*attempt.At
 	var attempts []*attempt.Attempt
 
 	baseResult := sendToolsListRequest(ctx, params.client, params.endpoint, params.baselineMeta, nil)
-	baseAttempt := recordSweepAttempt(params, "baseline", "honest _meta baseline", nil, baseResult, false)
-	attempts = append(attempts, baseAttempt)
 
-	if baseResult.err != nil || baseResult.refused {
-		slog.Info("differential sweep: baseline failed or refused; cannot compare variants",
+	if baseResult.err != nil {
+		a := recordSweepAttempt(params, "baseline", "honest _meta baseline", nil, baseResult, false)
+		attempts = append(attempts, a)
+		slog.Info("differential sweep: baseline failed; cannot compare variants",
 			"probe", params.probeName, "endpoint", params.endpoint, "err", baseResult.err)
 		return attempts
 	}
+
+	if baseResult.refused {
+		a := recordBaselineRefused(params, baseResult)
+		attempts = append(attempts, a)
+		slog.Info("differential sweep: baseline refused; cannot compare variants",
+			"probe", params.probeName, "endpoint", params.endpoint)
+		return attempts
+	}
+
+	baseAttempt := recordSweepAttempt(params, "baseline", "honest _meta baseline", baseResult.tools, baseResult, false)
+	attempts = append(attempts, baseAttempt)
 
 	for _, v := range params.variants {
 		varResult := sendToolsListRequest(ctx, params.client, params.endpoint, v.meta, v.headers)
@@ -120,6 +138,19 @@ func runDifferentialSweep(ctx context.Context, params sweepParams) []*attempt.At
 	}
 
 	return attempts
+}
+
+// recordBaselineRefused creates an errored attempt for a baseline that
+// was refused (HTTP 4xx or JSON-RPC error). A refused baseline means
+// we could not establish a reference catalog, so the scan is
+// inconclusive — not safe.
+func recordBaselineRefused(params sweepParams, result toolsListResult) *attempt.Attempt {
+	a := attempt.New("[baseline] honest _meta baseline")
+	a.Probe = params.probeName
+	a.Detector = params.detectorName
+	a.Metadata[attempt.MetadataKeyMetadataInjectionClass] = "baseline"
+	a.SetError(fmt.Errorf("baseline refused: server rejected honest _meta request (cannot establish reference catalog)"))
+	return a
 }
 
 // sendToolsListRequest sends a tools/list JSON-RPC request with the given

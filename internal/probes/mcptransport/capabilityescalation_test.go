@@ -265,6 +265,44 @@ func TestCapabilityEscalation_JSONRPCRefusal_NonDifferential(t *testing.T) {
 	}
 }
 
+// --- refused baseline test ---
+
+func TestCapabilityEscalation_RefusedBaseline_IsErrored(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	p := newCapabilityEscalationProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+
+	if len(attempts) != 1 {
+		t.Fatalf("expected 1 attempt (refused baseline), got %d", len(attempts))
+	}
+	if attempts[0].Status != attempt.StatusError {
+		t.Errorf("refused baseline should be StatusError, got %q", attempts[0].Status)
+	}
+}
+
+// --- legacy SSE transport skip test ---
+
+func TestCapabilityEscalation_SkipsLegacySSETransport(t *testing.T) {
+	srv := uniformToolServer(t, "read_file")
+	defer srv.Close()
+
+	p := newCapabilityEscalationProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "sse"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if attempts != nil {
+		t.Errorf("expected nil attempts for legacy SSE transport, got %d", len(attempts))
+	}
+}
+
 // --- error server test ---
 
 func TestCapabilityEscalation_ErrorServer_OnlyBaseline(t *testing.T) {

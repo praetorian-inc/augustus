@@ -443,6 +443,81 @@ func TestMetadataInjection_SendsMCPHeaders(t *testing.T) {
 	}
 }
 
+// --- refused baseline test ---
+
+func TestMetadataInjection_RefusedBaseline_IsErrored(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	defer srv.Close()
+
+	p := newMetadataInjectionProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+
+	if len(attempts) != 1 {
+		t.Fatalf("expected 1 attempt (refused baseline), got %d", len(attempts))
+	}
+	if attempts[0].Status != attempt.StatusError {
+		t.Errorf("refused baseline should be StatusError, got %q", attempts[0].Status)
+	}
+}
+
+// --- large SSE response test ---
+
+func TestMetadataInjection_LargeSSEResponse(t *testing.T) {
+	largeSchema := strings.Repeat("x", 100*1024) // 100 KiB > default 64 KiB scanner limit
+	body := toolsListResponse("read_file", "list_dir")
+	// Inject a large inputSchema to bloat the JSON past 64 KiB.
+	var envelope map[string]any
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	result := envelope["result"].(map[string]any)
+	tools := result["tools"].([]any)
+	tools[0].(map[string]any)["inputSchema"] = map[string]string{"description": largeSchema}
+	bigBody, _ := json.Marshal(envelope)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(bigBody))
+	}))
+	defer srv.Close()
+
+	p := newMetadataInjectionProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+
+	if len(attempts) < 2 {
+		t.Fatalf("expected at least 2 attempts, got %d", len(attempts))
+	}
+	for _, a := range attempts {
+		if a.Status == attempt.StatusError {
+			t.Errorf("large SSE attempt %q should not error (scanner buffer should handle >64 KiB)", a.Prompt)
+		}
+	}
+}
+
+// --- legacy SSE transport skip test ---
+
+func TestMetadataInjection_SkipsLegacySSETransport(t *testing.T) {
+	srv := uniformToolServer(t, "read_file")
+	defer srv.Close()
+
+	p := newMetadataInjectionProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "sse"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if attempts != nil {
+		t.Errorf("expected nil attempts for legacy SSE transport, got %d", len(attempts))
+	}
+}
+
 // --- detector scoring helpers ---
 
 // countFindings uses the real detector scoring logic to count findings.

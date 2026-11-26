@@ -148,9 +148,12 @@ func jsonFromResponse(body []byte, contentType string) ([]byte, error) {
 
 // extractSSEJSON finds the first JSON object in an SSE-framed response
 // by scanning for data: lines. MCP streamable-HTTP sends the JSON-RPC
-// response as a single SSE event.
+// response as a single SSE event. The scanner buffer is sized to
+// maxResponseBody so large tool catalogs (with input schemas) are not
+// silently truncated by the default 64 KiB token limit.
 func extractSSEJSON(body []byte) ([]byte, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(body))
+	scanner.Buffer(make([]byte, 0, 64*1024), maxResponseBody)
 	for scanner.Scan() {
 		line := scanner.Text()
 		var data string
@@ -166,6 +169,9 @@ func extractSSEJSON(body []byte) ([]byte, error) {
 		if len(data) > 0 && data[0] == '{' {
 			return []byte(data), nil
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, fmt.Errorf("scan SSE response: %w", err)
 	}
 	return nil, fmt.Errorf("no JSON data found in SSE response")
 }
