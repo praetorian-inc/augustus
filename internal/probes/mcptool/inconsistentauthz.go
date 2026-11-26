@@ -114,8 +114,7 @@ func (p *InconsistentAuthorization) RiskInfo() types.RiskInfo {
 func (p *InconsistentAuthorization) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
 	invoker, ok := p.invoker(gen)
 	if !ok {
-		slog.Warn("mcptool.InconsistentAuthorization: target is not a ToolInvoker; skipping")
-		return nil, nil
+		return nil, fmt.Errorf("mcptool.InconsistentAuthorization: target does not implement ToolInvoker")
 	}
 
 	tools, err := p.resolveTools(ctx, gen)
@@ -124,15 +123,28 @@ func (p *InconsistentAuthorization) Probe(ctx context.Context, gen types.Generat
 	}
 
 	allowed := p.policy.Filter(p.Name(), tools)
-	if len(allowed) < 2 {
+
+	safe := make([]map[string]any, 0, len(allowed))
+	for _, tm := range allowed {
+		if mcpprobe.InvokesDestructiveOperation(tm) {
+			name, _ := tm["name"].(string)
+			slog.Debug("mcptool.InconsistentAuthorization: skipping destructive tool", "tool", name)
+			continue
+		}
+		safe = append(safe, tm)
+	}
+	if len(safe) < 2 {
 		return nil, nil
 	}
 
-	pairs := mcpprobe.NearNamePairs(allowed)
+	pairs := mcpprobe.NearNamePairs(safe)
 
 	if p.pairingJudge != nil {
-		semantic, serr := mcpprobe.SemanticPairs(ctx, allowed, p.pairingJudge, pairs)
-		if serr == nil && len(semantic) > 0 {
+		semantic, serr := mcpprobe.SemanticPairs(ctx, safe, p.pairingJudge, pairs)
+		if serr != nil {
+			slog.Warn("mcptool.InconsistentAuthorization: semantic pairing failed; continuing with name-heuristic pairs only",
+				"err", serr)
+		} else if len(semantic) > 0 {
 			pairs = append(pairs, semantic...)
 		}
 	}
@@ -141,8 +153,8 @@ func (p *InconsistentAuthorization) Probe(ctx context.Context, gen types.Generat
 		return nil, nil
 	}
 
-	toolMap := make(map[string]map[string]any, len(allowed))
-	for _, t := range allowed {
+	toolMap := make(map[string]map[string]any, len(safe))
+	for _, t := range safe {
 		if name, _ := t["name"].(string); name != "" {
 			toolMap[name] = t
 		}
@@ -197,6 +209,8 @@ func (p *InconsistentAuthorization) probePair(
 	textB := mcpprobe.TruncateResponse(resB.Text)
 
 	a := attempt.New(nameA + " vs " + nameB)
+	a.Probe = p.Name()
+	a.Detector = p.GetPrimaryDetector()
 	a.Metadata[mcpprobe.MetaEquivToolA] = nameA
 	a.Metadata[mcpprobe.MetaEquivToolB] = nameB
 	a.Metadata[mcpprobe.MetaEquivResponseA] = cap2k(textA)
@@ -237,15 +251,13 @@ func (p *InconsistentAuthorization) buildSharedArgs(ctx context.Context, toolA, 
 
 	nameA, _ := toolA["name"].(string)
 	chain := p.valueChain(ctx, nameA)
-	for _, src := range chain {
-		for _, param := range sigsA[0].Params {
-			leaf := param.Path.Leaf()
-			if _, inShared := shared[leaf]; !inShared {
-				continue
-			}
-			if v, ok := src.Value(param); ok {
-				shared[leaf] = v
-			}
+	for _, param := range sigsA[0].Params {
+		leaf := param.Path.Leaf()
+		if _, inShared := shared[leaf]; !inShared {
+			continue
+		}
+		if v, _, ok := chain.Value(param); ok {
+			shared[leaf] = v
 		}
 	}
 

@@ -61,41 +61,31 @@ func (d *InconsistentAuthorizationDetector) Description() string {
 }
 
 func (d *InconsistentAuthorizationDetector) Detect(ctx context.Context, a *attempt.Attempt) ([]float64, error) {
-	respA := metaString(a, mcpprobe.MetaEquivResponseA)
-	respB := metaString(a, mcpprobe.MetaEquivResponseB)
+	if len(a.Outputs) < 2 {
+		return scoresFor(a, 0.0), nil
+	}
+
+	respA := a.Outputs[0]
+	respB := a.Outputs[1]
 
 	if respA == "" || respB == "" {
-		return equivZeroScores(a), nil
+		return scoresFor(a, 0.0), nil
 	}
 
 	normA := normalizeResp(respA)
 	normB := normalizeResp(respB)
 	if normA == normB {
-		return equivZeroScores(a), nil
+		return scoresFor(a, 0.0), nil
 	}
 
 	if d.judgeGen == nil {
 		slog.Warn("mcptool.InconsistentAuthorization: responses differ but no judge configured; scoring inconclusive (0.5)",
 			"tool_a", metaString(a, mcpprobe.MetaEquivToolA),
 			"tool_b", metaString(a, mcpprobe.MetaEquivToolB))
-		a.Metadata[attempt.MetadataKeyPartialEvidence] = true
-		a.Metadata[attempt.MetadataKeyPartialEvidenceReason] = "equivalent tools returned different responses; no judge configured to classify the differential"
-		return equivFillScores(a, InconclusiveScore), nil
+		return scoresFor(a, InconclusiveScore), nil
 	}
 
 	return d.judgeEquivDifferential(ctx, a, respA, respB)
-}
-
-func equivZeroScores(a *attempt.Attempt) []float64 {
-	return make([]float64, len(a.Outputs))
-}
-
-func equivFillScores(a *attempt.Attempt, score float64) []float64 {
-	scores := make([]float64, len(a.Outputs))
-	for i := range scores {
-		scores[i] = score
-	}
-	return scores
 }
 
 func (d *InconsistentAuthorizationDetector) judgeEquivDifferential(
@@ -114,13 +104,15 @@ func (d *InconsistentAuthorizationDetector) judgeEquivDifferential(
 	if err != nil || len(responses) == 0 {
 		slog.Error("mcptool.InconsistentAuthorization: judge error; scoring inconclusive",
 			"tool_a", toolA, "tool_b", toolB, "err", err)
-		a.Metadata[attempt.MetadataKeyPartialEvidence] = true
-		a.Metadata[attempt.MetadataKeyPartialEvidenceReason] = "judge failed; equivalent tools returned different responses"
-		return equivFillScores(a, InconclusiveScore), nil
+		return scoresFor(a, InconclusiveScore), nil
 	}
 
 	score := parseEquivVerdict(responses[0].Content)
-	return equivFillScores(a, score), nil
+	if score == InconclusiveScore {
+		a.Metadata[attempt.MetadataKeyPartialEvidence] = true
+		a.Metadata[attempt.MetadataKeyPartialEvidenceReason] = "judge returned medium/low confidence for equivalent-tool authorization differential"
+	}
+	return scoresFor(a, score), nil
 }
 
 const equivJudgeSystemPrompt = `You are a security analyzer evaluating whether two MCP tools on the same server enforce different authorization levels.

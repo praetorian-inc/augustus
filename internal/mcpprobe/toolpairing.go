@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
@@ -98,7 +99,7 @@ func nearName(a, b []string) bool {
 	if len(a) == 0 || len(b) == 0 {
 		return false
 	}
-	if tokensEqual(a, b) {
+	if slices.Equal(a, b) {
 		return false
 	}
 
@@ -106,11 +107,7 @@ func nearName(a, b []string) bool {
 		diffs := 0
 		for i := range a {
 			if a[i] != b[i] {
-				if isSingularPlural(a[i], b[i]) {
-					diffs++
-				} else {
-					diffs++
-				}
+				diffs++
 			}
 		}
 		return diffs == 1
@@ -134,13 +131,6 @@ func nearName(a, b []string) bool {
 	}
 
 	return false
-}
-
-func isSingularPlural(a, b string) bool {
-	if a == b {
-		return false
-	}
-	return a+"s" == b || b+"s" == a || a+"es" == b || b+"es" == a
 }
 
 // shareParameter returns true when two tools share at least one parameter with
@@ -168,53 +158,11 @@ func leafParams(tool map[string]any) map[string]string {
 	return out
 }
 
-func tokensEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
 func intAbs(x int) int {
 	if x < 0 {
 		return -x
 	}
 	return x
-}
-
-// CommonArgs builds the intersection of parameters across two tools' signatures,
-// filling each with a benign value. Returns nil if no common parameters exist.
-func CommonArgs(toolA, toolB map[string]any) map[string]any {
-	aParams := leafParams(toolA)
-	bParams := leafParams(toolB)
-
-	args := map[string]any{}
-	for name, aType := range aParams {
-		if _, ok := bParams[name]; !ok {
-			continue
-		}
-		switch aType {
-		case "integer", "number":
-			args[name] = 1
-		case "boolean":
-			args[name] = true
-		case "array":
-			args[name] = []any{}
-		case "object":
-			args[name] = map[string]any{}
-		default:
-			args[name] = "test"
-		}
-	}
-	if len(args) == 0 {
-		return nil
-	}
-	return args
 }
 
 // SemanticPairs uses an LLM judge to identify functionally-equivalent tool

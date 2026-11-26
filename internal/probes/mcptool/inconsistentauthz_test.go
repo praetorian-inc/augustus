@@ -46,6 +46,9 @@ func TestInconsistentAuthz_DVMCPShape(t *testing.T) {
 	a := probe.probePair(context.Background(), invoker, toolA, toolB, "name-heuristic")
 	require.NotNil(t, a)
 
+	assert.Equal(t, "mcptool.InconsistentAuthorization", a.Probe)
+	assert.Equal(t, "mcptool.InconsistentAuthorization", a.Detector)
+
 	toolAMeta, _ := a.GetMetadata(mcpprobe.MetaEquivToolA)
 	toolBMeta, _ := a.GetMetadata(mcpprobe.MetaEquivToolB)
 	assert.Equal(t, "get_user_role", toolAMeta)

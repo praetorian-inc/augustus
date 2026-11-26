@@ -106,23 +106,6 @@ func TestNameTokens(t *testing.T) {
 	}
 }
 
-func TestCommonArgs(t *testing.T) {
-	a := toolDesc("get_user_role", "username")
-	b := toolDesc("get_user_roles", "username")
-
-	args := CommonArgs(a, b)
-	require.NotNil(t, args, "CommonArgs returned nil, want shared username param")
-	assert.Contains(t, args, "username")
-}
-
-func TestCommonArgs_NoShared(t *testing.T) {
-	a := toolDesc("get_user", "user_id")
-	b := toolDesc("list_items", "category")
-
-	args := CommonArgs(a, b)
-	assert.Nil(t, args)
-}
-
 func TestParseSemanticPairs(t *testing.T) {
 	tools := []map[string]any{
 		{"name": "get_role"},
