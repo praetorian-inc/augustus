@@ -103,7 +103,7 @@ func nearName(a, b []string) bool {
 		return false
 	}
 
-	if len(a) == len(b) {
+	if len(a) == len(b) && len(a) >= 2 {
 		diffs := 0
 		for i := range a {
 			if a[i] != b[i] {

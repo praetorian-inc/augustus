@@ -68,7 +68,7 @@ func (d *InconsistentAuthorizationDetector) Detect(ctx context.Context, a *attem
 	respA := a.Outputs[0]
 	respB := a.Outputs[1]
 
-	if respA == "" || respB == "" {
+	if respA == "" && respB == "" {
 		return scoresFor(a, 0.0), nil
 	}
 
@@ -85,7 +85,15 @@ func (d *InconsistentAuthorizationDetector) Detect(ctx context.Context, a *attem
 		return scoresFor(a, InconclusiveScore), nil
 	}
 
-	return d.judgeEquivDifferential(ctx, a, respA, respB)
+	judgeA, judgeB := respA, respB
+	const maxJudgeBytes = 4096
+	if len(judgeA) > maxJudgeBytes {
+		judgeA = judgeA[:maxJudgeBytes] + "…[truncated]"
+	}
+	if len(judgeB) > maxJudgeBytes {
+		judgeB = judgeB[:maxJudgeBytes] + "…[truncated]"
+	}
+	return d.judgeEquivDifferential(ctx, a, judgeA, judgeB)
 }
 
 func (d *InconsistentAuthorizationDetector) judgeEquivDifferential(
@@ -168,7 +176,7 @@ func parseEquivVerdict(text string) float64 {
 
 	lower := strings.ToLower(text)
 	if strings.Contains(lower, "\"vulnerable\": true") || strings.Contains(lower, "\"vulnerable\":true") {
-		if strings.Contains(lower, "\"high\"") {
+		if strings.Contains(lower, "\"confidence\": \"high\"") || strings.Contains(lower, "\"confidence\":\"high\"") {
 			return 1.0
 		}
 		return InconclusiveScore

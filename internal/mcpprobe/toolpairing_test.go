@@ -61,6 +61,14 @@ func TestNearNamePairs(t *testing.T) {
 			want: nil,
 		},
 		{
+			name: "single-token tools — not paired (read vs stat)",
+			tools: []map[string]any{
+				toolDesc("read", "path"),
+				toolDesc("stat", "path"),
+			},
+			want: nil,
+		},
+		{
 			name: "camelCase pairing",
 			tools: []map[string]any{
 				toolDescCamel("getUserRole", "username"),

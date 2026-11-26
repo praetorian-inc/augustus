@@ -126,9 +126,10 @@ func (p *InconsistentAuthorization) Probe(ctx context.Context, gen types.Generat
 
 	safe := make([]map[string]any, 0, len(allowed))
 	for _, tm := range allowed {
-		if mcpprobe.InvokesDestructiveOperation(tm) {
+		if !p.policy.AllowsDestructive() && mcpprobe.InvokesDestructiveOperation(tm) {
 			name, _ := tm["name"].(string)
-			slog.Debug("mcptool.InconsistentAuthorization: skipping destructive tool", "tool", name)
+			slog.Warn("mcptool.InconsistentAuthorization: skipping destructive tool; set allow_destructive=true to include",
+				"tool", name)
 			continue
 		}
 		safe = append(safe, tm)
@@ -192,21 +193,26 @@ func (p *InconsistentAuthorization) probePair(
 	}
 
 	resA, errA := callToolOnce(ctx, invoker, nameA, args)
-	if errA != nil {
-		slog.Debug("mcptool.InconsistentAuthorization: tool A call failed",
-			"tool", nameA, "err", errA)
-		return nil
-	}
-
 	resB, errB := callToolOnce(ctx, invoker, nameB, args)
-	if errB != nil {
-		slog.Debug("mcptool.InconsistentAuthorization: tool B call failed",
-			"tool", nameB, "err", errB)
+
+	if errA != nil && errB != nil {
+		slog.Debug("mcptool.InconsistentAuthorization: both tools errored; skipping",
+			"tool_a", nameA, "tool_b", nameB)
 		return nil
 	}
 
-	textA := mcpprobe.TruncateResponse(resA.Text)
-	textB := mcpprobe.TruncateResponse(resB.Text)
+	textA := ""
+	if errA != nil {
+		textA = fmt.Sprintf("[error: %s]", errA)
+	} else {
+		textA = mcpprobe.TruncateResponse(resA.Text)
+	}
+	textB := ""
+	if errB != nil {
+		textB = fmt.Sprintf("[error: %s]", errB)
+	} else {
+		textB = mcpprobe.TruncateResponse(resB.Text)
+	}
 
 	a := attempt.New(nameA + " vs " + nameB)
 	a.Probe = p.Name()
@@ -222,6 +228,7 @@ func (p *InconsistentAuthorization) probePair(
 
 	a.AddOutput(textA)
 	a.AddOutput(textB)
+	a.Complete()
 	return a
 }
 

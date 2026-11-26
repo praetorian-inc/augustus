@@ -64,11 +64,24 @@ func TestInconsistentAuthzDetector_MissingMetadata(t *testing.T) {
 	assert.Equal(t, []float64{0.0}, scores)
 }
 
-func TestInconsistentAuthzDetector_EmptyResponse(t *testing.T) {
+func TestInconsistentAuthzDetector_OneEmptyResponse(t *testing.T) {
 	d, err := NewInconsistentAuthorizationDetector(registry.Config{})
 	require.NoError(t, err)
 
 	a := makeEquivAttempt("tool_a", "tool_b", "", `{"data": "some"}`)
+
+	scores, err := d.Detect(context.Background(), a)
+	require.NoError(t, err)
+	for _, s := range scores {
+		assert.Equal(t, InconclusiveScore, s, "one empty + one with data is a differential")
+	}
+}
+
+func TestInconsistentAuthzDetector_BothEmptyResponses(t *testing.T) {
+	d, err := NewInconsistentAuthorizationDetector(registry.Config{})
+	require.NoError(t, err)
+
+	a := makeEquivAttempt("tool_a", "tool_b", "", "")
 
 	scores, err := d.Detect(context.Background(), a)
 	require.NoError(t, err)
@@ -123,6 +136,11 @@ func TestParseEquivVerdict(t *testing.T) {
 		{
 			name:  "low confidence vulnerable",
 			input: `{"vulnerable": true, "confidence": "low", "reason": "unclear"}`,
+			want:  InconclusiveScore,
+		},
+		{
+			name:  "high in reason does not upgrade score",
+			input: `{"vulnerable": true, "confidence": "low", "reason": "high privilege data returned"}`,
 			want:  InconclusiveScore,
 		},
 	}
