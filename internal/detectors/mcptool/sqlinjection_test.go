@@ -26,9 +26,10 @@ func TestSQLInjectionDetector(t *testing.T) {
 		outputs          []string
 		wantLen          int
 		wantFirstScore   float64
+		wantPartial      bool
 	}{
 		{
-			name:             "boolean differential confirmed -> vuln",
+			name:             "boolean differential confirmed -> vuln (1.0)",
 			boolDifferential: true,
 			dbError:          false,
 			outputs:          []string{"some result"},
@@ -36,15 +37,16 @@ func TestSQLInjectionDetector(t *testing.T) {
 			wantFirstScore:   1.0,
 		},
 		{
-			name:             "database error confirmed -> vuln",
+			name:             "database error only -> partial evidence (0.5)",
 			boolDifferential: false,
 			dbError:          true,
 			outputs:          []string{"sqlite error"},
 			wantLen:          1,
-			wantFirstScore:   1.0,
+			wantFirstScore:   InconclusiveScore,
+			wantPartial:      true,
 		},
 		{
-			name:             "both confirmed -> vuln",
+			name:             "both confirmed -> vuln (1.0, boolean takes precedence)",
 			boolDifferential: true,
 			dbError:          true,
 			outputs:          []string{"result"},
@@ -72,7 +74,7 @@ func TestSQLInjectionDetector(t *testing.T) {
 	d := newSQLInjectionDetector(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			a := attempt.New("' OR '1'='1")
+			a := attempt.New("' AND '1'='1")
 			if tt.boolDifferential {
 				a.Metadata[attempt.MetadataKeySQLInjectionBooleanDifferential] = true
 			}
@@ -87,6 +89,11 @@ func TestSQLInjectionDetector(t *testing.T) {
 			assert.Len(t, scores, tt.wantLen)
 			if tt.wantLen > 0 {
 				assert.Equal(t, tt.wantFirstScore, scores[0])
+			}
+			if tt.wantPartial {
+				v, ok := a.GetMetadata(attempt.MetadataKeyPartialEvidence)
+				assert.True(t, ok, "partial evidence metadata should be set")
+				assert.Equal(t, true, v)
 			}
 		})
 	}

@@ -44,24 +44,24 @@ func TestSQLInjection_SkipsNonSQLParams(t *testing.T) {
 	assert.Empty(t, attempts, "expected no attempts for non-SQL params")
 }
 
-// TestSQLInjection_BooleanDifferential: a vulnerable search tool that returns
-// different results for baseline, tautology, and contradiction is detected.
+// TestSQLInjection_BooleanDifferential: a vulnerable search tool where AND-true
+// matches baseline but AND-false differs is detected.
 func TestSQLInjection_BooleanDifferential(t *testing.T) {
 	p := newSQLInjectionProbe(t)
 	target := &mockTarget{
 		tools: []map[string]any{stringTool("search", "query")},
 		call: func(_ string, args map[string]any) types.ToolResult {
 			q, _ := args["query"].(string)
+			// Simulate an unparameterised SQL query:
+			// AND-true is a no-op → same as baseline
+			// AND-false falsifies the clause → empty result
 			switch {
-			case strings.Contains(q, "OR '1'='1"),
-				strings.Contains(q, "OR \"1\"=\"1"),
-				strings.Contains(q, "OR 1=1--"):
-				return types.ToolResult{Text: "Result: Alice, Bob, Charlie, Dave, Eve"}
 			case strings.Contains(q, "AND '1'='2"),
 				strings.Contains(q, "AND \"1\"=\"2"),
 				strings.Contains(q, "AND 1=2--"):
 				return types.ToolResult{Text: "No results found"}
 			default:
+				// baseline AND "test' AND '1'='1" both return the same result
 				return types.ToolResult{Text: "Result: Alice"}
 			}
 		},
@@ -94,37 +94,53 @@ func metaBool(a *attempt.Attempt, key string) bool {
 	return b
 }
 
-// TestSQLInjection_ZeroRowBaseline: when "test" matches zero rows, the
-// baseline and contradiction are both empty while the tautology returns all
-// rows. The asymmetric check must still fire.
+// TestSQLInjection_ZeroRowBaseline: when "test" matches zero rows, baseline
+// and AND-true both return empty while AND-false also returns empty. The
+// AND-true == baseline condition holds, and AND-false == baseline too, so the
+// finding does NOT fire (correctly: we can't distinguish SQL from "always empty").
+// When AND-false genuinely returns something different (error or different shape),
+// the finding fires.
 func TestSQLInjection_ZeroRowBaseline(t *testing.T) {
-	p := newSQLInjectionProbe(t)
-	target := &mockTarget{
-		tools: []map[string]any{stringTool("search", "query")},
-		call: func(_ string, args map[string]any) types.ToolResult {
-			q, _ := args["query"].(string)
-			switch {
-			case strings.Contains(q, "OR '1'='1"),
-				strings.Contains(q, "OR \"1\"=\"1"),
-				strings.Contains(q, "OR 1=1--"):
-				return types.ToolResult{Text: "Result: Alice, Bob, Charlie, Dave, Eve"}
-			default:
+	t.Run("AND-false also empty — no finding", func(t *testing.T) {
+		p := newSQLInjectionProbe(t)
+		target := &mockTarget{
+			tools: []map[string]any{stringTool("search", "query")},
+			call: func(_ string, _ map[string]any) types.ToolResult {
 				return types.ToolResult{Text: "No results found"}
-			}
-		},
-	}
-
-	attempts, err := p.Probe(context.Background(), target)
-	require.NoError(t, err)
-
-	var found bool
-	for _, a := range attempts {
-		if metaBool(a, attempt.MetadataKeySQLInjectionBooleanDifferential) {
-			found = true
-			break
+			},
 		}
-	}
-	assert.True(t, found, "expected boolean-differential finding even with zero-row baseline")
+		attempts, err := p.Probe(context.Background(), target)
+		require.NoError(t, err)
+		for _, a := range attempts {
+			assert.False(t, metaBool(a, attempt.MetadataKeySQLInjectionBooleanDifferential))
+		}
+	})
+
+	t.Run("AND-true matches baseline, AND-false different — finding", func(t *testing.T) {
+		p := newSQLInjectionProbe(t)
+		target := &mockTarget{
+			tools: []map[string]any{stringTool("search", "query")},
+			call: func(_ string, args map[string]any) types.ToolResult {
+				q, _ := args["query"].(string)
+				if strings.Contains(q, "AND '1'='2") ||
+					strings.Contains(q, "AND \"1\"=\"2") ||
+					strings.Contains(q, "AND 1=2--") {
+					return types.ToolResult{Text: "Error: no rows match filter"}
+				}
+				return types.ToolResult{Text: "No results found"}
+			},
+		}
+		attempts, err := p.Probe(context.Background(), target)
+		require.NoError(t, err)
+		var found bool
+		for _, a := range attempts {
+			if metaBool(a, attempt.MetadataKeySQLInjectionBooleanDifferential) {
+				found = true
+				break
+			}
+		}
+		assert.True(t, found, "expected finding when AND-false shape differs from baseline")
+	})
 }
 
 // TestSQLInjection_NoFalsePositiveOnEcho: a tool that echoes its input must
@@ -172,22 +188,26 @@ func TestSQLInjection_NoFalsePositiveOnJSONEcho(t *testing.T) {
 	}
 }
 
-// TestSQLInjection_SkipsBooleanOnNonReadTool: boolean differential must be
-// skipped on tools that are not classified as read-intent, to avoid widening
-// a mutating clause (DELETE WHERE ... OR '1'='1').
-func TestSQLInjection_SkipsBooleanOnNonReadTool(t *testing.T) {
+// TestSQLInjection_NoFalsePositiveOnSearchEngine: a non-SQL search engine
+// (Elasticsearch query_string, JQL) that interprets OR/AND as keyword operators
+// must NOT fire. The AND-true payload changes the search query, so its shape
+// differs from baseline, failing the AND-true == baseline condition.
+func TestSQLInjection_NoFalsePositiveOnSearchEngine(t *testing.T) {
 	p := newSQLInjectionProbe(t)
 	target := &mockTarget{
-		tools: []map[string]any{stringTool("delete_user", "username")},
+		tools: []map[string]any{stringTool("search", "query")},
 		call: func(_ string, args map[string]any) types.ToolResult {
-			q, _ := args["username"].(string)
+			q, _ := args["query"].(string)
+			// Simulate a full-text search engine that parses AND/OR as operators.
+			// AND narrows the result, so "test' AND '1'='1" searches for
+			// docs matching "test'" AND "'1'='1" — different from just "test".
 			switch {
-			case strings.Contains(q, "OR '1'='1"):
-				return types.ToolResult{Text: "Deleted: all users"}
+			case strings.Contains(q, "AND '1'='1"):
+				return types.ToolResult{Text: "Results: 2 documents (test', 1=1)"}
 			case strings.Contains(q, "AND '1'='2"):
-				return types.ToolResult{Text: "No users deleted"}
+				return types.ToolResult{Text: "Results: 0 documents"}
 			default:
-				return types.ToolResult{Text: "Deleted: 1 user"}
+				return types.ToolResult{Text: "Results: 5 documents (test)"}
 			}
 		},
 	}
@@ -197,10 +217,62 @@ func TestSQLInjection_SkipsBooleanOnNonReadTool(t *testing.T) {
 
 	for _, a := range attempts {
 		assert.False(t, metaBool(a, attempt.MetadataKeySQLInjectionBooleanDifferential),
-			"non-read-intent tool must not receive boolean differential payloads")
+			"search engine should not trigger boolean differential")
 	}
-	// Error oracle still runs — single-quote payloads can't widen destructive clauses.
+}
+
+// TestSQLInjection_SkipsBooleanOnNonReadTool: boolean differential must be
+// skipped on tools that are not classified as read-intent, and the skip must
+// produce a not-tested marker rather than a clean 0.0 score.
+func TestSQLInjection_SkipsBooleanOnNonReadTool(t *testing.T) {
+	p := newSQLInjectionProbe(t)
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("delete_user", "username")},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			return types.ToolResult{Text: "ok"}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	require.NoError(t, err)
+
+	var hasNotTested bool
+	for _, a := range attempts {
+		assert.False(t, metaBool(a, attempt.MetadataKeySQLInjectionBooleanDifferential),
+			"non-read-intent tool must not receive boolean differential payloads")
+		if metaBool(a, attempt.MetadataKeyNotTested) {
+			hasNotTested = true
+		}
+	}
+	assert.True(t, hasNotTested, "skip must produce a not-tested marker, not a clean 0.0")
 	require.NotEmpty(t, attempts, "error oracle should still run on non-read tools")
+}
+
+// TestSQLInjection_UnstableBaselineMarksNotTested: when the baseline is
+// unstable (two identical calls produce different shapes), the probe must
+// mark the attempt as not-tested.
+func TestSQLInjection_UnstableBaselineMarksNotTested(t *testing.T) {
+	p := newSQLInjectionProbe(t)
+	callCount := 0
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("search", "query")},
+		call: func(_ string, _ map[string]any) types.ToolResult {
+			callCount++
+			return types.ToolResult{Text: fmt.Sprintf("Request #%d at some timestamp", callCount)}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	require.NoError(t, err)
+
+	var hasNotTested bool
+	for _, a := range attempts {
+		assert.False(t, metaBool(a, attempt.MetadataKeySQLInjectionBooleanDifferential))
+		if metaBool(a, attempt.MetadataKeyNotTested) {
+			hasNotTested = true
+		}
+	}
+	assert.True(t, hasNotTested, "unstable baseline must produce a not-tested marker")
 }
 
 // TestSQLInjection_DatabaseErrorOracle: a tool that returns database errors on
@@ -270,6 +342,41 @@ func TestSQLInjection_ErrorRegexMatchesRealDB(t *testing.T) {
 	for _, s := range realErrors {
 		assert.True(t, dbErrorRE.MatchString(s), "dbErrorRE should match %q", s)
 	}
+}
+
+// TestSQLInjection_NoStatementTerminators: sqlErrorPayloads must not contain
+// statement terminators or comment sequences that could truncate WHERE clauses.
+func TestSQLInjection_NoStatementTerminators(t *testing.T) {
+	for _, payload := range sqlErrorPayloads {
+		assert.NotContains(t, payload, ";", "error payload must not contain statement terminator")
+		assert.NotContains(t, payload, "--", "error payload must not contain comment sequence")
+	}
+}
+
+// TestSQLInjection_ToolIsErrorRecorded: when a tool returns IsError=true, the
+// attempt must record it in metadata.
+func TestSQLInjection_ToolIsErrorRecorded(t *testing.T) {
+	p := newSQLInjectionProbe(t)
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("search", "query")},
+		call: func(_ string, _ map[string]any) types.ToolResult {
+			return types.ToolResult{Text: "rejected", IsError: true}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	require.NoError(t, err)
+
+	var hasIsError bool
+	for _, a := range attempts {
+		if v, ok := a.GetMetadata("mcptool.tool_is_error"); ok {
+			if b, ok := v.(bool); ok && b {
+				hasIsError = true
+				break
+			}
+		}
+	}
+	assert.True(t, hasIsError, "tool IsError should be recorded in metadata")
 }
 
 // TestSQLInjection_NormalToolNoFinding: a tool that behaves normally (no SQL

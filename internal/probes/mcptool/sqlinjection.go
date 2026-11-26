@@ -3,10 +3,10 @@ package mcptool
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"regexp"
 	"strings"
 
+	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/probes"
@@ -30,25 +30,31 @@ var (
 // normalises camelCase first so `searchQuery`, `userName`, `findById` match.
 var sqlQueryParamRE = regexp.MustCompile(`(?i)(^|[_\- ])(search|query|q|keyword|term|filter|find|lookup|select|fetch|where|name|title|user|username|email|id|identifier)($|[_\- ])`)
 
-// sqlBooleanPayloads are pairs of tautology/contradiction suffixes appended to a
-// benign value. The differential between the three calls (baseline, tautology,
-// contradiction) proves unparameterised SQL if the shapes diverge predictably.
-// All payloads are READ-ONLY: no stacked statements, no schema modification.
+// sqlBooleanPayloads are AND-true / AND-false pairs appended to a benign value.
+// AND-true (e.g. ' AND '1'='1) is a no-op in SQL: it does not change the WHERE
+// clause's selectivity. AND-false (e.g. ' AND '1'='2) falsifies the entire
+// clause and returns zero rows.
+//
+// Finding condition: AND-true shape == baseline AND AND-false shape != baseline.
+// This proves SQL context because a non-SQL search engine (Elasticsearch
+// query_string, Jira JQL) interprets AND as a keyword search operator, so
+// AND-true produces a DIFFERENT result from baseline (extra search terms). Only
+// real SQL treats AND TRUE as a no-op.
 var sqlBooleanPayloads = []struct {
-	tautology     string
-	contradiction string
+	andTrue  string
+	andFalse string
 }{
-	{`' OR '1'='1`, `' AND '1'='2`},
-	{`" OR "1"="1`, `" AND "1"="2`},
-	{` OR 1=1--`, ` AND 1=2--`},
+	{`' AND '1'='1`, `' AND '1'='2`},
+	{`" AND "1"="1`, `" AND "1"="2`},
+	{` AND 1=1--`, ` AND 1=2--`},
 }
 
 // sqlErrorPayloads elicit database error messages without modifying data.
+// Only unbalanced quotes — no statement terminators or comment sequences,
+// which could truncate a WHERE clause on a mutating tool.
 var sqlErrorPayloads = []string{
 	`'`,
 	`"`,
-	`' OR '`,
-	`'; --`,
 }
 
 // dbErrorRE matches database engine error signatures leaked in a response.
@@ -63,8 +69,8 @@ var dbErrorRE = regexp.MustCompile(`(?i)(` +
 	`unrecognized token` +
 	`|sqlite3?\.OperationalError` +
 	`|mysql.*syntax.*error|mysql.*error.*syntax` +
-	`|(?:pq|psycopg2|pgadmin)[\s:.]+.*error` +
-	`|ora-\d{5}` +
+	`|\b(?:pq|psycopg2|pgadmin)[\s:.]+.*error` +
+	`|\bora-\d{5}` +
 	`|microsoft.*ole db` +
 	`|sql server.*error` +
 	`|mariadb.*error` +
@@ -76,21 +82,21 @@ var dbErrorRE = regexp.MustCompile(`(?i)(` +
 // two independent oracles:
 //
 //   - Boolean differential: for each SQL-query-intent parameter on a read-intent
-//     tool, sends a baseline call, then tautology and contradiction payloads and
-//     compares response shapes via responseTemplate. The tautology must differ
-//     from baseline (more data returned) while the contradiction must NOT differ
-//     from baseline (both return the same empty/narrow shape). This asymmetry
-//     proves the parameter feeds an unparameterised SQL query. Tools without
-//     positive read-intent are skipped — a tautology on a mutating tool
-//     (DELETE WHERE ...) could widen a destructive clause.
+//     tool, sends a baseline call, then AND-true and AND-false payloads and
+//     compares response shapes. AND-true (AND '1'='1) is a no-op in SQL, so it
+//     must match baseline. AND-false (AND '1'='2) falsifies the WHERE clause, so
+//     it must differ from baseline. This asymmetry proves the parameter feeds an
+//     unparameterised SQL query. Non-SQL search engines (Elasticsearch, JQL) treat
+//     AND as a keyword operator and produce a different result for AND-true vs
+//     baseline, so they do not trigger. Tools without positive read-intent (from
+//     annotations or name/description) are skipped.
 //   - Database error: sends an unbalanced quote and checks the response for
-//     database engine error signatures. A match means the backend leaks SQL
-//     error details — itself a finding. This oracle runs on all tools regardless
-//     of read-intent since the error payload is a single quote that cannot
-//     modify data.
+//     database engine error signatures. A match indicates the backend leaks SQL
+//     error details — partial evidence (scored 0.5, routed to REVIEW) since a
+//     parameterised query can also throw on type mismatches.
 //
 // All payloads are read-only. No DROP, DELETE, INSERT, UPDATE, ALTER, CREATE,
-// TRUNCATE, UNION SELECT, or time-based oracles.
+// TRUNCATE, UNION SELECT, statement terminators, or time-based oracles.
 type SQLInjection struct {
 	reconContext
 	policy toolpolicy.Policy
@@ -117,8 +123,8 @@ func (p *SQLInjection) RiskInfo() types.RiskInfo {
 		CVSSVector:     "CVSS:4.0/AV:N/AC:L/AT:N/PR:L/UI:N/VC:H/VI:H/VA:H/SC:N/SI:N/SA:N",
 		Verification: "## How this is confirmed\n\n" +
 			"Augustus tests each SQL-query-intent parameter with two independent oracles:\n\n" +
-			"- Boolean differential: a baseline call, then tautology (`' OR '1'='1`) and contradiction (`' AND '1'='2`). When the tautology produces a materially different (wider) response shape than baseline while the contradiction matches baseline (both return the same narrow/empty shape), the parameter feeds an unparameterised SQL query. Only tested on tools with positive read-intent to avoid widening destructive clauses.\n" +
-			"- Database error: an unbalanced quote (`'`) is sent and the response is checked for database engine error signatures (sqlite, mysql, postgres, etc). A match proves the backend leaks SQL error details.\n\n" +
+			"- Boolean differential: a baseline call, then AND-true (`' AND '1'='1`) and AND-false (`' AND '1'='2`). When AND-true matches baseline (SQL no-op) and AND-false differs (SQL falsification), the parameter feeds an unparameterised SQL query. Only tested on tools with positive read-intent to avoid widening destructive clauses.\n" +
+			"- Database error: an unbalanced quote (`'`) is sent and the response is checked for database engine error signatures (sqlite, mysql, postgres, etc). A match is partial evidence (the backend leaks SQL error details, but parameterised queries can also produce type errors).\n\n" +
 			"## Reproduce\n\n" +
 			"Re-run the `mcptool.SQLInjection` probe against the affected endpoint via the `mcp.MCP` generator (`mode: list_tools`).",
 	}
@@ -137,7 +143,7 @@ func (p *SQLInjection) GetPrimaryDetector() string { return "mcptool.SQLInjectio
 func (p *SQLInjection) GetPrompts() []string {
 	var out []string
 	for _, bp := range sqlBooleanPayloads {
-		out = append(out, "test"+bp.tautology, "test"+bp.contradiction)
+		out = append(out, "test"+bp.andTrue, "test"+bp.andFalse)
 	}
 	out = append(out, sqlErrorPayloads...)
 	return out
@@ -163,11 +169,9 @@ func matchesSQLQueryParam(name string) bool {
 }
 
 // sqlResponseTemplate extends responseTemplate with additional stripping for
-// escaped variants of the payload. responseTemplate only strips the literal
-// a.Prompt, but tools that JSON-encode, URL-encode, or repr()-escape their
-// arguments will not match. This function strips common escaped forms so a
-// tool that echoes {"query": "test' OR '1'='1"} does not produce a different
-// template from {"query": "test"}.
+// escaped variants of the payload. Tools that JSON-encode or repr()-escape
+// their arguments would otherwise produce different shapes for different
+// payloads even though the semantic content is identical.
 func sqlResponseTemplate(a *attempt.Attempt) string {
 	if a == nil || len(a.Outputs) == 0 {
 		return ""
@@ -182,6 +186,21 @@ func sqlResponseTemplate(a *attempt.Attempt) string {
 	}
 	s = strings.NewReplacer("'", " ", `"`, " ", "`", " ").Replace(s)
 	return strings.Join(strings.Fields(s), " ")
+}
+
+// sqlIsRead checks whether a tool should receive boolean differential payloads.
+// It checks MCP annotations first (the strongest signal), then falls back to
+// readIntent for name/description inference.
+func sqlIsRead(tool map[string]any, params []paramInfo) bool {
+	if ann, ok := tool["annotations"].(types.MCPToolAnnotations); ok {
+		if ann.ReadOnly {
+			return true
+		}
+		if ann.IsDestructive() {
+			return false
+		}
+	}
+	return readIntent(tool, params)
 }
 
 // Probe discovers the target's tools and runs both SQL injection oracles against
@@ -213,7 +232,7 @@ func (p *SQLInjection) Probe(ctx context.Context, gen types.Generator) ([]*attem
 			if hasSQLQueryParam(ts.params) {
 				ts = ts.withShape(p.shapeMode()).discoverValues(ctx, inv, name)
 			}
-			isRead := readIntent(tool, ts.params)
+			isRead := sqlIsRead(tool, ts.params)
 			for _, param := range ts.params {
 				if !isStringParam(param.typ) {
 					continue
@@ -227,8 +246,13 @@ func (p *SQLInjection) Probe(ctx context.Context, gen types.Generator) ([]*attem
 				if isRead {
 					attempts = append(attempts, p.runBooleanDifferential(ctx, inv, name, param, ts)...)
 				} else {
-					slog.Debug("mcptool.SQLInjection: skipping boolean differential on non-read-intent tool",
-						"tool", name, "param", param.name)
+					a := attempt.New("")
+					a.Probe = p.Name()
+					a.Detector = p.GetPrimaryDetector()
+					a.Metadata["mcptool.tool"] = name
+					a.Metadata["mcptool.param"] = string(param.path)
+					mcpprobe.MarkNotTested(a, "boolean differential skipped: tool is not read-intent")
+					attempts = append(attempts, a)
 				}
 				attempts = append(attempts, p.runErrorOracle(ctx, inv, name, param, ts)...)
 			}
@@ -238,22 +262,21 @@ func (p *SQLInjection) Probe(ctx context.Context, gen types.Generator) ([]*attem
 }
 
 // runBooleanDifferential sends one baseline call (deduplicated across payload
-// pairs), then tautology and contradiction for each pair, and records the
-// comparison verdict. The finding condition is asymmetric:
+// pairs), then AND-true and AND-false for each pair, and records the comparison
+// verdict. The finding condition is:
 //
-//	tautology != baseline (the tautology changed something)
-//	tautology != contradiction (the two payloads have different effects)
-//	len(tautology) > len(contradiction) (tautology returned more data)
+//	AND-true shape == baseline (AND TRUE is a no-op in SQL)
+//	AND-false shape != baseline (AND FALSE falsifies the WHERE clause)
 //
-// This catches both the zero-row-baseline case (baseline=empty, tautology=all,
-// contradiction=empty) and the some-row case (baseline=Alice, tautology=all,
-// contradiction=empty). It rejects echo tools (identical shapes after stripping
-// the echoed payload), constant tools, and dynamic tools (filtered by baseline
-// stability check).
+// This proves SQL context: a non-SQL search engine treats AND as a keyword
+// operator, so AND-true produces a DIFFERENT result from baseline (extra search
+// terms), and the finding condition does not fire. Echo tools are rejected
+// because all shapes are identical after stripping the echoed payload. Constant
+// and dynamic tools are rejected by the baseline stability check.
 func (p *SQLInjection) runBooleanDifferential(ctx context.Context, inv types.ToolInvoker, tool string, param paramInfo, ts toolSig) []*attempt.Attempt {
 	baseValue := p.baselineValue(param, ts)
 
-	// Issue baseline once and verify stability: two identical calls must produce
+	// Issue baseline twice and verify stability: two identical calls must produce
 	// the same shape, otherwise the tool has dynamic fields (timestamps, request
 	// IDs) that make the differential unreliable.
 	baseline1 := p.callSQLI(ctx, inv, tool, param, ts, baseValue)
@@ -263,8 +286,13 @@ func (p *SQLInjection) runBooleanDifferential(ctx context.Context, inv types.Too
 
 	shape1 := sqlResponseTemplate(baseline1)
 	shape2 := sqlResponseTemplate(baseline2)
-	allAttempts := []*attempt.Attempt{baseline1}
-	if shape1 == "" || shape1 != shape2 {
+	allAttempts := []*attempt.Attempt{baseline1, baseline2}
+	if shape1 != shape2 {
+		mcpprobe.MarkNotTested(baseline1, "boolean differential skipped: unstable baseline response")
+		return allAttempts
+	}
+	if baseline1.Status != attempt.StatusComplete {
+		mcpprobe.MarkNotTested(baseline1, "boolean differential skipped: baseline call failed")
 		return allAttempts
 	}
 
@@ -275,50 +303,48 @@ func (p *SQLInjection) runBooleanDifferential(ctx context.Context, inv types.Too
 			break
 		}
 
-		tautologyPayload := baseValue + bp.tautology
-		contradictionPayload := baseValue + bp.contradiction
+		andTruePayload := baseValue + bp.andTrue
+		andFalsePayload := baseValue + bp.andFalse
 
-		tautologyAttempt := p.callSQLI(ctx, inv, tool, param, ts, tautologyPayload)
-		tautologyAttempt.Metadata[attempt.MetadataKeySQLInjectionOracle] = "boolean_differential"
-		allAttempts = append(allAttempts, tautologyAttempt)
+		andTrueAttempt := p.callSQLI(ctx, inv, tool, param, ts, andTruePayload)
+		andTrueAttempt.Metadata[attempt.MetadataKeySQLInjectionOracle] = "boolean_differential"
+		allAttempts = append(allAttempts, andTrueAttempt)
 
-		contradictionAttempt := p.callSQLI(ctx, inv, tool, param, ts, contradictionPayload)
-		contradictionAttempt.Metadata[attempt.MetadataKeySQLInjectionOracle] = "boolean_differential"
-		allAttempts = append(allAttempts, contradictionAttempt)
+		andFalseAttempt := p.callSQLI(ctx, inv, tool, param, ts, andFalsePayload)
+		andFalseAttempt.Metadata[attempt.MetadataKeySQLInjectionOracle] = "boolean_differential"
+		allAttempts = append(allAttempts, andFalseAttempt)
 
-		tautologyShape := sqlResponseTemplate(tautologyAttempt)
-		contradictionShape := sqlResponseTemplate(contradictionAttempt)
+		andTrueShape := sqlResponseTemplate(andTrueAttempt)
+		andFalseShape := sqlResponseTemplate(andFalseAttempt)
 
-		// The finding condition is asymmetric:
-		//   tautology must DIFFER from baseline (it widened the query)
-		//   tautology must DIFFER from contradiction (the two payloads have different effects)
-		//   tautology must be LONGER than contradiction (wider result set, more data)
-		// This rejects: echo tools (shapes are identical after stripping the echoed
-		// payload), uniform/constant tools (all same shape), dynamic tools (filtered
-		// by baseline stability check above). The zero-row-baseline case works
-		// because contradiction is empty like baseline while tautology is full.
-		differential := tautologyShape != "" &&
-			contradictionShape != "" &&
-			tautologyShape != baselineShape &&
-			tautologyShape != contradictionShape &&
-			len(tautologyShape) > len(contradictionShape)
+		// Finding condition:
+		//   AND-true must EQUAL baseline (AND TRUE is a no-op in SQL)
+		//   AND-false must DIFFER from baseline (AND FALSE returns nothing)
+		// This proves SQL context because a non-SQL search engine interprets
+		// AND as a keyword operator and "test' AND '1'='1" produces a different
+		// search than "test".
+		differential := andTrueShape != "" &&
+			andTrueAttempt.Status == attempt.StatusComplete &&
+			andFalseAttempt.Status == attempt.StatusComplete &&
+			andTrueShape == baselineShape &&
+			andFalseShape != baselineShape
 
 		if differential {
-			tautologyAttempt.Metadata[attempt.MetadataKeySQLInjectionBooleanDifferential] = true
-			tautologyAttempt.Metadata[attempt.MetadataKeySQLInjectionBaselineResponse] = strings.Join(baseline1.Outputs, "\n")
-			tautologyAttempt.Metadata[attempt.MetadataKeySQLInjectionTautologyResponse] = strings.Join(tautologyAttempt.Outputs, "\n")
-			tautologyAttempt.Metadata[attempt.MetadataKeySQLInjectionContradictionResponse] = strings.Join(contradictionAttempt.Outputs, "\n")
+			andTrueAttempt.Metadata[attempt.MetadataKeySQLInjectionBooleanDifferential] = true
+			andTrueAttempt.Metadata[attempt.MetadataKeySQLInjectionBaselineResponse] = strings.Join(baseline1.Outputs, "\n")
+			andTrueAttempt.Metadata[attempt.MetadataKeySQLInjectionTautologyResponse] = strings.Join(andTrueAttempt.Outputs, "\n")
+			andTrueAttempt.Metadata[attempt.MetadataKeySQLInjectionContradictionResponse] = strings.Join(andFalseAttempt.Outputs, "\n")
 		}
 	}
 	return allAttempts
 }
 
 // baselineValue picks the best benign value for a parameter: from the value
-// chain (operator config, hooks, recon observed values) via benignArgsFor,
-// falling back to declaredValue, then a hardcoded "test".
+// chain (operator config, hooks, recon observed values) via the Call's flat
+// kv store, falling back to declaredValue, then a hardcoded "test".
 func (p *SQLInjection) baselineValue(param paramInfo, ts toolSig) string {
-	benign := ts.benignArgsFor()
-	if v, ok := benign[string(param.path)]; ok {
+	call, _ := ts.sig.Build(ts.chain())
+	if v, ok := call.Get(param.path); ok {
 		if s, ok := v.(string); ok && s != "" {
 			return s
 		}
@@ -332,7 +358,9 @@ func (p *SQLInjection) baselineValue(param paramInfo, ts toolSig) string {
 }
 
 // runErrorOracle sends payloads that elicit database error messages and checks
-// the response for engine-specific error signatures.
+// the response for engine-specific error signatures. The error oracle is
+// partial evidence: a parameterised query can also throw on type mismatches,
+// so database-error-only findings score InconclusiveScore (0.5) in the detector.
 func (p *SQLInjection) runErrorOracle(ctx context.Context, inv types.ToolInvoker, tool string, param paramInfo, ts toolSig) []*attempt.Attempt {
 	var attempts []*attempt.Attempt
 	for _, payload := range sqlErrorPayloads {
@@ -342,6 +370,9 @@ func (p *SQLInjection) runErrorOracle(ctx context.Context, inv types.ToolInvoker
 		a := p.callSQLI(ctx, inv, tool, param, ts, payload)
 		a.Metadata[attempt.MetadataKeySQLInjectionOracle] = "database_error"
 
+		if a.Status != attempt.StatusComplete {
+			continue
+		}
 		for _, out := range a.Outputs {
 			if m := dbErrorRE.FindString(out); m != "" {
 				a.Metadata[attempt.MetadataKeySQLInjectionDatabaseError] = true
@@ -367,6 +398,9 @@ func (p *SQLInjection) callSQLI(ctx context.Context, inv types.ToolInvoker, tool
 	if err != nil {
 		ts.recordCallFailure(a, param, args, err)
 		return a
+	}
+	if res.IsError {
+		a.Metadata["mcptool.tool_is_error"] = true
 	}
 	a.AddOutput(res.Text)
 	a.Complete()
