@@ -181,6 +181,19 @@ const (
 	AuthClassPrivilegeDiscriminator = "privilege-discriminator"
 )
 
+// Attempt-metadata keys for mcptool.InconsistentAuthorization (LAB-5572).
+// Two functionally-equivalent tools called with identical input produced
+// materially different responses — the finding is the INCONSISTENCY in the
+// server's own output, never a single observation.
+const (
+	MetaEquivToolA         = "mcpequiv.tool_a"
+	MetaEquivToolB         = "mcpequiv.tool_b"
+	MetaEquivResponseA     = "mcpequiv.response_a"
+	MetaEquivResponseB     = "mcpequiv.response_b"
+	MetaEquivArgs          = "mcpequiv.args"
+	MetaEquivPairingMethod = "mcpequiv.pairing_method"
+)
+
 // Attempt-metadata keys for mcptool.AnnotationTruth (LAB-7627), read by the
 // mcptool.AnnotationMismatch detector.
 const (
