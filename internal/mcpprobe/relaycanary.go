@@ -114,9 +114,6 @@ func isOccurrenceDelimited(response string, absPos, canaryLen int) bool {
 // canary appears only inside string values — structured framing.
 func isInJSONValue(response, canary string) bool {
 	trimmed := strings.TrimSpace(response)
-	if !json.Valid([]byte(trimmed)) {
-		return false
-	}
 	var v any
 	if err := json.Unmarshal([]byte(trimmed), &v); err != nil {
 		return false
@@ -166,42 +163,29 @@ func isInCodeFenceAt(response string, absPos int) bool {
 	return strings.Contains(response[absPos:], fence)
 }
 
-// isInQuotedBlockAt checks whether the canary at absPos is directly wrapped in
-// double quotes. Single quotes (apostrophes) are NOT treated as delimiters —
-// they are ubiquitous in English prose and cause false negatives.
+// isInQuotedBlockAt checks whether the canary at absPos sits inside a
+// double-quoted string. Single quotes (apostrophes) are NOT treated as
+// delimiters — they are ubiquitous in English prose and cause false negatives.
 //
-// "Directly wrapped" means: a double-quote appears within a short gap before
-// the canary start, and another appears within a short gap after the canary end,
-// with no other double-quote between the opening quote and the canary.
+// Detection uses parity counting: an odd number of unescaped double-quotes
+// before the canary means the canary is inside a quoted string. This correctly
+// handles canaries deep inside a long quoted block (e.g., the server wrapping
+// the entire caller payload in quotes) where a proximity heuristic would fail.
 func isInQuotedBlockAt(response string, absPos, canaryLen int) bool {
-	const maxGap = 5
+	count := 0
+	for i := 0; i < absPos; i++ {
+		if response[i] == '"' && (i == 0 || response[i-1] != '\\') {
+			count++
+		}
+	}
+	if count%2 == 0 {
+		return false
+	}
 	end := absPos + canaryLen
-
-	// Find the nearest " before the canary within maxGap characters.
-	searchStart := absPos - maxGap
-	if searchStart < 0 {
-		searchStart = 0
-	}
-	before := strings.LastIndexByte(response[searchStart:absPos], '"')
-	if before < 0 {
+	if end >= len(response) {
 		return false
 	}
-	openPos := searchStart + before
-	// No intervening " between the opening quote and the canary.
-	if strings.ContainsRune(response[openPos+1:absPos], '"') {
-		return false
-	}
-
-	// Find the nearest " after the canary within maxGap characters.
-	searchEnd := end + maxGap
-	if searchEnd > len(response) {
-		searchEnd = len(response)
-	}
-	if end >= searchEnd {
-		return false
-	}
-	after := strings.IndexByte(response[end:searchEnd], '"')
-	return after >= 0
+	return strings.IndexByte(response[end:], '"') >= 0
 }
 
 // isInHTMLCodeTagAt checks whether the canary at absPos sits inside a
@@ -238,15 +222,7 @@ func isInHTMLCodeTagAt(response string, absPos, canaryLen int) bool {
 	return strings.Contains(strings.ToLower(after), closePattern)
 }
 
-// htmlCodeOpenRE matches opening <pre> or <code> tags, case-insensitive.
-var htmlCodeOpenRE = htmlCodeTagRE
-
-// Reuse the same compiled pattern under two names for readability.
-var htmlCodeTagRE = compileCodeOpenRE()
-
-func compileCodeOpenRE() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)<\s*(pre|code)\b[^>]*>`)
-}
+var htmlCodeOpenRE = regexp.MustCompile(`(?i)<\s*(pre|code)\b[^>]*>`)
 
 // minServerContextChars is the minimum number of letter/digit characters in the
 // response (excluding the canary and the caller's payload) for the

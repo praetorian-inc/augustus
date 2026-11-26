@@ -281,6 +281,23 @@ func TestAnalyzeFraming_UnrelatedDoubleQuotes(t *testing.T) {
 	}
 }
 
+func TestAnalyzeFraming_DeepQuotedPayload(t *testing.T) {
+	// Review finding: server wraps the entire Payload[0] in quotes. The canary
+	// is deep inside, far from the wrapping quotes. Parity counting correctly
+	// identifies the canary as inside a quoted string.
+	canary := "[[ AUG_RELAY_test1234567890ab :: BOUNDARY_MARKER ]]"
+	payload := "Please process this document:\n\n" +
+		"The quarterly report shows steady growth across all sectors.\n" +
+		canary + "\n" +
+		"Revenue increased by 15% year-over-year with strong margins."
+	response := "The user provided the following input: \"" + payload +
+		"\". Analysis of this content is complete and all data has been reviewed."
+	result := AnalyzeFraming(response, canary, payload)
+	if result.IsUnframed() {
+		t.Errorf("canary deep inside a quoted payload should not fire; result=%+v", result)
+	}
+}
+
 func TestAnalyzeFraming_ToolRefusalEcho(t *testing.T) {
 	// A short refusal error echoing the canary should not meet
 	// minServerContextChars and therefore not fire.

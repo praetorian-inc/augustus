@@ -100,20 +100,21 @@ func (p *UnframedRelay) Probe(ctx context.Context, gen types.Generator) ([]*atte
 	}
 
 	var attempts []*attempt.Attempt
-	targets := 0
+	resourceTargets := 0
+	promptTargets := 0
 
 	for _, inv := range invs {
 		if inv == nil {
 			continue
 		}
 		for _, tpl := range inv.ResourceTemplates {
-			if targets >= p.maxTargets || ctx.Err() != nil {
+			if resourceTargets >= p.maxTargets || ctx.Err() != nil {
 				break
 			}
 			if tpl.URITemplate == "" {
 				continue
 			}
-			targets++
+			resourceTargets++
 			for _, payload := range p.canary.Payloads {
 				uri := expandTemplate(tpl.URITemplate, payload)
 				if uri == "" {
@@ -126,14 +127,17 @@ func (p *UnframedRelay) Probe(ctx context.Context, gen types.Generator) ([]*atte
 			}
 		}
 		for _, pt := range inv.Prompts {
-			if targets >= p.maxTargets || ctx.Err() != nil {
+			if promptTargets >= p.maxTargets || ctx.Err() != nil {
 				break
 			}
 			if pt.Name == "" || len(pt.Arguments) == 0 {
 				continue
 			}
-			targets++
+			promptTargets++
 			for _, arg := range pt.Arguments {
+				if arg.Name == "" {
+					continue
+				}
 				for _, payload := range p.canary.Payloads {
 					if ctx.Err() != nil {
 						return attempts, nil
@@ -145,8 +149,12 @@ func (p *UnframedRelay) Probe(ctx context.Context, gen types.Generator) ([]*atte
 		}
 	}
 
-	if targets >= p.maxTargets {
-		slog.Warn("mcpprimitive.UnframedRelay: target cap reached; later catalog entries were not tested",
+	if resourceTargets >= p.maxTargets {
+		slog.Warn("mcpprimitive.UnframedRelay: resource cap reached; later catalog entries were not tested",
+			"probe", p.Name(), "cap", p.maxTargets)
+	}
+	if promptTargets >= p.maxTargets {
+		slog.Warn("mcpprimitive.UnframedRelay: prompt cap reached; later catalog entries were not tested",
 			"probe", p.Name(), "cap", p.maxTargets)
 	}
 	return attempts, nil
@@ -182,6 +190,7 @@ func (p *UnframedRelay) readPrompt(ctx context.Context, reader types.MCPPrimitiv
 	a.Metadata[attempt.MetadataKeyRelayCanary] = p.canary.Marker
 	a.Metadata[attempt.MetadataKeyPrimitiveTarget] = promptName
 	a.Metadata[attempt.MetadataKeyPrimitiveClass] = classPromptContent
+	a.Metadata[attempt.MetadataKeyPrimitiveArg] = argName
 
 	res, err := reader.GetPrompt(ctx, promptName, args)
 	if err != nil {

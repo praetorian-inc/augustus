@@ -183,6 +183,36 @@ func TestUnframedRelay_EmptyToolList(t *testing.T) {
 	}
 }
 
+func TestUnframedRelay_ToolIsErrorMarkedAsRefused(t *testing.T) {
+	p := newUnframedRelayProbe(t)
+
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("validate", "action")},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			action, _ := args["action"].(string)
+			return types.ToolResult{
+				Text:    "Invalid value " + action + " for parameter action — please provide a valid option for the tool.",
+				IsError: true,
+			}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+	if len(attempts) == 0 {
+		t.Fatal("Probe produced no attempts")
+	}
+
+	for _, a := range attempts {
+		refused, _ := a.Metadata[attempt.MetadataKeyTargetRefused].(bool)
+		if !refused {
+			t.Errorf("ToolResult.IsError should set MetadataKeyTargetRefused")
+		}
+	}
+}
+
 func TestUnframedRelay_MetadataPopulated(t *testing.T) {
 	p := newUnframedRelayProbe(t)
 

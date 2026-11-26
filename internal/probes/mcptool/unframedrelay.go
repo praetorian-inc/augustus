@@ -159,6 +159,9 @@ func (p *UnframedRelay) callOne(ctx context.Context, inv types.ToolInvoker, tool
 		ts.recordCallFailure(a, param, args, err)
 		return a
 	}
+	if res.IsError {
+		a.Metadata[attempt.MetadataKeyTargetRefused] = true
+	}
 	a.AddOutput(mcpprobe.TruncateResponse(res.Text))
 	a.Complete()
 	return a
