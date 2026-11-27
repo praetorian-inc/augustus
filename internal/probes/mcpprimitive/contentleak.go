@@ -283,20 +283,7 @@ func (p *ContentLeak) readOne(ctx context.Context, reader types.MCPPrimitiveRead
 // So a failure to communicate is marked INCONCLUSIVE and errored: visible, and
 // never mistakable for "nothing here".
 func (p *ContentLeak) recordCallError(a *attempt.Attempt, err error, what string) {
-	a.Metadata[attempt.MetadataKeyPrimitiveCallError] = err.Error()
-
-	if reason, transport := classifyCallError(err); transport {
-		a.Metadata[attempt.MetadataKeyInconclusive] = true
-		a.Metadata[attempt.MetadataKeyInconclusiveReason] = reason
-		slog.Warn("mcpprimitive.ContentLeak: could not complete a request, so this surface was NOT assessed; this is not a clean result",
-			"probe", p.Name(), "target", what, "reason", reason, "error", err)
-		a.SetError(err)
-		return
-	}
-
-	// An application-level refusal: the surface answered, and the answer was no.
-	a.AddOutput("")
-	a.Complete()
+	recordCallError(p.Name(), a, err, what)
 }
 
 // classifyCallError reports whether an error means "we never got an answer"

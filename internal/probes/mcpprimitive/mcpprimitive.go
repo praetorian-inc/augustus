@@ -30,9 +30,11 @@ package mcpprimitive
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
 	mcpx "github.com/praetorian-inc/augustus/internal/recon/mcp"
+	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/recon"
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
@@ -347,4 +349,26 @@ func benignPromptArgs(args []types.MCPPromptArgument) map[string]string {
 		}
 	}
 	return out
+}
+
+// recordCallError classifies the error from a ReadResource or GetPrompt call.
+// Transport failures (timeout, connection reset, EOF) are marked inconclusive —
+// we never got an answer, so we cannot say the surface is clean. Application-
+// level refusals are completed with an empty output.
+//
+// Shared by ContentLeak and UnframedRelay.
+func recordCallError(probeName string, a *attempt.Attempt, err error, what string) {
+	a.Metadata[attempt.MetadataKeyPrimitiveCallError] = err.Error()
+
+	if reason, transport := classifyCallError(err); transport {
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = reason
+		slog.Warn(probeName+": could not complete a request, so this surface was NOT assessed; this is not a clean result",
+			"probe", probeName, "target", what, "reason", reason, "error", err)
+		a.SetError(err)
+		return
+	}
+
+	a.AddOutput("")
+	a.Complete()
 }

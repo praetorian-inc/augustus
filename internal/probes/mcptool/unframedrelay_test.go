@@ -183,7 +183,7 @@ func TestUnframedRelay_EmptyToolList(t *testing.T) {
 	}
 }
 
-func TestUnframedRelay_ToolIsErrorMarkedAsRefused(t *testing.T) {
+func TestUnframedRelay_ToolIsErrorScoredNormally(t *testing.T) {
 	p := newUnframedRelayProbe(t)
 
 	target := &mockTarget{
@@ -206,9 +206,15 @@ func TestUnframedRelay_ToolIsErrorMarkedAsRefused(t *testing.T) {
 	}
 
 	for _, a := range attempts {
+		// IsError should use a probe-specific key, NOT MetadataKeyTargetRefused,
+		// because error responses can still contain unframed relay.
+		isError, _ := a.Metadata[metaRelayToolIsError].(bool)
+		if !isError {
+			t.Errorf("ToolResult.IsError should set metaRelayToolIsError")
+		}
 		refused, _ := a.Metadata[attempt.MetadataKeyTargetRefused].(bool)
-		if !refused {
-			t.Errorf("ToolResult.IsError should set MetadataKeyTargetRefused")
+		if refused {
+			t.Errorf("ToolResult.IsError should NOT set MetadataKeyTargetRefused for relay probe (error responses may contain unframed relay)")
 		}
 	}
 }

@@ -14,26 +14,6 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
 
-// recordCallError classifies the error from a ReadResource or GetPrompt call.
-// Transport failures (timeout, connection reset, EOF) are marked inconclusive —
-// we never got an answer, so we cannot say the surface is clean. Application-
-// level refusals are completed with an empty output.
-func (p *UnframedRelay) recordCallError(a *attempt.Attempt, err error, what string) {
-	a.Metadata[attempt.MetadataKeyPrimitiveCallError] = err.Error()
-
-	if reason, transport := classifyCallError(err); transport {
-		a.Metadata[attempt.MetadataKeyInconclusive] = true
-		a.Metadata[attempt.MetadataKeyInconclusiveReason] = reason
-		slog.Warn("mcpprimitive.UnframedRelay: could not complete a request, so this surface was NOT assessed; this is not a clean result",
-			"probe", p.Name(), "target", what, "reason", reason, "error", err)
-		a.SetError(err)
-		return
-	}
-
-	a.AddOutput("")
-	a.Complete()
-}
-
 func init() {
 	probes.Register("mcpprimitive.UnframedRelay", NewUnframedRelay)
 }
@@ -208,7 +188,7 @@ func (p *UnframedRelay) readResource(ctx context.Context, reader types.MCPPrimit
 
 	res, err := reader.ReadResource(ctx, uri)
 	if err != nil {
-		p.recordCallError(a, err, uri)
+		recordCallError(p.Name(), a, err, uri)
 		return a
 	}
 	a.AddOutput(mcpprobe.TruncateResponse(res.Text))
@@ -228,7 +208,7 @@ func (p *UnframedRelay) readPrompt(ctx context.Context, reader types.MCPPrimitiv
 
 	res, err := reader.GetPrompt(ctx, promptName, args)
 	if err != nil {
-		p.recordCallError(a, err, promptName)
+		recordCallError(p.Name(), a, err, promptName)
 		return a
 	}
 	a.AddOutput(mcpprobe.TruncateResponse(res.Text))

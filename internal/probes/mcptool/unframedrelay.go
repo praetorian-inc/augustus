@@ -23,6 +23,8 @@ var (
 	_ recon.ContextAwareProbe = (*UnframedRelay)(nil)
 )
 
+const metaRelayToolIsError = "mcptool.relay_tool_is_error"
+
 // UnframedRelay tests whether a directly-invokable MCP tool relays
 // caller-supplied content back to the host model interpolated into
 // server-authored prose, without escaping, delimiting, or labelling it.
@@ -161,7 +163,7 @@ func (p *UnframedRelay) callOne(ctx context.Context, inv types.ToolInvoker, tool
 		return a
 	}
 	if res.IsError {
-		a.Metadata[attempt.MetadataKeyTargetRefused] = true
+		a.Metadata[metaRelayToolIsError] = true
 		guessed := ts.guessedArgs(param)
 		if len(guessed) > 0 {
 			mcpprobe.MarkNotTested(a, fmt.Sprintf(
@@ -169,7 +171,11 @@ func (p *UnframedRelay) callOne(ctx context.Context, inv types.ToolInvoker, tool
 				strings.Join(guessed, ", "), param.path))
 			a.Metadata[attempt.MetadataKeyInconclusive] = true
 			a.Metadata[attempt.MetadataKeyInconclusiveReason] = a.Metadata[attempt.MetadataKeyNotTestedReason]
+			a.SetError(fmt.Errorf("tool %s returned IsError with guessed arguments: %s", tool, strings.Join(guessed, ", ")))
+			return a
 		}
+		// No guessed args: the error IS attributable to our payload.
+		// Score the error text normally — it may contain unframed relay.
 	}
 	a.AddOutput(mcpprobe.TruncateResponse(res.Text))
 	a.Complete()

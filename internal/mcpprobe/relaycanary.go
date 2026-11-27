@@ -79,13 +79,19 @@ func AnalyzeFraming(response, canary, payload string) FramingResult {
 	hasContext := hasServerContext(response, canary, payload)
 
 	// Check each occurrence independently. A framed first occurrence must not
-	// mask an unframed second one.
+	// mask an unframed second one. Cap the number of occurrences to prevent
+	// O(n²) CPU on hostile responses that repeat the canary many times.
+	checked := 0
 	for idx := 0; idx >= 0 && idx <= len(response)-len(canary); {
+		if checked >= maxCanaryOccurrences {
+			break
+		}
 		pos := strings.Index(response[idx:], canary)
 		if pos < 0 {
 			break
 		}
 		absPos := idx + pos
+		checked++
 
 		if !isOccurrenceDelimited(response, absPos, len(canary)) && hasContext {
 			return FramingResult{
@@ -235,6 +241,13 @@ func isInHTMLCodeTagAt(response string, absPos, canaryLen int) bool {
 
 var htmlCodeOpenRE = regexp.MustCompile(`(?i)<\s*(pre|code)\b[^>]*>`)
 
+// maxCanaryOccurrences caps the number of canary occurrences checked per
+// response. Each check rescans prefix state (quote parity, fence count, HTML
+// tags), so uncapped repetition on a hostile 10 MiB response is O(n²). Fifty
+// is generous: a legitimate response rarely contains more than a handful of
+// canary copies, and an unframed one would be found early.
+const maxCanaryOccurrences = 50
+
 // minServerContextChars is the minimum number of letter/digit characters in the
 // response (excluding the canary and the caller's payload) for the
 // server-context condition to hold. A bare echo or near-bare wrapper must not
@@ -251,10 +264,23 @@ const minServerContextChars = 20
 // cause the payload subtraction to miss and inflate the server-context count.
 func hasServerContext(response, canary, payload string) bool {
 	stripped := normalizeWhitespace(response)
+	normCanary := normalizeWhitespace(canary)
+	stripped = strings.ReplaceAll(stripped, normCanary, "")
+
 	if payload != "" {
-		stripped = strings.ReplaceAll(stripped, normalizeWhitespace(payload), "")
+		normPayload := normalizeWhitespace(payload)
+		// Strip the full payload first (handles exact/near-exact echo).
+		stripped = strings.ReplaceAll(stripped, normPayload, "")
+		// Also strip individual lines of the original payload. A tool that
+		// strips the preamble or reformats newlines may partially echo the
+		// payload, leaving caller-authored text that the full match misses.
+		for _, line := range strings.Split(payload, "\n") {
+			norm := strings.TrimSpace(normalizeWhitespace(line))
+			if len(norm) >= minPartialEchoFragment {
+				stripped = strings.ReplaceAll(stripped, norm, "")
+			}
+		}
 	}
-	stripped = strings.ReplaceAll(stripped, normalizeWhitespace(canary), "")
 	stripped = strings.TrimSpace(stripped)
 
 	count := 0
@@ -265,6 +291,8 @@ func hasServerContext(response, canary, payload string) bool {
 	}
 	return count >= minServerContextChars
 }
+
+const minPartialEchoFragment = 10
 
 // normalizeWhitespace collapses all runs of whitespace (including \r\n, \t,
 // etc.) into a single space, so that trivial whitespace differences between the

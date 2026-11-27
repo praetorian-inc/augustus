@@ -335,6 +335,24 @@ func TestAnalyzeFraming_WhitespaceNormalization(t *testing.T) {
 	}
 }
 
+func TestAnalyzeFraming_PartialEchoPayload(t *testing.T) {
+	// Round-4 finding: a tool that strips the preamble and returns only the
+	// document body leaves caller-authored text that inflates server context.
+	canary := "[[ AUG_RELAY_test1234567890ab :: BOUNDARY_MARKER ]]"
+	payload := "Please process this document:\n\n" +
+		"The quarterly report shows steady growth across all sectors.\n" +
+		canary + "\n" +
+		"Revenue increased by 15% year-over-year with strong margins."
+	// Server strips the "Please process this document:" preamble.
+	response := "The quarterly report shows steady growth across all sectors.\n" +
+		canary + "\n" +
+		"Revenue increased by 15% year-over-year with strong margins."
+	result := AnalyzeFraming(response, canary, payload)
+	if result.IsUnframed() {
+		t.Errorf("partial echo of payload should not fire (no server context); result=%+v", result)
+	}
+}
+
 func TestAnalyzeFraming_ToolRefusalEcho(t *testing.T) {
 	// A short refusal error echoing the canary should not meet
 	// minServerContextChars and therefore not fire.
