@@ -212,33 +212,33 @@ func isInQuotedBlockAt(response string, absPos, canaryLen int) bool {
 // <pre>/<code> tag. Walks ALL opening tags before the canary (most recent
 // first) so that a closed inner tag does not mask a still-open outer one,
 // e.g. `<pre>...<code>...</code>...[canary]...</pre>`.
+//
+// The response is lowercased once upfront to avoid per-tag O(n) ToLower calls
+// that would otherwise make this O(n²) on responses with many open tags.
 func isInHTMLCodeTagAt(response string, absPos, canaryLen int) bool {
-	before := response[:absPos]
-	after := response[absPos+canaryLen:]
+	lower := strings.ToLower(response)
+	before := lower[:absPos]
+	after := lower[absPos+canaryLen:]
 
 	opens := htmlCodeOpenRE.FindAllStringIndex(before, -1)
 	if len(opens) == 0 {
 		return false
 	}
 
-	// Walk backwards: a more-recent unclosed tag is the innermost container.
 	for i := len(opens) - 1; i >= 0; i-- {
 		openSpan := opens[i]
-		openMatch := htmlCodeOpenRE.FindStringSubmatch(response[openSpan[0]:openSpan[1]])
+		openMatch := htmlCodeOpenRE.FindStringSubmatch(lower[openSpan[0]:openSpan[1]])
 		if len(openMatch) < 2 {
 			continue
 		}
-		elem := strings.ToLower(openMatch[1])
-		closePattern := "</" + elem
+		closeTag := "</" + openMatch[1]
 
-		between := response[openSpan[1]:absPos]
-		if strings.Contains(strings.ToLower(between), closePattern) {
-			// This tag closed before the canary; try the next outer one.
+		between := lower[openSpan[1]:absPos]
+		if strings.Contains(between, closeTag) {
 			continue
 		}
 
-		// The tag is still open at the canary. Verify a matching close after.
-		if strings.Contains(strings.ToLower(after), closePattern) {
+		if strings.Contains(after, closeTag) {
 			return true
 		}
 	}

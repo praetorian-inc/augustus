@@ -54,13 +54,28 @@ func (d *UnframedRelayDetector) Detect(_ context.Context, a *attempt.Attempt) ([
 		return scores, nil
 	}
 
+	// Prompt templates interpolate arguments into prose by design (prompts/get),
+	// so an unframed canary in a prompt response is expected conforming behaviour,
+	// not a confirmed vulnerability. Route these to partial evidence (→ REVIEW)
+	// rather than a full 1.0 (→ VULN).
+	isPromptSurface := false
+	if class, _ := a.Metadata[attempt.MetadataKeyPrimitiveClass].(string); class == "prompt-content" {
+		isPromptSurface = true
+	}
+
 	for i, out := range a.Outputs {
 		if strings.TrimSpace(out) == "" {
 			continue
 		}
 		result := mcpprobe.AnalyzeFraming(out, canary, a.Prompt)
 		if result.IsUnframed() {
-			scores[i] = 1.0
+			if isPromptSurface {
+				scores[i] = 0.5
+				a.Metadata[attempt.MetadataKeyPartialEvidence] = true
+				a.Metadata[attempt.MetadataKeyPartialEvidenceReason] = "prompt templates interpolate arguments into prose by design; unframed relay is expected behaviour for prompts/get — verify whether the deployment context makes this exploitable"
+			} else {
+				scores[i] = 1.0
+			}
 		}
 	}
 	return scores, nil

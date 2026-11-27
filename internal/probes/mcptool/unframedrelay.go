@@ -164,6 +164,18 @@ func (p *UnframedRelay) callOne(ctx context.Context, inv types.ToolInvoker, tool
 	}
 	if res.IsError {
 		a.Metadata[metaRelayToolIsError] = true
+
+		// Schema-predicted rejection: the tool's own schema says these args
+		// are invalid, so IsError is a validation refusal — the same as a
+		// JSON-RPC -32602 handled in recordCallFailure. Mark it refused so
+		// the detector suppresses the score consistently across both envelopes.
+		if args != nil && ts.sig.Validate(args) != nil {
+			a.Metadata[attempt.MetadataKeyTargetRefused] = true
+			a.AddOutput(mcpprobe.TruncateResponse(res.Text))
+			a.Complete()
+			return a
+		}
+
 		guessed := ts.guessedArgs(param)
 		if len(guessed) > 0 {
 			mcpprobe.MarkNotTested(a, fmt.Sprintf(
@@ -174,8 +186,6 @@ func (p *UnframedRelay) callOne(ctx context.Context, inv types.ToolInvoker, tool
 			a.SetError(fmt.Errorf("tool %s returned IsError with guessed arguments: %s", tool, strings.Join(guessed, ", ")))
 			return a
 		}
-		// No guessed args: the error IS attributable to our payload.
-		// Score the error text normally — it may contain unframed relay.
 	}
 	a.AddOutput(mcpprobe.TruncateResponse(res.Text))
 	a.Complete()

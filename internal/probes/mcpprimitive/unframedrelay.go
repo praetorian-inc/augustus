@@ -118,9 +118,7 @@ func (p *UnframedRelay) Probe(ctx context.Context, gen types.Generator) ([]*atte
 
 	var attempts []*attempt.Attempt
 	resourceTargets := 0
-	promptTargets := 0
 	resourceTruncated := false
-	promptTruncated := false
 
 	for _, inv := range invs {
 		if inv == nil {
@@ -167,37 +165,31 @@ func (p *UnframedRelay) Probe(ctx context.Context, gen types.Generator) ([]*atte
 			}
 			resourceTargets++
 		}
-		for _, pt := range inv.Prompts {
-			if promptTargets >= p.promptMaxTargets || ctx.Err() != nil {
-				promptTruncated = promptTargets >= p.promptMaxTargets
-				break
-			}
-			if pt.Name == "" || len(pt.Arguments) == 0 {
+	}
+
+	// Collect prompts across inventories with dedup and cap, then probe each.
+	prompts := collectPromptsCapped(invs, p.promptMaxTargets, p.Name())
+	for _, pt := range prompts {
+		if len(pt.Arguments) == 0 {
+			continue
+		}
+		for _, arg := range pt.Arguments {
+			if arg.Name == "" {
 				continue
 			}
-			for _, arg := range pt.Arguments {
-				if arg.Name == "" {
-					continue
+			for _, payload := range p.canary.Payloads {
+				if ctx.Err() != nil {
+					return attempts, nil
 				}
-				for _, payload := range p.canary.Payloads {
-					if ctx.Err() != nil {
-						return attempts, nil
-					}
-					args := promptArgs(pt.Arguments, arg.Name, payload)
-					attempts = append(attempts, p.readPrompt(ctx, reader, pt.Name, arg.Name, args))
-				}
+				args := promptArgs(pt.Arguments, arg.Name, payload)
+				attempts = append(attempts, p.readPrompt(ctx, reader, pt.Name, arg.Name, args))
 			}
-			promptTargets++
 		}
 	}
 
 	if resourceTruncated {
 		slog.Warn("mcpprimitive.UnframedRelay: resource cap reached; later catalog entries were not tested",
 			"probe", p.Name(), "cap", p.resourceMaxTargets)
-	}
-	if promptTruncated {
-		slog.Warn("mcpprimitive.UnframedRelay: prompt cap reached; later catalog entries were not tested",
-			"probe", p.Name(), "cap", p.promptMaxTargets)
 	}
 	return attempts, nil
 }

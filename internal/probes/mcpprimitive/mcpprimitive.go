@@ -322,6 +322,36 @@ func expandExpression(expr, value string) string {
 	}
 }
 
+// collectPromptsCapped flattens prompts across inventories, deduplicates by
+// name, applies a cap, and warns on truncation. Parameterized by probeName so
+// both PromptTemplateInjection and UnframedRelay can share the logic.
+func collectPromptsCapped(invs []*types.MCPInventory, limit int, probeName string) []types.MCPPrompt {
+	var out []types.MCPPrompt
+	seen := make(map[string]bool)
+	truncated := false
+	for _, inv := range invs {
+		if inv == nil {
+			continue
+		}
+		for _, pr := range inv.Prompts {
+			if pr.Name == "" || seen[pr.Name] {
+				continue
+			}
+			if len(out) >= limit {
+				truncated = true
+				break
+			}
+			seen[pr.Name] = true
+			out = append(out, pr)
+		}
+	}
+	if truncated {
+		slog.Warn(probeName+": prompt cap reached; later catalog entries were not tested",
+			"probe", probeName, "cap", limit)
+	}
+	return out
+}
+
 // templateVars returns the distinct variable names declared in an RFC 6570 URI
 // template, in the order they first appear. Modifiers (explode *, prefix :N)
 // and operators (+, #, ?, …) are stripped.
