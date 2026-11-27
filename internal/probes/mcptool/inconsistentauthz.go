@@ -339,9 +339,18 @@ func (p *InconsistentAuthorization) buildSharedArgs(ctx context.Context, toolA, 
 	// Fill shared params that are required in B but optional in A and not yet
 	// filled by BenignCall or valueChain. Without this, tool B gets a call
 	// missing a required param and fails schema validation — a false differential.
+	// Use BenignCall(sigB) to get enum/const-aware placeholders rather than
+	// naive type-based defaults.
+	callB := mcpprobe.BenignCall(sigB)
 	for _, pm := range sigB.Params {
 		if !sharedPaths[pm.Path] || !pm.Required || filled[pm.Path] {
 			continue
+		}
+		if callB != nil {
+			if v, ok := callB.Get(pm.Path); ok {
+				call.Set(pm.Path, v)
+				continue
+			}
 		}
 		call.Set(pm.Path, benignPlaceholder(pm.Type))
 	}
@@ -373,6 +382,22 @@ func (p *InconsistentAuthorization) buildSharedArgs(ctx context.Context, toolA, 
 	if len(shared) == 0 {
 		return nil
 	}
+
+	// Validate the shared args against both schemas. A type mismatch
+	// (e.g. id:string vs id:integer) or an invalid enum value would
+	// produce a schema-refusal, not an authorization signal.
+	if err := sigA.Validate(shared); err != nil {
+		slog.Debug("mcptool.InconsistentAuthorization: shared args fail tool A schema; skipping",
+			"tool_a", nameA, "err", err)
+		return nil
+	}
+	nameB, _ := toolB["name"].(string)
+	if err := sigB.Validate(shared); err != nil {
+		slog.Debug("mcptool.InconsistentAuthorization: shared args fail tool B schema; skipping",
+			"tool_b", nameB, "err", err)
+		return nil
+	}
+
 	return shared
 }
 

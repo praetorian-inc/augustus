@@ -50,6 +50,9 @@ func NearNamePairs(tools []map[string]any) []ToolPair {
 	for i := 0; i < len(entries); i++ {
 		for j := i + 1; j < len(entries); j++ {
 			a, b := entries[i], entries[j]
+			if a.name == b.name {
+				continue
+			}
 			// Different raw names with identical tokens after normalization
 			// (e.g. get_user_role vs getUserRole) are the same operation under
 			// different naming conventions — a perfect equivalence candidate.
@@ -199,7 +202,7 @@ func SemanticPairs(ctx context.Context, tools []map[string]any, judge generators
 			paramList = append(paramList, p+"("+typ+")")
 		}
 		sort.Strings(paramList)
-		fmt.Fprintf(&catalog, "- %s: %s [params: %s]\n", name, desc, strings.Join(paramList, ", "))
+		fmt.Fprintf(&catalog, "- %s: %s [params: %s]\n", escapeXML(name), escapeXML(desc), strings.Join(paramList, ", "))
 	}
 
 	skip := map[string]bool{}
@@ -267,4 +270,13 @@ func parseSemanticPairs(text string, tools []map[string]any, skip map[string]boo
 		pairs = append(pairs, ToolPair{ToolA: a, ToolB: b, Method: "llm-semantic"})
 	}
 	return pairs
+}
+
+// escapeXML escapes &, <, > in attacker-influenced content so it cannot
+// break out of XML delimiter tags in judge prompts.
+func escapeXML(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	return s
 }
