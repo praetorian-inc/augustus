@@ -375,14 +375,6 @@ func (p *InconsistentAuthorization) buildSharedArgs(ctx context.Context, toolA, 
 		}
 	}
 
-	if len(shared) == 0 {
-		// All shared params are optional and none were filled by BenignCall
-		// or valueChain. An empty-args call is still schema-valid — both
-		// tools will apply their own defaults, and comparing those defaults
-		// can still reveal authorization inconsistencies.
-		return map[string]any{}
-	}
-
 	// Validate the shared args against both schemas. A type mismatch
 	// (e.g. id:string vs id:integer) or an invalid enum value would
 	// produce a schema-refusal, not an authorization signal.

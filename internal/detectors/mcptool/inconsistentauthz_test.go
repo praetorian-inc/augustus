@@ -51,7 +51,7 @@ func TestInconsistentAuthzDetector_DifferentResponses_NoJudge(t *testing.T) {
 	assert.Equal(t, []float64{InconclusiveScore, InconclusiveScore}, scores)
 
 	pe, _ := a.GetMetadata(attempt.MetadataKeyPartialEvidence)
-	assert.Nil(t, pe, "no-judge inconclusive should not set partial evidence")
+	assert.Equal(t, true, pe, "no-judge differential should set partial evidence for REVIEW routing")
 }
 
 func TestInconsistentAuthzDetector_MissingMetadata(t *testing.T) {

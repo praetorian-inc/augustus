@@ -87,6 +87,11 @@ func (d *InconsistentAuthorizationDetector) Detect(ctx context.Context, a *attem
 		slog.Warn("mcptool.InconsistentAuthorization: responses differ but no judge configured; scoring inconclusive (0.5)",
 			"tool_a", metaString(a, mcpprobe.MetaEquivToolA),
 			"tool_b", metaString(a, mcpprobe.MetaEquivToolB))
+		if a.Metadata == nil {
+			a.Metadata = map[string]any{}
+		}
+		a.Metadata[attempt.MetadataKeyPartialEvidence] = true
+		a.Metadata[attempt.MetadataKeyPartialEvidenceReason] = "responses differ but no judge configured to confirm authorization inconsistency"
 		return scoresFor(a, InconclusiveScore), nil
 	}
 
@@ -108,13 +113,14 @@ func (d *InconsistentAuthorizationDetector) Detect(ctx context.Context, a *attem
 			"tool_a", toolA, "tool_b", toolB)
 		return scoresFor(a, InconclusiveScore), nil
 	}
-	return d.judgeEquivDifferential(ctx, a, judgeA, judgeB)
+	return d.judgeEquivDifferential(ctx, a, judgeA, judgeB, truncated)
 }
 
 func (d *InconsistentAuthorizationDetector) judgeEquivDifferential(
 	ctx context.Context,
 	a *attempt.Attempt,
 	respA, respB string,
+	truncated bool,
 ) ([]float64, error) {
 	toolA := metaString(a, mcpprobe.MetaEquivToolA)
 	toolB := metaString(a, mcpprobe.MetaEquivToolB)
@@ -131,6 +137,12 @@ func (d *InconsistentAuthorizationDetector) judgeEquivDifferential(
 	}
 
 	score, parsed := parseEquivVerdict(responses[0].Content)
+	if truncated && score == 0.0 && parsed {
+		// The judge saw only a truncated prefix and declared "not vulnerable".
+		// The real differential may live past the truncation window, so a clean
+		// verdict on partial input is not trustworthy — downgrade to inconclusive.
+		score = InconclusiveScore
+	}
 	if score == InconclusiveScore && parsed {
 		// The judge explicitly returned medium/low confidence — partial evidence.
 		// Unparseable or errored judge output is a coverage gap (no partial evidence),
