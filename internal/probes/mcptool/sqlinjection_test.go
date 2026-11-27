@@ -582,6 +582,70 @@ func TestSQLInjection_ConfirmationMustReproduceShape(t *testing.T) {
 	}
 }
 
+// TestSQLInjection_PersistentBehaviorChangeRejectsConfirmation: when the tool
+// starts returning different text mid-probe (rate limit, session expiry), the
+// post-confirmation baseline re-check catches it.
+func TestSQLInjection_PersistentBehaviorChangeRejectsConfirmation(t *testing.T) {
+	p := newSQLInjectionProbe(t)
+	callCount := 0
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("search", "query")},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			callCount++
+			q, _ := args["query"].(string)
+			// After the 4th call (baseline x2 + AND-true + AND-false),
+			// start returning rate-limit text for everything.
+			if callCount > 4 {
+				return types.ToolResult{Text: "Rate limit exceeded, try again later"}
+			}
+			if strings.Contains(q, "AND '1'='2") ||
+				strings.Contains(q, `AND "1"="2`) ||
+				strings.Contains(q, "AND 1=2-- ") {
+				return types.ToolResult{Text: "No results found"}
+			}
+			return types.ToolResult{Text: "Result: Alice"}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	require.NoError(t, err)
+
+	for _, a := range attempts {
+		assert.False(t, metaBool(a, attempt.MetadataKeySQLInjectionBooleanDifferential),
+			"persistent behavior change must not be scored as confirmed SQLi")
+	}
+}
+
+// TestSQLInjection_NonDiscriminatingRunIsNotTested: when the tool responds
+// identically to all payloads (e.g. zero-row baseline), the probe must mark
+// the run as not-tested per AGENTS.md "skip is not clean".
+func TestSQLInjection_NonDiscriminatingRunIsNotTested(t *testing.T) {
+	p := newSQLInjectionProbe(t)
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("search", "query")},
+		call: func(_ string, _ map[string]any) types.ToolResult {
+			return types.ToolResult{Text: "No results found"}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	require.NoError(t, err)
+
+	var hasNotTested bool
+	for _, a := range attempts {
+		if metaBool(a, attempt.MetadataKeyNotTested) {
+			hasNotTested = true
+			reason, _ := a.GetMetadata(attempt.MetadataKeyNotTestedReason)
+			s, _ := reason.(string)
+			assert.Contains(t, s, "inconclusive",
+				"not-tested reason should explain the oracle was inconclusive")
+			break
+		}
+	}
+	assert.True(t, hasNotTested,
+		"non-discriminating run must produce a not-tested marker, not a clean 0.0")
+}
+
 // TestSQLInjection_CamelCaseParamMatches: parameters like searchQuery and
 // userName should match the SQL-query-intent regex after camelCase normalisation.
 func TestSQLInjection_CamelCaseParamMatches(t *testing.T) {

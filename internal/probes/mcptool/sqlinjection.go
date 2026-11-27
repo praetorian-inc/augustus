@@ -335,6 +335,7 @@ func (p *SQLInjection) runBooleanDifferential(ctx context.Context, inv types.Too
 		return allAttempts
 	}
 
+	var anyDiscriminated, anyConfirmed bool
 	for _, bp := range sqlBooleanPayloads {
 		if ctx.Err() != nil {
 			break
@@ -357,6 +358,14 @@ func (p *SQLInjection) runBooleanDifferential(ctx context.Context, inv types.Too
 		andTrueShape := responseTemplate(andTrueAttempt, sqlExtraStrip(andTruePayload, baseValue)...)
 		andFalseShape := responseTemplate(andFalseAttempt, sqlExtraStrip(andFalsePayload, baseValue)...)
 
+		// Track whether any payload pair produced discrimination (the tool
+		// responded differently to at least one payload). When no pair does,
+		// the oracle is inconclusive rather than negative.
+		if sqlUsableResponse(andTrueAttempt) && sqlUsableResponse(andFalseAttempt) &&
+			(andTrueShape != baselineShape || andFalseShape != baselineShape) {
+			anyDiscriminated = true
+		}
+
 		// Exclude attempts where the tool returned IsError or refused the call
 		// — a rejection is not the same as a SQL WHERE-clause falsification.
 		differential := sqlUsableResponse(andTrueAttempt) &&
@@ -378,13 +387,39 @@ func (p *SQLInjection) runBooleanDifferential(ctx context.Context, inv types.Too
 			}
 		}
 
+		// Post-confirmation baseline re-check: verify the tool's behaviour
+		// hasn't changed persistently (rate-limit, session expiry, quota
+		// exhaustion returned as ordinary tool text).
 		if differential {
+			postCheck := p.callSQLI(ctx, inv, tool, param, ts, baseValue)
+			postCheck.Metadata[attempt.MetadataKeySQLInjectionOracle] = "boolean_differential"
+			allAttempts = append(allAttempts, postCheck)
+
+			postShape := responseTemplate(postCheck, baseExtras...)
+			if !sqlUsableResponse(postCheck) || postShape != baselineShape {
+				differential = false
+			}
+		}
+
+		if differential {
+			anyConfirmed = true
 			andTrueAttempt.Metadata[attempt.MetadataKeySQLInjectionBooleanDifferential] = true
 			andTrueAttempt.Metadata[attempt.MetadataKeySQLInjectionBaselineResponse] = strings.Join(baseline1.Outputs, "\n")
 			andTrueAttempt.Metadata[attempt.MetadataKeySQLInjectionTautologyResponse] = strings.Join(andTrueAttempt.Outputs, "\n")
 			andTrueAttempt.Metadata[attempt.MetadataKeySQLInjectionContradictionResponse] = strings.Join(andFalseAttempt.Outputs, "\n")
 		}
 	}
+
+	// When no payload pair produced any discrimination (tool responded
+	// identically to baseline, AND-true, and AND-false for every pair), the
+	// oracle is inconclusive — likely because the base value matches zero rows.
+	// Mark as not-tested per AGENTS.md "skip is not clean" rather than scoring
+	// a clean 0.0 that the verdict reads as "safe".
+	if !anyConfirmed && !anyDiscriminated {
+		mcpprobe.MarkNotTested(baseline1, "boolean differential inconclusive: tool responded identically to all payload pairs; consider supplying a values: rule that returns rows")
+		mcpprobe.MarkNotTested(baseline2, "boolean differential inconclusive: tool responded identically to all payload pairs; consider supplying a values: rule that returns rows")
+	}
+
 	return allAttempts
 }
 
