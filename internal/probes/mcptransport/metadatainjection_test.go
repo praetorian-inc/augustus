@@ -788,9 +788,8 @@ func TestMetadataInjection_ToolsNull_TreatedAsEmptyList(t *testing.T) {
 		if vt != 0 {
 			t.Errorf("tools:null variant should report 0 variant tools, got %d", vt)
 		}
-		if metaBoolStub(a, attempt.MetadataKeyMetadataInjectionDifferential) {
-			diff := true
-			_ = diff
+		if !metaBoolStub(a, attempt.MetadataKeyMetadataInjectionDifferential) {
+			t.Errorf("tools:null variant should be differential (0 tools vs baseline with tools)")
 		}
 		return
 	}

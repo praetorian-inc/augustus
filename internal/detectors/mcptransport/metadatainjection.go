@@ -106,7 +106,7 @@ func detectMetadataDifferential(a *attempt.Attempt) ([]float64, error) {
 	switch class {
 	case "client-identity-spoof", "header-mismatch", "capability-bogus":
 		score = 1.0
-	case "protocol-version-downgrade", "protocol-version-upgrade":
+	case "protocol-version-downgrade", "protocol-version-upgrade", "header-version-mismatch":
 		score = InconclusiveScore
 		a.WithMetadata(attempt.MetadataKeyPartialEvidence, true)
 		a.WithMetadata(attempt.MetadataKeyPartialEvidenceReason,

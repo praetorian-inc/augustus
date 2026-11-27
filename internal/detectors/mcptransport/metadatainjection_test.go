@@ -84,6 +84,12 @@ func TestMetadataInjectionDetector(t *testing.T) {
 			want: []float64{1.0},
 		},
 		{
+			name:                "header-version-mismatch differential -> review (0.5)",
+			a:                   metadataAttempt("header-version-mismatch", true, 2, "different tools"),
+			want:                []float64{InconclusiveScore},
+			wantPartialEvidence: true,
+		},
+		{
 			name:                "capability-escalation differential -> review (0.5)",
 			a:                   metadataAttempt("capability-escalation", true, 2, "different tools"),
 			want:                []float64{InconclusiveScore},

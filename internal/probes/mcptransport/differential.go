@@ -167,8 +167,27 @@ func runDifferentialSweep(ctx context.Context, params sweepParams) []*attempt.At
 	}
 
 	// Stability check: re-send baseline and verify catalog hasn't changed.
+	// Retry once on transient failure so a single 429/timeout doesn't erase
+	// confirmed differentials.
 	baseResult2 := sendToolsListRequest(ctx, params.client, params.endpoint, params.baselineMeta, nil)
-	if baseResult2.err != nil || baseResult2.refused || baseResult2.wrongMethod || !slices.Equal(baseResult.tools, baseResult2.tools) {
+	if baseResult2.err != nil || baseResult2.refused || baseResult2.wrongMethod {
+		baseResult2 = sendToolsListRequest(ctx, params.client, params.endpoint, params.baselineMeta, nil)
+	}
+
+	if baseResult2.err != nil || baseResult2.refused || baseResult2.wrongMethod {
+		reason := fmt.Sprintf("stability re-baseline failed: %v", baseResult2.err)
+		if baseResult2.refused {
+			reason = "stability re-baseline refused by server"
+		} else if baseResult2.wrongMethod {
+			reason = "stability re-baseline returned non-tools response"
+		}
+		for _, a := range variantAttempts {
+			a.Metadata[attempt.MetadataKeyInconclusive] = true
+			a.Metadata[attempt.MetadataKeyInconclusiveReason] = reason
+		}
+		slog.Info("differential sweep: stability re-baseline failed; marking variants inconclusive",
+			"probe", params.probeName, "endpoint", params.endpoint, "reason", reason)
+	} else if !slices.Equal(baseResult.tools, baseResult2.tools) {
 		for _, a := range variantAttempts {
 			a.Metadata[attempt.MetadataKeyInconclusive] = true
 			a.Metadata[attempt.MetadataKeyInconclusiveReason] = "catalog changed between identical baseline requests; differential results are unreliable"
@@ -258,7 +277,7 @@ func recordVariantAttempt(params sweepParams, class, label string, baseline []st
 	}
 
 	if result.wrongMethod {
-		if class == "header-mismatch" {
+		if class == "header-mismatch" || class == "header-version-mismatch" {
 			a.Metadata[attempt.MetadataKeyMetadataInjectionDifferential] = true
 			a.Metadata[attempt.MetadataKeyMetadataInjectionNewTools] = 1
 			a.Metadata[attempt.MetadataKeyMetadataInjectionBaselineTools] = len(baseline)

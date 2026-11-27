@@ -142,7 +142,7 @@ func (p *MetadataInjection) variants() []differentialVariant {
 			headers: map[string]string{"mcp-method": "resources/list"},
 		},
 		{
-			class:   "header-mismatch",
+			class:   "header-version-mismatch",
 			label:   "mcp-protocol-version: 2024-11-05 (body says 2026-07-28)",
 			meta:    maps.Clone(base),
 			headers: map[string]string{"mcp-protocol-version": "2024-11-05"},
