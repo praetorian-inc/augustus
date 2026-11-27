@@ -38,18 +38,24 @@ var (
 // mcptool.UnframedRelay does not reach (that probe covers tools/call).
 type UnframedRelay struct {
 	reconContext
-	canary     mcpprobe.RelayCanary
-	maxTargets int
+	canary             mcpprobe.RelayCanary
+	resourceMaxTargets int
+	promptMaxTargets   int
 }
 
 func NewUnframedRelay(cfg registry.Config) (probes.Prober, error) {
-	maxTargets := registry.GetInt(cfg, "resource_max_targets", 25)
-	if maxTargets <= 0 {
-		return nil, fmt.Errorf("mcpprimitive.UnframedRelay: resource_max_targets must be positive, got %d; a non-positive cap skips every surface and reports nothing, which is indistinguishable from a clean result", maxTargets)
+	resourceMax := registry.GetInt(cfg, "resource_max_targets", 25)
+	if resourceMax <= 0 {
+		return nil, fmt.Errorf("mcpprimitive.UnframedRelay: resource_max_targets must be positive, got %d; a non-positive cap skips every surface and reports nothing, which is indistinguishable from a clean result", resourceMax)
+	}
+	promptMax := registry.GetInt(cfg, "prompt_max_targets", 25)
+	if promptMax <= 0 {
+		return nil, fmt.Errorf("mcpprimitive.UnframedRelay: prompt_max_targets must be positive, got %d; a non-positive cap skips every surface and reports nothing, which is indistinguishable from a clean result", promptMax)
 	}
 	return &UnframedRelay{
-		canary:     mcpprobe.NewRelayCanary(),
-		maxTargets: maxTargets,
+		canary:             mcpprobe.NewRelayCanary(),
+		resourceMaxTargets: resourceMax,
+		promptMaxTargets:   promptMax,
 	}, nil
 }
 
@@ -121,8 +127,8 @@ func (p *UnframedRelay) Probe(ctx context.Context, gen types.Generator) ([]*atte
 			continue
 		}
 		for _, tpl := range inv.ResourceTemplates {
-			if resourceTargets >= p.maxTargets || ctx.Err() != nil {
-				resourceTruncated = resourceTargets >= p.maxTargets
+			if resourceTargets >= p.resourceMaxTargets || ctx.Err() != nil {
+				resourceTruncated = resourceTargets >= p.resourceMaxTargets
 				break
 			}
 			if tpl.URITemplate == "" {
@@ -142,8 +148,8 @@ func (p *UnframedRelay) Probe(ctx context.Context, gen types.Generator) ([]*atte
 			resourceTargets++
 		}
 		for _, pt := range inv.Prompts {
-			if promptTargets >= p.maxTargets || ctx.Err() != nil {
-				promptTruncated = promptTargets >= p.maxTargets
+			if promptTargets >= p.promptMaxTargets || ctx.Err() != nil {
+				promptTruncated = promptTargets >= p.promptMaxTargets
 				break
 			}
 			if pt.Name == "" || len(pt.Arguments) == 0 {
@@ -167,11 +173,11 @@ func (p *UnframedRelay) Probe(ctx context.Context, gen types.Generator) ([]*atte
 
 	if resourceTruncated {
 		slog.Warn("mcpprimitive.UnframedRelay: resource cap reached; later catalog entries were not tested",
-			"probe", p.Name(), "cap", p.maxTargets)
+			"probe", p.Name(), "cap", p.resourceMaxTargets)
 	}
 	if promptTruncated {
 		slog.Warn("mcpprimitive.UnframedRelay: prompt cap reached; later catalog entries were not tested",
-			"probe", p.Name(), "cap", p.maxTargets)
+			"probe", p.Name(), "cap", p.promptMaxTargets)
 	}
 	return attempts, nil
 }

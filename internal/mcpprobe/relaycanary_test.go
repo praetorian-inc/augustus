@@ -100,6 +100,12 @@ func TestAnalyzeFraming_NonCorpusControls(t *testing.T) {
 			wantFire: false,
 		},
 
+		{
+			name:     "tilde_code_fence",
+			response: "Here is the document:\n\n~~~\n" + canary + "\n~~~\n\nProcessing complete with detailed results.",
+			wantFire: false,
+		},
+
 		// --- MUST fire ---
 
 		{

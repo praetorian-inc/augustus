@@ -147,26 +147,26 @@ func canaryInJSONValue(v any, canary string) bool {
 	return false
 }
 
-// isInCodeFenceAt checks whether the canary at absPos is between paired ```
-// markers. Counts fence markers before the position; an odd count means inside.
-// Also verifies a closing fence exists after.
+// isInCodeFenceAt checks whether the canary at absPos is between paired fence
+// markers. Supports both CommonMark fence characters: ``` (backtick) and ~~~
+// (tilde). Counts fence markers before the position; an odd count means inside.
 func isInCodeFenceAt(response string, absPos int) bool {
-	const fence = "```"
-	fenceCount := 0
-	pos := 0
-	for pos < absPos {
-		next := strings.Index(response[pos:], fence)
-		if next < 0 || pos+next >= absPos {
-			break
+	for _, fence := range []string{"```", "~~~"} {
+		fenceCount := 0
+		pos := 0
+		for pos < absPos {
+			next := strings.Index(response[pos:], fence)
+			if next < 0 || pos+next >= absPos {
+				break
+			}
+			fenceCount++
+			pos += next + len(fence)
 		}
-		fenceCount++
-		pos += next + len(fence)
+		if fenceCount%2 != 0 && strings.Contains(response[absPos:], fence) {
+			return true
+		}
 	}
-	if fenceCount%2 == 0 {
-		return false
-	}
-	// Verify a closing fence exists after the canary.
-	return strings.Contains(response[absPos:], fence)
+	return false
 }
 
 // isInQuotedBlockAt checks whether the canary at absPos sits inside a
@@ -265,11 +265,12 @@ const minServerContextChars = 20
 func hasServerContext(response, canary, payload string) bool {
 	stripped := normalizeWhitespace(response)
 	normCanary := normalizeWhitespace(canary)
-	stripped = strings.ReplaceAll(stripped, normCanary, "")
 
 	if payload != "" {
 		normPayload := normalizeWhitespace(payload)
-		// Strip the full payload first (handles exact/near-exact echo).
+		// Strip the full payload BEFORE the canary. The payload contains the
+		// canary, so stripping the canary first would break the full-payload
+		// match (the canary-less payload no longer appears in the response).
 		stripped = strings.ReplaceAll(stripped, normPayload, "")
 		// Also strip individual lines of the original payload. A tool that
 		// strips the preamble or reformats newlines may partially echo the
@@ -281,6 +282,10 @@ func hasServerContext(response, canary, payload string) bool {
 			}
 		}
 	}
+
+	// Strip the canary AFTER the full payload, so that the payload match
+	// (which contains the canary) is not broken by prior canary removal.
+	stripped = strings.ReplaceAll(stripped, normCanary, "")
 	stripped = strings.TrimSpace(stripped)
 
 	count := 0
