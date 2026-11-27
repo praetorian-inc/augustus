@@ -364,4 +364,35 @@ const (
 	// MetadataKeyPrimitiveMIMEType (string) is the MIME type the server declared for
 	// the first returned content block.
 	MetadataKeyPrimitiveMIMEType = "mcpprimitive.mime_type"
+
+	// MetadataKeyMetadataInjectionClass (string) categorises the metadata injection attempt:
+	//
+	//	protocol-version-downgrade   spoofed an older protocol version
+	//	protocol-version-upgrade     spoofed a future/unknown protocol version
+	//	client-identity-spoof        impersonated a different MCP client
+	//	header-mismatch              mcp-* HTTP headers don't match body
+	//	capability-escalation        declared capabilities the client doesn't have
+	//	capability-all               declared all client capabilities
+	//	capability-bogus             declared non-existent capabilities
+	//	baseline                     honest _meta (reference)
+	MetadataKeyMetadataInjectionClass = "mcptransport.metadata_injection_class"
+
+	// MetadataKeyMetadataInjectionDifferential (bool) records whether the server
+	// returned a meaningfully different response for the spoofed _meta compared
+	// to the honest baseline.
+	MetadataKeyMetadataInjectionDifferential = "mcptransport.metadata_injection_differential"
+
+	// MetadataKeyMetadataInjectionBaselineTools (int) is the tool count from the
+	// honest-baseline tools/list response.
+	MetadataKeyMetadataInjectionBaselineTools = "mcptransport.metadata_injection_baseline_tools"
+
+	// MetadataKeyMetadataInjectionVariantTools (int) is the tool count from the
+	// spoofed-variant tools/list response.
+	MetadataKeyMetadataInjectionVariantTools = "mcptransport.metadata_injection_variant_tools"
+
+	// MetadataKeyMetadataInjectionNewTools (int) is the count of tools in the
+	// spoofed-variant response that were NOT present in the honest baseline.
+	// A positive count means the variant unlocked additional tools. Zero with
+	// differential=true means the variant is a strict subset (fewer tools).
+	MetadataKeyMetadataInjectionNewTools = "mcptransport.metadata_injection_new_tools"
 )
