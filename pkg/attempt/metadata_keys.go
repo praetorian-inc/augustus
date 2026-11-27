@@ -316,6 +316,34 @@ const (
 	// exploitability deployment-dependent".
 	MetadataKeyPartialEvidenceReason = "augustus.partial_evidence_reason"
 
+	// MetadataKeySQLInjectionOracle (string) records which oracle confirmed the
+	// finding: "boolean_differential" or "database_error".
+	MetadataKeySQLInjectionOracle = "mcptool.sqli_oracle"
+
+	// MetadataKeySQLInjectionBaselineResponse (string) is the response to the
+	// benign baseline query.
+	MetadataKeySQLInjectionBaselineResponse = "mcptool.sqli_baseline_response"
+
+	// MetadataKeySQLInjectionTautologyResponse (string) is the response to the
+	// always-true injection.
+	MetadataKeySQLInjectionTautologyResponse = "mcptool.sqli_tautology_response"
+
+	// MetadataKeySQLInjectionContradictionResponse (string) is the response to the
+	// always-false injection.
+	MetadataKeySQLInjectionContradictionResponse = "mcptool.sqli_contradiction_response"
+
+	// MetadataKeySQLInjectionErrorPattern (string) is the matched database error
+	// pattern.
+	MetadataKeySQLInjectionErrorPattern = "mcptool.sqli_error_pattern"
+
+	// MetadataKeySQLInjectionBooleanDifferential (bool) records whether the
+	// boolean differential oracle confirmed injection.
+	MetadataKeySQLInjectionBooleanDifferential = "mcptool.sqli_boolean_differential"
+
+	// MetadataKeySQLInjectionDatabaseError (bool) records whether the database
+	// error oracle confirmed injection.
+	MetadataKeySQLInjectionDatabaseError = "mcptool.sqli_database_error"
+
 	// MetadataKeyPrimitiveCanaries holds the []string of computed-arithmetic
 	// canary markers a mcpprimitive probe expects to see in returned content if
 	// the server evaluated an injected payload (e.g. a prompt template rendered
