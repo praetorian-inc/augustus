@@ -30,9 +30,11 @@ package mcpprimitive
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 
 	mcpx "github.com/praetorian-inc/augustus/internal/recon/mcp"
+	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/recon"
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
@@ -320,6 +322,163 @@ func expandExpression(expr, value string) string {
 	}
 }
 
+// collectPromptsCapped flattens prompts across inventories, deduplicates by
+// name, applies a cap, and warns on truncation. Parameterized by probeName so
+// both PromptTemplateInjection and UnframedRelay can share the logic.
+func collectPromptsCapped(invs []*types.MCPInventory, limit int, probeName string) []types.MCPPrompt {
+	var out []types.MCPPrompt
+	seen := make(map[string]bool)
+	truncated := false
+	for _, inv := range invs {
+		if inv == nil {
+			continue
+		}
+		for _, pr := range inv.Prompts {
+			if pr.Name == "" || seen[pr.Name] {
+				continue
+			}
+			if len(out) >= limit {
+				truncated = true
+				break
+			}
+			seen[pr.Name] = true
+			out = append(out, pr)
+		}
+	}
+	if truncated {
+		slog.Warn(probeName+": prompt cap reached; later catalog entries were not tested",
+			"probe", probeName, "cap", limit)
+	}
+	return out
+}
+
+// templateVars returns the distinct variable names declared in an RFC 6570 URI
+// template, in the order they first appear. Modifiers (explode *, prefix :N)
+// and operators (+, #, ?, …) are stripped.
+func templateVars(tpl string) []string {
+	seen := map[string]bool{}
+	var vars []string
+	rest := tpl
+	for {
+		start := strings.Index(rest, "{")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(rest[start:], "}")
+		if end < 0 {
+			break
+		}
+		expr := rest[start+1 : start+end]
+		rest = rest[start+end+1:]
+
+		// Strip operator prefix.
+		if len(expr) > 0 {
+			switch expr[0] {
+			case '+', '#', '.', '/', ';', '?', '&':
+				expr = expr[1:]
+			}
+		}
+		for _, n := range strings.Split(expr, ",") {
+			n = strings.TrimSuffix(strings.TrimSpace(n), "*")
+			if i := strings.Index(n, ":"); i >= 0 {
+				n = n[:i]
+			}
+			if n != "" && !seen[n] {
+				seen[n] = true
+				vars = append(vars, n)
+			}
+		}
+	}
+	return vars
+}
+
+// expandTemplateForVar expands a URI template, substituting payload for
+// targetVar and benign for every other variable. This lets a probe exercise
+// one parameter at a time, so a server that validates a constrained parameter
+// (e.g. a UUID tenant_id) does not reject the entire request before the
+// target parameter is exercised.
+func expandTemplateForVar(tpl, targetVar, payload, benign string) string {
+	if !strings.Contains(tpl, "{") {
+		return ""
+	}
+	var b strings.Builder
+	rest := tpl
+	for {
+		start := strings.Index(rest, "{")
+		if start < 0 {
+			b.WriteString(rest)
+			break
+		}
+		end := strings.Index(rest[start:], "}")
+		if end < 0 {
+			b.WriteString(rest)
+			break
+		}
+		b.WriteString(rest[:start])
+		b.WriteString(expandExpressionForVar(rest[start+1:start+end], targetVar, payload, benign))
+		rest = rest[start+end+1:]
+	}
+	return b.String()
+}
+
+// expandExpressionForVar is like expandExpression but substitutes payload
+// only for targetVar; all other variables get benign.
+func expandExpressionForVar(expr, targetVar, payload, benign string) string {
+	if expr == "" {
+		return ""
+	}
+	var op byte
+	switch expr[0] {
+	case '+', '#', '.', '/', ';', '?', '&':
+		op = expr[0]
+		expr = expr[1:]
+	}
+
+	var names []string
+	for _, n := range strings.Split(expr, ",") {
+		n = strings.TrimSuffix(strings.TrimSpace(n), "*")
+		if i := strings.Index(n, ":"); i >= 0 {
+			n = n[:i]
+		}
+		if n != "" {
+			names = append(names, n)
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+
+	values := make([]string, len(names))
+	for i, n := range names {
+		if n == targetVar {
+			values[i] = payload
+		} else {
+			values[i] = benign
+		}
+	}
+	pairs := make([]string, len(names))
+	for i, n := range names {
+		pairs[i] = n + "=" + values[i]
+	}
+
+	switch op {
+	case '#':
+		return "#" + strings.Join(values, ",")
+	case '.':
+		return "." + strings.Join(values, ".")
+	case '/':
+		return "/" + strings.Join(values, "/")
+	case ';':
+		return ";" + strings.Join(pairs, ";")
+	case '?':
+		return "?" + strings.Join(pairs, "&")
+	case '&':
+		return "&" + strings.Join(pairs, "&")
+	default:
+		return strings.Join(values, ",")
+	}
+}
+
 // promptArgs builds the argument map for one prompts/get call: the payload in
 // injectArg, and a benign placeholder for every other declared argument so the
 // render reaches the sink instead of failing argument validation.
@@ -347,4 +506,26 @@ func benignPromptArgs(args []types.MCPPromptArgument) map[string]string {
 		}
 	}
 	return out
+}
+
+// recordCallError classifies the error from a ReadResource or GetPrompt call.
+// Transport failures (timeout, connection reset, EOF) are marked inconclusive —
+// we never got an answer, so we cannot say the surface is clean. Application-
+// level refusals are completed with an empty output.
+//
+// Shared by ContentLeak and UnframedRelay.
+func recordCallError(probeName string, a *attempt.Attempt, err error, what string) {
+	a.Metadata[attempt.MetadataKeyPrimitiveCallError] = err.Error()
+
+	if reason, transport := classifyCallError(err); transport {
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = reason
+		slog.Warn(probeName+": could not complete a request, so this surface was NOT assessed; this is not a clean result",
+			"probe", probeName, "target", what, "reason", reason, "error", err)
+		a.SetError(err)
+		return
+	}
+
+	a.AddOutput("")
+	a.Complete()
 }

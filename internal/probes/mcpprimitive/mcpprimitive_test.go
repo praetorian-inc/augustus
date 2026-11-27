@@ -226,6 +226,82 @@ func TestExpandTemplate(t *testing.T) {
 	}
 }
 
+func TestTemplateVars(t *testing.T) {
+	tests := []struct {
+		name string
+		tpl  string
+		want []string
+	}{
+		{"single var", "file:///docs/{path}", []string{"path"}},
+		{"two vars", "file:///{dir}/{name}", []string{"dir", "name"}},
+		{"query multi", "https://svc/s{?a,b}", []string{"a", "b"}},
+		{"reserved expansion", "file:///docs/{+path}", []string{"path"}},
+		{"explode modifier", "file:///docs/{path*}", []string{"path"}},
+		{"prefix modifier", "file:///docs/{path:3}", []string{"path"}},
+		{"no vars", "file:///docs/fixed.txt", nil},
+		{"duplicate var", "/{a}/{a}", []string{"a"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := templateVars(tc.tpl)
+			if len(got) != len(tc.want) {
+				t.Fatalf("templateVars(%q) = %v, want %v", tc.tpl, got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("templateVars(%q)[%d] = %q, want %q", tc.tpl, i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestExpandTemplateForVar(t *testing.T) {
+	tests := []struct {
+		name    string
+		tpl     string
+		target  string
+		payload string
+		benign  string
+		want    string
+	}{
+		{
+			"single var — same as expandTemplate",
+			"file:///docs/{path}", "path", "PAYLOAD", "test",
+			"file:///docs/PAYLOAD",
+		},
+		{
+			"multi-var simple — target gets payload, other gets benign",
+			"/tenants/{tenant_id}/docs/{text}", "text", "PAYLOAD", "test",
+			"/tenants/test/docs/PAYLOAD",
+		},
+		{
+			"multi-var simple — other target",
+			"/tenants/{tenant_id}/docs/{text}", "tenant_id", "PAYLOAD", "test",
+			"/tenants/PAYLOAD/docs/test",
+		},
+		{
+			"query multi-var",
+			"https://svc/s{?a,b}", "b", "PAYLOAD", "test",
+			"https://svc/s?a=test&b=PAYLOAD",
+		},
+		{
+			"no placeholder",
+			"file:///docs/fixed.txt", "x", "PAYLOAD", "test",
+			"",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := expandTemplateForVar(tc.tpl, tc.target, tc.payload, tc.benign)
+			if got != tc.want {
+				t.Errorf("expandTemplateForVar(%q, %q, %q, %q) = %q, want %q",
+					tc.tpl, tc.target, tc.payload, tc.benign, got, tc.want)
+			}
+		})
+	}
+}
+
 func TestTraversalFrom(t *testing.T) {
 	got := traversalFrom("file:///data/notes.txt")
 	if len(got) == 0 {

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/pkg/probes"
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
@@ -14,7 +15,7 @@ import (
 func TestRiskInfo_Populated(t *testing.T) {
 	for _, p := range []probes.Prober{
 		&Injection{}, &SSRF{}, &BOLA{}, &PathTraversal{}, &ResponseLeak{}, &TokenValidation{}, &FunctionAuthorization{},
-		&AnnotationTruth{},
+		&AnnotationTruth{}, &UnframedRelay{canary: mcpprobe.NewRelayCanary()},
 	} {
 		rd, ok := p.(types.RiskDescriber)
 		if !ok {

@@ -79,11 +79,13 @@ func TestProbeMetadata_Populated(t *testing.T) {
 		"mcpprimitive.ResourceInjection":       "mcpprimitive.Injection",
 		"mcpprimitive.PromptTemplateInjection": "mcpprimitive.Injection",
 		"mcpprimitive.ContentLeak":             "mcpsecrets.Credential",
+		"mcpprimitive.UnframedRelay":           "mcptool.UnframedRelay",
 	}
 	wantSecondary := map[string][]string{
 		"mcpprimitive.ResourceInjection":       {"mcpprimitive.ContentInjection"},
 		"mcpprimitive.PromptTemplateInjection": {"mcpprimitive.ContentInjection"},
 		"mcpprimitive.ContentLeak":             nil,
+		"mcpprimitive.UnframedRelay":           nil,
 	}
 
 	for _, p := range allProbes(t) {
