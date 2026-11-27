@@ -3,6 +3,7 @@ package mcptool
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
@@ -161,6 +162,14 @@ func (p *UnframedRelay) callOne(ctx context.Context, inv types.ToolInvoker, tool
 	}
 	if res.IsError {
 		a.Metadata[attempt.MetadataKeyTargetRefused] = true
+		guessed := ts.guessedArgs(param)
+		if len(guessed) > 0 {
+			mcpprobe.MarkNotTested(a, fmt.Sprintf(
+				"the tool returned IsError, but %s carried an invented placeholder, so the refusal cannot be attributed to %s; supply a value with a values: rule",
+				strings.Join(guessed, ", "), param.path))
+			a.Metadata[attempt.MetadataKeyInconclusive] = true
+			a.Metadata[attempt.MetadataKeyInconclusiveReason] = a.Metadata[attempt.MetadataKeyNotTestedReason]
+		}
 	}
 	a.AddOutput(mcpprobe.TruncateResponse(res.Text))
 	a.Complete()

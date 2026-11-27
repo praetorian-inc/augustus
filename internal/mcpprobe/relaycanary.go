@@ -174,8 +174,16 @@ func isInCodeFenceAt(response string, absPos int) bool {
 func isInQuotedBlockAt(response string, absPos, canaryLen int) bool {
 	count := 0
 	for i := 0; i < absPos; i++ {
-		if response[i] == '"' && (i == 0 || response[i-1] != '\\') {
-			count++
+		if response[i] == '"' {
+			// Count consecutive backslashes immediately before this quote.
+			// An even number (including zero) means the quote is unescaped.
+			bs := 0
+			for j := i - 1; j >= 0 && response[j] == '\\'; j-- {
+				bs++
+			}
+			if bs%2 == 0 {
+				count++
+			}
 		}
 	}
 	if count%2 == 0 {
@@ -189,37 +197,40 @@ func isInQuotedBlockAt(response string, absPos, canaryLen int) bool {
 }
 
 // isInHTMLCodeTagAt checks whether the canary at absPos sits inside a
-// <pre>/<code> tag. Single-pass: finds the last opening tag before the canary,
-// then checks whether that tag was already closed before the canary position.
+// <pre>/<code> tag. Walks ALL opening tags before the canary (most recent
+// first) so that a closed inner tag does not mask a still-open outer one,
+// e.g. `<pre>...<code>...</code>...[canary]...</pre>`.
 func isInHTMLCodeTagAt(response string, absPos, canaryLen int) bool {
 	before := response[:absPos]
 	after := response[absPos+canaryLen:]
 
-	// Find the last opening <pre>/<code> before the canary.
 	opens := htmlCodeOpenRE.FindAllStringIndex(before, -1)
 	if len(opens) == 0 {
 		return false
 	}
-	lastOpen := opens[len(opens)-1]
 
-	// Check the region between that opening tag and the canary for a closing
-	// tag of the same element. If found, the tag closed before the canary.
-	between := response[lastOpen[1]:absPos]
+	// Walk backwards: a more-recent unclosed tag is the innermost container.
+	for i := len(opens) - 1; i >= 0; i-- {
+		openSpan := opens[i]
+		openMatch := htmlCodeOpenRE.FindStringSubmatch(response[openSpan[0]:openSpan[1]])
+		if len(openMatch) < 2 {
+			continue
+		}
+		elem := strings.ToLower(openMatch[1])
+		closePattern := "</" + elem
 
-	// Extract which element the opening tag matched (pre or code).
-	openMatch := htmlCodeOpenRE.FindStringSubmatch(response[lastOpen[0]:lastOpen[1]])
-	if len(openMatch) < 2 {
-		return false
+		between := response[openSpan[1]:absPos]
+		if strings.Contains(strings.ToLower(between), closePattern) {
+			// This tag closed before the canary; try the next outer one.
+			continue
+		}
+
+		// The tag is still open at the canary. Verify a matching close after.
+		if strings.Contains(strings.ToLower(after), closePattern) {
+			return true
+		}
 	}
-	elem := strings.ToLower(openMatch[1])
-	closePattern := "</" + elem
-	if strings.Contains(strings.ToLower(between), closePattern) {
-		return false
-	}
-
-	// The opening tag is still open at the canary. Verify a matching close
-	// exists after.
-	return strings.Contains(strings.ToLower(after), closePattern)
+	return false
 }
 
 var htmlCodeOpenRE = regexp.MustCompile(`(?i)<\s*(pre|code)\b[^>]*>`)
@@ -234,12 +245,16 @@ const minServerContextChars = 20
 // server-authored text around the canary. A bare echo (just the canary or the
 // full payload) or a trivial wrapper does not qualify — only text the SERVER
 // added counts.
+//
+// Whitespace is normalized before subtraction so that tools that collapse
+// or convert whitespace (e.g. \n → \r\n, multiple spaces → single) do not
+// cause the payload subtraction to miss and inflate the server-context count.
 func hasServerContext(response, canary, payload string) bool {
-	stripped := response
+	stripped := normalizeWhitespace(response)
 	if payload != "" {
-		stripped = strings.ReplaceAll(stripped, payload, "")
+		stripped = strings.ReplaceAll(stripped, normalizeWhitespace(payload), "")
 	}
-	stripped = strings.ReplaceAll(stripped, canary, "")
+	stripped = strings.ReplaceAll(stripped, normalizeWhitespace(canary), "")
 	stripped = strings.TrimSpace(stripped)
 
 	count := 0
@@ -249,4 +264,25 @@ func hasServerContext(response, canary, payload string) bool {
 		}
 	}
 	return count >= minServerContextChars
+}
+
+// normalizeWhitespace collapses all runs of whitespace (including \r\n, \t,
+// etc.) into a single space, so that trivial whitespace differences between the
+// probe payload and the server response do not defeat payload subtraction.
+func normalizeWhitespace(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	inWS := false
+	for _, r := range s {
+		if unicode.IsSpace(r) {
+			if !inWS {
+				b.WriteByte(' ')
+				inWS = true
+			}
+		} else {
+			b.WriteRune(r)
+			inWS = false
+		}
+	}
+	return b.String()
 }

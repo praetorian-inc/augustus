@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/url"
 
 	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
@@ -12,6 +13,26 @@ import (
 	"github.com/praetorian-inc/augustus/pkg/registry"
 	"github.com/praetorian-inc/augustus/pkg/types"
 )
+
+// recordCallError classifies the error from a ReadResource or GetPrompt call.
+// Transport failures (timeout, connection reset, EOF) are marked inconclusive —
+// we never got an answer, so we cannot say the surface is clean. Application-
+// level refusals are completed with an empty output.
+func (p *UnframedRelay) recordCallError(a *attempt.Attempt, err error, what string) {
+	a.Metadata[attempt.MetadataKeyPrimitiveCallError] = err.Error()
+
+	if reason, transport := classifyCallError(err); transport {
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = reason
+		slog.Warn("mcpprimitive.UnframedRelay: could not complete a request, so this surface was NOT assessed; this is not a clean result",
+			"probe", p.Name(), "target", what, "reason", reason, "error", err)
+		a.SetError(err)
+		return
+	}
+
+	a.AddOutput("")
+	a.Complete()
+}
 
 func init() {
 	probes.Register("mcpprimitive.UnframedRelay", NewUnframedRelay)
@@ -42,9 +63,13 @@ type UnframedRelay struct {
 }
 
 func NewUnframedRelay(cfg registry.Config) (probes.Prober, error) {
+	maxTargets := registry.GetInt(cfg, "resource_max_targets", 25)
+	if maxTargets <= 0 {
+		return nil, fmt.Errorf("mcpprimitive.UnframedRelay: resource_max_targets must be positive, got %d; a non-positive cap skips every surface and reports nothing, which is indistinguishable from a clean result", maxTargets)
+	}
 	return &UnframedRelay{
 		canary:     mcpprobe.NewRelayCanary(),
-		maxTargets: registry.GetInt(cfg, "resource_max_targets", 25),
+		maxTargets: maxTargets,
 	}, nil
 }
 
@@ -98,10 +123,18 @@ func (p *UnframedRelay) Probe(ctx context.Context, gen types.Generator) ([]*atte
 	if err != nil {
 		return nil, fmt.Errorf("mcpprimitive.UnframedRelay: catalog unavailable: %w", err)
 	}
+	if len(invs) == 0 {
+		_, hasRecon := gen.(types.MCPReconnaissance)
+		if !hasRecon {
+			return nil, fmt.Errorf("mcpprimitive.UnframedRelay: no inventories available and target does not support enumeration; cannot assess resource or prompt templates")
+		}
+	}
 
 	var attempts []*attempt.Attempt
 	resourceTargets := 0
 	promptTargets := 0
+	resourceTruncated := false
+	promptTruncated := false
 
 	for _, inv := range invs {
 		if inv == nil {
@@ -109,14 +142,15 @@ func (p *UnframedRelay) Probe(ctx context.Context, gen types.Generator) ([]*atte
 		}
 		for _, tpl := range inv.ResourceTemplates {
 			if resourceTargets >= p.maxTargets || ctx.Err() != nil {
+				resourceTruncated = resourceTargets >= p.maxTargets
 				break
 			}
 			if tpl.URITemplate == "" {
 				continue
 			}
-			resourceTargets++
 			for _, payload := range p.canary.Payloads {
-				uri := expandTemplate(tpl.URITemplate, payload)
+				encoded := url.PathEscape(payload)
+				uri := expandTemplate(tpl.URITemplate, encoded)
 				if uri == "" {
 					continue
 				}
@@ -125,15 +159,16 @@ func (p *UnframedRelay) Probe(ctx context.Context, gen types.Generator) ([]*atte
 				}
 				attempts = append(attempts, p.readResource(ctx, reader, uri, payload))
 			}
+			resourceTargets++
 		}
 		for _, pt := range inv.Prompts {
 			if promptTargets >= p.maxTargets || ctx.Err() != nil {
+				promptTruncated = promptTargets >= p.maxTargets
 				break
 			}
 			if pt.Name == "" || len(pt.Arguments) == 0 {
 				continue
 			}
-			promptTargets++
 			for _, arg := range pt.Arguments {
 				if arg.Name == "" {
 					continue
@@ -146,14 +181,15 @@ func (p *UnframedRelay) Probe(ctx context.Context, gen types.Generator) ([]*atte
 					attempts = append(attempts, p.readPrompt(ctx, reader, pt.Name, arg.Name, args))
 				}
 			}
+			promptTargets++
 		}
 	}
 
-	if resourceTargets >= p.maxTargets {
+	if resourceTruncated {
 		slog.Warn("mcpprimitive.UnframedRelay: resource cap reached; later catalog entries were not tested",
 			"probe", p.Name(), "cap", p.maxTargets)
 	}
-	if promptTargets >= p.maxTargets {
+	if promptTruncated {
 		slog.Warn("mcpprimitive.UnframedRelay: prompt cap reached; later catalog entries were not tested",
 			"probe", p.Name(), "cap", p.maxTargets)
 	}
@@ -172,9 +208,7 @@ func (p *UnframedRelay) readResource(ctx context.Context, reader types.MCPPrimit
 
 	res, err := reader.ReadResource(ctx, uri)
 	if err != nil {
-		a.Metadata[attempt.MetadataKeyPrimitiveCallError] = err.Error()
-		a.AddOutput("")
-		a.Complete()
+		p.recordCallError(a, err, uri)
 		return a
 	}
 	a.AddOutput(mcpprobe.TruncateResponse(res.Text))
@@ -194,9 +228,7 @@ func (p *UnframedRelay) readPrompt(ctx context.Context, reader types.MCPPrimitiv
 
 	res, err := reader.GetPrompt(ctx, promptName, args)
 	if err != nil {
-		a.Metadata[attempt.MetadataKeyPrimitiveCallError] = err.Error()
-		a.AddOutput("")
-		a.Complete()
+		p.recordCallError(a, err, promptName)
 		return a
 	}
 	a.AddOutput(mcpprobe.TruncateResponse(res.Text))

@@ -298,6 +298,43 @@ func TestAnalyzeFraming_DeepQuotedPayload(t *testing.T) {
 	}
 }
 
+func TestAnalyzeFraming_EscapedBackslashBeforeQuote(t *testing.T) {
+	// Round-3 finding: C:\logs\\" has an escaped backslash before the closing
+	// quote — the quote IS unescaped. The old code only checked response[i-1],
+	// missing that an even number of backslashes leaves the quote unescaped.
+	canary := "[[ AUG_RELAY_test1234567890ab :: BOUNDARY_MARKER ]]"
+	// The path C:\logs\\ ends with an escaped backslash; the closing " is unescaped.
+	response := `Path is "C:\logs\\"` + " then " + canary + " appears in the full server analysis output for the document."
+	result := AnalyzeFraming(response, canary, "")
+	if !result.IsUnframed() {
+		t.Errorf("escaped backslash before closing quote should not keep the canary inside quotes; result=%+v", result)
+	}
+}
+
+func TestAnalyzeFraming_NestedPreCodeTags(t *testing.T) {
+	// Round-3 finding: <pre> containing <code>...</code> before the canary must
+	// still recognise the canary is inside <pre>.
+	canary := "[[ AUG_RELAY_test1234567890ab :: BOUNDARY_MARKER ]]"
+	response := "<pre><code>header</code> " + canary + "</pre> This is the full analysis report."
+	result := AnalyzeFraming(response, canary, "")
+	if result.IsUnframed() {
+		t.Errorf("canary inside <pre> after a closed <code> should be delimited; result=%+v", result)
+	}
+}
+
+func TestAnalyzeFraming_WhitespaceNormalization(t *testing.T) {
+	// Round-3 finding: tools that normalize whitespace cause payload subtraction
+	// to fail, inflating the server-context count.
+	canary := "[[ AUG_RELAY_test1234567890ab :: BOUNDARY_MARKER ]]"
+	payload := "line one\nline two\n" + canary + "\nline three"
+	// Server converts \n to \r\n (Windows normalization).
+	response := "line one\r\nline two\r\n" + canary + "\r\nline three"
+	result := AnalyzeFraming(response, canary, payload)
+	if result.IsUnframed() {
+		t.Errorf("whitespace-normalized echo of payload should not fire (no server context); result=%+v", result)
+	}
+}
+
 func TestAnalyzeFraming_ToolRefusalEcho(t *testing.T) {
 	// A short refusal error echoing the canary should not meet
 	// minServerContextChars and therefore not fire.
