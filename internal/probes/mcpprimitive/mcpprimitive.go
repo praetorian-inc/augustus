@@ -322,6 +322,133 @@ func expandExpression(expr, value string) string {
 	}
 }
 
+// templateVars returns the distinct variable names declared in an RFC 6570 URI
+// template, in the order they first appear. Modifiers (explode *, prefix :N)
+// and operators (+, #, ?, …) are stripped.
+func templateVars(tpl string) []string {
+	seen := map[string]bool{}
+	var vars []string
+	rest := tpl
+	for {
+		start := strings.Index(rest, "{")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(rest[start:], "}")
+		if end < 0 {
+			break
+		}
+		expr := rest[start+1 : start+end]
+		rest = rest[start+end+1:]
+
+		// Strip operator prefix.
+		if len(expr) > 0 {
+			switch expr[0] {
+			case '+', '#', '.', '/', ';', '?', '&':
+				expr = expr[1:]
+			}
+		}
+		for _, n := range strings.Split(expr, ",") {
+			n = strings.TrimSuffix(strings.TrimSpace(n), "*")
+			if i := strings.Index(n, ":"); i >= 0 {
+				n = n[:i]
+			}
+			if n != "" && !seen[n] {
+				seen[n] = true
+				vars = append(vars, n)
+			}
+		}
+	}
+	return vars
+}
+
+// expandTemplateForVar expands a URI template, substituting payload for
+// targetVar and benign for every other variable. This lets a probe exercise
+// one parameter at a time, so a server that validates a constrained parameter
+// (e.g. a UUID tenant_id) does not reject the entire request before the
+// target parameter is exercised.
+func expandTemplateForVar(tpl, targetVar, payload, benign string) string {
+	if !strings.Contains(tpl, "{") {
+		return ""
+	}
+	var b strings.Builder
+	rest := tpl
+	for {
+		start := strings.Index(rest, "{")
+		if start < 0 {
+			b.WriteString(rest)
+			break
+		}
+		end := strings.Index(rest[start:], "}")
+		if end < 0 {
+			b.WriteString(rest)
+			break
+		}
+		b.WriteString(rest[:start])
+		b.WriteString(expandExpressionForVar(rest[start+1:start+end], targetVar, payload, benign))
+		rest = rest[start+end+1:]
+	}
+	return b.String()
+}
+
+// expandExpressionForVar is like expandExpression but substitutes payload
+// only for targetVar; all other variables get benign.
+func expandExpressionForVar(expr, targetVar, payload, benign string) string {
+	if expr == "" {
+		return ""
+	}
+	var op byte
+	switch expr[0] {
+	case '+', '#', '.', '/', ';', '?', '&':
+		op = expr[0]
+		expr = expr[1:]
+	}
+
+	var names []string
+	for _, n := range strings.Split(expr, ",") {
+		n = strings.TrimSuffix(strings.TrimSpace(n), "*")
+		if i := strings.Index(n, ":"); i >= 0 {
+			n = n[:i]
+		}
+		if n != "" {
+			names = append(names, n)
+		}
+	}
+	if len(names) == 0 {
+		return ""
+	}
+
+	values := make([]string, len(names))
+	for i, n := range names {
+		if n == targetVar {
+			values[i] = payload
+		} else {
+			values[i] = benign
+		}
+	}
+	pairs := make([]string, len(names))
+	for i, n := range names {
+		pairs[i] = n + "=" + values[i]
+	}
+
+	switch op {
+	case '#':
+		return "#" + strings.Join(values, ",")
+	case '.':
+		return "." + strings.Join(values, ".")
+	case '/':
+		return "/" + strings.Join(values, "/")
+	case ';':
+		return ";" + strings.Join(pairs, ";")
+	case '?':
+		return "?" + strings.Join(pairs, "&")
+	case '&':
+		return "&" + strings.Join(pairs, "&")
+	default:
+		return strings.Join(values, ",")
+	}
+}
+
 // promptArgs builds the argument map for one prompts/get call: the payload in
 // injectArg, and a benign placeholder for every other declared argument so the
 // render reaches the sink instead of failing argument validation.

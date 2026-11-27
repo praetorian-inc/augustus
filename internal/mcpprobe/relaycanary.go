@@ -78,6 +78,12 @@ func AnalyzeFraming(response, canary, payload string) FramingResult {
 
 	hasContext := hasServerContext(response, canary, payload)
 
+	// Without server context the four-way AND cannot hold regardless of
+	// delimiter state, so skip the per-occurrence loop entirely.
+	if !hasContext {
+		return FramingResult{Verbatim: true, Unescaped: true}
+	}
+
 	// Check each occurrence independently. A framed first occurrence must not
 	// mask an unframed second one. Cap the number of occurrences to prevent
 	// O(n²) CPU on hostile responses that repeat the canary many times.
@@ -93,7 +99,7 @@ func AnalyzeFraming(response, canary, payload string) FramingResult {
 		absPos := idx + pos
 		checked++
 
-		if !isOccurrenceDelimited(response, absPos, len(canary)) && hasContext {
+		if !isOccurrenceDelimited(response, absPos, len(canary)) {
 			return FramingResult{
 				Verbatim:      true,
 				Unescaped:     true,
@@ -105,7 +111,7 @@ func AnalyzeFraming(response, canary, payload string) FramingResult {
 	}
 
 	// No unframed occurrence found. The verbatim canary exists but is framed.
-	return FramingResult{Verbatim: true, Unescaped: true, ServerContext: hasContext}
+	return FramingResult{Verbatim: true, Unescaped: true, ServerContext: true}
 }
 
 // isOccurrenceDelimited checks whether a specific canary occurrence (at absPos,

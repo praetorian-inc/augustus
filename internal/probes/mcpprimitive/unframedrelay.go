@@ -134,16 +134,36 @@ func (p *UnframedRelay) Probe(ctx context.Context, gen types.Generator) ([]*atte
 			if tpl.URITemplate == "" {
 				continue
 			}
+			vars := templateVars(tpl.URITemplate)
 			for _, payload := range p.canary.Payloads {
 				encoded := url.PathEscape(payload)
-				uri := expandTemplate(tpl.URITemplate, encoded)
-				if uri == "" {
-					continue
+				if len(vars) <= 1 {
+					// Single-variable (or zero) template: expand all at once.
+					uri := expandTemplate(tpl.URITemplate, encoded)
+					if uri == "" {
+						continue
+					}
+					if ctx.Err() != nil {
+						return attempts, nil
+					}
+					attempts = append(attempts, p.readResource(ctx, reader, uri, payload))
+				} else {
+					// Multi-variable template: inject one variable at a time
+					// with a benign placeholder for the others, so a server
+					// that validates constrained variables (e.g. a UUID
+					// tenant_id) does not reject the request before the
+					// target variable is exercised.
+					for _, v := range vars {
+						uri := expandTemplateForVar(tpl.URITemplate, v, encoded, "test")
+						if uri == "" {
+							continue
+						}
+						if ctx.Err() != nil {
+							return attempts, nil
+						}
+						attempts = append(attempts, p.readResource(ctx, reader, uri, payload))
+					}
 				}
-				if ctx.Err() != nil {
-					return attempts, nil
-				}
-				attempts = append(attempts, p.readResource(ctx, reader, uri, payload))
 			}
 			resourceTargets++
 		}
