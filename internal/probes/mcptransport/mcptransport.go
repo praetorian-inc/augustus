@@ -146,11 +146,11 @@ func jsonFromResponse(body []byte, contentType string) ([]byte, error) {
 	return trimmed, nil
 }
 
-// extractSSEJSON finds the first JSON object in an SSE-framed response
-// by scanning for data: lines. MCP streamable-HTTP sends the JSON-RPC
-// response as a single SSE event. The scanner buffer is sized to
-// maxResponseBody so large tool catalogs (with input schemas) are not
-// silently truncated by the default 64 KiB token limit.
+// extractSSEJSON finds the JSON-RPC response in an SSE-framed response by
+// scanning for data: lines that contain a response envelope (with "result"
+// or "error" field). Notifications and other non-response messages are
+// skipped. The scanner buffer is sized to maxResponseBody so large tool
+// catalogs are not silently truncated by the default 64 KiB token limit.
 func extractSSEJSON(body []byte) ([]byte, error) {
 	scanner := bufio.NewScanner(bytes.NewReader(body))
 	scanner.Buffer(make([]byte, 0, 64*1024), maxResponseBody)
@@ -166,12 +166,24 @@ func extractSSEJSON(body []byte) ([]byte, error) {
 			continue
 		}
 		data = strings.TrimSpace(data)
-		if len(data) > 0 && data[0] == '{' {
+		if len(data) == 0 || data[0] != '{' {
+			continue
+		}
+		var envelope struct {
+			Result json.RawMessage `json:"result"`
+			Error  json.RawMessage `json:"error"`
+		}
+		if json.Unmarshal([]byte(data), &envelope) != nil {
+			continue
+		}
+		hasResult := len(envelope.Result) > 0 && string(envelope.Result) != "null"
+		hasError := len(envelope.Error) > 0 && string(envelope.Error) != "null"
+		if hasResult || hasError {
 			return []byte(data), nil
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, fmt.Errorf("scan SSE response: %w", err)
 	}
-	return nil, fmt.Errorf("no JSON data found in SSE response")
+	return nil, fmt.Errorf("no JSON-RPC response found in SSE stream")
 }

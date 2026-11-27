@@ -210,8 +210,8 @@ func TestCapabilityEscalation_ElicitationGating_Differential(t *testing.T) {
 		}
 	}
 
-	if findings := countFindings(attempts); findings == 0 {
-		t.Errorf("capability-gating server should produce at least 1 finding")
+	if findings := countReviewFindings(attempts); findings == 0 {
+		t.Errorf("capability-gating server should produce at least 1 review-level finding")
 	}
 }
 
@@ -267,7 +267,7 @@ func TestCapabilityEscalation_JSONRPCRefusal_NonDifferential(t *testing.T) {
 
 // --- refused baseline test ---
 
-func TestCapabilityEscalation_RefusedBaseline_IsErrored(t *testing.T) {
+func TestCapabilityEscalation_RefusedBaseline_IsInconclusive(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 	}))
@@ -282,8 +282,15 @@ func TestCapabilityEscalation_RefusedBaseline_IsErrored(t *testing.T) {
 	if len(attempts) != 1 {
 		t.Fatalf("expected 1 attempt (refused baseline), got %d", len(attempts))
 	}
-	if attempts[0].Status != attempt.StatusError {
-		t.Errorf("refused baseline should be StatusError, got %q", attempts[0].Status)
+	a := attempts[0]
+	if a.Status != attempt.StatusComplete {
+		t.Errorf("refused baseline should be StatusComplete (inconclusive), got %q", a.Status)
+	}
+	if inc, ok := a.Metadata[attempt.MetadataKeyInconclusive].(bool); !ok || !inc {
+		t.Errorf("refused baseline should be marked inconclusive")
+	}
+	if _, ok := a.Metadata[attempt.MetadataKeyInconclusiveReason].(string); !ok {
+		t.Errorf("refused baseline should have an inconclusive reason")
 	}
 }
 

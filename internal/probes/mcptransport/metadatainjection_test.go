@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	detmcptransport "github.com/praetorian-inc/augustus/internal/detectors/mcptransport"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/registry"
 )
@@ -374,6 +375,10 @@ func TestMetadataInjection_VersionGating_Differential(t *testing.T) {
 	if !found {
 		t.Fatal("expected a protocol-version-downgrade variant attempt")
 	}
+
+	if findings := countReviewFindings(attempts); findings == 0 {
+		t.Errorf("version-gating server should produce at least 1 review-level finding")
+	}
 }
 
 // --- error server test ---
@@ -445,7 +450,7 @@ func TestMetadataInjection_SendsMCPHeaders(t *testing.T) {
 
 // --- refused baseline test ---
 
-func TestMetadataInjection_RefusedBaseline_IsErrored(t *testing.T) {
+func TestMetadataInjection_RefusedBaseline_IsInconclusive(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 	}))
@@ -460,8 +465,15 @@ func TestMetadataInjection_RefusedBaseline_IsErrored(t *testing.T) {
 	if len(attempts) != 1 {
 		t.Fatalf("expected 1 attempt (refused baseline), got %d", len(attempts))
 	}
-	if attempts[0].Status != attempt.StatusError {
-		t.Errorf("refused baseline should be StatusError, got %q", attempts[0].Status)
+	a := attempts[0]
+	if a.Status != attempt.StatusComplete {
+		t.Errorf("refused baseline should be StatusComplete (inconclusive), got %q", a.Status)
+	}
+	if inc, ok := a.Metadata[attempt.MetadataKeyInconclusive].(bool); !ok || !inc {
+		t.Errorf("refused baseline should be marked inconclusive")
+	}
+	if _, ok := a.Metadata[attempt.MetadataKeyInconclusiveReason].(string); !ok {
+		t.Errorf("refused baseline should have an inconclusive reason")
 	}
 }
 
@@ -518,13 +530,160 @@ func TestMetadataInjection_SkipsLegacySSETransport(t *testing.T) {
 	}
 }
 
+// headerMismatchServer returns extra tools when mcp-method header is resources/list.
+func headerMismatchServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	baseTools := toolsListResponse("read_file", "list_dir")
+	routedTools := toolsListResponse("read_file", "list_dir", "resources_read", "resources_list")
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Header.Get("mcp-method") == "resources/list" {
+			_, _ = w.Write(routedTools)
+			return
+		}
+		_, _ = w.Write(baseTools)
+	}))
+}
+
+// --- header-mismatch server test ---
+
+func TestMetadataInjection_HeaderMismatch_Differential(t *testing.T) {
+	srv := headerMismatchServer(t)
+	defer srv.Close()
+
+	p := newMetadataInjectionProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+
+	found := false
+	for _, a := range attempts {
+		if strings.Contains(a.Prompt, "mcp-method: resources/list") {
+			if !metaBoolStub(a, attempt.MetadataKeyMetadataInjectionDifferential) {
+				t.Errorf("header-mismatch mcp-method variant should show a differential")
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected a header-mismatch mcp-method variant attempt")
+	}
+
+	if findings := countFindings(attempts); findings == 0 {
+		t.Errorf("header-mismatch server should produce at least 1 finding")
+	}
+}
+
+// --- rate-limited variant test ---
+
+func TestMetadataInjection_RateLimitedVariant_Inconclusive(t *testing.T) {
+	requestCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount++
+		// First request = baseline, last request = stability-check baseline
+		// Everything in between gets rate limited
+		if requestCount <= 1 || requestCount >= 9 {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(toolsListResponse("read_file", "list_dir"))
+			return
+		}
+		http.Error(w, "too many requests", http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+
+	p := newMetadataInjectionProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+
+	for _, a := range attempts {
+		class, _ := a.GetMetadata(attempt.MetadataKeyMetadataInjectionClass)
+		classStr, _ := class.(string)
+		if classStr == "baseline" {
+			continue
+		}
+		if a.Status == attempt.StatusError {
+			t.Errorf("rate-limited variant %q should NOT be StatusError", a.Prompt)
+		}
+	}
+}
+
+// --- unstable catalog test ---
+
+func TestMetadataInjection_UnstableCatalog_Inconclusive(t *testing.T) {
+	requestCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requestCount++
+		w.Header().Set("Content-Type", "application/json")
+		if requestCount == 1 {
+			_, _ = w.Write(toolsListResponse("read_file", "list_dir"))
+		} else {
+			_, _ = w.Write(toolsListResponse("read_file", "list_dir", "new_tool"))
+		}
+	}))
+	defer srv.Close()
+
+	p := newMetadataInjectionProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+
+	// All variants should be inconclusive because catalog is unstable
+	for _, a := range attempts {
+		class, _ := a.GetMetadata(attempt.MetadataKeyMetadataInjectionClass)
+		classStr, _ := class.(string)
+		if classStr == "baseline" {
+			continue
+		}
+		if !metaBoolStub(a, attempt.MetadataKeyInconclusive) {
+			t.Errorf("variant %q should be marked inconclusive when catalog is unstable", a.Prompt)
+		}
+	}
+
+	if findings := countFindings(attempts); findings != 0 {
+		t.Errorf("unstable catalog should produce 0 findings, got %d", findings)
+	}
+}
+
+// --- multi-event SSE test ---
+
+func TestMetadataInjection_MultiEventSSE(t *testing.T) {
+	body := toolsListResponse("read_file", "list_dir")
+	notification := `{"jsonrpc":"2.0","method":"notifications/progress","params":{"progressToken":"abc","progress":50}}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprintf(w, "event: message\ndata: %s\n\n", notification)
+		_, _ = fmt.Fprintf(w, "event: message\ndata: %s\n\n", string(body))
+	}))
+	defer srv.Close()
+
+	p := newMetadataInjectionProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+
+	if len(attempts) < 2 {
+		t.Fatalf("expected at least 2 attempts, got %d", len(attempts))
+	}
+	for _, a := range attempts {
+		if a.Status == attempt.StatusError {
+			t.Errorf("multi-event SSE attempt %q should not error", a.Prompt)
+		}
+	}
+}
+
 // --- detector scoring helpers ---
 
-// countFindings uses the real detector scoring logic to count findings.
 func countFindings(attempts []*attempt.Attempt) int {
+	det, _ := detmcptransport.NewMetadataInjectionDetector(registry.Config{})
 	findings := 0
 	for _, a := range attempts {
-		scores, _ := detectMetadataDifferential(a)
+		scores, _ := det.Detect(context.Background(), a)
 		for _, s := range scores {
 			if s == 1.0 {
 				findings++
@@ -535,56 +694,17 @@ func countFindings(attempts []*attempt.Attempt) int {
 	return findings
 }
 
-// detectMetadataDifferential is imported from the detector package
-// indirectly: since probe tests are in the same process, we call the
-// shared scoring logic directly. This function is defined in
-// internal/detectors/mcptransport/metadatainjection.go but since we
-// can't import that package (cyclic), we reimplement the identical logic.
-// The detector tests in internal/detectors/mcptransport/ validate the
-// real function directly.
-func detectMetadataDifferential(a *attempt.Attempt) ([]float64, error) {
-	class, _ := stringMetaStub(a, attempt.MetadataKeyMetadataInjectionClass)
-	differential := metaBoolStub(a, attempt.MetadataKeyMetadataInjectionDifferential)
-
-	scores := make([]float64, len(a.Outputs))
-
-	if a.Status == attempt.StatusError {
-		score := 0.5
-		if len(scores) == 0 {
-			return []float64{score}, nil
+func countReviewFindings(attempts []*attempt.Attempt) int {
+	det, _ := detmcptransport.NewMetadataInjectionDetector(registry.Config{})
+	findings := 0
+	for _, a := range attempts {
+		scores, _ := det.Detect(context.Background(), a)
+		for _, s := range scores {
+			if s >= 0.5 {
+				findings++
+				break
+			}
 		}
-		for i := range scores {
-			scores[i] = score
-		}
-		return scores, nil
 	}
-
-	if class == "baseline" {
-		return scores, nil
-	}
-
-	var score float64
-	switch {
-	case differential:
-		score = 1.0
-	default:
-		return scores, nil
-	}
-
-	if len(scores) == 0 {
-		return []float64{score}, nil
-	}
-	for i := range scores {
-		scores[i] = score
-	}
-	return scores, nil
-}
-
-func stringMetaStub(a *attempt.Attempt, key string) (string, bool) {
-	raw, ok := a.GetMetadata(key)
-	if !ok {
-		return "", false
-	}
-	s, ok := raw.(string)
-	return s, ok
+	return findings
 }

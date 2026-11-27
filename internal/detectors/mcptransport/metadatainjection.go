@@ -59,47 +59,76 @@ func (d *CapabilityEscalationDetector) Detect(_ context.Context, a *attempt.Atte
 //
 // Scoring:
 //
-//	StatusError         -> InconclusiveScore (probe couldn't complete)
+//	inconclusive flag   -> InconclusiveScore (probe couldn't complete)
+//	StatusError         -> InconclusiveScore (transport failure)
 //	baseline class      -> 0.0 (informational)
-//	differential=true   -> 1.0 (server gates on _meta)
-//	differential=false  -> 0.0 (safe: catalog stable or server refused)
-//
-// StatusError is checked first so a failed baseline is inconclusive rather
-// than silently safe (matches the SSESessionHijack detector pattern).
+//	no differential     -> 0.0 (safe: catalog stable or server refused)
+//	differential + newTools==0 -> 0.0 (subset: server more restrictive)
+//	identity-spoof/header-mismatch/capability-bogus + newTools>0 -> 1.0 (vuln)
+//	protocol-version/capability-escalation/all + newTools>0 -> 0.5 + partial evidence (review)
 func detectMetadataDifferential(a *attempt.Attempt) ([]float64, error) {
 	class, _ := stringMeta(a, attempt.MetadataKeyMetadataInjectionClass)
 	differential := metaBool(a, attempt.MetadataKeyMetadataInjectionDifferential)
+	inconclusive := metaBool(a, attempt.MetadataKeyInconclusive)
+
+	newToolsRaw, hasNewTools := a.GetMetadata(attempt.MetadataKeyMetadataInjectionNewTools)
+	var newTools int
+	if hasNewTools {
+		switch v := newToolsRaw.(type) {
+		case int:
+			newTools = v
+		case float64:
+			newTools = int(v)
+		}
+	} else if differential {
+		newTools = 1
+	}
 
 	scores := make([]float64, len(a.Outputs))
 
+	if inconclusive {
+		return fillScores(scores, InconclusiveScore), nil
+	}
+
 	if a.Status == attempt.StatusError {
-		score := InconclusiveScore
-		if len(scores) == 0 {
-			return []float64{score}, nil
-		}
-		for i := range scores {
-			scores[i] = score
-		}
-		return scores, nil
+		return fillScores(scores, InconclusiveScore), nil
 	}
 
 	if class == "baseline" {
 		return scores, nil
 	}
 
-	var score float64
-	switch {
-	case differential:
-		score = 1.0
-	default:
+	if !differential || newTools == 0 {
 		return scores, nil
 	}
 
+	var score float64
+	switch class {
+	case "client-identity-spoof", "header-mismatch", "capability-bogus":
+		score = 1.0
+	case "protocol-version-downgrade", "protocol-version-upgrade":
+		score = InconclusiveScore
+		a.WithMetadata(attempt.MetadataKeyPartialEvidence, true)
+		a.WithMetadata(attempt.MetadataKeyPartialEvidenceReason,
+			"server returns different tools for spoofed protocol version; may be spec-compliant version negotiation")
+	case "capability-escalation", "capability-all":
+		score = InconclusiveScore
+		a.WithMetadata(attempt.MetadataKeyPartialEvidence, true)
+		a.WithMetadata(attempt.MetadataKeyPartialEvidenceReason,
+			"server returns additional tools for declared capabilities; may be spec-compliant capability negotiation")
+	default:
+		score = 1.0
+	}
+
+	return fillScores(scores, score), nil
+}
+
+func fillScores(scores []float64, score float64) []float64 {
 	if len(scores) == 0 {
-		return []float64{score}, nil
+		return []float64{score}
 	}
 	for i := range scores {
 		scores[i] = score
 	}
-	return scores, nil
+	return scores
 }

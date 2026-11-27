@@ -389,4 +389,10 @@ const (
 	// MetadataKeyMetadataInjectionVariantTools (int) is the tool count from the
 	// spoofed-variant tools/list response.
 	MetadataKeyMetadataInjectionVariantTools = "mcptransport.metadata_injection_variant_tools"
+
+	// MetadataKeyMetadataInjectionNewTools (int) is the count of tools in the
+	// spoofed-variant response that were NOT present in the honest baseline.
+	// A positive count means the variant unlocked additional tools. Zero with
+	// differential=true means the variant is a strict subset (fewer tools).
+	MetadataKeyMetadataInjectionNewTools = "mcptransport.metadata_injection_new_tools"
 )

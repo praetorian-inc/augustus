@@ -150,7 +150,7 @@ func (p *MetadataInjection) variants() []differentialVariant {
 
 // Probe resolves the endpoint and runs the metadata injection sweep.
 func (p *MetadataInjection) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
-	endpoint, client, err := initSweep(p.Name(), p.endpointOverride, p.timeout, gen)
+	endpoint, client, err := initSweep(ctx, p.Name(), p.endpointOverride, p.timeout, gen)
 	if err != nil {
 		return nil, err
 	}
