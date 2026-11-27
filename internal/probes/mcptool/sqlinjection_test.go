@@ -521,8 +521,8 @@ func TestSQLInjection_ErrorOracleRetainsFailedAttempts(t *testing.T) {
 			}
 		}
 	}
-	assert.Equal(t, len(sqlErrorPayloads), errorOracleAttempts,
-		"error oracle must return one attempt per payload, even if calls fail")
+	assert.Equal(t, 1+len(sqlErrorPayloads), errorOracleAttempts,
+		"error oracle must return one benign baseline plus one attempt per payload, even if calls fail")
 }
 
 // TestSQLInjection_NoFalsePositiveOnToolRefusal: when a tool validates inputs
@@ -618,7 +618,8 @@ func TestSQLInjection_PersistentBehaviorChangeRejectsConfirmation(t *testing.T) 
 
 // TestSQLInjection_NonDiscriminatingRunIsNotTested: when the tool responds
 // identically to all payloads (e.g. zero-row baseline), the probe must mark
-// the run as not-tested per AGENTS.md "skip is not clean".
+// ALL boolean-differential attempts as not-tested per AGENTS.md "skip is not
+// clean" — not just the baselines.
 func TestSQLInjection_NonDiscriminatingRunIsNotTested(t *testing.T) {
 	p := newSQLInjectionProbe(t)
 	target := &mockTarget{
@@ -631,19 +632,108 @@ func TestSQLInjection_NonDiscriminatingRunIsNotTested(t *testing.T) {
 	attempts, err := p.Probe(context.Background(), target)
 	require.NoError(t, err)
 
-	var hasNotTested bool
+	var boolDiffAttempts, notTestedCount int
 	for _, a := range attempts {
-		if metaBool(a, attempt.MetadataKeyNotTested) {
-			hasNotTested = true
-			reason, _ := a.GetMetadata(attempt.MetadataKeyNotTestedReason)
-			s, _ := reason.(string)
-			assert.Contains(t, s, "inconclusive",
-				"not-tested reason should explain the oracle was inconclusive")
+		if oracle, ok := a.GetMetadata(attempt.MetadataKeySQLInjectionOracle); ok && oracle == "boolean_differential" {
+			boolDiffAttempts++
+			if metaBool(a, attempt.MetadataKeyNotTested) {
+				notTestedCount++
+				reason, _ := a.GetMetadata(attempt.MetadataKeyNotTestedReason)
+				s, _ := reason.(string)
+				assert.Contains(t, s, "inconclusive",
+					"not-tested reason should explain the oracle was inconclusive")
+			}
+		}
+	}
+	assert.Greater(t, boolDiffAttempts, 0, "should have boolean-differential attempts")
+	assert.Equal(t, boolDiffAttempts, notTestedCount,
+		"ALL boolean-differential attempts must be marked not-tested, not just baselines")
+}
+
+// TestSQLInjection_RefusedPayloadsDoNotMarkBaselinesNotTested: when a tool
+// refuses all injection payloads (ErrCallRefused), the baselines completed
+// successfully — they should NOT be marked NotTested. Refusal is a negative
+// test result, not a coverage gap.
+func TestSQLInjection_RefusedPayloadsDoNotMarkBaselinesNotTested(t *testing.T) {
+	p := newSQLInjectionProbe(t)
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("search", "query")},
+		call: func(_ string, _ map[string]any) types.ToolResult {
+			return types.ToolResult{Text: "Result: Alice"}
+		},
+		callErr: func(_ string, args map[string]any) error {
+			q, _ := args["query"].(string)
+			if strings.Contains(q, "'") || strings.Contains(q, `"`) || strings.Contains(q, "-- ") {
+				return fmt.Errorf("%w: invalid characters", types.ErrCallRefused)
+			}
+			return nil
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	require.NoError(t, err)
+
+	for _, a := range attempts {
+		if oracle, ok := a.GetMetadata(attempt.MetadataKeySQLInjectionOracle); ok && oracle == "boolean_differential" {
+			if a.Prompt == "test" {
+				assert.False(t, metaBool(a, attempt.MetadataKeyNotTested),
+					"baseline attempt should not be marked NotTested when payloads were refused")
+			}
+		}
+	}
+}
+
+// TestSQLInjection_ErrorOracleNegativeControl: when a tool's benign response
+// already contains DB-library text (e.g. a log search returning psycopg2 traces),
+// the error oracle must not false-positive on that same signature.
+func TestSQLInjection_ErrorOracleNegativeControl(t *testing.T) {
+	p := newSQLInjectionProbe(t)
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("search_logs", "query")},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			return types.ToolResult{
+				Text: "Log entry: psycopg2.OperationalError: connection reset at 12:04",
+			}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	require.NoError(t, err)
+
+	for _, a := range attempts {
+		assert.False(t, metaBool(a, attempt.MetadataKeySQLInjectionDatabaseError),
+			"error oracle must not fire when the signature is already present in benign output")
+	}
+}
+
+// TestSQLInjection_ErrorOracleNewSignatureStillDetected: the negative control
+// must not suppress signatures that appear ONLY in the payload response.
+func TestSQLInjection_ErrorOracleNewSignatureStillDetected(t *testing.T) {
+	p := newSQLInjectionProbe(t)
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("lookup", "name")},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			q, _ := args["name"].(string)
+			if strings.Contains(q, "'") {
+				return types.ToolResult{
+					Text: "sqlite3.OperationalError: unrecognized token: \"'\"",
+				}
+			}
+			return types.ToolResult{Text: "User: " + q}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	require.NoError(t, err)
+
+	var found bool
+	for _, a := range attempts {
+		if metaBool(a, attempt.MetadataKeySQLInjectionDatabaseError) {
+			found = true
 			break
 		}
 	}
-	assert.True(t, hasNotTested,
-		"non-discriminating run must produce a not-tested marker, not a clean 0.0")
+	assert.True(t, found, "error oracle should still detect new signatures absent from benign response")
 }
 
 // TestSQLInjection_CamelCaseParamMatches: parameters like searchQuery and

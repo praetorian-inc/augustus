@@ -335,7 +335,7 @@ func (p *SQLInjection) runBooleanDifferential(ctx context.Context, inv types.Too
 		return allAttempts
 	}
 
-	var anyDiscriminated, anyConfirmed bool
+	var anyDiscriminated, anyConfirmed, anyUsablePair bool
 	for _, bp := range sqlBooleanPayloads {
 		if ctx.Err() != nil {
 			break
@@ -358,10 +358,16 @@ func (p *SQLInjection) runBooleanDifferential(ctx context.Context, inv types.Too
 		andTrueShape := responseTemplate(andTrueAttempt, sqlExtraStrip(andTruePayload, baseValue)...)
 		andFalseShape := responseTemplate(andFalseAttempt, sqlExtraStrip(andFalsePayload, baseValue)...)
 
+		usableTrue := sqlUsableResponse(andTrueAttempt)
+		usableFalse := sqlUsableResponse(andFalseAttempt)
+		if usableTrue && usableFalse {
+			anyUsablePair = true
+		}
+
 		// Track whether any payload pair produced discrimination (the tool
 		// responded differently to at least one payload). When no pair does,
 		// the oracle is inconclusive rather than negative.
-		if sqlUsableResponse(andTrueAttempt) && sqlUsableResponse(andFalseAttempt) &&
+		if usableTrue && usableFalse &&
 			(andTrueShape != baselineShape || andFalseShape != baselineShape) {
 			anyDiscriminated = true
 		}
@@ -410,14 +416,18 @@ func (p *SQLInjection) runBooleanDifferential(ctx context.Context, inv types.Too
 		}
 	}
 
-	// When no payload pair produced any discrimination (tool responded
-	// identically to baseline, AND-true, and AND-false for every pair), the
-	// oracle is inconclusive — likely because the base value matches zero rows.
-	// Mark as not-tested per AGENTS.md "skip is not clean" rather than scoring
-	// a clean 0.0 that the verdict reads as "safe".
-	if !anyConfirmed && !anyDiscriminated {
-		mcpprobe.MarkNotTested(baseline1, "boolean differential inconclusive: tool responded identically to all payload pairs; consider supplying a values: rule that returns rows")
-		mcpprobe.MarkNotTested(baseline2, "boolean differential inconclusive: tool responded identically to all payload pairs; consider supplying a values: rule that returns rows")
+	// When no payload pair produced a confirmed finding AND no pair
+	// discriminated, the oracle is inconclusive. Distinguish two cases:
+	//   - All payload pairs were refused/IsError (no usable pair): the tool
+	//     validated input, which is a negative test, not a coverage gap.
+	//   - Usable pairs all produced identical shapes: likely because the base
+	//     value matches zero rows. Mark ALL attempts as not-tested per
+	//     AGENTS.md "skip is not clean".
+	if !anyConfirmed && !anyDiscriminated && anyUsablePair {
+		reason := "boolean differential inconclusive: tool responded identically to all payload pairs; consider supplying a values: rule that returns rows"
+		for _, a := range allAttempts {
+			mcpprobe.MarkNotTested(a, reason)
+		}
 	}
 
 	return allAttempts
@@ -442,11 +452,32 @@ func (p *SQLInjection) baselineValue(param paramInfo, ts toolSig) string {
 }
 
 // runErrorOracle sends payloads that elicit database error messages and checks
-// the response for engine-specific error signatures. The error oracle is
-// partial evidence: a parameterised query can also throw on type mismatches,
-// so database-error-only findings score InconclusiveScore (0.5) in the detector.
+// the response for engine-specific error signatures. A benign-value baseline
+// is sent first as a negative control: signatures already present in normal
+// output (log search results, tool names containing DB prefixes) are excluded.
+// The error oracle is partial evidence: a parameterised query can also throw on
+// type mismatches, so database-error-only findings score InconclusiveScore (0.5)
+// in the detector.
 func (p *SQLInjection) runErrorOracle(ctx context.Context, inv types.ToolInvoker, tool string, param paramInfo, ts toolSig) []*attempt.Attempt {
-	var attempts []*attempt.Attempt
+	baseValue := p.baselineValue(param, ts)
+	benign := p.callSQLI(ctx, inv, tool, param, ts, baseValue)
+	benign.Metadata[attempt.MetadataKeySQLInjectionOracle] = "database_error"
+
+	// Collect DB-error signatures present in the benign response so we can
+	// exclude them from payload responses (negative control).
+	benignSigs := make(map[string]bool)
+	for _, out := range benign.Outputs {
+		for _, m := range dbErrorRE.FindAllString(out, -1) {
+			benignSigs[m] = true
+		}
+	}
+	if benign.Error != "" {
+		for _, m := range dbErrorRE.FindAllString(benign.Error, -1) {
+			benignSigs[m] = true
+		}
+	}
+
+	attempts := []*attempt.Attempt{benign}
 	for _, payload := range sqlErrorPayloads {
 		if ctx.Err() != nil {
 			break
@@ -456,7 +487,7 @@ func (p *SQLInjection) runErrorOracle(ctx context.Context, inv types.ToolInvoker
 		attempts = append(attempts, a)
 
 		for _, out := range a.Outputs {
-			if m := dbErrorRE.FindString(out); m != "" {
+			if m := dbErrorRE.FindString(out); m != "" && !benignSigs[m] {
 				a.Metadata[attempt.MetadataKeySQLInjectionDatabaseError] = true
 				a.Metadata[attempt.MetadataKeySQLInjectionErrorPattern] = m
 				break
@@ -467,7 +498,7 @@ func (p *SQLInjection) runErrorOracle(ctx context.Context, inv types.ToolInvoker
 		// When found, promote from StatusError to StatusComplete so the finding
 		// surfaces as REVIEW, not buried under "error" in the summary.
 		if _, found := a.Metadata[attempt.MetadataKeySQLInjectionDatabaseError]; !found && a.Error != "" {
-			if m := dbErrorRE.FindString(a.Error); m != "" {
+			if m := dbErrorRE.FindString(a.Error); m != "" && !benignSigs[m] {
 				a.Metadata[attempt.MetadataKeySQLInjectionDatabaseError] = true
 				a.Metadata[attempt.MetadataKeySQLInjectionErrorPattern] = m
 				delete(a.Metadata, attempt.MetadataKeyNotTested)
