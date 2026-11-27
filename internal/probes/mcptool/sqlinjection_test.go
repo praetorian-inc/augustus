@@ -57,8 +57,8 @@ func TestSQLInjection_BooleanDifferential(t *testing.T) {
 			// AND-false falsifies the clause → empty result
 			switch {
 			case strings.Contains(q, "AND '1'='2"),
-				strings.Contains(q, "AND \"1\"=\"2"),
-				strings.Contains(q, "AND 1=2--"):
+				strings.Contains(q, `AND "1"="2`),
+				strings.Contains(q, "AND 1=2-- "):
 				return types.ToolResult{Text: "No results found"}
 			default:
 				// baseline AND "test' AND '1'='1" both return the same result
@@ -123,8 +123,8 @@ func TestSQLInjection_ZeroRowBaseline(t *testing.T) {
 			call: func(_ string, args map[string]any) types.ToolResult {
 				q, _ := args["query"].(string)
 				if strings.Contains(q, "AND '1'='2") ||
-					strings.Contains(q, "AND \"1\"=\"2") ||
-					strings.Contains(q, "AND 1=2--") {
+					strings.Contains(q, `AND "1"="2`) ||
+					strings.Contains(q, "AND 1=2-- ") {
 					return types.ToolResult{Text: "Error: no rows match filter"}
 				}
 				return types.ToolResult{Text: "No results found"}
@@ -319,6 +319,7 @@ func TestSQLInjection_ErrorRegexRejectsNonSQL(t *testing.T) {
 		"unterminated string literal in JSON",
 		"syntax error near unexpected token '('",
 		"pg_dump: error processing table",
+		"PQ processing error in module",
 	}
 	for _, s := range nonSQL {
 		assert.False(t, dbErrorRE.MatchString(s), "dbErrorRE should not match %q", s)
@@ -332,7 +333,7 @@ func TestSQLInjection_ErrorRegexMatchesRealDB(t *testing.T) {
 		"sqlite3.OperationalError: unrecognized token",
 		"mysql syntax error near 'SELECT'",
 		"You have an error in your SQL syntax near 'test'",
-		"pq: error in query",
+		"pq: syntax error at or near",
 		"pq: unterminated quoted string at or near",
 		"pgx: query failed SQLSTATE 42601",
 		"psycopg2.OperationalError: error",
@@ -341,6 +342,7 @@ func TestSQLInjection_ErrorRegexMatchesRealDB(t *testing.T) {
 		"sql server native client error",
 		"Unclosed quotation mark after the character string",
 		"SQLSTATE[42000]",
+		"SQLSTATE[HY000]",
 		"SQLSTATE 42601",
 		"mariadb error 1064",
 	}
@@ -354,7 +356,8 @@ func TestSQLInjection_ErrorRegexMatchesRealDB(t *testing.T) {
 func TestSQLInjection_NoStatementTerminators(t *testing.T) {
 	for _, payload := range sqlErrorPayloads {
 		assert.NotContains(t, payload, ";", "error payload must not contain statement terminator")
-		assert.NotContains(t, payload, "--", "error payload must not contain comment sequence")
+		assert.NotContains(t, payload, "-- ", "error payload must not contain comment sequence")
+		assert.NotContains(t, payload, "--\t", "error payload must not contain comment sequence")
 	}
 }
 
@@ -413,8 +416,8 @@ func TestSQLInjection_ToolIsErrorNotScoredAsSQLi(t *testing.T) {
 		call: func(_ string, args map[string]any) types.ToolResult {
 			q, _ := args["query"].(string)
 			if strings.Contains(q, "AND '1'='2") ||
-				strings.Contains(q, "AND \"1\"=\"2") ||
-				strings.Contains(q, "AND 1=2--") {
+				strings.Contains(q, `AND "1"="2`) ||
+				strings.Contains(q, "AND 1=2-- ") {
 				return types.ToolResult{Text: "invalid query", IsError: true}
 			}
 			return types.ToolResult{Text: "Result: Alice"}
@@ -432,20 +435,21 @@ func TestSQLInjection_ToolIsErrorNotScoredAsSQLi(t *testing.T) {
 
 // TestSQLInjection_ErrorOracleChecksAttemptError: when the MCP server surfaces
 // a SQL exception as a JSON-RPC error (a.Error set, empty outputs), the error
-// oracle must still detect the database error signature.
+// oracle must still detect the database error signature and promote the attempt
+// from StatusError to StatusComplete so it surfaces as REVIEW.
 func TestSQLInjection_ErrorOracleChecksAttemptError(t *testing.T) {
 	p := newSQLInjectionProbe(t)
 	target := &mockTarget{
 		tools: []map[string]any{stringTool("lookup", "name")},
-		call: func(_ string, args map[string]any) types.ToolResult {
+		call: func(_ string, _ map[string]any) types.ToolResult {
+			return types.ToolResult{Text: "User: someone"}
+		},
+		callErr: func(_ string, args map[string]any) error {
 			q, _ := args["name"].(string)
-			if strings.Contains(q, "'") {
-				return types.ToolResult{
-					Text:    "sqlite3.OperationalError: unrecognized token",
-					IsError: true,
-				}
+			if strings.Contains(q, "'") || strings.Contains(q, `"`) {
+				return fmt.Errorf("sqlite3.OperationalError: unrecognized token")
 			}
-			return types.ToolResult{Text: "User: " + q}
+			return nil
 		},
 	}
 
@@ -456,10 +460,14 @@ func TestSQLInjection_ErrorOracleChecksAttemptError(t *testing.T) {
 	for _, a := range attempts {
 		if metaBool(a, attempt.MetadataKeySQLInjectionDatabaseError) {
 			found = true
+			assert.Equal(t, attempt.StatusComplete, a.Status,
+				"promoted attempt must be StatusComplete so it surfaces as REVIEW")
+			assert.False(t, metaBool(a, attempt.MetadataKeyNotTested),
+				"promoted attempt must not be marked NotTested")
 			break
 		}
 	}
-	assert.True(t, found, "error oracle should detect DB errors even with IsError=true")
+	assert.True(t, found, "error oracle should detect DB errors in JSON-RPC error messages")
 }
 
 // TestSQLInjection_NonReadSkipIsComplete: the not-tested marker for non-read
@@ -488,12 +496,17 @@ func TestSQLInjection_NonReadSkipIsComplete(t *testing.T) {
 // a non-Complete attempt, it must still appear in the returned slice.
 func TestSQLInjection_ErrorOracleRetainsFailedAttempts(t *testing.T) {
 	p := newSQLInjectionProbe(t)
-	callCount := 0
 	target := &mockTarget{
 		tools: []map[string]any{stringTool("lookup", "name")},
 		call: func(_ string, _ map[string]any) types.ToolResult {
-			callCount++
 			return types.ToolResult{Text: "ok"}
+		},
+		callErr: func(_ string, args map[string]any) error {
+			q, _ := args["name"].(string)
+			if strings.Contains(q, "'") || strings.Contains(q, `"`) {
+				return fmt.Errorf("connection reset by peer")
+			}
+			return nil
 		},
 	}
 
@@ -510,6 +523,63 @@ func TestSQLInjection_ErrorOracleRetainsFailedAttempts(t *testing.T) {
 	}
 	assert.Equal(t, len(sqlErrorPayloads), errorOracleAttempts,
 		"error oracle must return one attempt per payload, even if calls fail")
+}
+
+// TestSQLInjection_NoFalsePositiveOnToolRefusal: when a tool validates inputs
+// and refuses payloads with quotes (ErrCallRefused / MetadataKeyTargetRefused),
+// the refusal must NOT be scored as confirmed SQL injection.
+func TestSQLInjection_NoFalsePositiveOnToolRefusal(t *testing.T) {
+	p := newSQLInjectionProbe(t)
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("search", "query")},
+		call: func(_ string, _ map[string]any) types.ToolResult {
+			return types.ToolResult{Text: "Result: Alice"}
+		},
+		callErr: func(_ string, args map[string]any) error {
+			q, _ := args["query"].(string)
+			if strings.Contains(q, "'") || strings.Contains(q, `"`) || strings.Contains(q, "-- ") {
+				return fmt.Errorf("%w: invalid characters in query parameter", types.ErrCallRefused)
+			}
+			return nil
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	require.NoError(t, err)
+
+	for _, a := range attempts {
+		assert.False(t, metaBool(a, attempt.MetadataKeySQLInjectionBooleanDifferential),
+			"tool refusal must not be scored as confirmed SQL injection")
+	}
+}
+
+// TestSQLInjection_ConfirmationMustReproduceShape: the confirmation step must
+// require the same AND-false shape, not merely any difference from baseline.
+func TestSQLInjection_ConfirmationMustReproduceShape(t *testing.T) {
+	p := newSQLInjectionProbe(t)
+	callCount := 0
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("search", "query")},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			q, _ := args["query"].(string)
+			callCount++
+			if strings.Contains(q, "AND '1'='2") ||
+				strings.Contains(q, `AND "1"="2`) ||
+				strings.Contains(q, "AND 1=2-- ") {
+				// Return different text each time to simulate transient variation
+				return types.ToolResult{Text: fmt.Sprintf("Error variant %d", callCount)}
+			}
+			return types.ToolResult{Text: "Result: Alice"}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	require.NoError(t, err)
+
+	for _, a := range attempts {
+		assert.False(t, metaBool(a, attempt.MetadataKeySQLInjectionBooleanDifferential),
+			"transient variation (unreproducible AND-false shape) must not be scored as confirmed SQLi")
+	}
 }
 
 // TestSQLInjection_CamelCaseParamMatches: parameters like searchQuery and

@@ -46,7 +46,7 @@ var sqlBooleanPayloads = []struct {
 }{
 	{`' AND '1'='1`, `' AND '1'='2`},
 	{`" AND "1"="1`, `" AND "1"="2`},
-	{` AND 1=1--`, ` AND 1=2--`},
+	{` AND 1=1-- `, ` AND 1=2-- `},
 }
 
 // sqlErrorPayloads elicit database error messages without modifying data.
@@ -62,23 +62,23 @@ var sqlErrorPayloads = []string{
 //   - sqlite: "unrecognized token" and "sqlite3.OperationalError" are unique
 //   - mysql/mariadb: "you have an error in your SQL syntax" (canonical 1064),
 //     or "mysql"/"mariadb" adjacent to "syntax" or "error"
-//   - postgres: "pq:", "psycopg2", "pgadmin", "pgx" driver prefixes;
-//     "unterminated quoted string" is a pg-specific parser message
+//   - postgres: "pq:" (colon-required), "psycopg2", "pgadmin", "pgx" driver
+//     prefixes; "unterminated quoted string" is a pg-specific parser message
 //   - oracle: ORA-##### is a unique oracle error format
 //   - mssql: "sql server", "microsoft ole db", "unclosed quotation mark"
-//   - generic: SQLSTATE followed by bracket or space+digits (covers both
-//     SQLSTATE[42000] and pgx-style "SQLSTATE 42601")
+//   - generic: SQLSTATE followed by bracket or space+alphanumeric (covers
+//     SQLSTATE[42000], SQLSTATE[HY000], and pgx-style "SQLSTATE 42601")
 var dbErrorRE = regexp.MustCompile(`(?i)(` +
 	`unrecognized token` +
 	`|sqlite3?\.OperationalError` +
 	`|you have an error in your SQL syntax` +
 	`|mysql.*syntax.*error|mysql.*error.*syntax` +
-	`|\b(?:pq|psycopg2|pgadmin|pgx)[\s:.]+` +
+	`|\b(?:pq:|psycopg2|pgadmin|pgx)[\s:.]+` +
 	`|\bora-\d{5}` +
 	`|microsoft.*ole db` +
 	`|sql server.*(?:error|native client)` +
 	`|mariadb.*error` +
-	`|SQLSTATE[\[\s]\d` +
+	`|SQLSTATE[\[\s][0-9A-Z]` +
 	`|quoted string not properly terminated` +
 	`|unterminated quoted string` +
 	`|unclosed quotation mark` +
@@ -215,6 +215,23 @@ func sqlIsRead(tool map[string]any, params []paramInfo) bool {
 	return readIntent(tool, params)
 }
 
+// sqlUsableResponse reports whether an attempt's response is a genuine tool
+// answer suitable for shape comparison. It rejects error status, IsError tool
+// results, and tool refusals (MetadataKeyTargetRefused) — a refusal message is
+// evidence that the tool validated its input, not that the SQL clause changed.
+func sqlUsableResponse(a *attempt.Attempt) bool {
+	if a.Status != attempt.StatusComplete {
+		return false
+	}
+	if v, _ := a.Metadata["mcptool.tool_is_error"].(bool); v {
+		return false
+	}
+	if v, _ := a.Metadata[attempt.MetadataKeyTargetRefused].(bool); v {
+		return false
+	}
+	return true
+}
+
 // Probe discovers the target's tools and runs both SQL injection oracles against
 // each qualifying string parameter. Returns an error for non-ToolInvoker targets.
 func (p *SQLInjection) Probe(ctx context.Context, gen types.Generator) ([]*attempt.Attempt, error) {
@@ -296,11 +313,8 @@ func (p *SQLInjection) runBooleanDifferential(ctx context.Context, inv types.Too
 	baseline2.Metadata[attempt.MetadataKeySQLInjectionOracle] = "boolean_differential"
 	allAttempts := []*attempt.Attempt{baseline1, baseline2}
 
-	// Check status before shapes — a failed baseline is "failed", not "unstable".
-	b1Err, _ := baseline1.Metadata["mcptool.tool_is_error"].(bool)
-	b2Err, _ := baseline2.Metadata["mcptool.tool_is_error"].(bool)
-	if baseline1.Status != attempt.StatusComplete || baseline2.Status != attempt.StatusComplete ||
-		b1Err || b2Err {
+	// Check status before shapes — a failed or refused baseline is not usable.
+	if !sqlUsableResponse(baseline1) || !sqlUsableResponse(baseline2) {
 		mcpprobe.MarkNotTested(baseline1, "boolean differential skipped: baseline call failed")
 		mcpprobe.MarkNotTested(baseline2, "boolean differential skipped: baseline call failed")
 		return allAttempts
@@ -343,14 +357,10 @@ func (p *SQLInjection) runBooleanDifferential(ctx context.Context, inv types.Too
 		andTrueShape := responseTemplate(andTrueAttempt, sqlExtraStrip(andTruePayload, baseValue)...)
 		andFalseShape := responseTemplate(andFalseAttempt, sqlExtraStrip(andFalsePayload, baseValue)...)
 
-		// Exclude attempts where the tool returned IsError — a rejection on
-		// AND-false is not the same as a SQL WHERE-clause falsification.
-		atIsErr, _ := andTrueAttempt.Metadata["mcptool.tool_is_error"].(bool)
-		afIsErr, _ := andFalseAttempt.Metadata["mcptool.tool_is_error"].(bool)
-
-		differential := !atIsErr && !afIsErr &&
-			andTrueAttempt.Status == attempt.StatusComplete &&
-			andFalseAttempt.Status == attempt.StatusComplete &&
+		// Exclude attempts where the tool returned IsError or refused the call
+		// — a rejection is not the same as a SQL WHERE-clause falsification.
+		differential := sqlUsableResponse(andTrueAttempt) &&
+			sqlUsableResponse(andFalseAttempt) &&
 			andTrueShape != "" &&
 			andTrueShape == baselineShape &&
 			andFalseShape != baselineShape
@@ -362,9 +372,8 @@ func (p *SQLInjection) runBooleanDifferential(ctx context.Context, inv types.Too
 			confirm.Metadata[attempt.MetadataKeySQLInjectionOracle] = "boolean_differential"
 			allAttempts = append(allAttempts, confirm)
 
-			cIsErr, _ := confirm.Metadata["mcptool.tool_is_error"].(bool)
 			confirmShape := responseTemplate(confirm, sqlExtraStrip(andFalsePayload, baseValue)...)
-			if confirm.Status != attempt.StatusComplete || cIsErr || confirmShape == baselineShape {
+			if !sqlUsableResponse(confirm) || confirmShape != andFalseShape {
 				differential = false
 			}
 		}
@@ -419,11 +428,17 @@ func (p *SQLInjection) runErrorOracle(ctx context.Context, inv types.ToolInvoker
 			}
 		}
 		// MCP servers may surface SQL exceptions as JSON-RPC error messages
-		// with empty outputs — check a.Error too.
+		// (e.g. -32603 internal error) with empty outputs — check a.Error too.
+		// When found, promote from StatusError to StatusComplete so the finding
+		// surfaces as REVIEW, not buried under "error" in the summary.
 		if _, found := a.Metadata[attempt.MetadataKeySQLInjectionDatabaseError]; !found && a.Error != "" {
 			if m := dbErrorRE.FindString(a.Error); m != "" {
 				a.Metadata[attempt.MetadataKeySQLInjectionDatabaseError] = true
 				a.Metadata[attempt.MetadataKeySQLInjectionErrorPattern] = m
+				delete(a.Metadata, attempt.MetadataKeyNotTested)
+				delete(a.Metadata, attempt.MetadataKeyNotTestedReason)
+				a.AddOutput(a.Error)
+				a.Complete()
 			}
 		}
 	}
