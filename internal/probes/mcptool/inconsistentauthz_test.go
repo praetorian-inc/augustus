@@ -2,6 +2,7 @@ package mcptool
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -14,6 +15,7 @@ import (
 
 type equivMockInvoker struct {
 	responses map[string]types.ToolResult
+	errors    map[string]error
 }
 
 func (m *equivMockInvoker) ListTools(_ context.Context) ([]map[string]any, error) {
@@ -21,6 +23,11 @@ func (m *equivMockInvoker) ListTools(_ context.Context) ([]map[string]any, error
 }
 
 func (m *equivMockInvoker) CallTool(_ context.Context, name string, _ map[string]any) (types.ToolResult, error) {
+	if m.errors != nil {
+		if err, ok := m.errors[name]; ok {
+			return types.ToolResult{}, err
+		}
+	}
 	if res, ok := m.responses[name]; ok {
 		return res, nil
 	}
@@ -113,6 +120,82 @@ func TestInconsistentAuthz_IdenticalResponses(t *testing.T) {
 	require.NotNil(t, a)
 	require.Len(t, a.Outputs, 2)
 	assert.Equal(t, a.Outputs[0], a.Outputs[1])
+}
+
+func TestInconsistentAuthz_ExtraRequiredParamSkipped(t *testing.T) {
+	p, err := NewInconsistentAuthorization(registry.Config{})
+	require.NoError(t, err)
+	probe := p.(*InconsistentAuthorization)
+
+	toolA := map[string]any{
+		"name": "list_files",
+		"parameters": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path": map[string]any{"type": "string"},
+			},
+			"required": []any{"path"},
+		},
+	}
+	toolB := map[string]any{
+		"name": "list_files_recursive",
+		"parameters": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"path":      map[string]any{"type": "string"},
+				"max_depth": map[string]any{"type": "integer"},
+			},
+			"required": []any{"path", "max_depth"},
+		},
+	}
+
+	invoker := &equivMockInvoker{responses: map[string]types.ToolResult{}}
+	a := probe.probePair(context.Background(), invoker, toolA, toolB, "name-heuristic")
+	assert.Nil(t, a, "pair with asymmetric required params should be skipped to avoid false differential")
+}
+
+func TestInconsistentAuthz_TransportErrorSkipped(t *testing.T) {
+	p, err := NewInconsistentAuthorization(registry.Config{})
+	require.NoError(t, err)
+	probe := p.(*InconsistentAuthorization)
+
+	toolA := dvmcpTool("get_user_role")
+	toolB := dvmcpTool("get_user_roles")
+
+	invoker := &equivMockInvoker{
+		responses: map[string]types.ToolResult{
+			"get_user_role": {Text: `{"role": "viewer"}`},
+		},
+		errors: map[string]error{
+			"get_user_roles": fmt.Errorf("connection reset"),
+		},
+	}
+
+	a := probe.probePair(context.Background(), invoker, toolA, toolB, "name-heuristic")
+	assert.Nil(t, a, "transport error on one leg should not produce an attempt")
+}
+
+func TestInconsistentAuthz_CallRefusalRecorded(t *testing.T) {
+	p, err := NewInconsistentAuthorization(registry.Config{})
+	require.NoError(t, err)
+	probe := p.(*InconsistentAuthorization)
+
+	toolA := dvmcpTool("get_user_role")
+	toolB := dvmcpTool("get_user_roles")
+
+	invoker := &equivMockInvoker{
+		responses: map[string]types.ToolResult{
+			"get_user_role": {Text: `{"role": "viewer"}`},
+		},
+		errors: map[string]error{
+			"get_user_roles": fmt.Errorf("access denied: %w", types.ErrCallRefused),
+		},
+	}
+
+	a := probe.probePair(context.Background(), invoker, toolA, toolB, "name-heuristic")
+	require.NotNil(t, a, "call refusal is meaningful evidence")
+	require.Len(t, a.Outputs, 2)
+	assert.Contains(t, a.Outputs[1], "[refused:")
 }
 
 func TestInconsistentAuthz_Metadata(t *testing.T) {

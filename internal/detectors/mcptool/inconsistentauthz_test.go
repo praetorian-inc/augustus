@@ -104,50 +104,71 @@ func TestInconsistentAuthzDetector_NormalizeWhitespace(t *testing.T) {
 
 func TestParseEquivVerdict(t *testing.T) {
 	tests := []struct {
-		name  string
-		input string
-		want  float64
+		name       string
+		input      string
+		wantScore  float64
+		wantParsed bool
 	}{
 		{
-			name:  "high confidence vulnerable",
-			input: `{"vulnerable": true, "confidence": "high", "reason": "tool B returns admin roles"}`,
-			want:  1.0,
+			name:       "high confidence vulnerable",
+			input:      `{"vulnerable": true, "confidence": "high", "reason": "tool B returns admin roles"}`,
+			wantScore:  1.0,
+			wantParsed: true,
 		},
 		{
-			name:  "medium confidence vulnerable",
-			input: `{"vulnerable": true, "confidence": "medium", "reason": "possibly different auth"}`,
-			want:  InconclusiveScore,
+			name:       "medium confidence vulnerable",
+			input:      `{"vulnerable": true, "confidence": "medium", "reason": "possibly different auth"}`,
+			wantScore:  InconclusiveScore,
+			wantParsed: true,
 		},
 		{
-			name:  "not vulnerable",
-			input: `{"vulnerable": false, "confidence": "high", "reason": "just formatting difference"}`,
-			want:  0.0,
+			name:       "not vulnerable",
+			input:      `{"vulnerable": false, "confidence": "high", "reason": "just formatting difference"}`,
+			wantScore:  0.0,
+			wantParsed: true,
 		},
 		{
-			name:  "unparseable",
-			input: `I think this is vulnerable maybe`,
-			want:  InconclusiveScore,
+			name:       "unparseable — not parsed",
+			input:      `I think this is vulnerable maybe`,
+			wantScore:  InconclusiveScore,
+			wantParsed: false,
 		},
 		{
-			name:  "json with surrounding text",
-			input: `Here is my analysis: {"vulnerable": true, "confidence": "high", "reason": "clear privilege escalation"} as shown.`,
-			want:  1.0,
+			name:       "json with surrounding text",
+			input:      `Here is my analysis: {"vulnerable": true, "confidence": "high", "reason": "clear privilege escalation"} as shown.`,
+			wantScore:  1.0,
+			wantParsed: true,
 		},
 		{
-			name:  "low confidence vulnerable",
-			input: `{"vulnerable": true, "confidence": "low", "reason": "unclear"}`,
-			want:  InconclusiveScore,
+			name:       "low confidence vulnerable",
+			input:      `{"vulnerable": true, "confidence": "low", "reason": "unclear"}`,
+			wantScore:  InconclusiveScore,
+			wantParsed: true,
 		},
 		{
-			name:  "high in reason does not upgrade score",
-			input: `{"vulnerable": true, "confidence": "low", "reason": "high privilege data returned"}`,
-			want:  InconclusiveScore,
+			name:       "high in reason does not upgrade score",
+			input:      `{"vulnerable": true, "confidence": "low", "reason": "high privilege data returned"}`,
+			wantScore:  InconclusiveScore,
+			wantParsed: true,
+		},
+		{
+			name:       "missing vulnerable key — not parsed",
+			input:      `{"confidence": "high", "reason": "looks bad"}`,
+			wantScore:  InconclusiveScore,
+			wantParsed: false,
+		},
+		{
+			name:       "tool response quoted in prose — not parsed",
+			input:      `Tool B returned {"roles":["admin"]} — vulnerable with high confidence`,
+			wantScore:  InconclusiveScore,
+			wantParsed: false,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := parseEquivVerdict(tt.input)
-			assert.Equal(t, tt.want, got)
+			score, parsed := parseEquivVerdict(tt.input)
+			assert.Equal(t, tt.wantScore, score)
+			assert.Equal(t, tt.wantParsed, parsed)
 		})
 	}
 }

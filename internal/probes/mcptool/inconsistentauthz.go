@@ -3,11 +3,13 @@ package mcptool
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 
 	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
+	"github.com/praetorian-inc/augustus/internal/toolsig"
 	"github.com/praetorian-inc/augustus/pkg/attempt"
 	"github.com/praetorian-inc/augustus/pkg/generators"
 	"github.com/praetorian-inc/augustus/pkg/probes"
@@ -163,6 +165,9 @@ func (p *InconsistentAuthorization) Probe(ctx context.Context, gen types.Generat
 
 	var attempts []*attempt.Attempt
 	for _, pair := range pairs {
+		if ctx.Err() != nil {
+			break
+		}
 		toolA, okA := toolMap[pair.ToolA]
 		toolB, okB := toolMap[pair.ToolB]
 		if !okA || !okB {
@@ -192,24 +197,38 @@ func (p *InconsistentAuthorization) probePair(
 		return nil
 	}
 
-	resA, errA := callToolOnce(ctx, invoker, nameA, args)
-	resB, errB := callToolOnce(ctx, invoker, nameB, args)
+	resA, errA := callLeg(ctx, invoker, nameA, args)
+	resB, errB := callLeg(ctx, invoker, nameB, args)
 
+	// Both failed — nothing to compare.
 	if errA != nil && errB != nil {
 		slog.Debug("mcptool.InconsistentAuthorization: both tools errored; skipping",
 			"tool_a", nameA, "tool_b", nameB)
 		return nil
 	}
 
+	// A single-leg transport/timeout error is not an authz signal — only a
+	// call refusal (JSON-RPC error from the server) is meaningful evidence.
+	if errA != nil && !errors.Is(errA, types.ErrCallRefused) {
+		slog.Debug("mcptool.InconsistentAuthorization: tool A transport error; skipping",
+			"tool", nameA, "err", errA)
+		return nil
+	}
+	if errB != nil && !errors.Is(errB, types.ErrCallRefused) {
+		slog.Debug("mcptool.InconsistentAuthorization: tool B transport error; skipping",
+			"tool", nameB, "err", errB)
+		return nil
+	}
+
 	textA := ""
 	if errA != nil {
-		textA = fmt.Sprintf("[error: %s]", errA)
+		textA = fmt.Sprintf("[refused: %s]", errA)
 	} else {
 		textA = mcpprobe.TruncateResponse(resA.Text)
 	}
 	textB := ""
 	if errB != nil {
-		textB = fmt.Sprintf("[error: %s]", errB)
+		textB = fmt.Sprintf("[refused: %s]", errB)
 	} else {
 		textB = mcpprobe.TruncateResponse(resB.Text)
 	}
@@ -232,6 +251,15 @@ func (p *InconsistentAuthorization) probePair(
 	return a
 }
 
+// buildSharedArgs builds an argument map covering the INTERSECTION of both
+// tools' parameter spaces. It uses Signature.Build with the probe's
+// valueChain so nested and optional parameters are handled correctly.
+//
+// The pair is skipped when:
+//   - either tool has no parseable signature,
+//   - the intersection is empty,
+//   - either tool has required parameters outside the intersection (calling
+//     it without them produces a validation refusal, not an authz signal).
 func (p *InconsistentAuthorization) buildSharedArgs(ctx context.Context, toolA, toolB map[string]any) map[string]any {
 	sigsA := mcpprobe.ToolSignatures(toolA)
 	sigsB := mcpprobe.ToolSignatures(toolB)
@@ -239,32 +267,80 @@ func (p *InconsistentAuthorization) buildSharedArgs(ctx context.Context, toolA, 
 		return nil
 	}
 
-	bParamSet := make(map[string]bool)
-	for _, param := range sigsB[0].Params {
-		bParamSet[param.Path.Leaf()] = true
+	sigA, sigB := sigsA[0], sigsB[0]
+
+	// Index both tools' params by leaf name.
+	aByLeaf := make(map[string]toolsig.Param, len(sigA.Params))
+	for _, pm := range sigA.Params {
+		aByLeaf[pm.Path.Leaf()] = pm
+	}
+	bByLeaf := make(map[string]toolsig.Param, len(sigB.Params))
+	for _, pm := range sigB.Params {
+		bByLeaf[pm.Path.Leaf()] = pm
 	}
 
-	call := mcpprobe.BenignCall(sigsA[0])
+	// Find shared leaf names.
+	sharedLeafs := make(map[string]bool)
+	for leaf := range aByLeaf {
+		if _, ok := bByLeaf[leaf]; ok {
+			sharedLeafs[leaf] = true
+		}
+	}
+	if len(sharedLeafs) == 0 {
+		return nil
+	}
+
+	// Skip pairs where either tool has required params outside the shared set.
+	for _, pm := range sigA.Params {
+		if pm.Required && !sharedLeafs[pm.Path.Leaf()] {
+			return nil
+		}
+	}
+	for _, pm := range sigB.Params {
+		if pm.Required && !sharedLeafs[pm.Path.Leaf()] {
+			return nil
+		}
+	}
+
+	// Build a benign call from tool A's signature, which handles nested paths
+	// and fills required params with harmless placeholders.
+	call := mcpprobe.BenignCall(sigA)
 	if call == nil {
 		return nil
 	}
 
-	shared := make(map[string]any)
-	for k, v := range call.Args() {
-		if bParamSet[k] {
-			shared[k] = v
+	// Overlay valueChain values for shared params (config > hooks > observed).
+	nameA, _ := toolA["name"].(string)
+	chain := p.valueChain(ctx, nameA)
+	for _, pm := range sigA.Params {
+		if !sharedLeafs[pm.Path.Leaf()] {
+			continue
+		}
+		if v, _, ok := chain.Value(pm); ok {
+			call.Set(pm.Path, v)
 		}
 	}
 
-	nameA, _ := toolA["name"].(string)
-	chain := p.valueChain(ctx, nameA)
-	for _, param := range sigsA[0].Params {
-		leaf := param.Path.Leaf()
-		if _, inShared := shared[leaf]; !inShared {
-			continue
+	full := call.Args()
+
+	// Keep only entries whose top-level key corresponds to a shared param.
+	// For top-level params the key IS the leaf; for nested params (e.g.
+	// "auth.username") the top-level key is the parent object ("auth").
+	sharedTopKeys := make(map[string]bool)
+	for _, pm := range sigA.Params {
+		if sharedLeafs[pm.Path.Leaf()] {
+			top := string(pm.Path)
+			if i := indexDot(top); i >= 0 {
+				top = top[:i]
+			}
+			sharedTopKeys[top] = true
 		}
-		if v, _, ok := chain.Value(param); ok {
-			shared[leaf] = v
+	}
+
+	shared := make(map[string]any, len(sharedTopKeys))
+	for k, v := range full {
+		if sharedTopKeys[k] {
+			shared[k] = v
 		}
 	}
 
@@ -272,4 +348,13 @@ func (p *InconsistentAuthorization) buildSharedArgs(ctx context.Context, toolA, 
 		return nil
 	}
 	return shared
+}
+
+func indexDot(s string) int {
+	for i, c := range s {
+		if c == '.' {
+			return i
+		}
+	}
+	return -1
 }
