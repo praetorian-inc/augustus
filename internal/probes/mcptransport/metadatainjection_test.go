@@ -272,7 +272,7 @@ func TestMetadataInjection_SSEServer_NoDifferential(t *testing.T) {
 
 // --- paginated server test ---
 
-func TestMetadataInjection_PaginatedServer_BaselineErrors(t *testing.T) {
+func TestMetadataInjection_PaginatedBaseline_Inconclusive(t *testing.T) {
 	srv := paginatedToolServer(t)
 	defer srv.Close()
 
@@ -283,10 +283,17 @@ func TestMetadataInjection_PaginatedServer_BaselineErrors(t *testing.T) {
 	}
 
 	if len(attempts) != 1 {
-		t.Fatalf("expected 1 attempt (failed baseline), got %d", len(attempts))
+		t.Fatalf("expected 1 attempt (paginated baseline), got %d", len(attempts))
 	}
-	if attempts[0].Status != attempt.StatusError {
-		t.Errorf("paginated baseline should be errored, got status %q", attempts[0].Status)
+	a := attempts[0]
+	if a.Status != attempt.StatusComplete {
+		t.Errorf("paginated baseline should be StatusComplete (inconclusive), got %q", a.Status)
+	}
+	if inc, ok := a.Metadata[attempt.MetadataKeyInconclusive].(bool); !ok || !inc {
+		t.Errorf("paginated baseline should be marked inconclusive")
+	}
+	if _, ok := a.Metadata[attempt.MetadataKeyInconclusiveReason].(string); !ok {
+		t.Errorf("paginated baseline should have an inconclusive reason")
 	}
 }
 
@@ -674,6 +681,30 @@ func TestMetadataInjection_MultiEventSSE(t *testing.T) {
 		if a.Status == attempt.StatusError {
 			t.Errorf("multi-event SSE attempt %q should not error", a.Prompt)
 		}
+	}
+}
+
+// --- missing tools key test ---
+
+func TestMetadataInjection_MissingToolsKey_BaselineErrors(t *testing.T) {
+	resp := []byte(`{"jsonrpc":"2.0","id":1,"result":{"resources":[{"uri":"file:///tmp"}]}}`)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(resp)
+	}))
+	defer srv.Close()
+
+	p := newMetadataInjectionProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+
+	if len(attempts) != 1 {
+		t.Fatalf("expected 1 attempt (failed baseline), got %d", len(attempts))
+	}
+	if attempts[0].Status != attempt.StatusError {
+		t.Errorf("missing-tools-key baseline should be StatusError, got %q", attempts[0].Status)
 	}
 }
 

@@ -101,21 +101,29 @@ func extractToolNames(body []byte, contentType string) ([]string, error) {
 		return nil, fmt.Errorf("no result in response")
 	}
 
-	var result struct {
-		Tools []struct {
-			Name string `json:"name"`
-		} `json:"tools"`
-		NextCursor string `json:"nextCursor"`
+	var shape struct {
+		Tools      json.RawMessage `json:"tools"`
+		NextCursor string          `json:"nextCursor"`
 	}
-	if err := json.Unmarshal(envelope.Result, &result); err != nil {
+	if err := json.Unmarshal(envelope.Result, &shape); err != nil {
 		return nil, fmt.Errorf("parse tools result: %w", err)
 	}
-	if result.NextCursor != "" {
-		return nil, fmt.Errorf("tools/list response is paginated (nextCursor present); single-request comparison is unreliable")
+	if shape.NextCursor != "" {
+		return nil, &paginatedResponseError{cursor: shape.NextCursor}
+	}
+	if len(shape.Tools) == 0 || string(shape.Tools) == "null" {
+		return nil, fmt.Errorf("response result does not contain a tools array (not a tools/list response)")
 	}
 
-	names := make([]string, 0, len(result.Tools))
-	for _, t := range result.Tools {
+	var tools []struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(shape.Tools, &tools); err != nil {
+		return nil, fmt.Errorf("parse tools array: %w", err)
+	}
+
+	names := make([]string, 0, len(tools))
+	for _, t := range tools {
 		names = append(names, t.Name)
 	}
 	sort.Strings(names)
@@ -130,6 +138,17 @@ type serverRefusedError struct {
 
 func (e *serverRefusedError) Error() string {
 	return fmt.Sprintf("server returned JSON-RPC error: %s", e.msg)
+}
+
+// paginatedResponseError indicates the tools/list response includes a
+// nextCursor, meaning the catalog is split across pages. Single-request
+// differential comparison is unreliable against paginated catalogs.
+type paginatedResponseError struct {
+	cursor string
+}
+
+func (e *paginatedResponseError) Error() string {
+	return fmt.Sprintf("tools/list response is paginated (nextCursor: %q); single-request comparison is unreliable", e.cursor)
 }
 
 // jsonFromResponse extracts JSON from a response body, handling both

@@ -48,58 +48,61 @@ func metadataAttemptErrored(class string) *attempt.Attempt {
 
 func TestMetadataInjectionDetector(t *testing.T) {
 	tests := []struct {
-		name string
-		a    *attempt.Attempt
-		want []float64
+		name                string
+		a                   *attempt.Attempt
+		want                []float64
+		wantPartialEvidence bool
 	}{
 		{
-			"differential variant -> 1.0",
-			metadataAttempt("client-identity-spoof", true, 2, "different tools"),
-			[]float64{1.0},
+			name: "differential variant -> 1.0",
+			a:    metadataAttempt("client-identity-spoof", true, 2, "different tools"),
+			want: []float64{1.0},
 		},
 		{
-			"non-differential variant -> 0.0",
-			metadataAttempt("client-identity-spoof", false, 0, "same tools"),
-			[]float64{0.0},
+			name: "non-differential variant -> 0.0",
+			a:    metadataAttempt("client-identity-spoof", false, 0, "same tools"),
+			want: []float64{0.0},
 		},
 		{
-			"baseline -> 0.0 (informational)",
-			metadataAttempt("baseline", false, 0, "baseline tools"),
-			[]float64{0.0},
+			name: "baseline -> 0.0 (informational)",
+			a:    metadataAttempt("baseline", false, 0, "baseline tools"),
+			want: []float64{0.0},
 		},
 		{
-			"errored variant -> inconclusive",
-			metadataAttemptErrored("protocol-version-upgrade"),
-			[]float64{InconclusiveScore},
+			name: "errored variant -> inconclusive",
+			a:    metadataAttemptErrored("protocol-version-upgrade"),
+			want: []float64{InconclusiveScore},
 		},
 		{
-			"errored baseline -> inconclusive (not safe)",
-			metadataAttemptErrored("baseline"),
-			[]float64{InconclusiveScore},
+			name: "errored baseline -> inconclusive (not safe)",
+			a:    metadataAttemptErrored("baseline"),
+			want: []float64{InconclusiveScore},
 		},
 		{
-			"header-mismatch differential -> 1.0",
-			metadataAttempt("header-mismatch", true, 2, "different tools"),
-			[]float64{1.0},
+			name: "header-mismatch differential -> 1.0",
+			a:    metadataAttempt("header-mismatch", true, 2, "different tools"),
+			want: []float64{1.0},
 		},
 		{
-			"capability-escalation differential -> review (0.5)",
-			metadataAttempt("capability-escalation", true, 2, "different tools"),
-			[]float64{InconclusiveScore},
+			name:                "capability-escalation differential -> review (0.5)",
+			a:                   metadataAttempt("capability-escalation", true, 2, "different tools"),
+			want:                []float64{InconclusiveScore},
+			wantPartialEvidence: true,
 		},
 		{
-			"capability-bogus non-differential -> 0.0",
-			metadataAttempt("capability-bogus", false, 0, "same tools"),
-			[]float64{0.0},
+			name: "capability-bogus non-differential -> 0.0",
+			a:    metadataAttempt("capability-bogus", false, 0, "same tools"),
+			want: []float64{0.0},
 		},
 		{
-			"protocol-version-downgrade differential -> review (0.5)",
-			metadataAttempt("protocol-version-downgrade", true, 1, "different tools"),
-			[]float64{InconclusiveScore},
+			name:                "protocol-version-downgrade differential -> review (0.5)",
+			a:                   metadataAttempt("protocol-version-downgrade", true, 1, "different tools"),
+			want:                []float64{InconclusiveScore},
+			wantPartialEvidence: true,
 		},
 		{
-			"identity-spoof differential subset (newTools=0) -> 0.0",
-			func() *attempt.Attempt {
+			name: "identity-spoof differential subset (newTools=0) -> 0.0",
+			a: func() *attempt.Attempt {
 				a := attempt.New("attempt")
 				a.Metadata[attempt.MetadataKeyMetadataInjectionClass] = "client-identity-spoof"
 				a.Metadata[attempt.MetadataKeyMetadataInjectionDifferential] = true
@@ -108,16 +111,16 @@ func TestMetadataInjectionDetector(t *testing.T) {
 				a.Complete()
 				return a
 			}(),
-			[]float64{0.0},
+			want: []float64{0.0},
 		},
 		{
-			"capability-bogus differential superset -> 1.0",
-			metadataAttempt("capability-bogus", true, 2, "extra tools"),
-			[]float64{1.0},
+			name: "capability-bogus differential superset -> 1.0",
+			a:    metadataAttempt("capability-bogus", true, 2, "extra tools"),
+			want: []float64{1.0},
 		},
 		{
-			"inconclusive flag -> 0.5",
-			func() *attempt.Attempt {
+			name: "inconclusive flag -> 0.5",
+			a: func() *attempt.Attempt {
 				a := attempt.New("attempt")
 				a.Metadata[attempt.MetadataKeyMetadataInjectionClass] = "client-identity-spoof"
 				a.Metadata[attempt.MetadataKeyInconclusive] = true
@@ -125,7 +128,7 @@ func TestMetadataInjectionDetector(t *testing.T) {
 				a.Complete()
 				return a
 			}(),
-			[]float64{InconclusiveScore},
+			want: []float64{InconclusiveScore},
 		},
 	}
 
@@ -144,35 +147,42 @@ func TestMetadataInjectionDetector(t *testing.T) {
 					t.Errorf("Detect[%d] = %v, want %v", i, got[i], tt.want[i])
 				}
 			}
+			pe, _ := tt.a.GetMetadata(attempt.MetadataKeyPartialEvidence)
+			gotPE, _ := pe.(bool)
+			if gotPE != tt.wantPartialEvidence {
+				t.Errorf("PartialEvidence = %v, want %v", gotPE, tt.wantPartialEvidence)
+			}
 		})
 	}
 }
 
 func TestCapabilityEscalationDetector(t *testing.T) {
 	tests := []struct {
-		name string
-		a    *attempt.Attempt
-		want []float64
+		name                string
+		a                   *attempt.Attempt
+		want                []float64
+		wantPartialEvidence bool
 	}{
 		{
-			"escalation differential -> review (0.5)",
-			metadataAttempt("capability-escalation", true, 2, "extra tools"),
-			[]float64{InconclusiveScore},
+			name:                "escalation differential -> review (0.5)",
+			a:                   metadataAttempt("capability-escalation", true, 2, "extra tools"),
+			want:                []float64{InconclusiveScore},
+			wantPartialEvidence: true,
 		},
 		{
-			"escalation non-differential -> 0.0",
-			metadataAttempt("capability-escalation", false, 0, "same tools"),
-			[]float64{0.0},
+			name: "escalation non-differential -> 0.0",
+			a:    metadataAttempt("capability-escalation", false, 0, "same tools"),
+			want: []float64{0.0},
 		},
 		{
-			"baseline -> 0.0",
-			metadataAttempt("baseline", false, 0, "baseline tools"),
-			[]float64{0.0},
+			name: "baseline -> 0.0",
+			a:    metadataAttempt("baseline", false, 0, "baseline tools"),
+			want: []float64{0.0},
 		},
 		{
-			"errored -> inconclusive",
-			metadataAttemptErrored("capability-all"),
-			[]float64{InconclusiveScore},
+			name: "errored -> inconclusive",
+			a:    metadataAttemptErrored("capability-all"),
+			want: []float64{InconclusiveScore},
 		},
 	}
 
@@ -190,6 +200,11 @@ func TestCapabilityEscalationDetector(t *testing.T) {
 				if got[i] != tt.want[i] {
 					t.Errorf("Detect[%d] = %v, want %v", i, got[i], tt.want[i])
 				}
+			}
+			pe, _ := tt.a.GetMetadata(attempt.MetadataKeyPartialEvidence)
+			gotPE, _ := pe.(bool)
+			if gotPE != tt.wantPartialEvidence {
+				t.Errorf("PartialEvidence = %v, want %v", gotPE, tt.wantPartialEvidence)
 			}
 		})
 	}

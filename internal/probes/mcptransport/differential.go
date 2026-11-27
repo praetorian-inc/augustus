@@ -126,6 +126,15 @@ func runDifferentialSweep(ctx context.Context, params sweepParams) []*attempt.At
 	baseResult := sendToolsListRequest(ctx, params.client, params.endpoint, params.baselineMeta, nil)
 
 	if baseResult.err != nil {
+		var pgErr *paginatedResponseError
+		if errors.As(baseResult.err, &pgErr) {
+			a := recordInconclusiveBaseline(params, baseResult,
+				"tools/list response is paginated; single-request comparison is unreliable")
+			attempts = append(attempts, a)
+			slog.Info("differential sweep: baseline paginated; cannot compare variants",
+				"probe", params.probeName, "endpoint", params.endpoint)
+			return attempts
+		}
 		a := recordErroredBaseline(params, baseResult)
 		attempts = append(attempts, a)
 		slog.Info("differential sweep: baseline failed; cannot compare variants",
