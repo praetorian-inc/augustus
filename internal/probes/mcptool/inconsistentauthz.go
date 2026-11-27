@@ -346,13 +346,9 @@ func (p *InconsistentAuthorization) buildSharedArgs(ctx context.Context, toolA, 
 		if !sharedPaths[pm.Path] || !pm.Required || filled[pm.Path] {
 			continue
 		}
-		if callB != nil {
-			if v, ok := callB.Get(pm.Path); ok {
-				call.Set(pm.Path, v)
-				continue
-			}
+		if v, ok := callB.Get(pm.Path); ok {
+			call.Set(pm.Path, v)
 		}
-		call.Set(pm.Path, benignPlaceholder(pm.Type))
 	}
 
 	full := call.Args()
@@ -380,7 +376,11 @@ func (p *InconsistentAuthorization) buildSharedArgs(ctx context.Context, toolA, 
 	}
 
 	if len(shared) == 0 {
-		return nil
+		// All shared params are optional and none were filled by BenignCall
+		// or valueChain. An empty-args call is still schema-valid — both
+		// tools will apply their own defaults, and comparing those defaults
+		// can still reveal authorization inconsistencies.
+		return map[string]any{}
 	}
 
 	// Validate the shared args against both schemas. A type mismatch
@@ -399,22 +399,4 @@ func (p *InconsistentAuthorization) buildSharedArgs(ctx context.Context, toolA, 
 	}
 
 	return shared
-}
-
-// benignPlaceholder returns a harmless placeholder for a parameter type,
-// mirroring mcpprobe.benignValue (which is unexported). Used to fill shared
-// params that are optional in one tool but required in the other.
-func benignPlaceholder(typ string) any {
-	switch typ {
-	case "integer", "number":
-		return 1
-	case "boolean":
-		return true
-	case "array":
-		return []any{}
-	case "object":
-		return map[string]any{}
-	default:
-		return "test"
-	}
 }

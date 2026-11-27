@@ -45,8 +45,11 @@ func NearNamePairs(tools []map[string]any) []ToolPair {
 		})
 	}
 
+	const maxNearNamePairs = 50
+
 	var pairs []ToolPair
 	seen := map[string]bool{}
+outer:
 	for i := 0; i < len(entries); i++ {
 		for j := i + 1; j < len(entries); j++ {
 			a, b := entries[i], entries[j]
@@ -73,6 +76,9 @@ func NearNamePairs(tools []map[string]any) []ToolPair {
 			}
 			seen[key] = true
 			pairs = append(pairs, ToolPair{ToolA: pa, ToolB: pb, Method: "name-heuristic"})
+			if len(pairs) >= maxNearNamePairs {
+				break outer
+			}
 		}
 	}
 	sort.Slice(pairs, func(i, j int) bool {
@@ -202,7 +208,7 @@ func SemanticPairs(ctx context.Context, tools []map[string]any, judge generators
 			paramList = append(paramList, p+"("+typ+")")
 		}
 		sort.Strings(paramList)
-		fmt.Fprintf(&catalog, "- %s: %s [params: %s]\n", escapeXML(name), escapeXML(desc), strings.Join(paramList, ", "))
+		fmt.Fprintf(&catalog, "- %s: %s [params: %s]\n", EscapeXML(name), EscapeXML(desc), EscapeXML(strings.Join(paramList, ", ")))
 	}
 
 	skip := map[string]bool{}
@@ -272,9 +278,9 @@ func parseSemanticPairs(text string, tools []map[string]any, skip map[string]boo
 	return pairs
 }
 
-// escapeXML escapes &, <, > in attacker-influenced content so it cannot
+// EscapeXML escapes &, <, > in attacker-influenced content so it cannot
 // break out of XML delimiter tags in judge prompts.
-func escapeXML(s string) string {
+func EscapeXML(s string) string {
 	s = strings.ReplaceAll(s, "&", "&amp;")
 	s = strings.ReplaceAll(s, "<", "&lt;")
 	s = strings.ReplaceAll(s, ">", "&gt;")

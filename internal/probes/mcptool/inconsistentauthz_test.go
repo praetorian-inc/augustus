@@ -281,6 +281,43 @@ func TestInconsistentAuthz_OptionalInARequiredInB(t *testing.T) {
 	require.Len(t, a.Outputs, 2)
 }
 
+func TestInconsistentAuthz_AllOptionalSharedParams(t *testing.T) {
+	p, err := NewInconsistentAuthorization(registry.Config{})
+	require.NoError(t, err)
+	probe := p.(*InconsistentAuthorization)
+
+	// Both tools share "username" as optional only — no required params.
+	toolA := map[string]any{
+		"name": "get_user_role",
+		"parameters": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"username": map[string]any{"type": "string"},
+			},
+		},
+	}
+	toolB := map[string]any{
+		"name": "get_user_roles",
+		"parameters": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"username": map[string]any{"type": "string"},
+			},
+		},
+	}
+
+	invoker := &equivMockInvoker{
+		responses: map[string]types.ToolResult{
+			"get_user_role":  {Text: `{"role": "viewer"}`},
+			"get_user_roles": {Text: `{"roles": ["admin"]}`},
+		},
+	}
+
+	a := probe.probePair(context.Background(), invoker, toolA, toolB, "name-heuristic")
+	require.NotNil(t, a, "all-optional shared params should still produce attempt with empty args")
+	require.Len(t, a.Outputs, 2)
+}
+
 func TestInconsistentAuthz_Metadata(t *testing.T) {
 	p, err := NewInconsistentAuthorization(registry.Config{})
 	require.NoError(t, err)

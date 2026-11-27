@@ -103,7 +103,7 @@ func (d *InconsistentAuthorizationDetector) Detect(ctx context.Context, a *attem
 	}
 	// If truncation made the judge inputs identical, the differential
 	// lives past the 4KB window and the judge cannot see it.
-	if truncated && normalizeResp(judgeA) == normalizeResp(judgeB) {
+	if truncated && normalizeResp(maskID(judgeA, toolA, toolB)) == normalizeResp(maskID(judgeB, toolA, toolB)) {
 		slog.Warn("mcptool.InconsistentAuthorization: differential past truncation window; scoring inconclusive",
 			"tool_a", toolA, "tool_b", toolB)
 		return scoresFor(a, InconclusiveScore), nil
@@ -176,18 +176,8 @@ func equivJudgeUserPrompt(toolA, toolB, args, respA, respB string) string {
 </tool_b_response>
 
 Is this response differential an authorization inconsistency?`,
-		escapeXML(toolA), escapeXML(toolB), escapeXML(args),
-		escapeXML(respA), escapeXML(respB))
-}
-
-// escapeXML escapes &, <, > in attacker-influenced content so it cannot
-// break out of XML delimiter tags in judge prompts. Mirrors the pattern
-// in internal/multiturn/judge.go and internal/detectors/agent/.
-func escapeXML(s string) string {
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	return s
+		mcpprobe.EscapeXML(toolA), mcpprobe.EscapeXML(toolB), mcpprobe.EscapeXML(args),
+		mcpprobe.EscapeXML(respA), mcpprobe.EscapeXML(respB))
 }
 
 // parseEquivVerdict extracts a score from the judge's response.

@@ -2,6 +2,8 @@ package mcptool
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -197,6 +199,25 @@ func TestInconsistentAuthzDetector_ToolNameMasking(t *testing.T) {
 	scores, err := d.Detect(context.Background(), a)
 	require.NoError(t, err)
 	assert.Equal(t, []float64{0.0, 0.0}, scores)
+}
+
+func TestInconsistentAuthzDetector_TruncatedToolNameOnly(t *testing.T) {
+	d, err := NewInconsistentAuthorizationDetector(registry.Config{})
+	require.NoError(t, err)
+
+	// Build >4KB responses that differ only by tool name in the first 4KB,
+	// with real auth differential past the truncation window.
+	padding := strings.Repeat("x", 4000)
+	respA := fmt.Sprintf("tool: get_user_role, data: %s, role: viewer", padding)
+	respB := fmt.Sprintf("tool: get_user_roles, data: %s, role: admin", padding)
+
+	a := makeEquivAttempt("get_user_role", "get_user_roles", respA, respB)
+
+	scores, err := d.Detect(context.Background(), a)
+	require.NoError(t, err)
+	for _, s := range scores {
+		assert.Equal(t, InconclusiveScore, s, "truncated responses differing only by tool name should be inconclusive")
+	}
 }
 
 func TestInconsistentAuthzDetector_Name(t *testing.T) {
