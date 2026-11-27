@@ -198,6 +198,89 @@ func TestInconsistentAuthz_CallRefusalRecorded(t *testing.T) {
 	assert.Contains(t, a.Outputs[1], "[refused:")
 }
 
+func TestInconsistentAuthz_NestedPathMismatchSkipped(t *testing.T) {
+	p, err := NewInconsistentAuthorization(registry.Config{})
+	require.NoError(t, err)
+	probe := p.(*InconsistentAuthorization)
+
+	// Tool A has "filter.username" (nested), tool B has "username" (top-level).
+	// Same leaf name but different full paths — different wire shapes.
+	toolA := map[string]any{
+		"name": "search_users",
+		"parameters": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"filter": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"username": map[string]any{"type": "string"},
+					},
+					"required": []any{"username"},
+				},
+			},
+			"required": []any{"filter"},
+		},
+	}
+	toolB := map[string]any{
+		"name": "search_users_v2",
+		"parameters": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"username": map[string]any{"type": "string"},
+			},
+			"required": []any{"username"},
+		},
+	}
+
+	invoker := &equivMockInvoker{responses: map[string]types.ToolResult{}}
+	a := probe.probePair(context.Background(), invoker, toolA, toolB, "name-heuristic")
+	assert.Nil(t, a, "nested vs flat path mismatch should be skipped — different wire shapes")
+}
+
+func TestInconsistentAuthz_OptionalInARequiredInB(t *testing.T) {
+	p, err := NewInconsistentAuthorization(registry.Config{})
+	require.NoError(t, err)
+	probe := p.(*InconsistentAuthorization)
+
+	// Tool A: username required, tenant optional
+	// Tool B: username required, tenant required
+	// Shared set = {username, tenant}, both tools' required params are in shared set.
+	// tenant is optional in A → BenignCall won't fill it, but B needs it.
+	toolA := map[string]any{
+		"name": "get_user_role",
+		"parameters": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"username": map[string]any{"type": "string"},
+				"tenant":   map[string]any{"type": "string"},
+			},
+			"required": []any{"username"},
+		},
+	}
+	toolB := map[string]any{
+		"name": "get_user_roles",
+		"parameters": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"username": map[string]any{"type": "string"},
+				"tenant":   map[string]any{"type": "string"},
+			},
+			"required": []any{"username", "tenant"},
+		},
+	}
+
+	invoker := &equivMockInvoker{
+		responses: map[string]types.ToolResult{
+			"get_user_role":  {Text: `{"role": "viewer"}`},
+			"get_user_roles": {Text: `{"roles": ["admin"]}`},
+		},
+	}
+
+	a := probe.probePair(context.Background(), invoker, toolA, toolB, "name-heuristic")
+	require.NotNil(t, a, "optional-in-A/required-in-B should still produce attempt with param filled")
+	require.Len(t, a.Outputs, 2)
+}
+
 func TestInconsistentAuthz_Metadata(t *testing.T) {
 	p, err := NewInconsistentAuthorization(registry.Config{})
 	require.NoError(t, err)

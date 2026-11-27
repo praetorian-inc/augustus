@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/praetorian-inc/augustus/internal/mcpprobe"
 	"github.com/praetorian-inc/augustus/internal/toolpolicy"
@@ -255,6 +256,11 @@ func (p *InconsistentAuthorization) probePair(
 // tools' parameter spaces. It uses Signature.Build with the probe's
 // valueChain so nested and optional parameters are handled correctly.
 //
+// Parameters are matched by FULL PATH, not leaf name. Two params at different
+// nesting levels (e.g. "filter.username" vs "username") have different wire
+// shapes and are not interchangeable — sending one tool's shape to the other
+// produces a schema-refusal, not an authorization signal.
+//
 // The pair is skipped when:
 //   - either tool has no parseable signature,
 //   - the intersection is empty,
@@ -269,35 +275,35 @@ func (p *InconsistentAuthorization) buildSharedArgs(ctx context.Context, toolA, 
 
 	sigA, sigB := sigsA[0], sigsB[0]
 
-	// Index both tools' params by leaf name.
-	aByLeaf := make(map[string]toolsig.Param, len(sigA.Params))
+	// Index both tools' params by full path.
+	aByPath := make(map[toolsig.Path]toolsig.Param, len(sigA.Params))
 	for _, pm := range sigA.Params {
-		aByLeaf[pm.Path.Leaf()] = pm
+		aByPath[pm.Path] = pm
 	}
-	bByLeaf := make(map[string]toolsig.Param, len(sigB.Params))
+	bByPath := make(map[toolsig.Path]toolsig.Param, len(sigB.Params))
 	for _, pm := range sigB.Params {
-		bByLeaf[pm.Path.Leaf()] = pm
+		bByPath[pm.Path] = pm
 	}
 
-	// Find shared leaf names.
-	sharedLeafs := make(map[string]bool)
-	for leaf := range aByLeaf {
-		if _, ok := bByLeaf[leaf]; ok {
-			sharedLeafs[leaf] = true
+	// Find shared paths — present in both tools with identical full path.
+	sharedPaths := make(map[toolsig.Path]bool)
+	for path := range aByPath {
+		if _, ok := bByPath[path]; ok {
+			sharedPaths[path] = true
 		}
 	}
-	if len(sharedLeafs) == 0 {
+	if len(sharedPaths) == 0 {
 		return nil
 	}
 
 	// Skip pairs where either tool has required params outside the shared set.
 	for _, pm := range sigA.Params {
-		if pm.Required && !sharedLeafs[pm.Path.Leaf()] {
+		if pm.Required && !sharedPaths[pm.Path] {
 			return nil
 		}
 	}
 	for _, pm := range sigB.Params {
-		if pm.Required && !sharedLeafs[pm.Path.Leaf()] {
+		if pm.Required && !sharedPaths[pm.Path] {
 			return nil
 		}
 	}
@@ -309,28 +315,48 @@ func (p *InconsistentAuthorization) buildSharedArgs(ctx context.Context, toolA, 
 		return nil
 	}
 
+	// Track which paths already have values (BenignCall fills A's required params).
+	filled := make(map[toolsig.Path]bool, len(sigA.Params))
+	for _, pm := range sigA.Params {
+		if pm.Required {
+			filled[pm.Path] = true
+		}
+	}
+
 	// Overlay valueChain values for shared params (config > hooks > observed).
 	nameA, _ := toolA["name"].(string)
 	chain := p.valueChain(ctx, nameA)
 	for _, pm := range sigA.Params {
-		if !sharedLeafs[pm.Path.Leaf()] {
+		if !sharedPaths[pm.Path] {
 			continue
 		}
 		if v, _, ok := chain.Value(pm); ok {
 			call.Set(pm.Path, v)
+			filled[pm.Path] = true
 		}
+	}
+
+	// Fill shared params that are required in B but optional in A and not yet
+	// filled by BenignCall or valueChain. Without this, tool B gets a call
+	// missing a required param and fails schema validation — a false differential.
+	for _, pm := range sigB.Params {
+		if !sharedPaths[pm.Path] || !pm.Required || filled[pm.Path] {
+			continue
+		}
+		call.Set(pm.Path, benignPlaceholder(pm.Type))
 	}
 
 	full := call.Args()
 
 	// Keep only entries whose top-level key corresponds to a shared param.
-	// For top-level params the key IS the leaf; for nested params (e.g.
+	// For top-level params the key IS the path; for nested params (e.g.
 	// "auth.username") the top-level key is the parent object ("auth").
+	// Handle both "." and "[" separators for array-indexed paths.
 	sharedTopKeys := make(map[string]bool)
 	for _, pm := range sigA.Params {
-		if sharedLeafs[pm.Path.Leaf()] {
+		if sharedPaths[pm.Path] {
 			top := string(pm.Path)
-			if i := indexDot(top); i >= 0 {
+			if i := strings.IndexAny(top, ".["); i >= 0 {
 				top = top[:i]
 			}
 			sharedTopKeys[top] = true
@@ -350,11 +376,20 @@ func (p *InconsistentAuthorization) buildSharedArgs(ctx context.Context, toolA, 
 	return shared
 }
 
-func indexDot(s string) int {
-	for i, c := range s {
-		if c == '.' {
-			return i
-		}
+// benignPlaceholder returns a harmless placeholder for a parameter type,
+// mirroring mcpprobe.benignValue (which is unexported). Used to fill shared
+// params that are optional in one tool but required in the other.
+func benignPlaceholder(typ string) any {
+	switch typ {
+	case "integer", "number":
+		return 1
+	case "boolean":
+		return true
+	case "array":
+		return []any{}
+	case "object":
+		return map[string]any{}
+	default:
+		return "test"
 	}
-	return -1
 }

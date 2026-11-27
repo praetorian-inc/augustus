@@ -163,6 +163,18 @@ func TestParseEquivVerdict(t *testing.T) {
 			wantScore:  InconclusiveScore,
 			wantParsed: false,
 		},
+		{
+			name:       "judge quotes tool response then gives own verdict — uses last object",
+			input:      `Tool B returned {"vulnerable": true, "confidence": "high"} showing elevated privileges. My verdict: {"vulnerable": false, "confidence": "high", "reason": "just format difference"}`,
+			wantScore:  0.0,
+			wantParsed: true,
+		},
+		{
+			name:       "multiple JSON objects — last verdict wins",
+			input:      `{"vulnerable": true, "confidence": "low"} wait let me reconsider: {"vulnerable": true, "confidence": "high", "reason": "clear escalation"}`,
+			wantScore:  1.0,
+			wantParsed: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -171,6 +183,20 @@ func TestParseEquivVerdict(t *testing.T) {
 			assert.Equal(t, tt.wantParsed, parsed)
 		})
 	}
+}
+
+func TestInconsistentAuthzDetector_ToolNameMasking(t *testing.T) {
+	d, err := NewInconsistentAuthorizationDetector(registry.Config{})
+	require.NoError(t, err)
+
+	// Responses differ only by echoing their own tool name — after masking
+	// they should be identical and score 0.0.
+	a := makeEquivAttempt("get_user_role", "get_user_roles",
+		`tool: get_user_role, result: viewer`, `tool: get_user_roles, result: viewer`)
+
+	scores, err := d.Detect(context.Background(), a)
+	require.NoError(t, err)
+	assert.Equal(t, []float64{0.0, 0.0}, scores)
 }
 
 func TestInconsistentAuthzDetector_Name(t *testing.T) {

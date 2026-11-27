@@ -76,6 +76,30 @@ func TestNearNamePairs(t *testing.T) {
 			},
 			want: []ToolPair{{ToolA: "getUserRole", ToolB: "getUserRoles", Method: "name-heuristic"}},
 		},
+		{
+			name: "verb substitution at index 0 — not paired (get vs create)",
+			tools: []map[string]any{
+				toolDesc("get_user", "id"),
+				toolDesc("create_user", "id"),
+			},
+			want: nil,
+		},
+		{
+			name: "verb substitution at index 0 — not paired (read vs write)",
+			tools: []map[string]any{
+				toolDesc("read_file", "path"),
+				toolDesc("write_file", "path"),
+			},
+			want: nil,
+		},
+		{
+			name: "same tokens different naming convention — paired",
+			tools: []map[string]any{
+				toolDesc("get_user_role", "username"),
+				toolDescCamel("getUserRole", "username"),
+			},
+			want: []ToolPair{{ToolA: "getUserRole", ToolB: "get_user_role", Method: "name-heuristic"}},
+		},
 	}
 
 	for _, tt := range tests {

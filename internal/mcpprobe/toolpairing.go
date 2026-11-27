@@ -50,7 +50,11 @@ func NearNamePairs(tools []map[string]any) []ToolPair {
 	for i := 0; i < len(entries); i++ {
 		for j := i + 1; j < len(entries); j++ {
 			a, b := entries[i], entries[j]
-			if !nearName(a.tokens, b.tokens) {
+			// Different raw names with identical tokens after normalization
+			// (e.g. get_user_role vs getUserRole) are the same operation under
+			// different naming conventions — a perfect equivalence candidate.
+			sameTokens := slices.Equal(a.tokens, b.tokens)
+			if !sameTokens && !nearName(a.tokens, b.tokens) {
 				continue
 			}
 			if !shareParameter(a.tool, b.tool) {
@@ -105,12 +109,20 @@ func nearName(a, b []string) bool {
 
 	if len(a) == len(b) && len(a) >= 2 {
 		diffs := 0
+		diffIdx := -1
 		for i := range a {
 			if a[i] != b[i] {
 				diffs++
+				diffIdx = i
 			}
 		}
-		return diffs == 1
+		if diffs != 1 {
+			return false
+		}
+		// A substitution at index 0 swaps the verb (get→create, read→write),
+		// which changes the operation rather than the target. Only noun-position
+		// differences indicate equivalent tools.
+		return diffIdx != 0
 	}
 
 	if intAbs(len(a)-len(b)) == 1 {

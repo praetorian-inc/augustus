@@ -72,8 +72,13 @@ func (d *InconsistentAuthorizationDetector) Detect(ctx context.Context, a *attem
 		return scoresFor(a, 0.0), nil
 	}
 
-	normA := normalizeResp(respA)
-	normB := normalizeResp(respB)
+	toolA := metaString(a, mcpprobe.MetaEquivToolA)
+	toolB := metaString(a, mcpprobe.MetaEquivToolB)
+
+	// Mask tool names so responses that differ only by echoing their own
+	// tool name are not mistaken for a behavioral differential.
+	normA := normalizeResp(maskID(respA, toolA, toolB))
+	normB := normalizeResp(maskID(respB, toolA, toolB))
 	if normA == normB {
 		return scoresFor(a, 0.0), nil
 	}
@@ -120,6 +125,9 @@ func (d *InconsistentAuthorizationDetector) judgeEquivDifferential(
 		// The judge explicitly returned medium/low confidence — partial evidence.
 		// Unparseable or errored judge output is a coverage gap (no partial evidence),
 		// matching the BOLA detector's convention.
+		if a.Metadata == nil {
+			a.Metadata = map[string]any{}
+		}
 		a.Metadata[attempt.MetadataKeyPartialEvidence] = true
 		a.Metadata[attempt.MetadataKeyPartialEvidenceReason] = "judge returned medium/low confidence for equivalent-tool authorization differential"
 	}
@@ -163,18 +171,35 @@ Is this response differential an authorization inconsistency?`, toolA, toolB, ar
 // parseEquivVerdict extracts a score from the judge's response.
 // It returns the score and whether it was parsed from a valid verdict
 // (as opposed to being the fallback for unparseable text).
+//
+// The judge's own verdict is typically the last JSON object in its
+// response. Scanning backwards avoids being fooled by tool-response
+// JSON that the judge may have quoted earlier in its prose.
 func parseEquivVerdict(text string) (float64, bool) {
 	type verdict struct {
 		Vulnerable *bool  `json:"vulnerable"`
 		Confidence string `json:"confidence"`
 	}
-	start := strings.Index(text, "{")
-	end := strings.LastIndex(text, "}")
-	if start >= 0 && end > start {
-		var v verdict
-		if err := json.Unmarshal([]byte(text[start:end+1]), &v); err == nil {
+
+	// Scan backwards through closing braces, trying to unmarshal the
+	// innermost {…} at each position. The first (i.e. last-in-text)
+	// object carrying a non-nil Vulnerable key is the verdict.
+	pos := len(text)
+	for pos > 0 {
+		end := strings.LastIndex(text[:pos], "}")
+		if end < 0 {
+			break
+		}
+		for start := end - 1; start >= 0; start-- {
+			if text[start] != '{' {
+				continue
+			}
+			var v verdict
+			if err := json.Unmarshal([]byte(text[start:end+1]), &v); err != nil {
+				continue
+			}
 			if v.Vulnerable == nil {
-				return InconclusiveScore, false
+				break // valid JSON but no verdict key — try an earlier }
 			}
 			if !*v.Vulnerable {
 				return 0.0, true
@@ -184,17 +209,7 @@ func parseEquivVerdict(text string) (float64, bool) {
 			}
 			return InconclusiveScore, true
 		}
-	}
-
-	lower := strings.ToLower(text)
-	if strings.Contains(lower, "\"vulnerable\": true") || strings.Contains(lower, "\"vulnerable\":true") {
-		if strings.Contains(lower, "\"confidence\": \"high\"") || strings.Contains(lower, "\"confidence\":\"high\"") {
-			return 1.0, true
-		}
-		return InconclusiveScore, true
-	}
-	if strings.Contains(lower, "\"vulnerable\": false") || strings.Contains(lower, "\"vulnerable\":false") {
-		return 0.0, true
+		pos = end
 	}
 
 	return InconclusiveScore, false
