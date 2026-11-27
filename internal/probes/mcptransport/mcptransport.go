@@ -97,7 +97,7 @@ func extractToolNames(body []byte, contentType string) ([]string, error) {
 	if len(envelope.Error) > 0 && string(envelope.Error) != "null" {
 		return nil, &serverRefusedError{msg: string(envelope.Error)}
 	}
-	if len(envelope.Result) == 0 {
+	if len(envelope.Result) == 0 || string(envelope.Result) == "null" {
 		return nil, fmt.Errorf("no result in response")
 	}
 
@@ -111,7 +111,10 @@ func extractToolNames(body []byte, contentType string) ([]string, error) {
 	if shape.NextCursor != "" {
 		return nil, &paginatedResponseError{cursor: shape.NextCursor}
 	}
-	if len(shape.Tools) == 0 || string(shape.Tools) == "null" {
+	if string(shape.Tools) == "null" {
+		return []string{}, nil
+	}
+	if len(shape.Tools) == 0 {
 		return nil, &nonToolsResponseError{}
 	}
 

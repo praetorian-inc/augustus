@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -754,6 +755,81 @@ func TestMetadataInjection_MissingToolsKey_BaselineInconclusive(t *testing.T) {
 	if inc, ok := a.Metadata[attempt.MetadataKeyInconclusive].(bool); !ok || !inc {
 		t.Errorf("non-tools baseline should be marked inconclusive")
 	}
+}
+
+func TestMetadataInjection_ToolsNull_TreatedAsEmptyList(t *testing.T) {
+	baseTools := toolsListResponse("read_file", "list_dir")
+	nullToolsResp := []byte(`{"jsonrpc":"2.0","id":1,"result":{"tools":null}}`)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		body, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(body), "admin-console") {
+			_, _ = w.Write(nullToolsResp)
+			return
+		}
+		_, _ = w.Write(baseTools)
+	}))
+	defer srv.Close()
+
+	p := newMetadataInjectionProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+
+	for _, a := range attempts {
+		if !strings.Contains(a.Prompt, "admin-console") {
+			continue
+		}
+		if metaBoolStub(a, attempt.MetadataKeyInconclusive) {
+			t.Errorf("tools:null variant should NOT be inconclusive (it's an empty list)")
+		}
+		vt, _ := a.Metadata[attempt.MetadataKeyMetadataInjectionVariantTools].(int)
+		if vt != 0 {
+			t.Errorf("tools:null variant should report 0 variant tools, got %d", vt)
+		}
+		if metaBoolStub(a, attempt.MetadataKeyMetadataInjectionDifferential) {
+			diff := true
+			_ = diff
+		}
+		return
+	}
+	t.Fatal("expected an admin-console variant attempt")
+}
+
+func TestMetadataInjection_NoToolsKey_NonHeaderVariant_Inconclusive(t *testing.T) {
+	baseTools := toolsListResponse("read_file", "list_dir")
+	emptyResult := []byte(`{"jsonrpc":"2.0","id":1,"result":{}}`)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		body, _ := io.ReadAll(r.Body)
+		if strings.Contains(string(body), "admin-console") {
+			_, _ = w.Write(emptyResult)
+			return
+		}
+		_, _ = w.Write(baseTools)
+	}))
+	defer srv.Close()
+
+	p := newMetadataInjectionProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+
+	for _, a := range attempts {
+		if !strings.Contains(a.Prompt, "admin-console") {
+			continue
+		}
+		if !metaBoolStub(a, attempt.MetadataKeyInconclusive) {
+			t.Errorf("non-header variant with no tools key should be inconclusive, not a confirmed differential")
+		}
+		if metaBoolStub(a, attempt.MetadataKeyMetadataInjectionDifferential) {
+			t.Errorf("non-header variant with no tools key should NOT be marked as differential")
+		}
+		return
+	}
+	t.Fatal("expected an admin-console variant attempt")
 }
 
 // --- detector scoring helpers ---

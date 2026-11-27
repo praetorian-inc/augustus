@@ -258,13 +258,19 @@ func recordVariantAttempt(params sweepParams, class, label string, baseline []st
 	}
 
 	if result.wrongMethod {
-		// Server returned a valid JSON-RPC result without a tools array —
-		// it routed the request to a different method handler (e.g.
-		// resources/list). This is a confirmed method-routing differential.
-		a.Metadata[attempt.MetadataKeyMetadataInjectionDifferential] = true
-		a.Metadata[attempt.MetadataKeyMetadataInjectionNewTools] = 1
-		a.Metadata[attempt.MetadataKeyMetadataInjectionBaselineTools] = len(baseline)
-		a.AddOutput(fmt.Sprintf("Server returned non-tools/list result for %s (method routing differential).\n\n%s",
+		if class == "header-mismatch" {
+			a.Metadata[attempt.MetadataKeyMetadataInjectionDifferential] = true
+			a.Metadata[attempt.MetadataKeyMetadataInjectionNewTools] = 1
+			a.Metadata[attempt.MetadataKeyMetadataInjectionBaselineTools] = len(baseline)
+			a.AddOutput(fmt.Sprintf("Server returned non-tools/list result for %s (method routing differential).\n\n%s",
+				label, result.transcript))
+			a.Complete()
+			return a
+		}
+		a.Metadata[attempt.MetadataKeyInconclusive] = true
+		a.Metadata[attempt.MetadataKeyInconclusiveReason] = fmt.Sprintf(
+			"variant %s returned a result without a tools array; response is uninterpretable", label)
+		a.AddOutput(fmt.Sprintf("Server returned non-tools/list result for %s (inconclusive: not a header-mismatch variant).\n\n%s",
 			label, result.transcript))
 		a.Complete()
 		return a
