@@ -84,8 +84,8 @@ func (p *MetadataInjection) Description() string {
 
 func (p *MetadataInjection) Goal() string {
 	return "Determine whether the MCP server gates tool availability on client-reported " +
-		"protocol metadata (_meta). Score = 1.0 when the tool catalog changes in response " +
-		"to spoofed metadata, 0.0 when the catalog is stable."
+		"protocol metadata (_meta). Score = 1.0 for identity/header spoofing, 0.5 (review) " +
+		"for version/capability negotiation that may be spec-compliant, 0.0 when stable."
 }
 
 func (p *MetadataInjection) GetPrimaryDetector() string { return "mcptransport.MetadataInjection" }
@@ -109,14 +109,16 @@ func (p *MetadataInjection) variants() []differentialVariant {
 	base := p.baselineMeta()
 	return []differentialVariant{
 		{
-			class: "protocol-version-downgrade",
-			label: "protocolVersion 2024-11-05 (old spec)",
-			meta:  withProtocolVersion(base, "2024-11-05"),
+			class:   "protocol-version-downgrade",
+			label:   "protocolVersion 2024-11-05 (old spec)",
+			meta:    withProtocolVersion(base, "2024-11-05"),
+			headers: map[string]string{"mcp-protocol-version": "2024-11-05"},
 		},
 		{
-			class: "protocol-version-upgrade",
-			label: "protocolVersion 2099-01-01 (future/unknown)",
-			meta:  withProtocolVersion(base, "2099-01-01"),
+			class:   "protocol-version-upgrade",
+			label:   "protocolVersion 2099-01-01 (future/unknown)",
+			meta:    withProtocolVersion(base, "2099-01-01"),
+			headers: map[string]string{"mcp-protocol-version": "2099-01-01"},
 		},
 		{
 			class: "client-identity-spoof",

@@ -684,9 +684,53 @@ func TestMetadataInjection_MultiEventSSE(t *testing.T) {
 	}
 }
 
+// --- header-mismatch resources routing test ---
+
+func resourcesRoutingServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	baseTools := toolsListResponse("read_file", "list_dir")
+	resourcesResp := []byte(`{"jsonrpc":"2.0","id":1,"result":{"resources":[{"uri":"file:///tmp","name":"tmp"}]}}`)
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Header.Get("mcp-method") == "resources/list" {
+			_, _ = w.Write(resourcesResp)
+			return
+		}
+		_, _ = w.Write(baseTools)
+	}))
+}
+
+func TestMetadataInjection_HeaderMismatch_ResourcesRouting(t *testing.T) {
+	srv := resourcesRoutingServer(t)
+	defer srv.Close()
+
+	p := newMetadataInjectionProbe(t, registry.Config{"endpoint": srv.URL})
+	attempts, err := p.Probe(context.Background(), endpointGen{url: srv.URL, transport: "http"})
+	if err != nil {
+		t.Fatalf("Probe: %v", err)
+	}
+
+	found := false
+	for _, a := range attempts {
+		if strings.Contains(a.Prompt, "mcp-method: resources/list") {
+			if !metaBoolStub(a, attempt.MetadataKeyMetadataInjectionDifferential) {
+				t.Errorf("resources routing variant should show differential")
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("expected a header-mismatch mcp-method variant attempt")
+	}
+
+	if findings := countFindings(attempts); findings == 0 {
+		t.Errorf("resources routing server should produce at least 1 finding")
+	}
+}
+
 // --- missing tools key test ---
 
-func TestMetadataInjection_MissingToolsKey_BaselineErrors(t *testing.T) {
+func TestMetadataInjection_MissingToolsKey_BaselineInconclusive(t *testing.T) {
 	resp := []byte(`{"jsonrpc":"2.0","id":1,"result":{"resources":[{"uri":"file:///tmp"}]}}`)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -701,10 +745,14 @@ func TestMetadataInjection_MissingToolsKey_BaselineErrors(t *testing.T) {
 	}
 
 	if len(attempts) != 1 {
-		t.Fatalf("expected 1 attempt (failed baseline), got %d", len(attempts))
+		t.Fatalf("expected 1 attempt (wrong method baseline), got %d", len(attempts))
 	}
-	if attempts[0].Status != attempt.StatusError {
-		t.Errorf("missing-tools-key baseline should be StatusError, got %q", attempts[0].Status)
+	a := attempts[0]
+	if a.Status != attempt.StatusComplete {
+		t.Errorf("non-tools baseline should be StatusComplete (inconclusive), got %q", a.Status)
+	}
+	if inc, ok := a.Metadata[attempt.MetadataKeyInconclusive].(bool); !ok || !inc {
+		t.Errorf("non-tools baseline should be marked inconclusive")
 	}
 }
 

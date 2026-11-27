@@ -79,8 +79,8 @@ func (p *CapabilityEscalation) Description() string {
 
 func (p *CapabilityEscalation) Goal() string {
 	return "Determine whether the MCP server gates tool availability on client-declared " +
-		"capabilities. Score = 1.0 when the tool catalog changes in response to spoofed " +
-		"capabilities, 0.0 when the catalog is stable."
+		"capabilities. Score = 1.0 for bogus capability injection, 0.5 (review) for " +
+		"elicitation/capability negotiation that may be spec-compliant, 0.0 when stable."
 }
 
 func (p *CapabilityEscalation) GetPrimaryDetector() string {

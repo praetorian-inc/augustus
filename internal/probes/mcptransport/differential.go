@@ -26,10 +26,11 @@ type differentialVariant struct {
 
 // toolsListResult holds the outcome of a single tools/list request.
 type toolsListResult struct {
-	tools      []string
-	transcript string
-	refused    bool
-	err        error
+	tools       []string
+	transcript  string
+	refused     bool
+	wrongMethod bool // valid JSON-RPC result but not a tools/list response
+	err         error
 }
 
 // sweepParams configures a differential sweep against an MCP endpoint.
@@ -142,11 +143,14 @@ func runDifferentialSweep(ctx context.Context, params sweepParams) []*attempt.At
 		return attempts
 	}
 
-	if baseResult.refused {
-		a := recordInconclusiveBaseline(params, baseResult,
-			"server rejected honest _meta request (cannot establish reference catalog)")
+	if baseResult.refused || baseResult.wrongMethod {
+		reason := "server rejected honest _meta request (cannot establish reference catalog)"
+		if baseResult.wrongMethod {
+			reason = "baseline tools/list returned a non-tools result (server misconfigured)"
+		}
+		a := recordInconclusiveBaseline(params, baseResult, reason)
 		attempts = append(attempts, a)
-		slog.Info("differential sweep: baseline refused; cannot compare variants",
+		slog.Info("differential sweep: baseline refused or wrong method; cannot compare variants",
 			"probe", params.probeName, "endpoint", params.endpoint)
 		return attempts
 	}
@@ -164,7 +168,7 @@ func runDifferentialSweep(ctx context.Context, params sweepParams) []*attempt.At
 
 	// Stability check: re-send baseline and verify catalog hasn't changed.
 	baseResult2 := sendToolsListRequest(ctx, params.client, params.endpoint, params.baselineMeta, nil)
-	if baseResult2.err != nil || baseResult2.refused || !slices.Equal(baseResult.tools, baseResult2.tools) {
+	if baseResult2.err != nil || baseResult2.refused || baseResult2.wrongMethod || !slices.Equal(baseResult.tools, baseResult2.tools) {
 		for _, a := range variantAttempts {
 			a.Metadata[attempt.MetadataKeyInconclusive] = true
 			a.Metadata[attempt.MetadataKeyInconclusiveReason] = "catalog changed between identical baseline requests; differential results are unreliable"
@@ -248,6 +252,19 @@ func recordVariantAttempt(params sweepParams, class, label string, baseline []st
 	if result.refused {
 		a.Metadata[attempt.MetadataKeyMetadataInjectionDifferential] = false
 		a.AddOutput(fmt.Sprintf("Server refused request for %s (non-differential: server rejected spoofed input).\n\n%s",
+			label, result.transcript))
+		a.Complete()
+		return a
+	}
+
+	if result.wrongMethod {
+		// Server returned a valid JSON-RPC result without a tools array —
+		// it routed the request to a different method handler (e.g.
+		// resources/list). This is a confirmed method-routing differential.
+		a.Metadata[attempt.MetadataKeyMetadataInjectionDifferential] = true
+		a.Metadata[attempt.MetadataKeyMetadataInjectionNewTools] = 1
+		a.Metadata[attempt.MetadataKeyMetadataInjectionBaselineTools] = len(baseline)
+		a.AddOutput(fmt.Sprintf("Server returned non-tools/list result for %s (method routing differential).\n\n%s",
 			label, result.transcript))
 		a.Complete()
 		return a
@@ -354,6 +371,10 @@ func sendToolsListRequest(ctx context.Context, client *http.Client, endpoint str
 		var refused *serverRefusedError
 		if errors.As(err, &refused) {
 			return toolsListResult{transcript: transcript, refused: true}
+		}
+		var ntr *nonToolsResponseError
+		if errors.As(err, &ntr) {
+			return toolsListResult{transcript: transcript, wrongMethod: true}
 		}
 		return toolsListResult{transcript: transcript, err: fmt.Errorf("extract tools: %w", err)}
 	}

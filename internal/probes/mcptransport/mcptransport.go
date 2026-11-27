@@ -112,7 +112,7 @@ func extractToolNames(body []byte, contentType string) ([]string, error) {
 		return nil, &paginatedResponseError{cursor: shape.NextCursor}
 	}
 	if len(shape.Tools) == 0 || string(shape.Tools) == "null" {
-		return nil, fmt.Errorf("response result does not contain a tools array (not a tools/list response)")
+		return nil, &nonToolsResponseError{}
 	}
 
 	var tools []struct {
@@ -149,6 +149,15 @@ type paginatedResponseError struct {
 
 func (e *paginatedResponseError) Error() string {
 	return fmt.Sprintf("tools/list response is paginated (nextCursor: %q); single-request comparison is unreliable", e.cursor)
+}
+
+// nonToolsResponseError indicates the JSON-RPC result was valid but did
+// not contain a tools array — the server likely routed the request to a
+// different method handler (e.g. resources/list instead of tools/list).
+type nonToolsResponseError struct{}
+
+func (e *nonToolsResponseError) Error() string {
+	return "response result does not contain a tools array (not a tools/list response)"
 }
 
 // jsonFromResponse extracts JSON from a response body, handling both
