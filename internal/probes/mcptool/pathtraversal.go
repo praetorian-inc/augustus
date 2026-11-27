@@ -366,13 +366,18 @@ func (p *PathTraversal) payloadsFor(tool map[string]any, params []paramInfo) []p
 // directory", "not allowed"), which were derived from one corpus of Python
 // servers and would silently miss any target that words its errors differently,
 // returns structured errors, or is not in English.
-func responseTemplate(a *attempt.Attempt) string {
+func responseTemplate(a *attempt.Attempt, extraStrip ...string) string {
 	if a == nil || len(a.Outputs) == 0 {
 		return ""
 	}
 	s := strings.Join(a.Outputs, "\n")
 	if a.Prompt != "" {
 		s = strings.ReplaceAll(s, a.Prompt, " ")
+	}
+	for _, extra := range extraStrip {
+		if extra != "" {
+			s = strings.ReplaceAll(s, extra, " ")
+		}
 	}
 	// Quoting around the echoed payload is incidental to the class.
 	s = strings.NewReplacer("'", " ", `"`, " ", "`", " ").Replace(s)

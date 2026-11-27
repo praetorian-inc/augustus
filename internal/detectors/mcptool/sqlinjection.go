@@ -39,22 +39,16 @@ func (d *SQLInjectionDetector) Detect(_ context.Context, a *attempt.Attempt) ([]
 	boolDiff := metaBool(a, attempt.MetadataKeySQLInjectionBooleanDifferential)
 	dbErr := metaBool(a, attempt.MetadataKeySQLInjectionDatabaseError)
 
-	scores := make([]float64, len(a.Outputs))
 	if !boolDiff && !dbErr {
-		return scores, nil
+		return scoresFor(a, 0.0), nil
 	}
 
-	score := InconclusiveScore
 	if boolDiff {
-		score = 1.0
-	} else {
-		a.WithMetadata(attempt.MetadataKeyPartialEvidence, true)
-		a.WithMetadata(attempt.MetadataKeyPartialEvidenceReason,
-			"database error signature detected, but parameterised queries can also produce type errors")
+		return scoresFor(a, 1.0), nil
 	}
 
-	for i := range scores {
-		scores[i] = score
-	}
-	return scores, nil
+	a.WithMetadata(attempt.MetadataKeyPartialEvidence, true)
+	a.WithMetadata(attempt.MetadataKeyPartialEvidenceReason,
+		"database error signature detected, but parameterised queries can also produce type errors")
+	return scoresFor(a, InconclusiveScore), nil
 }

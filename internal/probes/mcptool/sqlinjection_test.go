@@ -144,7 +144,7 @@ func TestSQLInjection_ZeroRowBaseline(t *testing.T) {
 }
 
 // TestSQLInjection_NoFalsePositiveOnEcho: a tool that echoes its input must
-// NOT fire. After sqlResponseTemplate strips the payload, all shapes are equal.
+// NOT fire. After responseTemplate strips the payload, all shapes are equal.
 func TestSQLInjection_NoFalsePositiveOnEcho(t *testing.T) {
 	p := newSQLInjectionProbe(t)
 	target := &mockTarget{
@@ -167,7 +167,7 @@ func TestSQLInjection_NoFalsePositiveOnEcho(t *testing.T) {
 }
 
 // TestSQLInjection_NoFalsePositiveOnJSONEcho: a tool that JSON-encodes its
-// input must NOT fire. sqlResponseTemplate strips escaped payload variants.
+// input must NOT fire. responseTemplate + sqlExtraStrip strips escaped variants.
 func TestSQLInjection_NoFalsePositiveOnJSONEcho(t *testing.T) {
 	p := newSQLInjectionProbe(t)
 	target := &mockTarget{
@@ -331,12 +331,17 @@ func TestSQLInjection_ErrorRegexMatchesRealDB(t *testing.T) {
 	realErrors := []string{
 		"sqlite3.OperationalError: unrecognized token",
 		"mysql syntax error near 'SELECT'",
+		"You have an error in your SQL syntax near 'test'",
 		"pq: error in query",
+		"pq: unterminated quoted string at or near",
+		"pgx: query failed SQLSTATE 42601",
 		"psycopg2.OperationalError: error",
 		"ORA-01756: quoted string not properly terminated",
 		"microsoft ole db provider for sql server",
 		"sql server native client error",
+		"Unclosed quotation mark after the character string",
 		"SQLSTATE[42000]",
+		"SQLSTATE 42601",
 		"mariadb error 1064",
 	}
 	for _, s := range realErrors {
@@ -397,6 +402,114 @@ func TestSQLInjection_NormalToolNoFinding(t *testing.T) {
 		assert.False(t, metaBool(a, attempt.MetadataKeySQLInjectionBooleanDifferential))
 		assert.False(t, metaBool(a, attempt.MetadataKeySQLInjectionDatabaseError))
 	}
+}
+
+// TestSQLInjection_ToolIsErrorNotScoredAsSQLi: when AND-false returns
+// IsError=true (tool rejection), the probe must not score it as confirmed SQLi.
+func TestSQLInjection_ToolIsErrorNotScoredAsSQLi(t *testing.T) {
+	p := newSQLInjectionProbe(t)
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("search", "query")},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			q, _ := args["query"].(string)
+			if strings.Contains(q, "AND '1'='2") ||
+				strings.Contains(q, "AND \"1\"=\"2") ||
+				strings.Contains(q, "AND 1=2--") {
+				return types.ToolResult{Text: "invalid query", IsError: true}
+			}
+			return types.ToolResult{Text: "Result: Alice"}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	require.NoError(t, err)
+
+	for _, a := range attempts {
+		assert.False(t, metaBool(a, attempt.MetadataKeySQLInjectionBooleanDifferential),
+			"tool IsError rejection on AND-false must not be scored as confirmed SQLi")
+	}
+}
+
+// TestSQLInjection_ErrorOracleChecksAttemptError: when the MCP server surfaces
+// a SQL exception as a JSON-RPC error (a.Error set, empty outputs), the error
+// oracle must still detect the database error signature.
+func TestSQLInjection_ErrorOracleChecksAttemptError(t *testing.T) {
+	p := newSQLInjectionProbe(t)
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("lookup", "name")},
+		call: func(_ string, args map[string]any) types.ToolResult {
+			q, _ := args["name"].(string)
+			if strings.Contains(q, "'") {
+				return types.ToolResult{
+					Text:    "sqlite3.OperationalError: unrecognized token",
+					IsError: true,
+				}
+			}
+			return types.ToolResult{Text: "User: " + q}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	require.NoError(t, err)
+
+	var found bool
+	for _, a := range attempts {
+		if metaBool(a, attempt.MetadataKeySQLInjectionDatabaseError) {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "error oracle should detect DB errors even with IsError=true")
+}
+
+// TestSQLInjection_NonReadSkipIsComplete: the not-tested marker for non-read
+// tools must be in StatusComplete, not StatusPending.
+func TestSQLInjection_NonReadSkipIsComplete(t *testing.T) {
+	p := newSQLInjectionProbe(t)
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("delete_user", "username")},
+		call: func(_ string, _ map[string]any) types.ToolResult {
+			return types.ToolResult{Text: "ok"}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	require.NoError(t, err)
+
+	for _, a := range attempts {
+		if metaBool(a, attempt.MetadataKeyNotTested) {
+			assert.Equal(t, attempt.StatusComplete, a.Status,
+				"not-tested skip must be in StatusComplete")
+		}
+	}
+}
+
+// TestSQLInjection_ErrorOracleRetainsFailedAttempts: even when callSQLI returns
+// a non-Complete attempt, it must still appear in the returned slice.
+func TestSQLInjection_ErrorOracleRetainsFailedAttempts(t *testing.T) {
+	p := newSQLInjectionProbe(t)
+	callCount := 0
+	target := &mockTarget{
+		tools: []map[string]any{stringTool("lookup", "name")},
+		call: func(_ string, _ map[string]any) types.ToolResult {
+			callCount++
+			return types.ToolResult{Text: "ok"}
+		},
+	}
+
+	attempts, err := p.Probe(context.Background(), target)
+	require.NoError(t, err)
+
+	var errorOracleAttempts int
+	for _, a := range attempts {
+		if oracle, ok := a.GetMetadata(attempt.MetadataKeySQLInjectionOracle); ok {
+			if oracle == "database_error" {
+				errorOracleAttempts++
+			}
+		}
+	}
+	assert.Equal(t, len(sqlErrorPayloads), errorOracleAttempts,
+		"error oracle must return one attempt per payload, even if calls fail")
 }
 
 // TestSQLInjection_CamelCaseParamMatches: parameters like searchQuery and

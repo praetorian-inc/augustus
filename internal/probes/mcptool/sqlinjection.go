@@ -59,23 +59,29 @@ var sqlErrorPayloads = []string{
 
 // dbErrorRE matches database engine error signatures leaked in a response.
 // Each alternative is tightened to avoid matching non-SQL error messages:
-//   - sqlite: "unrecognized token" is unique to sqlite's parser
-//   - mysql: requires "mysql" adjacent to "syntax" or "error"
-//   - postgres: requires the "pq:" or "psycopg2" or "pgadmin" prefix, not bare "pg"
+//   - sqlite: "unrecognized token" and "sqlite3.OperationalError" are unique
+//   - mysql/mariadb: "you have an error in your SQL syntax" (canonical 1064),
+//     or "mysql"/"mariadb" adjacent to "syntax" or "error"
+//   - postgres: "pq:", "psycopg2", "pgadmin", "pgx" driver prefixes;
+//     "unterminated quoted string" is a pg-specific parser message
 //   - oracle: ORA-##### is a unique oracle error format
-//   - mssql: "sql server" or "microsoft ole db" are specific identifiers
-//   - generic: SQLSTATE[ is the standard SQL error state prefix
+//   - mssql: "sql server", "microsoft ole db", "unclosed quotation mark"
+//   - generic: SQLSTATE followed by bracket or space+digits (covers both
+//     SQLSTATE[42000] and pgx-style "SQLSTATE 42601")
 var dbErrorRE = regexp.MustCompile(`(?i)(` +
 	`unrecognized token` +
 	`|sqlite3?\.OperationalError` +
+	`|you have an error in your SQL syntax` +
 	`|mysql.*syntax.*error|mysql.*error.*syntax` +
-	`|\b(?:pq|psycopg2|pgadmin)[\s:.]+.*error` +
+	`|\b(?:pq|psycopg2|pgadmin|pgx)[\s:.]+` +
 	`|\bora-\d{5}` +
 	`|microsoft.*ole db` +
-	`|sql server.*error` +
+	`|sql server.*(?:error|native client)` +
 	`|mariadb.*error` +
-	`|SQLSTATE\[` +
+	`|SQLSTATE[\[\s]\d` +
 	`|quoted string not properly terminated` +
+	`|unterminated quoted string` +
+	`|unclosed quotation mark` +
 	`)`)
 
 // SQLInjection tests a directly-invokable tool surface for SQL injection via
@@ -168,24 +174,30 @@ func matchesSQLQueryParam(name string) bool {
 	return sqlQueryParamRE.MatchString(normalised)
 }
 
-// sqlResponseTemplate extends responseTemplate with additional stripping for
-// escaped variants of the payload. Tools that JSON-encode or repr()-escape
-// their arguments would otherwise produce different shapes for different
-// payloads even though the semantic content is identical.
-func sqlResponseTemplate(a *attempt.Attempt) string {
-	if a == nil || len(a.Outputs) == 0 {
-		return ""
+// sqlExtraStrip computes extra strings to pass to responseTemplate so that
+// every boolean-differential response is shape-compared symmetrically:
+//
+//   - JSON-escaped variants of the prompt (tools that echo JSON-encoded input)
+//   - The base value and its JSON-escaped variants (so "test" is stripped from
+//     AND-true responses whose prompt is "test' AND '1'='1", matching baseline
+//     where prompt="test" is already stripped)
+func sqlExtraStrip(prompt, baseValue string) []string {
+	var extras []string
+	for _, s := range []string{prompt, baseValue} {
+		if s == "" {
+			continue
+		}
+		if e := strings.ReplaceAll(s, `"`, `\"`); e != s {
+			extras = append(extras, e)
+		}
+		if e := strings.ReplaceAll(s, `'`, `\'`); e != s {
+			extras = append(extras, e)
+		}
 	}
-	s := strings.Join(a.Outputs, "\n")
-	if a.Prompt != "" {
-		s = strings.ReplaceAll(s, a.Prompt, " ")
-		jsonEscaped := strings.ReplaceAll(a.Prompt, `"`, `\"`)
-		s = strings.ReplaceAll(s, jsonEscaped, " ")
-		jsonEscaped2 := strings.ReplaceAll(a.Prompt, `'`, `\'`)
-		s = strings.ReplaceAll(s, jsonEscaped2, " ")
+	if baseValue != "" && baseValue != prompt {
+		extras = append(extras, baseValue)
 	}
-	s = strings.NewReplacer("'", " ", `"`, " ", "`", " ").Replace(s)
-	return strings.Join(strings.Fields(s), " ")
+	return extras
 }
 
 // sqlIsRead checks whether a tool should receive boolean differential payloads.
@@ -252,6 +264,7 @@ func (p *SQLInjection) Probe(ctx context.Context, gen types.Generator) ([]*attem
 					a.Metadata["mcptool.tool"] = name
 					a.Metadata["mcptool.param"] = string(param.path)
 					mcpprobe.MarkNotTested(a, "boolean differential skipped: tool is not read-intent")
+					a.Complete()
 					attempts = append(attempts, a)
 				}
 				attempts = append(attempts, p.runErrorOracle(ctx, inv, name, param, ts)...)
@@ -275,28 +288,38 @@ func (p *SQLInjection) Probe(ctx context.Context, gen types.Generator) ([]*attem
 // and dynamic tools are rejected by the baseline stability check.
 func (p *SQLInjection) runBooleanDifferential(ctx context.Context, inv types.ToolInvoker, tool string, param paramInfo, ts toolSig) []*attempt.Attempt {
 	baseValue := p.baselineValue(param, ts)
+	baseExtras := sqlExtraStrip(baseValue, baseValue)
 
-	// Issue baseline twice and verify stability: two identical calls must produce
-	// the same shape, otherwise the tool has dynamic fields (timestamps, request
-	// IDs) that make the differential unreliable.
 	baseline1 := p.callSQLI(ctx, inv, tool, param, ts, baseValue)
 	baseline1.Metadata[attempt.MetadataKeySQLInjectionOracle] = "boolean_differential"
 	baseline2 := p.callSQLI(ctx, inv, tool, param, ts, baseValue)
 	baseline2.Metadata[attempt.MetadataKeySQLInjectionOracle] = "boolean_differential"
-
-	shape1 := sqlResponseTemplate(baseline1)
-	shape2 := sqlResponseTemplate(baseline2)
 	allAttempts := []*attempt.Attempt{baseline1, baseline2}
-	if shape1 != shape2 {
-		mcpprobe.MarkNotTested(baseline1, "boolean differential skipped: unstable baseline response")
+
+	// Check status before shapes — a failed baseline is "failed", not "unstable".
+	b1Err, _ := baseline1.Metadata["mcptool.tool_is_error"].(bool)
+	b2Err, _ := baseline2.Metadata["mcptool.tool_is_error"].(bool)
+	if baseline1.Status != attempt.StatusComplete || baseline2.Status != attempt.StatusComplete ||
+		b1Err || b2Err {
+		mcpprobe.MarkNotTested(baseline1, "boolean differential skipped: baseline call failed")
+		mcpprobe.MarkNotTested(baseline2, "boolean differential skipped: baseline call failed")
 		return allAttempts
 	}
-	if baseline1.Status != attempt.StatusComplete {
-		mcpprobe.MarkNotTested(baseline1, "boolean differential skipped: baseline call failed")
+
+	shape1 := responseTemplate(baseline1, baseExtras...)
+	shape2 := responseTemplate(baseline2, baseExtras...)
+	if shape1 != shape2 {
+		mcpprobe.MarkNotTested(baseline1, "boolean differential skipped: unstable baseline response")
+		mcpprobe.MarkNotTested(baseline2, "boolean differential skipped: unstable baseline response")
 		return allAttempts
 	}
 
 	baselineShape := shape1
+	if baselineShape == "" {
+		mcpprobe.MarkNotTested(baseline1, "boolean differential skipped: empty baseline response")
+		mcpprobe.MarkNotTested(baseline2, "boolean differential skipped: empty baseline response")
+		return allAttempts
+	}
 
 	for _, bp := range sqlBooleanPayloads {
 		if ctx.Err() != nil {
@@ -314,20 +337,37 @@ func (p *SQLInjection) runBooleanDifferential(ctx context.Context, inv types.Too
 		andFalseAttempt.Metadata[attempt.MetadataKeySQLInjectionOracle] = "boolean_differential"
 		allAttempts = append(allAttempts, andFalseAttempt)
 
-		andTrueShape := sqlResponseTemplate(andTrueAttempt)
-		andFalseShape := sqlResponseTemplate(andFalseAttempt)
+		// Symmetric shape comparison: strip both payload and base value from all
+		// responses so "test user" in baseline (prompt="test") and AND-true
+		// (prompt="test' AND '1'='1") both reduce to "Result: user".
+		andTrueShape := responseTemplate(andTrueAttempt, sqlExtraStrip(andTruePayload, baseValue)...)
+		andFalseShape := responseTemplate(andFalseAttempt, sqlExtraStrip(andFalsePayload, baseValue)...)
 
-		// Finding condition:
-		//   AND-true must EQUAL baseline (AND TRUE is a no-op in SQL)
-		//   AND-false must DIFFER from baseline (AND FALSE returns nothing)
-		// This proves SQL context because a non-SQL search engine interprets
-		// AND as a keyword operator and "test' AND '1'='1" produces a different
-		// search than "test".
-		differential := andTrueShape != "" &&
+		// Exclude attempts where the tool returned IsError — a rejection on
+		// AND-false is not the same as a SQL WHERE-clause falsification.
+		atIsErr, _ := andTrueAttempt.Metadata["mcptool.tool_is_error"].(bool)
+		afIsErr, _ := andFalseAttempt.Metadata["mcptool.tool_is_error"].(bool)
+
+		differential := !atIsErr && !afIsErr &&
 			andTrueAttempt.Status == attempt.StatusComplete &&
 			andFalseAttempt.Status == attempt.StatusComplete &&
+			andTrueShape != "" &&
 			andTrueShape == baselineShape &&
 			andFalseShape != baselineShape
+
+		// Confirm: repeat AND-false to guard against transient differences
+		// (rate limits, timestamps on the Nth call, etc.).
+		if differential {
+			confirm := p.callSQLI(ctx, inv, tool, param, ts, andFalsePayload)
+			confirm.Metadata[attempt.MetadataKeySQLInjectionOracle] = "boolean_differential"
+			allAttempts = append(allAttempts, confirm)
+
+			cIsErr, _ := confirm.Metadata["mcptool.tool_is_error"].(bool)
+			confirmShape := responseTemplate(confirm, sqlExtraStrip(andFalsePayload, baseValue)...)
+			if confirm.Status != attempt.StatusComplete || cIsErr || confirmShape == baselineShape {
+				differential = false
+			}
+		}
 
 		if differential {
 			andTrueAttempt.Metadata[attempt.MetadataKeySQLInjectionBooleanDifferential] = true
@@ -369,10 +409,8 @@ func (p *SQLInjection) runErrorOracle(ctx context.Context, inv types.ToolInvoker
 		}
 		a := p.callSQLI(ctx, inv, tool, param, ts, payload)
 		a.Metadata[attempt.MetadataKeySQLInjectionOracle] = "database_error"
+		attempts = append(attempts, a)
 
-		if a.Status != attempt.StatusComplete {
-			continue
-		}
 		for _, out := range a.Outputs {
 			if m := dbErrorRE.FindString(out); m != "" {
 				a.Metadata[attempt.MetadataKeySQLInjectionDatabaseError] = true
@@ -380,7 +418,14 @@ func (p *SQLInjection) runErrorOracle(ctx context.Context, inv types.ToolInvoker
 				break
 			}
 		}
-		attempts = append(attempts, a)
+		// MCP servers may surface SQL exceptions as JSON-RPC error messages
+		// with empty outputs — check a.Error too.
+		if _, found := a.Metadata[attempt.MetadataKeySQLInjectionDatabaseError]; !found && a.Error != "" {
+			if m := dbErrorRE.FindString(a.Error); m != "" {
+				a.Metadata[attempt.MetadataKeySQLInjectionDatabaseError] = true
+				a.Metadata[attempt.MetadataKeySQLInjectionErrorPattern] = m
+			}
+		}
 	}
 	return attempts
 }
